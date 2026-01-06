@@ -5,7 +5,11 @@ If you're wondering about how Picocrypt NG handles cryptography, you've come to 
 Picocrypt NG uses the following cryptographic primitives:
 - XChaCha20 (cascaded with Serpent in counter mode for paranoid mode)
 - Keyed-BLAKE2b for normal mode, HMAC-SHA3 for paranoid mode (256-bit key, 512-bit digest)
-- HKDF-SHA3 for deriving a subkey for the MAC above, as well as a key for Serpent
+- HKDF-SHA3-256 for deriving subkeys from a single stream:
+    - 64-byte subkey for header HMAC (v2)
+    - 32-byte subkey for payload MAC (BLAKE2b or HMAC-SHA3)
+    - 32-byte subkey for Serpent
+    - Additional nonces/IVs during rekeying
 - Argon2id:
     - Normal mode: 4 passes, 1 GiB memory, 4 threads
     - Paranoid mode: 8 passes, 1 GiB memory, 8 threads
@@ -21,7 +25,7 @@ A Picocrypt NG volume's header is encoded with Reed-Solomon by default since it 
 **All offsets and sizes below are in bytes.**
 | Offset | Encoded size | Decoded size | Description
 | ------ | ------------ | ------------ | -----------
-| 0      | 15           | 5            | Version number (ex. "v1.15")
+| 0      | 15           | 5            | Version number (ex. "v2.00")
 | 15     | 15           | 5            | Length of comments, zero-padded to 5 bytes
 | 30     | 3C           | C            | Comments with a length of C characters
 | 30+3C  | 15           | 5            | Flags (paranoid mode, use keyfiles, etc.)
@@ -29,10 +33,24 @@ A Picocrypt NG volume's header is encoded with Reed-Solomon by default since it 
 | 93+3C  | 96           | 32           | Salt for HKDF-SHA3
 | 189+3C | 48           | 16           | IV for Serpent
 | 237+3C | 72           | 24           | Nonce for XChaCha20
-| 309+3C | 192          | 64           | SHA3-512 of encryption key
+| 309+3C | 192          | 64           | HMAC-SHA3-512 of header (v2) or SHA3-512 of key (v1.x)
 | 501+3C | 96           | 32           | SHA3-256 of keyfile key
 | 597+3C | 192          | 64           | Authentication tag (BLAKE2b/HMAC-SHA3)
 | 789+3C |              |              | Encrypted contents of input data
+
+## Header Authentication (v2)
+In v2.00+, the "key hash" field contains an HMAC-SHA3-512 computed over the following header fields (in order):
+1. Version string
+2. Comments length (5-char zero-padded string)
+3. Comments content
+4. Flags
+5. Argon2 salt
+6. HKDF salt
+7. Serpent IV
+8. XChaCha20 nonce
+9. Keyfile hash
+
+This provides integrity protection for the entire header, unlike v1.x which only stored SHA3-512(key). Picocrypt NG v2.00 maintains backward compatibility with v1.x volumes.
 
 # Keyfile Design
 Picocrypt NG allows the use of keyfiles as an additional form of authentication. Picocrypt NG's unique "Require correct order" feature enforces the user to drop keyfiles into the window in the same order as they did when encrypting in order to decrypt the volume successfully. Here's how it works:
@@ -55,4 +73,4 @@ Plausible deniability in Picocrypt NG is achieved by simply re-encrypting the vo
 ```
 
 # Just Read the Code
-Picocrypt NG is a very simple tool and only has one source file. The source Go file is just 2K lines and a lot of the code is dealing with the UI. The core cryptography code is only about 1K lines of code, and even so, a lot of that code deals with the UI and other features of Picocrypt NG. So if you need more information about how Picocrypt NG works, just read the code. It's not long, and it is well commented and will explain what happens under the hood better than a document can.
+Picocrypt NG is a very simple tool and only has one source file. The source Go file is about 3K lines and a lot of the code is dealing with the UI. The core cryptography code is only about 1K lines of code, and even so, a lot of that code deals with the UI and other features of Picocrypt NG. So if you need more information about how Picocrypt NG works, just read the code. It's not long, and it is well commented and will explain what happens under the hood better than a document can.
