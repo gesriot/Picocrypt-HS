@@ -61,4 +61,27 @@ func TestUnpadInvalidData(t *testing.T) {
 	if len(result) != 0 {
 		t.Errorf("Unpad(empty) should return empty, got %d bytes", len(result))
 	}
+
+	// Short data (< 128 bytes) should return unchanged without panic
+	shortData := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
+	result = Unpad(shortData)
+	if !bytes.Equal(result, shortData) {
+		t.Errorf("Unpad(short) should return data unchanged, got %v", result)
+	}
+
+	// 127-byte data should return unchanged (just under BlockSize)
+	almostFull := make([]byte, 127)
+	for i := range almostFull {
+		almostFull[i] = byte(i)
+	}
+	result = Unpad(almostFull)
+	if !bytes.Equal(result, almostFull) {
+		t.Errorf("Unpad(127 bytes) should return data unchanged")
+	}
+
+	// Single byte should not panic
+	result = Unpad([]byte{0xFF})
+	if !bytes.Equal(result, []byte{0xFF}) {
+		t.Errorf("Unpad(1 byte) should return data unchanged")
+	}
 }

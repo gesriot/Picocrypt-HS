@@ -121,5 +121,10 @@ func Recombine(opts RecombineOptions) error {
 		}
 	}
 
+	// Sync to ensure all data is flushed to disk before caller reads the file
+	if err := fout.Sync(); err != nil {
+		return fmt.Errorf("sync output file: %w", err)
+	}
+
 	return nil
 }

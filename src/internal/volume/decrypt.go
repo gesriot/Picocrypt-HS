@@ -92,6 +92,8 @@ func decryptPreprocess(ctx *OperationContext, req *DecryptRequest) error {
 			return err
 		}
 
+		// Store recombined file path for cleanup
+		ctx.RecombinedFile = outputPath
 		ctx.TempFile = outputPath
 		inputFile = outputPath
 	}
@@ -422,6 +424,11 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 		}
 	}
 
+	// Sync before verifying MAC to ensure all data is written
+	if err := fout.Sync(); err != nil {
+		return fmt.Errorf("sync output: %w", err)
+	}
+
 	return nil
 }
 
@@ -482,6 +489,10 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 	if ctx.TempFile != "" {
 		os.Remove(ctx.TempFile)
 	}
+	// Remove recombined file if different from temp file (deniability changes TempFile)
+	if ctx.RecombinedFile != "" && ctx.RecombinedFile != ctx.TempFile {
+		os.Remove(ctx.RecombinedFile)
+	}
 
 	// Auto-unzip if requested and output is a .zip
 	if req.AutoUnzip && strings.HasSuffix(req.OutputFile, ".zip") {
@@ -510,6 +521,10 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
 	if ctx.TempFile != "" {
 		os.Remove(ctx.TempFile)
+	}
+	// Remove recombined file if different from temp file
+	if ctx.RecombinedFile != "" && ctx.RecombinedFile != ctx.TempFile {
+		os.Remove(ctx.RecombinedFile)
 	}
 	os.Remove(req.OutputFile + ".incomplete")
 	// Note: ctx.Close() is called via defer in Decrypt()
@@ -541,7 +556,14 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 			result = append(result, decoded...)
 		}
 	} else {
-		// Partial block
+		// Partial block - must have at least one RS128 chunk (136 bytes)
+		if len(data) < 136 {
+			if forceDecode {
+				return data, nil // Return raw data for severely truncated input
+			}
+			return nil, errors.New("the input file is truncated or severely damaged")
+		}
+
 		chunks := len(data)/136 - 1
 		for i := 0; i < chunks; i++ {
 			decoded, err := encoding.Decode(rs.RS128, data[i*136:(i+1)*136], fastDecode)
@@ -556,10 +578,20 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 		}
 
 		// Last chunk (always unpad)
-		decoded, err := encoding.Decode(rs.RS128, data[chunks*136:], fastDecode)
+		lastChunkStart := chunks * 136
+		lastChunkEnd := lastChunkStart + 136
+		if lastChunkEnd > len(data) {
+			lastChunkEnd = len(data)
+		}
+		decoded, err := encoding.Decode(rs.RS128, data[lastChunkStart:lastChunkEnd], fastDecode)
 		if err != nil {
 			if forceDecode {
-				decoded = data[chunks*136 : chunks*136+128]
+				// Safely extract what we can
+				safeEnd := lastChunkStart + 128
+				if safeEnd > len(data) {
+					safeEnd = len(data)
+				}
+				decoded = data[lastChunkStart:safeEnd]
 			} else {
 				return nil, errors.New("the input file is irrecoverably damaged")
 			}

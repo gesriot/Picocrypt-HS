@@ -27,11 +27,14 @@ func Pad(data []byte) []byte {
 // The padding length is determined by the value of the last byte:
 // if last byte is 0x05, remove the last 5 bytes.
 //
-// Returns original data unchanged if padding appears invalid (padLen > 128 or 0).
+// Returns original data unchanged if:
+//   - Data is empty or shorter than BlockSize (128 bytes)
+//   - Padding value is invalid (> 128 or 0)
+//
 // This graceful handling prevents crashes on corrupted data.
 func Unpad(data []byte) []byte {
-	if len(data) == 0 {
-		return data
+	if len(data) < BlockSize {
+		return data // Too short to be a valid padded block
 	}
 	padLen := int(data[BlockSize-1])
 	if padLen > BlockSize || padLen == 0 {

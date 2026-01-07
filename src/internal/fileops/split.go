@@ -163,6 +163,11 @@ func Split(opts SplitOptions) ([]string, error) {
 			}
 		}
 
+		// Sync to ensure data is flushed before renaming
+		if err := fout.Sync(); err != nil {
+			return nil, fmt.Errorf("sync chunk %d: %w", i, err)
+		}
+
 		if err := fout.Close(); err != nil {
 			return nil, fmt.Errorf("close chunk %d: %w", i, err)
 		}

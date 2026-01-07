@@ -136,6 +136,9 @@ type OperationContext struct {
 	TriedFullRSDecode bool // Prevents infinite retry loop when MAC fails
 	Kept              bool // True if ForceDecrypt was used and MAC failed
 
+	// Recombine state - for proper cleanup
+	RecombinedFile string // Path to recombined file (separate from TempFile for when deniability changes it)
+
 	// Progress tracking
 	Total    int64            // Total bytes to process
 	Done     int64            // Bytes processed so far

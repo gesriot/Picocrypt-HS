@@ -124,6 +124,11 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 
 	fin.Close()
+
+	// Sync to ensure all data is written before renaming
+	if err := fout.Sync(); err != nil {
+		return fmt.Errorf("sync output: %w", err)
+	}
 	fout.Close()
 
 	// Clean up
@@ -248,6 +253,12 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	}
 
 	fin.Close()
+
+	// Sync to ensure all data is written before verification
+	if err := fout.Sync(); err != nil {
+		os.Remove(outputPath)
+		return "", fmt.Errorf("sync output: %w", err)
+	}
 	fout.Close()
 
 	// Verify the decrypted file is a valid volume

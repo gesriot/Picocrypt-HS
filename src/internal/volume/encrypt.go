@@ -359,6 +359,11 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 		}
 	}
 
+	// Sync to ensure all encrypted data is written before finalize
+	if err := fout.Sync(); err != nil {
+		return fmt.Errorf("sync output: %w", err)
+	}
+
 	return nil
 }
 
@@ -386,6 +391,10 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 		return err
 	}
 
+	// Sync to ensure all data is written before rename
+	if err := fout.Sync(); err != nil {
+		return fmt.Errorf("sync output: %w", err)
+	}
 	fout.Close()
 
 	// Rename to final name
@@ -443,20 +452,31 @@ func cleanupEncrypt(ctx *OperationContext, req *EncryptRequest) {
 }
 
 // encodeWithRS encodes data with Reed-Solomon (rs128)
+// For partial blocks (< 1 MiB), this ALWAYS adds a padding chunk, even if data
+// is exactly divisible by 128, because the original Picocrypt always unpads
+// the last chunk of partial blocks.
 func encodeWithRS(data []byte, rs *encoding.RSCodecs) []byte {
 	var result []byte
 
-	// Full chunks
+	// Full 1 MiB block - no padding needed within the block
+	if len(data) == util.MiB {
+		for i := 0; i < util.MiB; i += 128 {
+			result = append(result, encoding.Encode(rs.RS128, data[i:i+128])...)
+		}
+		return result
+	}
+
+	// Partial block (< 1 MiB) - need to handle padding
+	// Encode full 128-byte chunks
 	fullChunks := len(data) / 128
 	for i := 0; i < fullChunks; i++ {
 		result = append(result, encoding.Encode(rs.RS128, data[i*128:(i+1)*128])...)
 	}
 
-	// Partial chunk (if any)
-	remaining := len(data) % 128
-	if remaining > 0 {
-		result = append(result, encoding.Encode(rs.RS128, encoding.Pad(data[fullChunks*128:]))...)
-	}
+	// ALWAYS add a padded chunk for partial blocks (matches original line 2071-2072)
+	// This is because decryption always unpads the last chunk of partial blocks
+	remaining := data[fullChunks*128:]
+	result = append(result, encoding.Encode(rs.RS128, encoding.Pad(remaining))...)
 
 	return result
 }

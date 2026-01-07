@@ -631,8 +631,8 @@ func (a *App) onClickStart() {
 		return
 	}
 
-	// Check if output exists
-	if _, err := os.Stat(a.State.OutputFile); err == nil {
+	// Check if output exists (skip check for recursive mode - each file has different output)
+	if _, err := os.Stat(a.State.OutputFile); err == nil && !a.State.Recursively {
 		a.State.ShowOverwrite = true
 		a.State.ModalID++
 		giu.Update()
@@ -651,12 +651,19 @@ func (a *App) startWork() {
 	a.cancelled = false
 	giu.Update()
 
-	go func() {
-		a.doWork()
-		a.State.Working = false
-		a.State.ShowProgress = false
-		giu.Update()
-	}()
+	if !a.State.Recursively {
+		// Normal mode: process single file/folder(s)
+		go func() {
+			a.doWork()
+			a.State.Working = false
+			a.State.ShowProgress = false
+			giu.Update()
+		}()
+	} else {
+		// Recursive mode: process each file individually
+		// (matches original lines 261-313)
+		a.startRecursiveWork()
+	}
 }
 
 // doWork performs the actual encryption/decryption.
@@ -669,6 +676,84 @@ func (a *App) doWork() {
 	} else {
 		a.doDecrypt(reporter)
 	}
+}
+
+// startRecursiveWork handles batch processing of multiple files individually.
+// This matches the original "Recursively" checkbox behavior (lines 261-313).
+//
+// When enabled:
+//   - Each file in AllFiles is encrypted/decrypted separately
+//   - Same password, keyfiles, and options apply to all files
+//   - Each file gets its own .pcv output (input.txt -> input.txt.pcv)
+//
+// This is different from normal multi-file mode which zips files together.
+func (a *App) startRecursiveWork() {
+	// Store all settings before they get cleared by onDrop/resetUI
+	// (matches original lines 263-276)
+	savedPassword := a.State.Password
+	savedKeyfile := a.State.Keyfile
+	savedKeyfiles := make([]string, len(a.State.Keyfiles))
+	copy(savedKeyfiles, a.State.Keyfiles)
+	savedKeyfileOrdered := a.State.KeyfileOrdered
+	savedKeyfileLabel := a.State.KeyfileLabel
+	savedComments := a.State.Comments
+	savedParanoid := a.State.Paranoid
+	savedReedSolomon := a.State.ReedSolomon
+	savedDeniability := a.State.Deniability
+	savedSplit := a.State.Split
+	savedSplitSize := a.State.SplitSize
+	savedSplitSelected := a.State.SplitSelected
+	savedDelete := a.State.Delete
+
+	// Copy the file list since it will be modified
+	files := make([]string, len(a.State.AllFiles))
+	copy(files, a.State.AllFiles)
+
+	go func() {
+		for _, file := range files {
+			// Simulate dropping the file (matches original line 280)
+			// This sets up inputFile, outputFile, mode, etc.
+			a.onDrop([]string{file})
+
+			// Restore all saved settings (matches original lines 282-298)
+			a.State.Password = savedPassword
+			a.State.CPassword = savedPassword
+			a.State.Keyfile = savedKeyfile
+			a.State.Keyfiles = make([]string, len(savedKeyfiles))
+			copy(a.State.Keyfiles, savedKeyfiles)
+			a.State.KeyfileOrdered = savedKeyfileOrdered
+			a.State.KeyfileLabel = savedKeyfileLabel
+			a.State.Comments = savedComments
+			a.State.Paranoid = savedParanoid
+			a.State.ReedSolomon = savedReedSolomon
+			// Only restore deniability if not decrypting
+			// (original line 292-294: deniability is read from header during decrypt)
+			if a.State.Mode != "decrypt" {
+				a.State.Deniability = savedDeniability
+			}
+			a.State.Split = savedSplit
+			a.State.SplitSize = savedSplitSize
+			a.State.SplitSelected = savedSplitSelected
+			a.State.Delete = savedDelete
+
+			// Process this file
+			a.doWork()
+
+			// Check if user cancelled or if work failed (matches original lines 301-307)
+			if !a.State.Working || a.cancelled {
+				a.resetUI()
+				a.cancelled = true
+				a.State.ShowProgress = false
+				giu.Update()
+				return
+			}
+		}
+
+		// All files processed successfully
+		a.State.Working = false
+		a.State.ShowProgress = false
+		giu.Update()
+	}()
 }
 
 // doEncrypt performs encryption using the volume package.
