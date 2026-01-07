@@ -1,0 +1,21 @@
+// Package util provides common utilities and constants for Picocrypt-NG.
+package util
+
+import "image/color"
+
+// Size constants for byte calculations
+const (
+	KiB = 1 << 10 // 1024
+	MiB = 1 << 20 // 1,048,576
+	GiB = 1 << 30 // 1,073,741,824
+	TiB = 1 << 40 // 1,099,511,627,776
+)
+
+// Color constants for UI status messages
+var (
+	WHITE       = color.RGBA{0xff, 0xff, 0xff, 0xff}
+	RED         = color.RGBA{0xff, 0x00, 0x00, 0xff}
+	GREEN       = color.RGBA{0x00, 0xff, 0x00, 0xff}
+	YELLOW      = color.RGBA{0xff, 0xff, 0x00, 0xff}
+	TRANSPARENT = color.RGBA{0x00, 0x00, 0x00, 0x00}
+)
