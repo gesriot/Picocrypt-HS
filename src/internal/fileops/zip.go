@@ -158,12 +158,12 @@ type ZipOptions struct {
 
 // CreateZip creates a zip archive from the given files.
 // Returns the path to the created archive.
+// On error or cancellation, the partial output file is removed.
 func CreateZip(opts ZipOptions) error {
 	file, err := os.Create(opts.OutputPath)
 	if err != nil {
 		return fmt.Errorf("create zip file: %w", err)
 	}
-	defer file.Close()
 
 	var w io.Writer = file
 	if opts.Cipher != nil {
@@ -171,13 +171,20 @@ func CreateZip(opts ZipOptions) error {
 	}
 
 	writer := zip.NewWriter(w)
-	defer writer.Close()
+
+	// Helper to cleanup on error
+	cleanup := func() {
+		writer.Close()
+		file.Close()
+		os.Remove(opts.OutputPath)
+	}
 
 	// Calculate total size for progress
 	var totalSize int64
 	for _, path := range opts.Files {
 		stat, err := os.Stat(path)
 		if err != nil {
+			cleanup()
 			return fmt.Errorf("stat %s: %w", path, err)
 		}
 		totalSize += stat.Size()
@@ -186,6 +193,7 @@ func CreateZip(opts ZipOptions) error {
 	var done int64
 	for i, path := range opts.Files {
 		if opts.Cancel != nil && opts.Cancel() {
+			cleanup()
 			return errors.New("operation cancelled")
 		}
 
@@ -195,11 +203,13 @@ func CreateZip(opts ZipOptions) error {
 
 		stat, err := os.Stat(path)
 		if err != nil {
+			cleanup()
 			return fmt.Errorf("stat %s: %w", path, err)
 		}
 
 		header, err := zip.FileInfoHeader(stat)
 		if err != nil {
+			cleanup()
 			return fmt.Errorf("create header for %s: %w", path, err)
 		}
 
@@ -216,11 +226,13 @@ func CreateZip(opts ZipOptions) error {
 
 		entry, err := writer.CreateHeader(header)
 		if err != nil {
+			cleanup()
 			return fmt.Errorf("create entry for %s: %w", path, err)
 		}
 
 		fin, err := os.Open(path)
 		if err != nil {
+			cleanup()
 			return fmt.Errorf("open %s: %w", path, err)
 		}
 
@@ -228,6 +240,7 @@ func CreateZip(opts ZipOptions) error {
 		for {
 			if opts.Cancel != nil && opts.Cancel() {
 				fin.Close()
+				cleanup()
 				return errors.New("operation cancelled")
 			}
 
@@ -235,6 +248,7 @@ func CreateZip(opts ZipOptions) error {
 			if n > 0 {
 				if _, err := entry.Write(buf[:n]); err != nil {
 					fin.Close()
+					cleanup()
 					return fmt.Errorf("write to zip: %w", err)
 				}
 				done += int64(n)
@@ -249,10 +263,22 @@ func CreateZip(opts ZipOptions) error {
 			}
 			if readErr != nil {
 				fin.Close()
+				cleanup()
 				return fmt.Errorf("read %s: %w", path, readErr)
 			}
 		}
 		fin.Close()
+	}
+
+	// Close writer and file on success
+	if err := writer.Close(); err != nil {
+		file.Close()
+		os.Remove(opts.OutputPath)
+		return fmt.Errorf("close zip writer: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		os.Remove(opts.OutputPath)
+		return fmt.Errorf("close zip file: %w", err)
 	}
 
 	return nil

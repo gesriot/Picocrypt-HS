@@ -25,6 +25,7 @@ func Encrypt(req *EncryptRequest) error {
 
 	// Phase 1: Preprocess (zip if multiple files)
 	if err := encryptPreprocess(ctx, req); err != nil {
+		cleanupEncrypt(ctx, req) // Clean up any partial temp files
 		return err
 	}
 
@@ -85,9 +86,15 @@ func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 			return err
 		}
 
-		// Determine root directory
-		rootDir := ""
-		if len(req.InputFiles) > 0 {
+		// Determine root directory (matches original lines 1227-1233)
+		// If folders were dropped, use parent of folder to preserve folder name in zip
+		// If only files were dropped, use parent of first file
+		var rootDir string
+		if len(req.OnlyFolders) > 0 {
+			rootDir = filepath.Dir(req.OnlyFolders[0])
+		} else if len(req.OnlyFiles) > 0 {
+			rootDir = filepath.Dir(req.OnlyFiles[0])
+		} else if len(req.InputFiles) > 0 {
 			rootDir = filepath.Dir(req.InputFiles[0])
 		}
 
@@ -412,7 +419,7 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 	// Split if requested
 	if req.Split {
 		ctx.SetStatus("Splitting...")
-		chunks, err := fileops.Split(fileops.SplitOptions{
+		_, err := fileops.Split(fileops.SplitOptions{
 			InputPath: req.OutputFile,
 			ChunkSize: req.ChunkSize,
 			Unit:      req.ChunkUnit,
@@ -432,7 +439,6 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 
 		// Remove the unsplit file
 		os.Remove(req.OutputFile)
-		_ = chunks
 	}
 
 	// Clean up temp file
@@ -456,7 +462,14 @@ func cleanupEncrypt(ctx *OperationContext, req *EncryptRequest) {
 // is exactly divisible by 128, because the original Picocrypt always unpads
 // the last chunk of partial blocks.
 func encodeWithRS(data []byte, rs *encoding.RSCodecs) []byte {
-	var result []byte
+	// Pre-allocate result slice to avoid repeated reallocations
+	// Each 128-byte input chunk becomes 136 bytes (128 data + 8 parity)
+	// For partial blocks, we add one more chunk for padding
+	chunks := (len(data) + 127) / 128
+	if len(data) < util.MiB {
+		chunks++ // Extra chunk for padding in partial blocks
+	}
+	result := make([]byte, 0, chunks*136)
 
 	// Full 1 MiB block - no padding needed within the block
 	if len(data) == util.MiB {
@@ -480,9 +493,3 @@ func encodeWithRS(data []byte, rs *encoding.RSCodecs) []byte {
 
 	return result
 }
-
-// Ensure imports are used
-var (
-	_ = filepath.Dir
-	_ = strings.TrimSuffix
-)

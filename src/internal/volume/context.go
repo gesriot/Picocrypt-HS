@@ -48,9 +48,11 @@ type ProgressReporter interface {
 // At minimum, either Password or Keyfiles must be provided.
 type EncryptRequest struct {
 	// Input files - use InputFile for single file, InputFiles for multiple (zipped automatically)
-	InputFile  string   // Single file path to encrypt
-	InputFiles []string // Multiple file paths (will be combined into encrypted zip)
-	OutputFile string   // Output path for the .pcv volume
+	InputFile   string   // Single file path to encrypt
+	InputFiles  []string // Multiple file paths (will be combined into encrypted zip)
+	OnlyFolders []string // Folders that were dropped directly (for correct zip path calculation)
+	OnlyFiles   []string // Files that were dropped directly (not from folders)
+	OutputFile  string   // Output path for the .pcv volume
 
 	// Credentials - at least one required
 	Password       string   // User password (processed through Argon2id)

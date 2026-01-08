@@ -136,16 +136,19 @@ func (a *App) drawProgressModal() {
 		giu.Row(
 			giu.ProgressBar(a.State.Progress).Size(210, 0).Overlay(a.State.ProgressInfo),
 			giu.Style().SetDisabled(!a.State.CanCancel).To(
-				giu.Button(func() string {
-					if a.State.Working {
-						return "Cancel"
-					}
-					return "..."
-				}()).Size(58, 0).OnClick(func() {
-					a.State.Working = false
-					a.State.CanCancel = false
-					a.cancelled = true
-				}),
+			giu.Button(func() string {
+				if a.State.Working {
+					return "Cancel"
+				}
+				return "..."
+			}()).Size(58, 0).OnClick(func() {
+				a.State.Working = false
+				a.State.CanCancel = false
+				a.cancelled.Store(true)
+				// Set cancellation status (matches original line 2630)
+				a.State.MainStatus = "Operation cancelled by user"
+				a.State.MainStatusColor = util.WHITE
+			}),
 			),
 		),
 		giu.Label(a.State.PopupStatus),

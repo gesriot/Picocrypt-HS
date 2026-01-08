@@ -3,6 +3,7 @@ package util
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 )
 
@@ -28,8 +29,9 @@ type PassgenOptions struct {
 }
 
 // GenPassword generates a cryptographically secure password based on the given options.
-// Returns an empty string if no character sets are enabled.
-func GenPassword(opts PassgenOptions) string {
+// Returns an empty string and nil error if no character sets are enabled.
+// Returns an error if the cryptographic random number generator fails.
+func GenPassword(opts PassgenOptions) (string, error) {
 	chars := ""
 	if opts.Upper {
 		chars += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -45,16 +47,16 @@ func GenPassword(opts PassgenOptions) string {
 	}
 
 	if len(chars) == 0 || opts.Length <= 0 {
-		return ""
+		return "", nil
 	}
 
 	tmp := make([]byte, opts.Length)
 	for i := range opts.Length {
 		j, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
 		if err != nil {
-			panic(err)
+			return "", fmt.Errorf("fatal crypto/rand error: %w", err)
 		}
 		tmp[i] = chars[j.Int64()]
 	}
-	return string(tmp)
+	return string(tmp), nil
 }

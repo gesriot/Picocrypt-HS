@@ -86,14 +86,14 @@ func Split(opts SplitOptions) ([]string, error) {
 		os.Remove(chunk)
 	}
 
-	var splitted []string
+	var chunks []string
 	var totalDone int64
 	startTime := time.Now()
 
 	for i := range numChunks {
 		if opts.Cancel != nil && opts.Cancel() {
 			// Clean up partial chunks
-			for _, chunk := range splitted {
+			for _, chunk := range chunks {
 				os.Remove(chunk)
 			}
 			return nil, errors.New("operation cancelled")
@@ -103,7 +103,7 @@ func Split(opts SplitOptions) ([]string, error) {
 		fout, err := os.Create(chunkPath)
 		if err != nil {
 			// Clean up partial chunks
-			for _, chunk := range splitted {
+			for _, chunk := range chunks {
 				os.Remove(chunk)
 			}
 			return nil, fmt.Errorf("create chunk %d: %w", i, err)
@@ -116,7 +116,7 @@ func Split(opts SplitOptions) ([]string, error) {
 			if opts.Cancel != nil && opts.Cancel() {
 				fout.Close()
 				os.Remove(chunkPath)
-				for _, chunk := range splitted {
+				for _, chunk := range chunks {
 					os.Remove(chunk)
 				}
 				return nil, errors.New("operation cancelled")
@@ -133,7 +133,7 @@ func Split(opts SplitOptions) ([]string, error) {
 				if _, err := fout.Write(buf[:n]); err != nil {
 					fout.Close()
 					os.Remove(chunkPath)
-					for _, chunk := range splitted {
+					for _, chunk := range chunks {
 						os.Remove(chunk)
 					}
 					return nil, fmt.Errorf("write chunk %d: %w", i, err)
@@ -156,7 +156,7 @@ func Split(opts SplitOptions) ([]string, error) {
 			if readErr != nil {
 				fout.Close()
 				os.Remove(chunkPath)
-				for _, chunk := range splitted {
+				for _, chunk := range chunks {
 					os.Remove(chunk)
 				}
 				return nil, fmt.Errorf("read for chunk %d: %w", i, readErr)
@@ -178,8 +178,8 @@ func Split(opts SplitOptions) ([]string, error) {
 			return nil, fmt.Errorf("rename chunk %d: %w", i, err)
 		}
 
-		splitted = append(splitted, finalPath)
+		chunks = append(chunks, finalPath)
 	}
 
-	return splitted, nil
+	return chunks, nil
 }

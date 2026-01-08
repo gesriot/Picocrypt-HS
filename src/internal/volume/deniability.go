@@ -7,7 +7,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
@@ -37,21 +36,29 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 
 	// Rename original to .tmp
 	tmpPath := volumePath + ".tmp"
+	incompletePath := volumePath + ".incomplete"
+
 	if err := os.Rename(volumePath, tmpPath); err != nil {
 		return fmt.Errorf("rename to tmp: %w", err)
 	}
 
+	// Helper to restore original file on error
+	restoreOriginal := func() {
+		os.Remove(incompletePath)
+		os.Rename(tmpPath, volumePath)
+	}
+
 	fin, err := os.Open(tmpPath)
 	if err != nil {
-		os.Rename(tmpPath, volumePath) // Try to restore
+		restoreOriginal()
 		return fmt.Errorf("open tmp: %w", err)
 	}
 	defer fin.Close()
 
-	fout, err := os.Create(volumePath + ".incomplete")
+	fout, err := os.Create(incompletePath)
 	if err != nil {
 		fin.Close()
-		os.Rename(tmpPath, volumePath)
+		restoreOriginal()
 		return fmt.Errorf("create output: %w", err)
 	}
 	defer fout.Close()
@@ -59,18 +66,22 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	// Generate random salt and nonce
 	salt, err := crypto.RandomBytes(16)
 	if err != nil {
+		restoreOriginal()
 		return err
 	}
 	nonce, err := crypto.RandomBytes(24)
 	if err != nil {
+		restoreOriginal()
 		return err
 	}
 
 	// Write salt and nonce to output
 	if _, err := fout.Write(salt); err != nil {
+		restoreOriginal()
 		return fmt.Errorf("write salt: %w", err)
 	}
 	if _, err := fout.Write(nonce); err != nil {
+		restoreOriginal()
 		return fmt.Errorf("write nonce: %w", err)
 	}
 
@@ -79,6 +90,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
 	if err != nil {
+		restoreOriginal()
 		return fmt.Errorf("create cipher: %w", err)
 	}
 
@@ -94,6 +106,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 			cipher.XORKeyStream(dst, buf[:n])
 
 			if _, err := fout.Write(dst); err != nil {
+				restoreOriginal()
 				return fmt.Errorf("write encrypted: %w", err)
 			}
 
@@ -109,6 +122,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 			if counter >= crypto.RekeyThreshold {
 				cipher, nonce, err = crypto.DeniabilityRekey(key, nonce)
 				if err != nil {
+					restoreOriginal()
 					return fmt.Errorf("rekey: %w", err)
 				}
 				counter = 0
@@ -119,6 +133,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 			break
 		}
 		if readErr != nil {
+			restoreOriginal()
 			return fmt.Errorf("read: %w", readErr)
 		}
 	}
@@ -127,16 +142,20 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 
 	// Sync to ensure all data is written before renaming
 	if err := fout.Sync(); err != nil {
+		restoreOriginal()
 		return fmt.Errorf("sync output: %w", err)
 	}
 	fout.Close()
 
-	// Clean up
+	// Clean up: remove .tmp and rename .incomplete to final name
 	if err := os.Remove(tmpPath); err != nil {
-		return fmt.Errorf("remove tmp: %w", err)
+		// .tmp removal failed, but we have the complete .incomplete
+		// Don't try to rename - leave both files for manual inspection
+		// User can manually: verify .incomplete is correct, remove .tmp, rename .incomplete
+		return fmt.Errorf("remove tmp failed (data saved in %s): %w", incompletePath, err)
 	}
 
-	if err := os.Rename(volumePath+".incomplete", volumePath); err != nil {
+	if err := os.Rename(incompletePath, volumePath); err != nil {
 		return fmt.Errorf("rename output: %w", err)
 	}
 
@@ -184,18 +203,23 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	if err != nil {
 		return "", fmt.Errorf("create output: %w", err)
 	}
-	defer fout.Close()
+
+	// Helper to cleanup on error
+	cleanup := func() {
+		fout.Close()
+		os.Remove(outputPath)
+	}
 
 	// Read salt and nonce
 	salt := make([]byte, 16)
 	nonce := make([]byte, 24)
 
 	if _, err := io.ReadFull(fin, salt); err != nil {
-		os.Remove(outputPath)
+		cleanup()
 		return "", fmt.Errorf("read salt: %w", err)
 	}
 	if _, err := io.ReadFull(fin, nonce); err != nil {
-		os.Remove(outputPath)
+		cleanup()
 		return "", fmt.Errorf("read nonce: %w", err)
 	}
 
@@ -204,7 +228,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
 	if err != nil {
-		os.Remove(outputPath)
+		cleanup()
 		return "", fmt.Errorf("create cipher: %w", err)
 	}
 
@@ -220,7 +244,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 			cipher.XORKeyStream(dst, buf[:n])
 
 			if _, err := fout.Write(dst); err != nil {
-				os.Remove(outputPath)
+				cleanup()
 				return "", fmt.Errorf("write decrypted: %w", err)
 			}
 
@@ -236,7 +260,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 			if counter >= crypto.RekeyThreshold {
 				cipher, nonce, err = crypto.DeniabilityRekey(key, nonce)
 				if err != nil {
-					os.Remove(outputPath)
+					cleanup()
 					return "", fmt.Errorf("rekey: %w", err)
 				}
 				counter = 0
@@ -247,7 +271,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 			break
 		}
 		if readErr != nil {
-			os.Remove(outputPath)
+			cleanup()
 			return "", fmt.Errorf("read: %w", readErr)
 		}
 	}
@@ -256,7 +280,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 
 	// Sync to ensure all data is written before verification
 	if err := fout.Sync(); err != nil {
-		os.Remove(outputPath)
+		cleanup()
 		return "", fmt.Errorf("sync output: %w", err)
 	}
 	fout.Close()
@@ -314,10 +338,3 @@ func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 	return !valid // Invalid version format means deniable
 }
 
-// For deniability, we need to add RandomBytes to crypto package
-func init() {
-	// Verify crypto.RandomBytes exists (it will be added)
-}
-
-// Ensure start time tracking for stats
-var _ = time.Now

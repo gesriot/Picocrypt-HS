@@ -25,6 +25,7 @@ func Decrypt(req *DecryptRequest) error {
 
 	// Phase 1: Preprocess (recombine if split, remove deniability)
 	if err := decryptPreprocess(ctx, req); err != nil {
+		cleanupDecrypt(ctx, req) // Clean up any partial temp files
 		return err
 	}
 
@@ -506,6 +507,7 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 			Status: func(s string) {
 				ctx.SetStatus(s)
 			},
+			Cancel: ctx.IsCancelled,
 		})
 		if err != nil {
 			return fmt.Errorf("unzip: %w", err)

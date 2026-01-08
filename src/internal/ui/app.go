@@ -17,6 +17,7 @@ package ui
 
 import (
 	"crypto/rand"
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -24,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"Picocrypt-NG/internal/app"
@@ -49,8 +51,8 @@ type App struct {
 	// Reed-Solomon codecs
 	rsCodecs *encoding.RSCodecs
 
-	// Cancellation flag
-	cancelled bool
+	// Cancellation flag (atomic for thread safety across goroutines)
+	cancelled atomic.Bool
 }
 
 // NewApp creates a new UI application.
@@ -648,13 +650,16 @@ func (a *App) startWork() {
 	a.State.FastDecode = true
 	a.State.CanCancel = true
 	a.State.ModalID++
-	a.cancelled = false
+	a.cancelled.Store(false)
 	giu.Update()
 
 	if !a.State.Recursively {
 		// Normal mode: process single file/folder(s)
 		go func() {
 			a.doWork()
+			// Success: status set to "Completed" by doEncrypt/doDecrypt
+			// Error: status set to error message by doEncrypt/doDecrypt
+			// Cancel: status set to "Operation cancelled by user" by cancel button
 			a.State.Working = false
 			a.State.ShowProgress = false
 			giu.Update()
@@ -666,16 +671,16 @@ func (a *App) startWork() {
 	}
 }
 
-// doWork performs the actual encryption/decryption.
-func (a *App) doWork() {
+// doWork performs the encryption or decryption operation.
+// Returns true if the operation completed successfully.
+func (a *App) doWork() bool {
 	a.State.Working = true
 	reporter := a.CreateReporter()
 
 	if a.State.Mode == "encrypt" {
-		a.doEncrypt(reporter)
-	} else {
-		a.doDecrypt(reporter)
+		return a.doEncrypt(reporter)
 	}
+	return a.doDecrypt(reporter)
 }
 
 // startRecursiveWork handles batch processing of multiple files individually.
@@ -687,7 +692,19 @@ func (a *App) doWork() {
 //   - Each file gets its own .pcv output (input.txt -> input.txt.pcv)
 //
 // This is different from normal multi-file mode which zips files together.
+//
+// IMPROVEMENT over original: tracks and reports failed files instead of silently continuing.
 func (a *App) startRecursiveWork() {
+	// Handle empty file list case
+	if len(a.State.AllFiles) == 0 {
+		a.State.MainStatus = "No files to process"
+		a.State.MainStatusColor = util.YELLOW
+		a.State.Working = false
+		a.State.ShowProgress = false
+		giu.Update()
+		return
+	}
+
 	// Store all settings before they get cleared by onDrop/resetUI
 	// (matches original lines 263-276)
 	savedPassword := a.State.Password
@@ -710,9 +727,18 @@ func (a *App) startRecursiveWork() {
 	copy(files, a.State.AllFiles)
 
 	go func() {
-		for _, file := range files {
+		var failedCount int
+		var successCount int
+
+		for i, file := range files {
+			// Update progress info with current file
+			a.State.PopupStatus = fmt.Sprintf("Processing file %d/%d...", i+1, len(files))
+			giu.Update()
+
 			// Simulate dropping the file (matches original line 280)
 			// This sets up inputFile, outputFile, mode, etc.
+			// Note: onDrop() calls resetUI() which uses ResetUI() that preserves
+			// ShowProgress, Working, CanCancel (matches original behavior)
 			a.onDrop([]string{file})
 
 			// Restore all saved settings (matches original lines 282-298)
@@ -736,28 +762,48 @@ func (a *App) startRecursiveWork() {
 			a.State.SplitSelected = savedSplitSelected
 			a.State.Delete = savedDelete
 
-			// Process this file
-			a.doWork()
+			// Process this file and track result
+			if a.doWork() {
+				successCount++
+			} else {
+				failedCount++
+			}
 
-			// Check if user cancelled or if work failed (matches original lines 301-307)
-			if !a.State.Working || a.cancelled {
-				a.resetUI()
-				a.cancelled = true
+			// Check if user cancelled (matches original lines 301-307)
+			// Original only checks `if !working` - it continues on errors, only stops on cancel
+			// The cancel button sets Working=false and MainStatus="Operation cancelled by user"
+			if a.cancelled.Load() {
+				// Don't call resetUI() - it would overwrite the cancellation status
+				a.State.Working = false
 				a.State.ShowProgress = false
 				giu.Update()
 				return
 			}
 		}
 
-		// All files processed successfully
+		// All files processed - report results
 		a.State.Working = false
 		a.State.ShowProgress = false
+
+		// Set final status based on results
+		if failedCount == 0 {
+			a.State.MainStatus = fmt.Sprintf("Completed (%d files)", successCount)
+			a.State.MainStatusColor = util.GREEN
+		} else if successCount == 0 {
+			a.State.MainStatus = fmt.Sprintf("Failed (all %d files)", failedCount)
+			a.State.MainStatusColor = util.RED
+		} else {
+			a.State.MainStatus = fmt.Sprintf("Completed (%d ok, %d failed)", successCount, failedCount)
+			a.State.MainStatusColor = util.YELLOW
+		}
+
 		giu.Update()
 	}()
 }
 
 // doEncrypt performs encryption using the volume package.
-func (a *App) doEncrypt(reporter *app.UIReporter) {
+// Returns true if encryption completed successfully.
+func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	var chunkUnit fileops.SplitUnit
 	switch a.State.SplitSelected {
 	case 0:
@@ -774,9 +820,13 @@ func (a *App) doEncrypt(reporter *app.UIReporter) {
 
 	chunkSize := 1
 	if a.State.SplitSize != "" {
-		if n, err := strconv.Atoi(a.State.SplitSize); err == nil && n > 0 {
-			chunkSize = n
+		n, err := strconv.Atoi(a.State.SplitSize)
+		if err != nil || n <= 0 {
+			a.State.MainStatus = "Invalid split size"
+			a.State.MainStatusColor = util.RED
+			return false
 		}
+		chunkSize = n
 	}
 
 	// Save delete preference before reset
@@ -785,6 +835,8 @@ func (a *App) doEncrypt(reporter *app.UIReporter) {
 	req := &volume.EncryptRequest{
 		InputFile:      a.State.InputFile,
 		InputFiles:     a.State.AllFiles,
+		OnlyFolders:    a.State.OnlyFolders,
+		OnlyFiles:      a.State.OnlyFiles,
 		OutputFile:     a.State.OutputFile,
 		Password:       a.State.Password,
 		Keyfiles:       a.State.Keyfiles,
@@ -810,36 +862,52 @@ func (a *App) doEncrypt(reporter *app.UIReporter) {
 
 	err := volume.Encrypt(req)
 	if err != nil {
-		if !a.cancelled {
+		if !a.cancelled.Load() {
 			a.State.MainStatus = err.Error()
 			a.State.MainStatusColor = util.RED
 		}
-		return
+		return false
 	}
 
-	// Reset UI after successful completion (like original)
-	a.State.Reset()
+	// Reset UI after successful completion (like original work() line 2583)
+	// Use ResetUI() which preserves ShowProgress, Working, CanCancel
+	a.State.ResetUI()
 
 	a.State.MainStatus = "Completed"
 	a.State.MainStatusColor = util.GREEN
 
 	// Delete files if requested
 	if shouldDelete {
+		var deleteErrors []string
 		if len(filesToDelete) > 0 {
 			for _, f := range filesToDelete {
-				os.Remove(f)
+				if err := os.Remove(f); err != nil {
+					deleteErrors = append(deleteErrors, f)
+				}
 			}
 			for _, f := range foldersToDelete {
-				os.RemoveAll(f)
+				if err := os.RemoveAll(f); err != nil {
+					deleteErrors = append(deleteErrors, f)
+				}
 			}
 		} else {
-			os.Remove(inputFileToDelete)
+			if err := os.Remove(inputFileToDelete); err != nil {
+				deleteErrors = append(deleteErrors, inputFileToDelete)
+			}
+		}
+		// Warn user if some files couldn't be deleted (don't fail the operation)
+		if len(deleteErrors) > 0 {
+			a.State.MainStatus = "Completed (some files couldn't be deleted)"
+			a.State.MainStatusColor = util.YELLOW
 		}
 	}
+
+	return true
 }
 
 // doDecrypt performs decryption using the volume package.
-func (a *App) doDecrypt(reporter *app.UIReporter) {
+// Returns true if decryption completed successfully.
+func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	kept := false
 
 	// Save values before potential reset
@@ -864,15 +932,16 @@ func (a *App) doDecrypt(reporter *app.UIReporter) {
 
 	err := volume.Decrypt(req)
 	if err != nil {
-		if !a.cancelled {
+		if !a.cancelled.Load() {
 			a.State.MainStatus = err.Error()
 			a.State.MainStatusColor = util.RED
 		}
-		return
+		return false
 	}
 
-	// Reset UI after successful completion (like original)
-	a.State.Reset()
+	// Reset UI after successful completion (like original work() line 2583)
+	// Use ResetUI() which preserves ShowProgress, Working, CanCancel
+	a.State.ResetUI()
 
 	// Check if file was kept despite errors (force decrypt used)
 	if kept {
@@ -886,25 +955,36 @@ func (a *App) doDecrypt(reporter *app.UIReporter) {
 
 	// Delete volume if requested (and not kept)
 	if shouldDelete && !kept {
+		var deleteError bool
 		if recombine {
+			// Remove each chunk: file.pcv.0, file.pcv.1, etc. (matches original lines 2525-2536)
 			for i := 0; ; i++ {
-				chunkPath := inputFile
-				if i > 0 {
-					chunkPath = inputFile + "." + strconv.Itoa(i)
-				}
+				chunkPath := inputFile + "." + strconv.Itoa(i)
 				if _, err := os.Stat(chunkPath); os.IsNotExist(err) {
 					break
 				}
-				os.Remove(chunkPath)
+				if err := os.Remove(chunkPath); err != nil {
+					deleteError = true
+				}
 			}
 		} else {
-			os.Remove(inputFile)
+			if err := os.Remove(inputFile); err != nil {
+				deleteError = true
+			}
+		}
+		// Warn user if volume couldn't be deleted (don't fail the operation)
+		if deleteError {
+			a.State.MainStatus = "Completed (volume couldn't be deleted)"
+			a.State.MainStatusColor = util.YELLOW
 		}
 	}
+
+	return true
 }
 
-// resetUI clears all state to initial values.
+// resetUI clears UI state but preserves progress flags (matches original resetUI).
+// For full reset including progress state, call a.State.Reset() directly.
 func (a *App) resetUI() {
-	a.State.Reset()
+	a.State.ResetUI()
 	giu.Update()
 }

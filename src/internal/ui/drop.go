@@ -195,7 +195,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	if valid, _ := regexp.Match(`^v\d\.\d{2}`, tmp); err != nil || !valid {
 		// Volume has plausible deniability
 		a.State.Deniability = true
-		a.State.MainStatus = "Can't read header, assuming volume is deniable"
+		a.State.MainStatus = "Cannot read header, volume may be deniable"
 		return
 	}
 
@@ -244,7 +244,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	flagsDec, err := encoding.Decode(a.rsCodecs.RS5, flags, false)
 	if err != nil {
 		a.State.MainStatus = "The volume header is damaged"
-		a.State.MainStatusColor = util.YELLOW
+		a.State.MainStatusColor = util.RED
 		return
 	}
 

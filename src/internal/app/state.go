@@ -171,18 +171,39 @@ func NewState() *State {
 }
 
 // Reset clears the state to initial values (full reset for Clear button).
+// This resets EVERYTHING including progress state.
 func (s *State) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.Mode = ""
+	// Reset progress-related state (NOT reset by original resetUI)
 	s.Working = false
 	s.Scanning = false
+	s.ShowProgress = false
+	s.CanCancel = false
+
+	// Reset everything else (same as ResetUI)
+	s.resetUILocked()
+}
+
+// ResetUI resets UI state but preserves progress-related flags.
+// This matches the original Picocrypt's resetUI() behavior (lines 2635-2692).
+// It does NOT reset: Working, ShowProgress, CanCancel, Scanning, ModalID
+func (s *State) ResetUI() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resetUILocked()
+}
+
+// resetUILocked performs the actual reset (must be called with lock held).
+// Matches original resetUI() - does NOT reset progress-related fields.
+func (s *State) resetUILocked() {
+	s.Mode = ""
 
 	s.ShowPassgen = false
 	s.ShowKeyfile = false
 	s.ShowOverwrite = false
-	s.ShowProgress = false
+	// NOTE: ShowProgress is NOT reset here (matches original)
 
 	s.InputFile = ""
 	s.InputFileOld = ""
@@ -221,6 +242,14 @@ func (s *State) Reset() {
 	s.SplitSize = ""
 	s.SplitSelected = 1
 
+	// Password generator defaults (must be true after reset, like original)
+	s.PassgenLength = 32
+	s.PassgenUpper = true
+	s.PassgenLower = true
+	s.PassgenNums = true
+	s.PassgenSymbols = true
+	s.PassgenCopy = true
+
 	s.Recursively = false
 	s.Delete = false
 	s.Recombine = false
@@ -230,11 +259,12 @@ func (s *State) Reset() {
 	s.MainStatusColor = util.WHITE
 	s.PopupStatus = ""
 
+	// Progress values are reset, but not the progress FLAGS
 	s.Progress = 0
 	s.ProgressInfo = ""
 	s.Speed = 0
 	s.ETA = ""
-	s.CanCancel = false
+	// NOTE: CanCancel is NOT reset here (matches original)
 	s.FastDecode = true
 
 	s.RequiredFreeSpace = 0
@@ -376,6 +406,7 @@ func (s *State) SetCanCancel(can bool) {
 }
 
 // GenPassword generates a password using current passgen settings.
+// Returns empty string if generation fails (extremely rare crypto/rand failure).
 func (s *State) GenPassword() string {
 	s.mu.RLock()
 	opts := util.PassgenOptions{
@@ -387,7 +418,12 @@ func (s *State) GenPassword() string {
 	}
 	s.mu.RUnlock()
 
-	password := util.GenPassword(opts)
+	password, err := util.GenPassword(opts)
+	if err != nil {
+		// crypto/rand failure is extremely rare and indicates a broken system
+		// Return empty string - UI will show no password was generated
+		return ""
+	}
 	if s.PassgenCopy && s.Window != nil {
 		giu.Context.GetPlatform().SetClipboard(password)
 	}

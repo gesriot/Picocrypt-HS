@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/util"
 	"Picocrypt-NG/internal/volume"
 )
 
@@ -188,12 +187,17 @@ func (r *Runner) Encrypt() error {
 	if r.state.Split && r.state.SplitSize != "" {
 		// Parse the split size string
 		var size int
-		_, _ = fmt.Sscanf(r.state.SplitSize, "%d", &size)
+		n, err := fmt.Sscanf(r.state.SplitSize, "%d", &size)
+		if err != nil || n != 1 || size <= 0 {
+			return fmt.Errorf("invalid split size: %q (must be a positive integer)", r.state.SplitSize)
+		}
 		chunkSize = size
 	}
 
 	req := &volume.EncryptRequest{
 		InputFiles:     files,
+		OnlyFolders:    r.state.OnlyFolders,
+		OnlyFiles:      r.state.OnlyFiles,
 		OutputFile:     r.state.OutputFile,
 		Password:       r.state.Password,
 		Keyfiles:       r.state.Keyfiles,
@@ -253,7 +257,3 @@ func (r *Runner) IsWorking() bool {
 	defer r.mu.RUnlock()
 	return r.state.Working
 }
-
-// Ensure imports are used
-var _ = util.WHITE
-var _ = fmt.Sprintf

@@ -20,6 +20,7 @@ type UnpackOptions struct {
 	SameLevel  bool   // Extract to same directory as zip (not a subdirectory)
 	Progress   ProgressFunc
 	Status     StatusFunc
+	Cancel     CancelFunc // Cancellation check callback (optional)
 }
 
 // Unpack extracts a zip archive to the specified directory.
@@ -68,6 +69,11 @@ func Unpack(opts UnpackOptions) error {
 	startTime := time.Now()
 
 	for i, f := range reader.File {
+		// Check for cancellation between files
+		if opts.Cancel != nil && opts.Cancel() {
+			return errors.New("operation cancelled")
+		}
+
 		if strings.Contains(f.Name, "..") {
 			return errors.New("potentially malicious zip item path")
 		}
@@ -96,6 +102,14 @@ func Unpack(opts UnpackOptions) error {
 
 		buf := make([]byte, util.MiB)
 		for {
+			// Check for cancellation during file extraction
+			if opts.Cancel != nil && opts.Cancel() {
+				dstFile.Close()
+				fileInArchive.Close()
+				os.Remove(outPath)
+				return errors.New("operation cancelled")
+			}
+
 			n, readErr := fileInArchive.Read(buf)
 			if n > 0 {
 				if _, err := dstFile.Write(buf[:n]); err != nil {

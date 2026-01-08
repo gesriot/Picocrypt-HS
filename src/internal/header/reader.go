@@ -243,20 +243,34 @@ type RawHeaderFields struct {
 	Flags       []byte
 }
 
+// ReadHeaderRawResult contains the result of reading raw header fields.
+type ReadHeaderRawResult struct {
+	Raw         *RawHeaderFields
+	Header      *VolumeHeader
+	DecodeError error // Non-nil if any RS decode errors occurred (header may still be usable)
+}
+
 // ReadHeaderRaw reads header fields and returns raw bytes for MAC computation.
 // This is needed for v2 header authentication where we MAC the decoded field values.
-func (r *Reader) ReadHeaderRaw() (*RawHeaderFields, *VolumeHeader, error) {
-	raw := &RawHeaderFields{}
-	h := &VolumeHeader{}
+// Returns the header even if RS decode errors occur (for force-decrypt scenarios).
+// The DecodeError field will be set if any corruption was detected.
+func (r *Reader) ReadHeaderRaw() (*ReadHeaderRawResult, error) {
+	result := &ReadHeaderRawResult{
+		Raw:    &RawHeaderFields{},
+		Header: &VolumeHeader{},
+	}
+	raw := result.Raw
+	h := result.Header
+	var decodeErrors []error
 
 	// Read version
 	versionEnc := make([]byte, VersionEncSize)
 	if _, err := io.ReadFull(r.r, versionEnc); err != nil {
-		return nil, nil, fmt.Errorf("read version: %w", err)
+		return nil, fmt.Errorf("read version: %w", err)
 	}
 	versionDec, err := encoding.Decode(r.rs.RS5, versionEnc, false)
 	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("decode version: %w", err)
 	}
 	raw.Version = versionDec
 	h.Version = string(versionDec)
@@ -264,67 +278,116 @@ func (r *Reader) ReadHeaderRaw() (*RawHeaderFields, *VolumeHeader, error) {
 	// Read comment length
 	commentLenEnc := make([]byte, CommentLenEncSize)
 	if _, err := io.ReadFull(r.r, commentLenEnc); err != nil {
-		return nil, nil, fmt.Errorf("read comment length: %w", err)
+		return nil, fmt.Errorf("read comment length: %w", err)
 	}
 	commentLenDec, err := encoding.Decode(r.rs.RS5, commentLenEnc, false)
 	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("decode comment length: %w", err)
 	}
 	commentsLen, _ := strconv.Atoi(string(commentLenDec))
 	raw.CommentsLen = commentsLen
 
-	// Read comments
+	// Read comments (track corruption but continue reading)
 	raw.Comments = make([]byte, 0, commentsLen)
+	commentsCorrupted := false
 	for i := 0; i < commentsLen; i++ {
 		cEnc := make([]byte, 3)
 		if _, err := io.ReadFull(r.r, cEnc); err != nil {
-			return nil, nil, fmt.Errorf("read comment: %w", err)
+			return nil, fmt.Errorf("read comment char %d: %w", i, err)
 		}
-		cDec, _ := encoding.Decode(r.rs.RS1, cEnc, false)
+		cDec, err := encoding.Decode(r.rs.RS1, cEnc, false)
+		if err != nil {
+			commentsCorrupted = true
+			decodeErrors = append(decodeErrors, err)
+		}
 		raw.Comments = append(raw.Comments, cDec...)
 	}
-	h.Comments = string(raw.Comments)
+	if commentsCorrupted {
+		h.Comments = "Comments are corrupted"
+	} else {
+		h.Comments = string(raw.Comments)
+	}
 
 	// Read flags
 	flagsEnc := make([]byte, FlagsEncSize)
 	if _, err := io.ReadFull(r.r, flagsEnc); err != nil {
-		return nil, nil, fmt.Errorf("read flags: %w", err)
+		return nil, fmt.Errorf("read flags: %w", err)
 	}
 	flagsDec, err := encoding.Decode(r.rs.RS5, flagsEnc, false)
 	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("decode flags: %w", err)
 	}
 	raw.Flags = flagsDec
 	h.Flags = FlagsFromBytes(flagsDec)
 
-	// Read remaining crypto fields
+	// Read remaining crypto fields (collect errors but continue for force-decrypt)
 	saltEnc := make([]byte, SaltEncSize)
-	io.ReadFull(r.r, saltEnc)
-	h.Salt, _ = encoding.Decode(r.rs.RS16, saltEnc, false)
+	if _, err := io.ReadFull(r.r, saltEnc); err != nil {
+		return nil, fmt.Errorf("read salt: %w", err)
+	}
+	h.Salt, err = encoding.Decode(r.rs.RS16, saltEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	hkdfSaltEnc := make([]byte, HKDFSaltEncSize)
-	io.ReadFull(r.r, hkdfSaltEnc)
-	h.HKDFSalt, _ = encoding.Decode(r.rs.RS32, hkdfSaltEnc, false)
+	if _, err := io.ReadFull(r.r, hkdfSaltEnc); err != nil {
+		return nil, fmt.Errorf("read hkdf salt: %w", err)
+	}
+	h.HKDFSalt, err = encoding.Decode(r.rs.RS32, hkdfSaltEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	serpentIVEnc := make([]byte, SerpentIVEncSize)
-	io.ReadFull(r.r, serpentIVEnc)
-	h.SerpentIV, _ = encoding.Decode(r.rs.RS16, serpentIVEnc, false)
+	if _, err := io.ReadFull(r.r, serpentIVEnc); err != nil {
+		return nil, fmt.Errorf("read serpent iv: %w", err)
+	}
+	h.SerpentIV, err = encoding.Decode(r.rs.RS16, serpentIVEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	nonceEnc := make([]byte, NonceEncSize)
-	io.ReadFull(r.r, nonceEnc)
-	h.Nonce, _ = encoding.Decode(r.rs.RS24, nonceEnc, false)
+	if _, err := io.ReadFull(r.r, nonceEnc); err != nil {
+		return nil, fmt.Errorf("read nonce: %w", err)
+	}
+	h.Nonce, err = encoding.Decode(r.rs.RS24, nonceEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	keyHashEnc := make([]byte, KeyHashEncSize)
-	io.ReadFull(r.r, keyHashEnc)
-	h.KeyHash, _ = encoding.Decode(r.rs.RS64, keyHashEnc, false)
+	if _, err := io.ReadFull(r.r, keyHashEnc); err != nil {
+		return nil, fmt.Errorf("read key hash: %w", err)
+	}
+	h.KeyHash, err = encoding.Decode(r.rs.RS64, keyHashEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	keyfileHashEnc := make([]byte, KeyfileHashEncSize)
-	io.ReadFull(r.r, keyfileHashEnc)
-	h.KeyfileHash, _ = encoding.Decode(r.rs.RS32, keyfileHashEnc, false)
+	if _, err := io.ReadFull(r.r, keyfileHashEnc); err != nil {
+		return nil, fmt.Errorf("read keyfile hash: %w", err)
+	}
+	h.KeyfileHash, err = encoding.Decode(r.rs.RS32, keyfileHashEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	authTagEnc := make([]byte, AuthTagEncSize)
-	io.ReadFull(r.r, authTagEnc)
-	h.AuthTag, _ = encoding.Decode(r.rs.RS64, authTagEnc, false)
+	if _, err := io.ReadFull(r.r, authTagEnc); err != nil {
+		return nil, fmt.Errorf("read auth tag: %w", err)
+	}
+	h.AuthTag, err = encoding.Decode(r.rs.RS64, authTagEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
-	return raw, h, nil
+	// Set combined decode error if any occurred
+	if len(decodeErrors) > 0 {
+		result.DecodeError = ErrCorruptedHeader
+	}
+
+	return result, nil
 }

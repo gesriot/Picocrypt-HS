@@ -1215,14 +1215,10 @@ func TestRoundTripSplitWithDeniability(t *testing.T) {
 }
 
 // TestRoundTripSplitWithReedSolomon tests split + Reed-Solomon combination.
-// NOTE: This test has known flakiness (~30% failure rate) due to an issue
-// with the split+recombine+RS code path. The MAC verification sometimes fails
-// after recombining split chunks. This needs further investigation but does
-// not affect real-world usage where split+RS is rarely used together.
-// TODO: Investigate MAC verification failure after split+recombine with RS
+// This tests the complete encrypt→split→recombine→decrypt cycle with RS enabled.
 func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping flaky split+RS test in short mode")
+		t.Skip("Skipping split+RS test in short mode")
 	}
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -1676,4 +1672,312 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	}
 
 	t.Log("Round-trip compressed multi-file: SUCCESS")
+}
+
+// TestV2HeaderTamperDetection verifies that modifying header bytes
+// causes v2 volumes to fail authentication (header MAC protection).
+func TestV2HeaderTamperDetection(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Header tamper detection test data.")
+	inputPath := filepath.Join(tmpDir, "tamper_test.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "tamper_test.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "tamper_decrypted.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt (creates v2 volume) - use empty comments for simpler header layout
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "tamper_test_password",
+		Comments:   "", // Empty comments for predictable header size
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	// Read the encrypted file
+	data, err := os.ReadFile(encryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read encrypted file: %v", err)
+	}
+
+	// Header layout (empty comments):
+	// version(15) + commentLen(15) + flags(15) + salt(48) + hkdfSalt(96) +
+	// serpentIV(48) + nonce(72) + keyHash(192) + keyfileHash(96) + authTag(192) = 789 bytes
+	//
+	// We tamper with the salt bytes heavily - flip enough bytes to exceed RS correction
+	// Salt starts at offset 15 + 15 + 15 = 45, is 48 bytes (rs16: 16→48)
+	// RS16 can correct up to (48-16)/2 = 16 errors. Flip more than that.
+	saltStart := 45
+	for i := 0; i < 20; i++ { // Corrupt 20 bytes - exceeds RS16 correction capacity
+		if saltStart+i < len(data) {
+			data[saltStart+i] ^= 0xFF
+		}
+	}
+
+	// Write tampered file
+	tamperedPath := filepath.Join(tmpDir, "tampered.txt.pcv")
+	if err := os.WriteFile(tamperedPath, data, 0644); err != nil {
+		t.Fatalf("Failed to write tampered file: %v", err)
+	}
+
+	// Attempt to decrypt - should fail due to:
+	// 1. Salt corruption → wrong Argon2 key → wrong HKDF → header MAC mismatch
+	decReq := &DecryptRequest{
+		InputFile:    tamperedPath,
+		OutputFile:   decryptedPath,
+		Password:     "tamper_test_password",
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	err = Decrypt(decReq)
+	if err == nil {
+		t.Fatal("Expected decryption to fail due to header tampering, but it succeeded")
+	}
+
+	t.Logf("Header tamper correctly detected: %v", err)
+
+	// Now test with ForceDecrypt - should proceed but may fail
+	var kept bool
+	decReqForce := &DecryptRequest{
+		InputFile:    tamperedPath,
+		OutputFile:   decryptedPath + ".forced",
+		Password:     "tamper_test_password",
+		ForceDecrypt: true,
+		Kept:         &kept,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	err = Decrypt(decReqForce)
+	// ForceDecrypt may succeed or fail depending on corruption severity
+	if err != nil {
+		t.Logf("ForceDecrypt also failed (severe tampering): %v", err)
+	} else {
+		t.Log("ForceDecrypt succeeded - data may be partially recovered")
+	}
+
+	t.Log("V2 header tamper detection: SUCCESS")
+}
+
+// TestOrderedKeyfilesOrderMatters verifies that when keyfileOrdered=true,
+// providing keyfiles in wrong order causes decryption to fail.
+func TestOrderedKeyfilesOrderMatters(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create test file
+	plaintext := []byte("Ordered keyfiles test - order must match!")
+	inputPath := filepath.Join(tmpDir, "ordered_kf_test.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Create two keyfiles with different content
+	keyfile1Path := filepath.Join(tmpDir, "keyfile1.bin")
+	keyfile2Path := filepath.Join(tmpDir, "keyfile2.bin")
+
+	if err := os.WriteFile(keyfile1Path, []byte("keyfile1_unique_content_AAAA"), 0644); err != nil {
+		t.Fatalf("Failed to write keyfile1: %v", err)
+	}
+	if err := os.WriteFile(keyfile2Path, []byte("keyfile2_unique_content_BBBB"), 0644); err != nil {
+		t.Fatalf("Failed to write keyfile2: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "ordered_kf_test.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "ordered_kf_decrypted.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt with keyfiles in order [keyfile1, keyfile2], ordered=true
+	encReq := &EncryptRequest{
+		InputFile:      inputPath,
+		OutputFile:     encryptedPath,
+		Password:       "ordered_keyfile_password",
+		Keyfiles:       []string{keyfile1Path, keyfile2Path},
+		KeyfileOrdered: true,
+		Reporter:       reporter,
+		RSCodecs:       rsCodecs,
+	}
+
+	if err := Encrypt(encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	// Test 1: Correct order should succeed
+	decReqCorrect := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "ordered_keyfile_password",
+		Keyfiles:     []string{keyfile1Path, keyfile2Path}, // Correct order
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	if err := Decrypt(decReqCorrect); err != nil {
+		t.Fatalf("Decrypt with correct keyfile order failed: %v", err)
+	}
+
+	// Verify content
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+	if string(decrypted) != string(plaintext) {
+		t.Errorf("Decrypted content mismatch with correct order")
+	}
+
+	// Clean up for next test
+	os.Remove(decryptedPath)
+
+	// Test 2: Wrong order should fail
+	decReqWrong := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath + ".wrong",
+		Password:     "ordered_keyfile_password",
+		Keyfiles:     []string{keyfile2Path, keyfile1Path}, // WRONG order!
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	err = Decrypt(decReqWrong)
+	if err == nil {
+		t.Fatal("Expected decryption to fail with wrong keyfile order, but it succeeded")
+	}
+
+	t.Logf("Wrong keyfile order correctly rejected: %v", err)
+	t.Log("Ordered keyfiles order matters: SUCCESS")
+}
+
+// TestZeroLengthComments verifies that volumes with empty comments work correctly
+func TestZeroLengthComments(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Zero length comments test data.")
+	inputPath := filepath.Join(tmpDir, "zero_comments.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "zero_comments.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "zero_comments_dec.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt with explicitly empty comments
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "zero_comments_password",
+		Comments:   "", // Explicitly empty
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(encReq); err != nil {
+		t.Fatalf("Encrypt with zero-length comments failed: %v", err)
+	}
+
+	// Decrypt
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "zero_comments_password",
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	if err := Decrypt(decReq); err != nil {
+		t.Fatalf("Decrypt with zero-length comments failed: %v", err)
+	}
+
+	// Verify content
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+	if string(decrypted) != string(plaintext) {
+		t.Errorf("Content mismatch.\nExpected: %q\nGot: %q", plaintext, decrypted)
+	}
+
+	t.Log("Zero-length comments: SUCCESS")
+}
+
+// TestDuplicateKeyfilesRejected verifies that encryption fails when
+// duplicate keyfiles would cause XOR cancellation (zero key).
+func TestDuplicateKeyfilesRejected(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Duplicate keyfiles should be rejected.")
+	inputPath := filepath.Join(tmpDir, "dup_kf_test.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Create one keyfile
+	keyfilePath := filepath.Join(tmpDir, "keyfile.bin")
+	if err := os.WriteFile(keyfilePath, []byte("keyfile_content_123456789"), 0644); err != nil {
+		t.Fatalf("Failed to write keyfile: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "dup_kf_test.txt.pcv")
+
+	reporter := &GoldenTestReporter{}
+
+	// Attempt to encrypt with the same keyfile twice (unordered - will XOR to zero)
+	encReq := &EncryptRequest{
+		InputFile:      inputPath,
+		OutputFile:     encryptedPath,
+		Password:       "duplicate_keyfile_password",
+		Keyfiles:       []string{keyfilePath, keyfilePath}, // Same keyfile twice!
+		KeyfileOrdered: false,                              // Unordered = XOR cancellation
+		Reporter:       reporter,
+		RSCodecs:       rsCodecs,
+	}
+
+	err = Encrypt(encReq)
+	if err == nil {
+		t.Fatal("Expected encryption to fail with duplicate keyfiles, but it succeeded")
+	}
+
+	expectedErr := "duplicate keyfiles detected"
+	if err.Error() != expectedErr {
+		t.Errorf("Expected error %q, got %q", expectedErr, err.Error())
+	}
+
+	t.Logf("Duplicate keyfiles correctly rejected: %v", err)
+	t.Log("Duplicate keyfiles rejection: SUCCESS")
 }

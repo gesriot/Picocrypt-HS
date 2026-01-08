@@ -2,7 +2,7 @@ package volume
 
 import (
 	"archive/zip"
-	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -608,6 +608,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 		Header: &volumeHeader{},
 	}
 	h := result.Header
+	var decodeErrors []error
 
 	// Read version (15 bytes -> 5 bytes)
 	versionEnc := make([]byte, 15)
@@ -616,7 +617,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 	}
 	versionDec, err := encoding.Decode(r.rs.RS5, versionEnc, false)
 	if err != nil {
-		result.DecodeError = err
+		decodeErrors = append(decodeErrors, err)
 	}
 	h.Version = string(versionDec)
 
@@ -627,7 +628,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 	}
 	commentLenDec, err := encoding.Decode(r.rs.RS5, commentLenEnc, false)
 	if err != nil {
-		result.DecodeError = err
+		decodeErrors = append(decodeErrors, err)
 	}
 
 	var commentsLen int
@@ -641,16 +642,26 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 	comments := make([]byte, 0, commentsLen)
 	for i := 0; i < commentsLen; i++ {
 		cEnc := make([]byte, 3)
-		r.r.Read(cEnc)
-		cDec, _ := encoding.Decode(r.rs.RS1, cEnc, false)
+		if _, err := r.r.Read(cEnc); err != nil {
+			return nil, fmt.Errorf("read comment byte %d: %w", i, err)
+		}
+		cDec, err := encoding.Decode(r.rs.RS1, cEnc, false)
+		if err != nil {
+			decodeErrors = append(decodeErrors, err)
+		}
 		comments = append(comments, cDec...)
 	}
 	h.Comments = string(comments)
 
 	// Read flags (15 bytes -> 5 bytes)
 	flagsEnc := make([]byte, 15)
-	r.r.Read(flagsEnc)
-	flagsDec, _ := encoding.Decode(r.rs.RS5, flagsEnc, false)
+	if _, err := r.r.Read(flagsEnc); err != nil {
+		return nil, fmt.Errorf("read flags: %w", err)
+	}
+	flagsDec, err := encoding.Decode(r.rs.RS5, flagsEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 	if len(flagsDec) >= 5 {
 		h.Flags.Paranoid = flagsDec[0] == 1
 		h.Flags.UseKeyfiles = flagsDec[1] == 1
@@ -661,41 +672,78 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read salt (48 bytes -> 16 bytes)
 	saltEnc := make([]byte, 48)
-	r.r.Read(saltEnc)
-	h.Salt, _ = encoding.Decode(r.rs.RS16, saltEnc, false)
+	if _, err := r.r.Read(saltEnc); err != nil {
+		return nil, fmt.Errorf("read salt: %w", err)
+	}
+	h.Salt, err = encoding.Decode(r.rs.RS16, saltEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	// Read HKDF salt (96 bytes -> 32 bytes)
 	hkdfSaltEnc := make([]byte, 96)
-	r.r.Read(hkdfSaltEnc)
-	h.HKDFSalt, _ = encoding.Decode(r.rs.RS32, hkdfSaltEnc, false)
+	if _, err := r.r.Read(hkdfSaltEnc); err != nil {
+		return nil, fmt.Errorf("read hkdf salt: %w", err)
+	}
+	h.HKDFSalt, err = encoding.Decode(r.rs.RS32, hkdfSaltEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	// Read Serpent IV (48 bytes -> 16 bytes)
 	serpentIVEnc := make([]byte, 48)
-	r.r.Read(serpentIVEnc)
-	h.SerpentIV, _ = encoding.Decode(r.rs.RS16, serpentIVEnc, false)
+	if _, err := r.r.Read(serpentIVEnc); err != nil {
+		return nil, fmt.Errorf("read serpent iv: %w", err)
+	}
+	h.SerpentIV, err = encoding.Decode(r.rs.RS16, serpentIVEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	// Read nonce (72 bytes -> 24 bytes)
 	nonceEnc := make([]byte, 72)
-	r.r.Read(nonceEnc)
-	h.Nonce, _ = encoding.Decode(r.rs.RS24, nonceEnc, false)
+	if _, err := r.r.Read(nonceEnc); err != nil {
+		return nil, fmt.Errorf("read nonce: %w", err)
+	}
+	h.Nonce, err = encoding.Decode(r.rs.RS24, nonceEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	// Read key hash (192 bytes -> 64 bytes)
 	keyHashEnc := make([]byte, 192)
-	r.r.Read(keyHashEnc)
-	h.KeyHash, _ = encoding.Decode(r.rs.RS64, keyHashEnc, false)
+	if _, err := r.r.Read(keyHashEnc); err != nil {
+		return nil, fmt.Errorf("read key hash: %w", err)
+	}
+	h.KeyHash, err = encoding.Decode(r.rs.RS64, keyHashEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	// Read keyfile hash (96 bytes -> 32 bytes)
 	keyfileHashEnc := make([]byte, 96)
-	r.r.Read(keyfileHashEnc)
-	h.KeyfileHash, _ = encoding.Decode(r.rs.RS32, keyfileHashEnc, false)
+	if _, err := r.r.Read(keyfileHashEnc); err != nil {
+		return nil, fmt.Errorf("read keyfile hash: %w", err)
+	}
+	h.KeyfileHash, err = encoding.Decode(r.rs.RS32, keyfileHashEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
 
 	// Read auth tag (192 bytes -> 64 bytes)
 	authTagEnc := make([]byte, 192)
-	r.r.Read(authTagEnc)
-	h.AuthTag, _ = encoding.Decode(r.rs.RS64, authTagEnc, false)
+	if _, err := r.r.Read(authTagEnc); err != nil {
+		return nil, fmt.Errorf("read auth tag: %w", err)
+	}
+	h.AuthTag, err = encoding.Decode(r.rs.RS64, authTagEnc, false)
+	if err != nil {
+		decodeErrors = append(decodeErrors, err)
+	}
+
+	// Set combined decode error if any occurred
+	if len(decodeErrors) > 0 {
+		result.DecodeError = decodeErrors[0] // Report first error
+	}
 
 	return result, nil
 }
-
-// Ensure bytes import is used
-var _ = bytes.Compare

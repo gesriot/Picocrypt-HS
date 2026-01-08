@@ -14,17 +14,16 @@ type AuthResult struct {
 	KeyHashComputed []byte // The computed key hash for storage in header
 }
 
-// ⚠️ CRITICAL INVARIANT: v1 vs v2 HKDF Timing
+// ⚠️ CRITICAL INVARIANT: v1 vs v2 Header Authentication
 //
-// v2.00: HKDF is initialized BEFORE XOR with keyfile
-//   unifiedKDF = hkdf.New(sha3.New256, key, hkdfSalt, nil)  // ← BEFORE
-//   key = key XOR keyfileKey                                // ← keyfiles affect XChaCha, BUT NOT HKDF
+// v1.x: Header stores SHA3-512(key) for password verification
+//       No header MAC - header fields are not authenticated against tampering
 //
-// v1.x: HKDF is initialized AFTER XOR with keyfile
-//   key = key XOR keyfileKey                                // ← FIRST
-//   unifiedKDF = hkdf.New(sha3.New256, key, hkdfSalt, nil)  // ← AFTER (for compatibility)
+// v2.00+: Header stores HMAC-SHA3-512(header_fields) using a 64-byte subkey
+//         The subkey is the FIRST 64 bytes from HKDF stream (see crypto/kdf.go)
+//         This authenticates all header fields and detects tampering
 //
-// Violating this order = inability to decrypt old volumes.
+// See crypto/kdf.go:SubkeyReader for the full HKDF timing and subkey order documentation.
 
 // ComputeV2HeaderMAC computes the HMAC-SHA3-512 of header fields for v2 volumes.
 // The subkeyHeader is the first 64 bytes read from the HKDF stream.

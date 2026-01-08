@@ -9,10 +9,29 @@ import (
 // Statify converts done bytes, total bytes, and starting time to progress, speed (MiB/s), and ETA string.
 // Returns: progress (0.0-1.0), speed in MiB/s, ETA as "HH:MM:SS"
 func Statify(done int64, total int64, start time.Time) (float32, float64, string) {
+	// Guard against division by zero
+	if total <= 0 {
+		return 0, 0, "00:00:00"
+	}
+
 	progress := float32(done) / float32(total)
-	elapsed := float64(time.Since(start)) / float64(MiB) / 1000
+
+	// Calculate elapsed time in seconds (correct unit conversion)
+	elapsed := time.Since(start).Seconds()
+	if elapsed <= 0 {
+		// Just started, no meaningful speed/ETA yet
+		return float32(math.Min(float64(progress), 1)), 0, "00:00:00"
+	}
+
+	// Speed in MiB/s: bytes / seconds / bytes_per_MiB
 	speed := float64(done) / elapsed / float64(MiB)
-	eta := int(math.Floor(float64(total-done) / (speed * float64(MiB))))
+
+	// ETA in seconds: remaining_bytes / (speed * bytes_per_MiB)
+	var eta int
+	if speed > 0 {
+		eta = int(math.Floor(float64(total-done) / (speed * float64(MiB))))
+	}
+
 	return float32(math.Min(float64(progress), 1)), speed, Timeify(eta)
 }
 
