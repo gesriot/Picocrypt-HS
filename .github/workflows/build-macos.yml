@@ -33,6 +33,11 @@ jobs:
         cd src
         go mod download
 
+    - name: Run tests
+      run: |
+        cd src
+        go test -v -race -timeout 10m ./...
+
     - name: Build
       run: |
         cd src
