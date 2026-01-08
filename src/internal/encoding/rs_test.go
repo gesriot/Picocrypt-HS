@@ -162,8 +162,11 @@ func TestRSAllCodecsRoundtrip(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name     string
-		codec    interface{ Required() int; Total() int }
+		name  string
+		codec interface {
+			Required() int
+			Total() int
+		}
 		dataSize int
 	}{
 		{"RS1", codecs.RS1, 1},

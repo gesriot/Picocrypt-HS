@@ -12,27 +12,27 @@ const (
 
 // Header field sizes (before Reed-Solomon encoding)
 const (
-	SaltSize       = 16 // Argon2 salt
-	HKDFSaltSize   = 32 // HKDF-SHA3 salt
-	SerpentIVSize  = 16 // Serpent IV
-	NonceSize      = 24 // XChaCha20 nonce
-	KeyHashSize    = 64 // HMAC-SHA3-512 of header (v2) or SHA3-512(key) (v1)
+	SaltSize        = 16 // Argon2 salt
+	HKDFSaltSize    = 32 // HKDF-SHA3 salt
+	SerpentIVSize   = 16 // Serpent IV
+	NonceSize       = 24 // XChaCha20 nonce
+	KeyHashSize     = 64 // HMAC-SHA3-512 of header (v2) or SHA3-512(key) (v1)
 	KeyfileHashSize = 32 // SHA3-256 of keyfile key
-	AuthTagSize    = 64 // BLAKE2b or HMAC-SHA3 tag
+	AuthTagSize     = 64 // BLAKE2b or HMAC-SHA3 tag
 )
 
 // Header field sizes after Reed-Solomon encoding
 const (
-	VersionEncSize      = 15  // rs5: 5 -> 15
-	CommentLenEncSize   = 15  // rs5: 5 -> 15
-	FlagsEncSize        = 15  // rs5: 5 -> 15
-	SaltEncSize         = 48  // rs16: 16 -> 48
-	HKDFSaltEncSize     = 96  // rs32: 32 -> 96
-	SerpentIVEncSize    = 48  // rs16: 16 -> 48
-	NonceEncSize        = 72  // rs24: 24 -> 72
-	KeyHashEncSize      = 192 // rs64: 64 -> 192
-	KeyfileHashEncSize  = 96  // rs32: 32 -> 96
-	AuthTagEncSize      = 192 // rs64: 64 -> 192
+	VersionEncSize     = 15  // rs5: 5 -> 15
+	CommentLenEncSize  = 15  // rs5: 5 -> 15
+	FlagsEncSize       = 15  // rs5: 5 -> 15
+	SaltEncSize        = 48  // rs16: 16 -> 48
+	HKDFSaltEncSize    = 96  // rs32: 32 -> 96
+	SerpentIVEncSize   = 48  // rs16: 16 -> 48
+	NonceEncSize       = 72  // rs24: 24 -> 72
+	KeyHashEncSize     = 192 // rs64: 64 -> 192
+	KeyfileHashEncSize = 96  // rs32: 32 -> 96
+	AuthTagEncSize     = 192 // rs64: 64 -> 192
 )
 
 // BaseHeaderSize is the header size without comments (789 bytes)

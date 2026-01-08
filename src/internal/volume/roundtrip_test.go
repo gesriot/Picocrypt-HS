@@ -33,14 +33,14 @@ func TestRoundTripBasic(t *testing.T) {
 
 	// Encrypt
 	encReq := &EncryptRequest{
-		InputFile:  inputPath,
-		OutputFile: encryptedPath,
-		Password:   "testpassword123",
-		Paranoid:   false,
+		InputFile:   inputPath,
+		OutputFile:  encryptedPath,
+		Password:    "testpassword123",
+		Paranoid:    false,
 		ReedSolomon: false,
 		Deniability: false,
-		Reporter:   reporter,
-		RSCodecs:   rsCodecs,
+		Reporter:    reporter,
+		RSCodecs:    rsCodecs,
 	}
 
 	if err := Encrypt(encReq); err != nil {

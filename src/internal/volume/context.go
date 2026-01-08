@@ -37,9 +37,9 @@ import (
 // ProgressReporter provides callbacks for UI updates during long-running operations.
 // Implementations must be thread-safe as methods may be called from goroutines.
 type ProgressReporter interface {
-	SetStatus(text string)                    // Update status message (e.g., "Encrypting...")
+	SetStatus(text string)                     // Update status message (e.g., "Encrypting...")
 	SetProgress(fraction float32, info string) // Update progress bar (0.0-1.0) and info text
-	SetCanCancel(can bool)                    // Enable/disable cancel button
+	SetCanCancel(can bool)                     // Enable/disable cancel button
 	Update()                                   // Trigger UI refresh
 	IsCancelled() bool                         // Check if user requested cancellation
 }
@@ -67,8 +67,8 @@ type EncryptRequest struct {
 	Compress    bool   // Use Deflate compression when creating zip archive
 
 	// Output splitting - useful for storage on FAT32 or cloud services with file size limits
-	Split     bool             // Enable splitting output into chunks
-	ChunkSize int              // Size of each chunk
+	Split     bool              // Enable splitting output into chunks
+	ChunkSize int               // Size of each chunk
 	ChunkUnit fileops.SplitUnit // Unit for ChunkSize: KiB, MiB, GiB, TiB, or Total (divide into N parts)
 
 	// Progress reporting
@@ -128,10 +128,10 @@ type OperationContext struct {
 	Counter      *crypto.Counter      // Tracks bytes for 60 GiB rekey threshold
 
 	// Operation flags
-	IsLegacyV1   bool // True if decrypting a v1.x volume (different HKDF timing)
-	UseKeyfiles  bool // True if keyfiles were used/required
-	Padded       bool // True if final chunk needs unpadding (RS mode)
-	TempZipInUse bool // True if reading from encrypted temp zip
+	IsLegacyV1   bool                    // True if decrypting a v1.x volume (different HKDF timing)
+	UseKeyfiles  bool                    // True if keyfiles were used/required
+	Padded       bool                    // True if final chunk needs unpadding (RS mode)
+	TempZipInUse bool                    // True if reading from encrypted temp zip
 	TempCiphers  *fileops.TempZipCiphers // Ciphers for encrypted temp zip
 
 	// Reed-Solomon retry state (for corrupt file recovery)

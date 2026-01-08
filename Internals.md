@@ -72,5 +72,78 @@ Plausible deniability in Picocrypt NG is achieved by simply re-encrypting the vo
 [argon2 salt][xchacha20 nonce][encrypted stream of bytes]
 ```
 
-# Just Read the Code
-Picocrypt NG is a very simple tool and only has one source file. The source Go file is about 3K lines and a lot of the code is dealing with the UI. The core cryptography code is only about 1K lines of code, and even so, a lot of that code deals with the UI and other features of Picocrypt NG. So if you need more information about how Picocrypt NG works, just read the code. It's not long, and it is well commented and will explain what happens under the hood better than a document can.
+# Code Structure
+
+Picocrypt NG v2.00+ has been refactored into a modular architecture. The codebase is organized as follows:
+
+## Core Cryptographic Packages (AUDIT-CRITICAL)
+
+These packages implement the cryptographic operations and must be modified with extreme care:
+
+### `internal/crypto/`
+- **cipher.go**: XChaCha20 and Serpent-CTR cipher suite with proper encrypt-then-MAC ordering
+- **kdf.go**: Argon2id key derivation and HKDF-SHA3-256 subkey derivation
+- **mac.go**: BLAKE2b-512 (normal mode) and HMAC-SHA3-512 (paranoid mode)
+- **rekey.go**: Cipher rekeying every 60 GiB to prevent nonce overflow
+- **zeroing.go**: Secure memory zeroing using constant-time operations
+
+### `internal/header/`
+- **format.go**: Volume header structure and field size constants
+- **reader.go**: Header deserialization with Reed-Solomon decoding
+- **writer.go**: Header serialization with Reed-Solomon encoding
+- **auth.go**: Header authentication (v2: HMAC-SHA3-512; v1: SHA3-512 of key)
+
+### `internal/keyfile/`
+- **processor.go**: Keyfile hashing with ordered/unordered modes
+  - Ordered: `SHA3-256(file1 || file2 || ...)`
+  - Unordered: `SHA3-256(file1) XOR SHA3-256(file2) XOR ...`
+
+### `internal/volume/`
+- **encrypt.go**: 8-phase encryption pipeline orchestration
+- **decrypt.go**: 7-phase decryption pipeline with v1/v2 compatibility
+- **context.go**: Operation context with automatic key material cleanup
+- **deniability.go**: Plausible deniability wrapper (random-looking header)
+
+## Supporting Packages
+
+### `internal/encoding/`
+- **rs.go**: Reed-Solomon error correction with 7 codec configurations
+- **padding.go**: PKCS#7 padding for Reed-Solomon block alignment
+
+### `internal/fileops/`
+- **zip.go**: Multi-file compression with optional Deflate
+- **unpack.go**: Zip extraction with automatic folder creation
+- **split.go**: Volume splitting into chunks (for cloud storage limits)
+- **recombine.go**: Chunk recombination before decryption
+
+### `internal/app/`
+- **state.go**: Centralized application state (replaces global variables)
+- **reporter.go**: Progress reporting interface for UI updates
+- **runner.go**: Operation orchestration with goroutine management
+
+### `internal/ui/`
+- **app.go**: Main window and Dear ImGui integration
+- **drop.go**: Drag-and-drop file handling
+- **modals.go**: Modal dialogs (password generator, keyfile selection)
+- **state.go**: UI-specific state helpers
+
+### `internal/util/`
+- **constants.go**: Size units (KiB, MiB, GiB, TiB)
+- **format.go**: Progress, speed, and time formatting
+- **passgen.go**: Cryptographically secure password generation
+
+## Entry Point
+
+**`cmd/picocrypt/main.go`**: Application entry point (~40 lines)
+- Initializes UI
+- Minimal logic (all business logic in `internal/`)
+
+## Reading the Code
+
+For understanding specific operations:
+1. **Encryption flow**: Start at `volume.Encrypt()` in `internal/volume/encrypt.go`
+2. **Decryption flow**: Start at `volume.Decrypt()` in `internal/volume/decrypt.go`
+3. **Crypto primitives**: Read `internal/crypto/*.go` (well-commented, ~1000 lines total)
+4. **Header format**: See `internal/header/format.go` for field layout
+
+The refactored code is thoroughly commented and much easier to understand than the original monolithic implementation.

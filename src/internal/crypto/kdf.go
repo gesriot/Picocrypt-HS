@@ -144,11 +144,11 @@ const (
 //   - v2 path: volume/decrypt.go:decryptVerifyAuth() (else branch)
 //   - v2 encrypt: volume/encrypt.go:encryptComputeAuth()
 type SubkeyReader struct {
-	hkdf         io.Reader
-	headerRead   bool
-	macRead      bool
-	serpentRead  bool
-	rekeyCount   int
+	hkdf        io.Reader
+	headerRead  bool
+	macRead     bool
+	serpentRead bool
+	rekeyCount  int
 }
 
 // NewHKDFStream creates a new HKDF-SHA3-256 stream for subkey derivation.

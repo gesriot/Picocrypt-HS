@@ -2,16 +2,16 @@
 //
 // This package serves two main purposes:
 //
-// 1. State Management (state.go):
-//    The State struct centralizes all UI state variables that were previously
-//    global variables in the original Picocrypt implementation. This includes
-//    file paths, credentials, options, progress tracking, and status display.
-//    All state access is thread-safe via sync.RWMutex.
+//  1. State Management (state.go):
+//     The State struct centralizes all UI state variables that were previously
+//     global variables in the original Picocrypt implementation. This includes
+//     file paths, credentials, options, progress tracking, and status display.
+//     All state access is thread-safe via sync.RWMutex.
 //
-// 2. Progress Reporting (reporter.go):
-//    The UIReporter implements volume.ProgressReporter to bridge between the
-//    core encryption/decryption operations and the UI. It translates operation
-//    status updates into UI state changes and triggers redraws.
+//  2. Progress Reporting (reporter.go):
+//     The UIReporter implements volume.ProgressReporter to bridge between the
+//     core encryption/decryption operations and the UI. It translates operation
+//     status updates into UI state changes and triggers redraws.
 //
 // This separation allows the core crypto code in internal/volume to remain
 // UI-agnostic while still providing rich progress feedback.
@@ -63,10 +63,10 @@ type State struct {
 	InputLabel   string
 
 	// Credentials
-	Password         string
-	CPassword        string // Confirm password
-	PasswordStrength int
-	PasswordState    giu.InputTextFlags
+	Password           string
+	CPassword          string // Confirm password
+	PasswordStrength   int
+	PasswordState      giu.InputTextFlags
 	PasswordStateLabel string
 
 	// Password generator
@@ -126,7 +126,7 @@ type State struct {
 	FastDecode   bool
 
 	// Reed-Solomon codecs
-	RSCodecs                                 *encoding.RSCodecs
+	RSCodecs                                *encoding.RSCodecs
 	RS1, RS5, RS16, RS24, RS32, RS64, RS128 *infectious.FEC
 
 	// Size tracking

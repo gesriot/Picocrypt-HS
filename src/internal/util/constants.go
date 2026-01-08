@@ -1,4 +1,13 @@
 // Package util provides common utilities and constants for Picocrypt-NG.
+//
+// This package contains:
+//   - Size constants (KiB, MiB, GiB, TiB) for byte calculations
+//   - Color constants for UI status messages
+//   - Progress/speed/time formatting functions (Statify, Timeify, Sizeify)
+//   - Cryptographically secure password generation
+//   - Helper functions for file size and time display
+//
+// All utilities are stateless and thread-safe.
 package util
 
 import "image/color"

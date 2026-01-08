@@ -8,14 +8,14 @@ import (
 // Run with: go test -fuzz=FuzzUnpad -fuzztime=30s
 func FuzzUnpad(f *testing.F) {
 	// Seed corpus with interesting cases
-	f.Add([]byte{})                           // empty
-	f.Add([]byte{0x01})                       // single byte
-	f.Add(make([]byte, 127))                  // just under BlockSize
-	f.Add(make([]byte, 128))                  // exactly BlockSize
-	f.Add(make([]byte, 129))                  // just over BlockSize
-	f.Add([]byte{0x00, 0x00, 0x00, 0x00})     // zeros
-	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF})     // max bytes
-	f.Add(Pad([]byte("test data")))           // valid padded data
+	f.Add([]byte{})                       // empty
+	f.Add([]byte{0x01})                   // single byte
+	f.Add(make([]byte, 127))              // just under BlockSize
+	f.Add(make([]byte, 128))              // exactly BlockSize
+	f.Add(make([]byte, 129))              // just over BlockSize
+	f.Add([]byte{0x00, 0x00, 0x00, 0x00}) // zeros
+	f.Add([]byte{0xFF, 0xFF, 0xFF, 0xFF}) // max bytes
+	f.Add(Pad([]byte("test data")))       // valid padded data
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Unpad should never panic regardless of input

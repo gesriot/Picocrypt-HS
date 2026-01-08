@@ -147,8 +147,9 @@ func WriteAuthValues(w io.WriterAt, offset int64, keyHash, keyfileHash, authTag 
 }
 
 // AuthValuesOffset calculates the file offset where auth values are stored
-// Formula: version(15) + commentLen(15) + comments(len*3) + flags(15) + 
-//          salt(48) + hkdfSalt(96) + serpentIV(48) + nonce(72) = 309 + comments*3
+// Formula: version(15) + commentLen(15) + comments(len*3) + flags(15) +
+//
+//	salt(48) + hkdfSalt(96) + serpentIV(48) + nonce(72) = 309 + comments*3
 func AuthValuesOffset(commentsLen int) int64 {
 	return int64(VersionEncSize + CommentLenEncSize + commentsLen*3 + FlagsEncSize +
 		SaltEncSize + HKDFSaltEncSize + SerpentIVEncSize + NonceEncSize)

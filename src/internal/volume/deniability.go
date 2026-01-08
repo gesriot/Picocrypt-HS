@@ -337,4 +337,3 @@ func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 	valid, _ := regexp.Match(`^v\d\.\d{2}$`, versionDec)
 	return !valid // Invalid version format means deniable
 }
-

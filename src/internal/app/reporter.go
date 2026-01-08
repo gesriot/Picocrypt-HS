@@ -75,7 +75,7 @@ func (r *UIReporter) Update() {
 func (r *UIReporter) IsCancelled() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	if r.cancelled {
 		return true
 	}

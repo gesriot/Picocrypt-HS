@@ -364,7 +364,7 @@ func TestGoldenDeniabilityDetection(t *testing.T) {
 	}
 
 	testCases := []struct {
-		file       string
+		file             string
 		shouldBeDeniable bool
 	}{
 		{"pico_test_v1.txt.pcv", false},

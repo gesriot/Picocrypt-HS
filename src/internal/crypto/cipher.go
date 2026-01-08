@@ -13,13 +13,13 @@ import (
 // CipherSuite holds the initialized ciphers and MAC for encryption/decryption.
 // This manages the XChaCha20 and optional Serpent-CTR ciphers.
 type CipherSuite struct {
-	chacha    *chacha20.Cipher
-	serpent   cipher.Stream
-	serpentS  cipher.Block // Keep block cipher for rekeying
-	mac       hash.Hash
-	hkdf      io.Reader
-	paranoid  bool
-	key       []byte // Keep for rekeying
+	chacha   *chacha20.Cipher
+	serpent  cipher.Stream
+	serpentS cipher.Block // Keep block cipher for rekeying
+	mac      hash.Hash
+	hkdf     io.Reader
+	paranoid bool
+	key      []byte // Keep for rekeying
 }
 
 // NewCipherSuite creates a new cipher suite with the given parameters.
@@ -88,8 +88,8 @@ func (cs *CipherSuite) Decrypt(dst, src []byte) {
 // This MUST be called every 60 GiB to prevent nonce overflow.
 //
 // ⚠️ CRITICAL: Rekeying reads from the same HKDF stream in order:
-//   1. nonce (24 bytes) - for XChaCha20
-//   2. serpentIV (16 bytes) - for Serpent-CTR
+//  1. nonce (24 bytes) - for XChaCha20
+//  2. serpentIV (16 bytes) - for Serpent-CTR
 func (cs *CipherSuite) Rekey() error {
 	// Read new nonce for XChaCha20
 	nonce := make([]byte, 24)

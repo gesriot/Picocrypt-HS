@@ -38,10 +38,10 @@ func TestPadUnpad(t *testing.T) {
 func TestPadUnpadRoundtrip(t *testing.T) {
 	// Test specific edge cases
 	testCases := [][]byte{
-		{0x01},                                // 1 byte
-		{0x01, 0x02, 0x03},                    // 3 bytes
-		bytes.Repeat([]byte{0xAB}, 127),       // 127 bytes (just under block)
-		bytes.Repeat([]byte{0xCD}, 64),        // 64 bytes (half block)
+		{0x01},                          // 1 byte
+		{0x01, 0x02, 0x03},              // 3 bytes
+		bytes.Repeat([]byte{0xAB}, 127), // 127 bytes (just under block)
+		bytes.Repeat([]byte{0xCD}, 64),  // 64 bytes (half block)
 	}
 
 	for i, data := range testCases {

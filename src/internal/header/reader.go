@@ -33,8 +33,8 @@ func NewReader(r io.Reader, rs *encoding.RSCodecs) *Reader {
 // ReadResult contains the parsed header and any decoding errors encountered
 type ReadResult struct {
 	Header      *VolumeHeader
-	DecodeError error   // Non-nil if any RS decode errors occurred (header may still be usable)
-	BytesRead   int     // Total bytes consumed from the reader
+	DecodeError error // Non-nil if any RS decode errors occurred (header may still be usable)
+	BytesRead   int   // Total bytes consumed from the reader
 }
 
 // ReadHeader reads and decodes a complete volume header.

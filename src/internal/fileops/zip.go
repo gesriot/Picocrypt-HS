@@ -146,10 +146,10 @@ func (t *TempZipCiphers) Close() {
 
 // ZipOptions configures zip file creation
 type ZipOptions struct {
-	Files      []string    // Files to include
-	RootDir    string      // Root directory for relative paths
-	OutputPath string      // Output .tmp file path
-	Compress   bool        // Use Deflate compression
+	Files      []string        // Files to include
+	RootDir    string          // Root directory for relative paths
+	OutputPath string          // Output .tmp file path
+	Compress   bool            // Use Deflate compression
 	Cipher     *TempZipCiphers // Optional encryption for temp file
 	Progress   ProgressFunc
 	Status     StatusFunc

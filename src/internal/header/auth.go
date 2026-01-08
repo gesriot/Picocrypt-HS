@@ -29,15 +29,15 @@ type AuthResult struct {
 // The subkeyHeader is the first 64 bytes read from the HKDF stream.
 //
 // MAC order (MUST match exactly):
-//   1. version
-//   2. commentsLen (5-digit string)
-//   3. comments
-//   4. flags (5 bytes)
-//   5. salt
-//   6. hkdfSalt
-//   7. serpentIV
-//   8. nonce
-//   9. keyfileHash
+//  1. version
+//  2. commentsLen (5-digit string)
+//  3. comments
+//  4. flags (5 bytes)
+//  5. salt
+//  6. hkdfSalt
+//  7. serpentIV
+//  8. nonce
+//  9. keyfileHash
 func ComputeV2HeaderMAC(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte) []byte {
 	mac := hmac.New(sha3.New512, subkeyHeader)
 

@@ -30,9 +30,9 @@ const (
 
 // SplitOptions configures how a file should be split into chunks.
 type SplitOptions struct {
-	InputPath string     // Path to file to split
-	ChunkSize int        // Size of each chunk in Unit (or number of parts if Unit=Total)
-	Unit      SplitUnit  // Unit of ChunkSize
+	InputPath string       // Path to file to split
+	ChunkSize int          // Size of each chunk in Unit (or number of parts if Unit=Total)
+	Unit      SplitUnit    // Unit of ChunkSize
 	Progress  ProgressFunc // Progress callback (optional)
 	Status    StatusFunc   // Status message callback (optional)
 	Cancel    CancelFunc   // Cancellation check callback (optional)
