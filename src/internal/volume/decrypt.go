@@ -386,7 +386,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 
 			dst := make([]byte, len(data))
 
-			// Decrypt: MAC → XChaCha20 → Serpent
+			// Decrypt: MAC -> XChaCha20 -> Serpent
 			ctx.CipherSuite.Decrypt(dst, data)
 
 			if _, err := fout.Write(dst); err != nil {

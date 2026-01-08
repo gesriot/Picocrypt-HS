@@ -3,13 +3,13 @@
 // Reed-Solomon encoding provides forward error correction, allowing the recovery
 // of corrupted data without retransmission. Picocrypt uses multiple RS configurations:
 //
-//   - RS1 (1→3):   For individual comment characters (highest redundancy)
-//   - RS5 (5→15):  For version string, comment length, and flags
-//   - RS16 (16→48): For Argon2 salt and Serpent IV
-//   - RS24 (24→72): For XChaCha20 nonce
-//   - RS32 (32→96): For HKDF salt and keyfile hash
-//   - RS64 (64→192): For key hash and authentication tag
-//   - RS128 (128→136): For payload data (minimal overhead for bulk data)
+//   - RS1 (1->3):   For individual comment characters (highest redundancy)
+//   - RS5 (5->15):  For version string, comment length, and flags
+//   - RS16 (16->48): For Argon2 salt and Serpent IV
+//   - RS24 (24->72): For XChaCha20 nonce
+//   - RS32 (32->96): For HKDF salt and keyfile hash
+//   - RS64 (64->192): For key hash and authentication tag
+//   - RS128 (128->136): For payload data (minimal overhead for bulk data)
 //
 // The encoding ratio determines fault tolerance: RS128 can correct up to 4 byte
 // errors per 136-byte block, while RS1 can survive 1 error per 3-byte block.
@@ -25,15 +25,15 @@ import (
 // All codecs are created once at startup and reused throughout the application lifetime.
 //
 // The naming convention RSn means n data bytes are encoded into n*3 total bytes
-// (except RS128 which uses n→n+8 for efficiency on bulk payload data).
+// (except RS128 which uses n->n+8 for efficiency on bulk payload data).
 type RSCodecs struct {
-	RS1   *infectious.FEC // 1 data → 3 total bytes (66% redundancy) - comment symbols
-	RS5   *infectious.FEC // 5 data → 15 total bytes - version, comment length, flags
-	RS16  *infectious.FEC // 16 data → 48 total bytes - Argon2 salt, Serpent IV
-	RS24  *infectious.FEC // 24 data → 72 total bytes - XChaCha20 nonce
-	RS32  *infectious.FEC // 32 data → 96 total bytes - HKDF salt, keyfile hash
-	RS64  *infectious.FEC // 64 data → 192 total bytes - key hash, auth tag
-	RS128 *infectious.FEC // 128 data → 136 total bytes (6% overhead) - payload chunks
+	RS1   *infectious.FEC // 1 data -> 3 total bytes (66% redundancy) - comment symbols
+	RS5   *infectious.FEC // 5 data -> 15 total bytes - version, comment length, flags
+	RS16  *infectious.FEC // 16 data -> 48 total bytes - Argon2 salt, Serpent IV
+	RS24  *infectious.FEC // 24 data -> 72 total bytes - XChaCha20 nonce
+	RS32  *infectious.FEC // 32 data -> 96 total bytes - HKDF salt, keyfile hash
+	RS64  *infectious.FEC // 64 data -> 192 total bytes - key hash, auth tag
+	RS128 *infectious.FEC // 128 data -> 136 total bytes (6% overhead) - payload chunks
 }
 
 // NewRSCodecs initializes all Reed-Solomon codecs.
@@ -67,7 +67,7 @@ func NewRSCodecs() (*RSCodecs, error) {
 // The input data length must match the codec's Required() size.
 // Returns encoded data with parity bytes appended (length = codec.Total()).
 //
-// Example: Encode(rs128, 128-byte-data) → 136 bytes with 8 parity bytes.
+// Example: Encode(rs128, 128-byte-data) -> 136 bytes with 8 parity bytes.
 func Encode(rs *infectious.FEC, data []byte) []byte {
 	res := make([]byte, rs.Total())
 	rs.Encode(data, func(s infectious.Share) {

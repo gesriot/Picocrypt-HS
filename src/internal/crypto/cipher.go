@@ -24,8 +24,8 @@ type CipherSuite struct {
 
 // NewCipherSuite creates a new cipher suite with the given parameters.
 //
-// ⚠️ CRITICAL: Encryption order is Serpent-CTR → XChaCha20 → MAC
-// ⚠️ CRITICAL: Decryption order is MAC → XChaCha20 → Serpent-CTR
+// CRITICAL: Encryption order is Serpent-CTR -> XChaCha20 -> MAC
+// CRITICAL: Decryption order is MAC -> XChaCha20 -> Serpent-CTR
 func NewCipherSuite(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkdf io.Reader, paranoid bool) (*CipherSuite, error) {
 	chacha, err := chacha20.NewUnauthenticatedCipher(key, nonce)
 	if err != nil {
@@ -53,9 +53,9 @@ func NewCipherSuite(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkd
 }
 
 // Encrypt processes a block of data for encryption.
-// Order: [Serpent-CTR if paranoid] → XChaCha20 → MAC(ciphertext)
+// Order: [Serpent-CTR if paranoid] -> XChaCha20 -> MAC(ciphertext)
 //
-// ⚠️ CRITICAL: This exact order MUST be preserved.
+// CRITICAL: This exact order MUST be preserved.
 func (cs *CipherSuite) Encrypt(dst, src []byte) {
 	if cs.paranoid {
 		cs.serpent.XORKeyStream(dst, src)
@@ -69,9 +69,9 @@ func (cs *CipherSuite) Encrypt(dst, src []byte) {
 }
 
 // Decrypt processes a block of data for decryption.
-// Order: MAC(ciphertext) → XChaCha20 → [Serpent-CTR if paranoid]
+// Order: MAC(ciphertext) -> XChaCha20 -> [Serpent-CTR if paranoid]
 //
-// ⚠️ CRITICAL: This exact order MUST be preserved.
+// CRITICAL: This exact order MUST be preserved.
 func (cs *CipherSuite) Decrypt(dst, src []byte) {
 	// MAC the ciphertext first (verify-then-decrypt)
 	cs.mac.Write(src)
@@ -87,7 +87,7 @@ func (cs *CipherSuite) Decrypt(dst, src []byte) {
 // Rekey reinitializes the ciphers with new nonce/IV from HKDF stream.
 // This MUST be called every 60 GiB to prevent nonce overflow.
 //
-// ⚠️ CRITICAL: Rekeying reads from the same HKDF stream in order:
+// CRITICAL: Rekeying reads from the same HKDF stream in order:
 //  1. nonce (24 bytes) - for XChaCha20
 //  2. serpentIV (16 bytes) - for Serpent-CTR
 func (cs *CipherSuite) Rekey() error {
@@ -133,7 +133,7 @@ func (cs *CipherSuite) IsParanoid() bool {
 // Close securely zeros all sensitive key material in the cipher suite.
 // This should be called via defer immediately after creating the cipher suite.
 //
-// ⚠️ SECURITY: Always call Close() when done with the cipher suite to minimize
+// SECURITY: Always call Close() when done with the cipher suite to minimize
 // the window during which key material is recoverable from memory.
 func (cs *CipherSuite) Close() {
 	if cs == nil {

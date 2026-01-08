@@ -12,7 +12,7 @@ import (
 // from persisting in memory. This helps mitigate memory dump attacks and
 // reduces the window during which keys are recoverable from RAM.
 //
-// ⚠️ SECURITY NOTE: Due to Go's garbage collector and potential compiler
+// SECURITY NOTE: Due to Go's garbage collector and potential compiler
 // optimizations, this function cannot guarantee complete erasure. However,
 // it significantly reduces the attack surface compared to no cleanup.
 //

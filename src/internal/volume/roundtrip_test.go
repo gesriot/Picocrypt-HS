@@ -10,7 +10,7 @@ import (
 	"Picocrypt-NG/internal/encoding"
 )
 
-// TestRoundTripBasic tests basic encrypt → decrypt cycle
+// TestRoundTripBasic tests basic encrypt -> decrypt cycle
 func TestRoundTripBasic(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -79,7 +79,7 @@ func TestRoundTripBasic(t *testing.T) {
 	t.Log("Round-trip basic: SUCCESS")
 }
 
-// TestRoundTripParanoid tests encrypt → decrypt with paranoid mode
+// TestRoundTripParanoid tests encrypt -> decrypt with paranoid mode
 func TestRoundTripParanoid(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -139,7 +139,7 @@ func TestRoundTripParanoid(t *testing.T) {
 	t.Log("Round-trip paranoid: SUCCESS")
 }
 
-// TestRoundTripReedSolomon tests encrypt → decrypt with Reed-Solomon
+// TestRoundTripReedSolomon tests encrypt -> decrypt with Reed-Solomon
 func TestRoundTripReedSolomon(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -199,7 +199,7 @@ func TestRoundTripReedSolomon(t *testing.T) {
 	t.Log("Round-trip Reed-Solomon: SUCCESS")
 }
 
-// TestRoundTripDeniability tests encrypt → decrypt with deniability
+// TestRoundTripDeniability tests encrypt -> decrypt with deniability
 func TestRoundTripDeniability(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -265,7 +265,7 @@ func TestRoundTripDeniability(t *testing.T) {
 	t.Log("Round-trip deniability: SUCCESS")
 }
 
-// TestRoundTripAllOptions tests encrypt → decrypt with all options enabled
+// TestRoundTripAllOptions tests encrypt -> decrypt with all options enabled
 func TestRoundTripAllOptions(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -328,7 +328,7 @@ func TestRoundTripAllOptions(t *testing.T) {
 	t.Log("Round-trip all options: SUCCESS")
 }
 
-// TestRoundTripWithComments tests encrypt → decrypt with comments
+// TestRoundTripWithComments tests encrypt -> decrypt with comments
 func TestRoundTripWithComments(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -388,7 +388,7 @@ func TestRoundTripWithComments(t *testing.T) {
 	t.Log("Round-trip with comments: SUCCESS")
 }
 
-// TestRoundTripWithKeyfile tests encrypt → decrypt with keyfile
+// TestRoundTripWithKeyfile tests encrypt -> decrypt with keyfile
 func TestRoundTripWithKeyfile(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -457,7 +457,7 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 	t.Log("Round-trip with keyfile: SUCCESS")
 }
 
-// TestRoundTripWithMultipleKeyfiles tests encrypt → decrypt with multiple keyfiles
+// TestRoundTripWithMultipleKeyfiles tests encrypt -> decrypt with multiple keyfiles
 func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -530,7 +530,7 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 	t.Log("Round-trip with multiple keyfiles: SUCCESS")
 }
 
-// TestRoundTripWithOrderedKeyfiles tests encrypt → decrypt with ordered keyfiles
+// TestRoundTripWithOrderedKeyfiles tests encrypt -> decrypt with ordered keyfiles
 func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -673,7 +673,7 @@ func TestWrongKeyfileFails(t *testing.T) {
 	}
 }
 
-// TestRoundTripSplit tests encrypt with splitting → recombine → decrypt
+// TestRoundTripSplit tests encrypt with splitting -> recombine -> decrypt
 func TestRoundTripSplit(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -1215,7 +1215,7 @@ func TestRoundTripSplitWithDeniability(t *testing.T) {
 }
 
 // TestRoundTripSplitWithReedSolomon tests split + Reed-Solomon combination.
-// This tests the complete encrypt→split→recombine→decrypt cycle with RS enabled.
+// This tests the complete encrypt->split->recombine->decrypt cycle with RS enabled.
 func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping split+RS test in short mode")
@@ -1720,7 +1720,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	// serpentIV(48) + nonce(72) + keyHash(192) + keyfileHash(96) + authTag(192) = 789 bytes
 	//
 	// We tamper with the salt bytes heavily - flip enough bytes to exceed RS correction
-	// Salt starts at offset 15 + 15 + 15 = 45, is 48 bytes (rs16: 16→48)
+	// Salt starts at offset 15 + 15 + 15 = 45, is 48 bytes (rs16: 16->48)
 	// RS16 can correct up to (48-16)/2 = 16 errors. Flip more than that.
 	saltStart := 45
 	for i := 0; i < 20; i++ { // Corrupt 20 bytes - exceeds RS16 correction capacity
@@ -1736,7 +1736,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	}
 
 	// Attempt to decrypt - should fail due to:
-	// 1. Salt corruption → wrong Argon2 key → wrong HKDF → header MAC mismatch
+	// 1. Salt corruption -> wrong Argon2 key -> wrong HKDF -> header MAC mismatch
 	decReq := &DecryptRequest{
 		InputFile:    tamperedPath,
 		OutputFile:   decryptedPath,

@@ -10,7 +10,7 @@
 //  4. Derive keys: Argon2id password derivation
 //  5. Process keyfiles: Hash and XOR with password key
 //  6. Compute auth: Calculate header HMAC (v2) or key hash (v1)
-//  7. Encrypt payload: Serpent-CTR → XChaCha20 → MAC
+//  7. Encrypt payload: Serpent-CTR -> XChaCha20 -> MAC
 //  8. Finalize: Write auth tag, add deniability wrapper, split chunks
 //
 // Decryption pipeline:
@@ -19,10 +19,10 @@
 //  3. Derive keys: Argon2id password derivation
 //  4. Process keyfiles: Validate against stored hash
 //  5. Verify auth: Check header MAC (v2) or key hash (v1)
-//  6. Decrypt payload: MAC → XChaCha20 → Serpent-CTR
+//  6. Decrypt payload: MAC -> XChaCha20 -> Serpent-CTR
 //  7. Finalize: Verify MAC, auto-unzip if requested
 //
-// ⚠️ SECURITY: Always call OperationContext.Close() when done to zero key material.
+// SECURITY: Always call OperationContext.Close() when done to zero key material.
 package volume
 
 import (
@@ -201,7 +201,7 @@ func (ctx *OperationContext) TempZipReader(r io.Reader) io.Reader {
 // Close securely zeros all sensitive cryptographic material in the context.
 // This should be called via defer immediately after creating the context.
 //
-// ⚠️ SECURITY: Always call Close() when done with an operation to minimize
+// SECURITY: Always call Close() when done with an operation to minimize
 // the window during which key material is recoverable from memory.
 func (ctx *OperationContext) Close() {
 	if ctx == nil {

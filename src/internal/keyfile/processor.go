@@ -23,7 +23,7 @@ type Result struct {
 // Close securely zeros the keyfile key material.
 // The hash is retained as it's not sensitive (stored in header).
 //
-// ⚠️ SECURITY: Always call Close() when done with the keyfile result.
+// SECURITY: Always call Close() when done with the keyfile result.
 func (r *Result) Close() {
 	if r == nil || r.closed {
 		return
@@ -49,7 +49,7 @@ type ProgressFunc func(progress float32)
 // If ordered is true, files are hashed sequentially (order matters).
 // If ordered is false, files are hashed individually and XORed (order doesn't matter).
 //
-// ⚠️ CRITICAL: The ordered vs unordered distinction affects key derivation:
+// CRITICAL: The ordered vs unordered distinction affects key derivation:
 //   - Ordered:   SHA3-256(file1 || file2 || file3 || ...)
 //   - Unordered: SHA3-256(file1) XOR SHA3-256(file2) XOR SHA3-256(file3) XOR ...
 func Process(paths []string, ordered bool, progress ProgressFunc) (*Result, error) {

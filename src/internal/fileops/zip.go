@@ -65,7 +65,7 @@ func (er *encryptedReader) Read(data []byte) (int, error) {
 // that exists only in memory. Even if the temp file is recovered, it cannot be
 // decrypted without this key.
 //
-// ⚠️ SECURITY: Call Close() when done to zero the ephemeral key material.
+// SECURITY: Call Close() when done to zero the ephemeral key material.
 type TempZipCiphers struct {
 	Writer *chacha20.Cipher // Used when writing the zip archive
 	Reader *chacha20.Cipher // Used when reading back for encryption
@@ -119,7 +119,7 @@ func NewTempZipCiphers() (*TempZipCiphers, error) {
 // Close securely zeros the ephemeral key material and clears cipher references.
 // This should be called when the temporary zip is no longer needed.
 //
-// ⚠️ SECURITY: Always call Close() to minimize the window during which
+// SECURITY: Always call Close() to minimize the window during which
 // the ephemeral key is recoverable from memory.
 func (t *TempZipCiphers) Close() {
 	if t == nil || t.closed {

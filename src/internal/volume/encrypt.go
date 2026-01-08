@@ -330,7 +330,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			src = src[:n]
 			dst := make([]byte, len(src))
 
-			// Encrypt: Serpent → XChaCha20 → MAC
+			// Encrypt: Serpent -> XChaCha20 -> MAC
 			ctx.CipherSuite.Encrypt(dst, src)
 
 			// Apply Reed-Solomon if enabled

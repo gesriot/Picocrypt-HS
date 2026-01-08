@@ -54,7 +54,7 @@ const (
 // DeriveKey derives an encryption key from password and salt using Argon2id.
 // If paranoid is true, uses stronger parameters (8 passes, 8 threads).
 //
-// ⚠️ CRITICAL: Parameters MUST NOT change or existing volumes cannot be decrypted.
+// CRITICAL: Parameters MUST NOT change or existing volumes cannot be decrypted.
 func DeriveKey(password, salt []byte, paranoid bool) ([]byte, error) {
 	var key []byte
 
@@ -98,46 +98,38 @@ const (
 // SubkeyReader provides sequential reading of subkeys from an HKDF stream.
 // It tracks which subkeys have been consumed to prevent misuse.
 //
-// ═══════════════════════════════════════════════════════════════════════════════
-// ⚠️ CRITICAL INVARIANT: v1 vs v2 HKDF Differences
-// ═══════════════════════════════════════════════════════════════════════════════
+// CRITICAL INVARIANT: v1 vs v2 HKDF Differences
 //
 // There are TWO key differences between v1.x and v2.00+ formats:
 //
-// ┌─────────────────────────────────────────────────────────────────────────────┐
-// │ DIFFERENCE 1: HKDF Initialization Timing (relative to keyfile XOR)         │
-// ├─────────────────────────────────────────────────────────────────────────────┤
-// │                                                                             │
-// │ v1.x (original Picocrypt):                                                  │
-// │   1. key = Argon2(password, salt)                                           │
-// │   2. key = key XOR keyfileKey              ← XOR FIRST                      │
-// │   3. hkdf = HKDF-SHA3-256(key, hkdfSalt)   ← HKDF with XORed key            │
-// │                                                                             │
-// │ v2.00+ (Picocrypt-NG):                                                      │
-// │   1. key = Argon2(password, salt)                                           │
-// │   2. hkdf = HKDF-SHA3-256(key, hkdfSalt)   ← HKDF FIRST (before XOR)        │
-// │   3. key = key XOR keyfileKey              ← XOR affects XChaCha only       │
-// │                                                                             │
-// └─────────────────────────────────────────────────────────────────────────────┘
+// DIFFERENCE 1: HKDF Initialization Timing (relative to keyfile XOR)
 //
-// ┌─────────────────────────────────────────────────────────────────────────────┐
-// │ DIFFERENCE 2: Subkey Read Order from HKDF Stream                            │
-// ├─────────────────────────────────────────────────────────────────────────────┤
-// │                                                                             │
-// │ v1.x subkey order:                                                          │
-// │   Byte 0-31:  MAC subkey (32 bytes)                                         │
-// │   Byte 32-63: Serpent key (32 bytes)                                        │
-// │   Byte 64+:   Rekey values (nonce 24 + IV 16 per cycle)                     │
-// │                                                                             │
-// │ v2.00+ subkey order:                                                        │
-// │   Byte 0-63:   Header subkey (64 bytes) ← NEW: for HMAC-SHA3-512 header MAC │
-// │   Byte 64-95:  MAC subkey (32 bytes)                                        │
-// │   Byte 96-127: Serpent key (32 bytes)                                       │
-// │   Byte 128+:   Rekey values (nonce 24 + IV 16 per cycle)                    │
-// │                                                                             │
-// └─────────────────────────────────────────────────────────────────────────────┘
+// v1.x (original Picocrypt):
+//  1. key = Argon2(password, salt)
+//  2. key = key XOR keyfileKey              <- XOR FIRST
+//  3. hkdf = HKDF-SHA3-256(key, hkdfSalt)   <- HKDF with XORed key
 //
-// ⚠️ Violating either of these orders = inability to decrypt volumes of that version.
+// v2.00+ (Picocrypt-NG):
+//  1. key = Argon2(password, salt)
+//  2. hkdf = HKDF-SHA3-256(key, hkdfSalt)   <- HKDF FIRST (before XOR)
+//  3. key = key XOR keyfileKey              <- XOR affects XChaCha only
+//
+// DIFFERENCE 2: Subkey Read Order from HKDF Stream
+//
+// v1.x subkey order:
+//
+//	Byte 0-31:  MAC subkey (32 bytes)
+//	Byte 32-63: Serpent key (32 bytes)
+//	Byte 64+:   Rekey values (nonce 24 + IV 16 per cycle)
+//
+// v2.00+ subkey order:
+//
+//	Byte 0-63:   Header subkey (64 bytes) <- NEW: for HMAC-SHA3-512 header MAC
+//	Byte 64-95:  MAC subkey (32 bytes)
+//	Byte 96-127: Serpent key (32 bytes)
+//	Byte 128+:   Rekey values (nonce 24 + IV 16 per cycle)
+//
+// Violating either of these orders = inability to decrypt volumes of that version.
 //
 // Code locations:
 //   - v1 path: volume/decrypt.go:decryptVerifyAuth() (IsLegacyV1 branch)

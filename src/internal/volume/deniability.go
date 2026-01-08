@@ -19,7 +19,7 @@ import (
 // AddDeniability wraps a volume with a deniability layer.
 // This encrypts the entire volume with XChaCha20 using a separate key derived from the password.
 //
-// ⚠️ CRITICAL: Deniability uses its own Argon2 derivation (4 passes, 1 GiB, 4 threads)
+// CRITICAL: Deniability uses its own Argon2 derivation (4 passes, 1 GiB, 4 threads)
 // and stores salt(16) + nonce(24) at the beginning of the file.
 func AddDeniability(volumePath, password string, reporter ProgressReporter) error {
 	if reporter != nil {
@@ -170,7 +170,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 // RemoveDeniability decrypts a deniability-wrapped volume.
 // Returns the path to the decrypted volume (a .tmp file).
 //
-// ⚠️ CRITICAL: Must read salt(16) + nonce(24) from the beginning,
+// CRITICAL: Must read salt(16) + nonce(24) from the beginning,
 // then decrypt with XChaCha20 using Argon2-derived key.
 func RemoveDeniability(volumePath, password string, reporter ProgressReporter, rs *encoding.RSCodecs) (string, error) {
 	if reporter != nil {

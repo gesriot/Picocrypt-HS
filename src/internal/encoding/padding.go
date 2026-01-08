@@ -15,7 +15,7 @@ const BlockSize = 128
 // This is required when the final payload chunk is smaller than 128 bytes,
 // so it can be properly RS128-encoded.
 //
-// Example: 100-byte data → 128 bytes (28 bytes of value 0x1C appended)
+// Example: 100-byte data -> 128 bytes (28 bytes of value 0x1C appended)
 func Pad(data []byte) []byte {
 	padLen := BlockSize - len(data)%BlockSize
 	padding := bytes.Repeat([]byte{byte(padLen)}, padLen)

@@ -14,7 +14,7 @@ type AuthResult struct {
 	KeyHashComputed []byte // The computed key hash for storage in header
 }
 
-// ⚠️ CRITICAL INVARIANT: v1 vs v2 Header Authentication
+// CRITICAL INVARIANT: v1 vs v2 Header Authentication
 //
 // v1.x: Header stores SHA3-512(key) for password verification
 //       No header MAC - header fields are not authenticated against tampering

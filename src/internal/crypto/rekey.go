@@ -45,7 +45,7 @@ func (c *Counter) Count() int64 {
 // DeniabilityRekey computes new nonce for deniability layer rekeying.
 // Unlike regular rekeying which uses HKDF, deniability uses SHA3-256(nonce).
 //
-// ⚠️ CRITICAL: Deniability rekeying is DIFFERENT from regular rekeying!
+// CRITICAL: Deniability rekeying is DIFFERENT from regular rekeying!
 // Regular: nonce from HKDF stream
 // Deniability: nonce = SHA3-256(old_nonce)[:24]
 func DeniabilityRekey(key, oldNonce []byte) (*chacha20.Cipher, []byte, error) {
