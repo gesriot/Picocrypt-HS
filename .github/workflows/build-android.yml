@@ -28,14 +28,19 @@ jobs:
       run: |
         go install github.com/fyne-io/fyne-cross@latest
 
+    - name: Copy icon to src
+      run: |
+        cp images/key.png src/icon.png
+
     - name: Build for Android (all architectures)
       run: |
         cd src
         fyne-cross android -arch=* \
           -app-id io.github.picocryptng.PicocryptNG \
-          -icon ../images/key.ico \
+          -icon icon.png \
           -name Picocrypt-NG \
-          -pull
+          -pull \
+          ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
 

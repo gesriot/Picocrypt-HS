@@ -45,7 +45,7 @@ import (
 	"github.com/Picocrypt/zxcvbn-go"
 )
 
-//go:embed icon.svg
+//go:embed key.png
 var appIconData []byte
 
 // UI dimensions matching original giu implementation
@@ -160,8 +160,8 @@ func (a *App) Run() {
 	// Apply compact theme to match original Picocrypt look
 	a.fyneApp.Settings().SetTheme(NewCompactTheme())
 
-	// Set application icon (embedded SVG)
-	appIcon := fyne.NewStaticResource("icon.svg", appIconData)
+	// Set application icon (embedded PNG)
+	appIcon := fyne.NewStaticResource("key.png", appIconData)
 	a.fyneApp.SetIcon(appIcon)
 
 	// Create main window with fixed size (starts with encrypt height)
