@@ -101,10 +101,11 @@ type State struct {
 	Compress    bool
 
 	// Decryption options
-	Keep      bool // Force decrypt despite errors
-	Kept      bool // File was kept despite errors
-	AutoUnzip bool
-	SameLevel bool
+	Keep        bool // Force decrypt despite errors
+	Kept        bool // File was kept despite errors
+	VerifyFirst bool // Two-pass mode: verify MAC before decryption (slower, more secure)
+	AutoUnzip   bool
+	SameLevel   bool
 
 	// Split options
 	Split         bool
@@ -245,6 +246,7 @@ func (s *State) resetUILocked() {
 
 	s.Keep = false
 	s.Kept = false
+	s.VerifyFirst = false
 	s.AutoUnzip = false
 	s.SameLevel = false
 

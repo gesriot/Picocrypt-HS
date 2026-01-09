@@ -52,6 +52,24 @@ In v2.00+, the "key hash" field contains an HMAC-SHA3-512 computed over the foll
 
 This provides integrity protection for the entire header, unlike v1.x which only stored SHA3-512(key). Picocrypt NG v2.00 maintains backward compatibility with v1.x volumes.
 
+## Verify First Mode (Two-Pass Decryption)
+
+Picocrypt NG offers an optional "Verify first" mode that addresses security audit recommendation PCC-004: authenticate ciphertext before decryption.
+
+In standard streaming decryption, the MAC is computed incrementally alongside decryption, meaning the MAC can only be verified after the entire file has been decrypted. While Picocrypt uses encrypt-then-MAC (the correct order), this means the decryption algorithm is applied to potentially attacker-controlled data before authenticity is confirmed.
+
+When "Verify first" is enabled, decryption proceeds in two passes:
+1. **Pass 1 (Verification)**: Read entire file, compute MAC over ciphertext without decrypting
+2. **MAC Check**: Verify computed MAC matches stored authentication tag
+3. **Pass 2 (Decryption)**: Only if MAC is valid, perform actual decryption
+
+**Trade-offs:**
+- **Security**: Keys are never applied to unverified data
+- **Performance**: File is read twice, roughly doubling I/O time
+- **Recommended for**: High-security scenarios, untrusted file sources
+
+This feature is available in the decrypt advanced options as "Verify first" checkbox.
+
 # Keyfile Design
 Picocrypt NG allows the use of keyfiles as an additional form of authentication. Picocrypt NG's unique "Require correct order" feature enforces the user to drop keyfiles into the window in the same order as they did when encrypting in order to decrypt the volume successfully. Here's how it works:
 
@@ -100,7 +118,7 @@ These packages implement the cryptographic operations and must be modified with 
 
 ### `internal/volume/`
 - **encrypt.go**: 8-phase encryption pipeline orchestration
-- **decrypt.go**: 7-phase decryption pipeline with v1/v2 compatibility
+- **decrypt.go**: 7-phase decryption pipeline with v1/v2 compatibility (optional two-pass verify-first mode)
 - **context.go**: Operation context with automatic key material cleanup
 - **deniability.go**: Plausible deniability wrapper (random-looking header)
 

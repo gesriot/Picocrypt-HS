@@ -117,6 +117,7 @@ type App struct {
 
 	// Advanced options (decrypt mode)
 	forceDecryptCheck *widget.Check
+	verifyFirstCheck  *widget.Check
 	deleteVolumeCheck *widget.Check
 	autoUnzipCheck    *widget.Check
 	sameLevelCheck    *widget.Check
@@ -578,20 +579,25 @@ func (a *App) buildEncryptOptions() {
 
 // buildDecryptOptions creates decrypt mode options.
 func (a *App) buildDecryptOptions() {
-	// Row 1: Force decrypt + Delete volume
+	// Row 1: Force decrypt + Verify first
 	a.forceDecryptCheck = widget.NewCheck("Force decrypt", func(checked bool) {
 		a.State.Keep = checked
 	})
 	a.forceDecryptCheck.SetChecked(a.State.Keep)
 
+	a.verifyFirstCheck = widget.NewCheck("Verify first", func(checked bool) {
+		a.State.VerifyFirst = checked
+	})
+	a.verifyFirstCheck.SetChecked(a.State.VerifyFirst)
+
+	row1 := container.NewGridWithColumns(2, a.forceDecryptCheck, a.verifyFirstCheck)
+
+	// Row 2: Delete volume + Auto unzip
 	a.deleteVolumeCheck = widget.NewCheck("Delete volume", func(checked bool) {
 		a.State.Delete = checked
 	})
 	a.deleteVolumeCheck.SetChecked(a.State.Delete)
 
-	row1 := container.NewGridWithColumns(2, a.forceDecryptCheck, a.deleteVolumeCheck)
-
-	// Row 2: Auto unzip + Same level
 	a.autoUnzipCheck = widget.NewCheck("Auto unzip", func(checked bool) {
 		a.State.AutoUnzip = checked
 		if !checked {
@@ -604,15 +610,19 @@ func (a *App) buildDecryptOptions() {
 	})
 	a.autoUnzipCheck.SetChecked(a.State.AutoUnzip)
 
+	row2 := container.NewGridWithColumns(2, a.deleteVolumeCheck, a.autoUnzipCheck)
+
+	// Row 3: Same level (only if auto unzip is relevant)
 	a.sameLevelCheck = widget.NewCheck("Same level", func(checked bool) {
 		a.State.SameLevel = checked
 	})
 	a.sameLevelCheck.SetChecked(a.State.SameLevel)
 
-	row2 := container.NewGridWithColumns(2, a.autoUnzipCheck, a.sameLevelCheck)
+	row3 := container.NewGridWithColumns(2, a.sameLevelCheck, widget.NewLabel(""))
 
 	a.advancedContainer.Add(row1)
 	a.advancedContainer.Add(row2)
+	a.advancedContainer.Add(row3)
 
 	// Disable auto unzip if not a zip file
 	if !strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
@@ -956,6 +966,14 @@ func (a *App) updateAdvancedDisableState() {
 				a.forceDecryptCheck.Disable()
 			} else {
 				a.forceDecryptCheck.Enable()
+			}
+		}
+
+		if a.verifyFirstCheck != nil {
+			if advancedDisabled {
+				a.verifyFirstCheck.Disable()
+			} else {
+				a.verifyFirstCheck.Enable()
 			}
 		}
 
@@ -1467,6 +1485,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 		Password:     a.State.Password,
 		Keyfiles:     a.State.Keyfiles,
 		ForceDecrypt: a.State.Keep,
+		VerifyFirst:  a.State.VerifyFirst,
 		AutoUnzip:    a.State.AutoUnzip,
 		SameLevel:    a.State.SameLevel,
 		Recombine:    a.State.Recombine,

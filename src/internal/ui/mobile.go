@@ -593,13 +593,21 @@ func (a *App) buildMobileDecryptOptions() {
 	})
 	a.forceDecryptCheck.SetChecked(a.State.Keep)
 
+	a.verifyFirstCheck = widget.NewCheck("Verify first", func(checked bool) {
+		a.State.VerifyFirst = checked
+	})
+	a.verifyFirstCheck.SetChecked(a.State.VerifyFirst)
+
 	a.deleteCheck = widget.NewCheck("Delete encrypted", func(checked bool) {
 		a.State.Delete = checked
 	})
 	a.deleteCheck.SetChecked(a.State.Delete)
 
-	row := container.NewGridWithColumns(2, a.forceDecryptCheck, a.deleteCheck)
-	a.advancedContainer.Add(row)
+	row1 := container.NewGridWithColumns(2, a.forceDecryptCheck, a.verifyFirstCheck)
+	row2 := container.NewGridWithColumns(2, a.deleteCheck, widget.NewLabel(""))
+
+	a.advancedContainer.Add(row1)
+	a.advancedContainer.Add(row2)
 }
 
 // buildMobileOutputSection creates the output section for mobile
