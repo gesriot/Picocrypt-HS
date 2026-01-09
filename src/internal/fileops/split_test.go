@@ -80,10 +80,10 @@ func TestSplitUnits(t *testing.T) {
 		minChunks int
 		maxChunks int
 	}{
-		{"KiB", SplitUnitKiB, 1, 3 * 1024, 3, 3},             // 3 KiB into 1 KiB chunks = 3 chunks
-		{"MiB", SplitUnitMiB, 1, 1024 * 1024, 1, 1},          // 1 MiB into 1 MiB chunks = 1 chunk
-		{"Total_3parts", SplitUnitTotal, 3, 9000, 3, 3},      // 9000 bytes into 3 parts
-		{"Total_5parts", SplitUnitTotal, 5, 10000, 5, 5},     // 10000 bytes into 5 parts
+		{"KiB", SplitUnitKiB, 1, 3 * 1024, 3, 3},         // 3 KiB into 1 KiB chunks = 3 chunks
+		{"MiB", SplitUnitMiB, 1, 1024 * 1024, 1, 1},      // 1 MiB into 1 MiB chunks = 1 chunk
+		{"Total_3parts", SplitUnitTotal, 3, 9000, 3, 3},  // 9000 bytes into 3 parts
+		{"Total_5parts", SplitUnitTotal, 5, 10000, 5, 5}, // 10000 bytes into 5 parts
 	}
 
 	for _, tc := range testCases {

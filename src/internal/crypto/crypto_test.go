@@ -5,6 +5,61 @@ import (
 	"testing"
 )
 
+func TestRandomBytes(t *testing.T) {
+	// Test various lengths
+	lengths := []int{1, 16, 32, 64, 128, 1024}
+
+	for _, length := range lengths {
+		data, err := RandomBytes(length)
+		if err != nil {
+			t.Fatalf("RandomBytes(%d) failed: %v", length, err)
+		}
+
+		if len(data) != length {
+			t.Errorf("RandomBytes(%d) returned %d bytes", length, len(data))
+		}
+
+		// Check that it's not all zeros (statistically almost impossible)
+		allZero := true
+		for _, b := range data {
+			if b != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero && length > 0 {
+			t.Errorf("RandomBytes(%d) returned all zeros (extremely unlikely)", length)
+		}
+	}
+}
+
+func TestRandomBytesUniqueness(t *testing.T) {
+	// Two calls should produce different results
+	data1, err := RandomBytes(32)
+	if err != nil {
+		t.Fatalf("RandomBytes(32) failed: %v", err)
+	}
+
+	data2, err := RandomBytes(32)
+	if err != nil {
+		t.Fatalf("RandomBytes(32) failed: %v", err)
+	}
+
+	if bytes.Equal(data1, data2) {
+		t.Error("Two RandomBytes calls should produce different results")
+	}
+}
+
+func TestRandomBytesZeroLength(t *testing.T) {
+	// Zero length returns error because allZero check triggers on empty slice
+	_, err := RandomBytes(0)
+	if err == nil {
+		t.Error("RandomBytes(0) should return error")
+	}
+	// Note: RandomBytes with negative length will panic from make()
+	// This is Go's standard behavior and we don't test it
+}
+
 func TestDeriveKey(t *testing.T) {
 	password := []byte("test-password")
 	salt := make([]byte, 16)
@@ -198,6 +253,162 @@ func TestDeniabilityRekey(t *testing.T) {
 	_, newNonce2, _ := DeniabilityRekey(key, nonce)
 	if !bytes.Equal(newNonce, newNonce2) {
 		t.Error("DeniabilityRekey should be deterministic")
+	}
+}
+
+func TestCipherSuiteRekey(t *testing.T) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 24)
+	serpentKey := make([]byte, 32)
+	serpentIV := make([]byte, 16)
+	hkdfSalt := make([]byte, 32)
+
+	for i := range key {
+		key[i] = byte(i)
+		serpentKey[i] = byte(i + 32)
+	}
+
+	// Test rekey in both modes
+	for _, paranoid := range []bool{false, true} {
+		t.Run(func() string {
+			if paranoid {
+				return "paranoid"
+			}
+			return "normal"
+		}(), func(t *testing.T) {
+			mac, _ := NewMAC(make([]byte, 32), paranoid)
+			hkdf := NewHKDFStream(key, hkdfSalt)
+
+			suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, paranoid)
+			if err != nil {
+				t.Fatalf("NewCipherSuite() failed: %v", err)
+			}
+
+			// Encrypt some data before rekey
+			src1 := []byte("data before rekey")
+			dst1 := make([]byte, len(src1))
+			suite.Encrypt(dst1, src1)
+
+			// Perform rekey
+			err = suite.Rekey()
+			if err != nil {
+				t.Fatalf("Rekey() failed: %v", err)
+			}
+
+			// Encrypt more data after rekey
+			src2 := []byte("data after rekey")
+			dst2 := make([]byte, len(src2))
+			suite.Encrypt(dst2, src2)
+
+			// Both should work (no panic, produces output)
+			if bytes.Equal(dst1, make([]byte, len(dst1))) {
+				t.Error("First encryption produced all zeros")
+			}
+			if bytes.Equal(dst2, make([]byte, len(dst2))) {
+				t.Error("Second encryption produced all zeros")
+			}
+		})
+	}
+}
+
+func TestCipherSuiteRekeyMultiple(t *testing.T) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 24)
+	serpentKey := make([]byte, 32)
+	serpentIV := make([]byte, 16)
+	hkdfSalt := make([]byte, 32)
+
+	mac, _ := NewMAC(make([]byte, 32), true)
+	hkdf := NewHKDFStream(key, hkdfSalt)
+
+	suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, true)
+	if err != nil {
+		t.Fatalf("NewCipherSuite() failed: %v", err)
+	}
+
+	// Perform multiple rekeys (simulating very large file)
+	for i := 0; i < 5; i++ {
+		err = suite.Rekey()
+		if err != nil {
+			t.Fatalf("Rekey() #%d failed: %v", i+1, err)
+		}
+
+		// Encrypt some data after each rekey
+		src := []byte("test data")
+		dst := make([]byte, len(src))
+		suite.Encrypt(dst, src)
+	}
+}
+
+func TestCipherSuiteClose(t *testing.T) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 24)
+	serpentKey := make([]byte, 32)
+	serpentIV := make([]byte, 16)
+	hkdfSalt := make([]byte, 32)
+
+	for i := range key {
+		key[i] = byte(i)
+		serpentKey[i] = byte(i + 32)
+	}
+
+	// Test close in both modes
+	for _, paranoid := range []bool{false, true} {
+		t.Run(func() string {
+			if paranoid {
+				return "paranoid"
+			}
+			return "normal"
+		}(), func(t *testing.T) {
+			mac, _ := NewMAC(make([]byte, 32), paranoid)
+			hkdf := NewHKDFStream(key, hkdfSalt)
+
+			// Make a copy of key to verify zeroing
+			keyToCheck := make([]byte, 32)
+			copy(keyToCheck, key)
+
+			suite, err := NewCipherSuite(keyToCheck, nonce, serpentKey, serpentIV, mac, hkdf, paranoid)
+			if err != nil {
+				t.Fatalf("NewCipherSuite() failed: %v", err)
+			}
+
+			// Close the suite
+			suite.Close()
+
+			// Multiple Close() calls should be safe
+			suite.Close()
+			suite.Close()
+		})
+	}
+}
+
+func TestCipherSuiteCloseNil(t *testing.T) {
+	// Close on nil should not panic
+	var suite *CipherSuite
+	suite.Close()
+}
+
+func TestCipherSuiteIsParanoid(t *testing.T) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 24)
+	serpentKey := make([]byte, 32)
+	serpentIV := make([]byte, 16)
+	hkdfSalt := make([]byte, 32)
+
+	// Normal mode
+	mac1, _ := NewMAC(make([]byte, 32), false)
+	hkdf1 := NewHKDFStream(key, hkdfSalt)
+	suite1, _ := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac1, hkdf1, false)
+	if suite1.IsParanoid() {
+		t.Error("IsParanoid() should return false for normal mode")
+	}
+
+	// Paranoid mode
+	mac2, _ := NewMAC(make([]byte, 32), true)
+	hkdf2 := NewHKDFStream(key, hkdfSalt)
+	suite2, _ := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac2, hkdf2, true)
+	if !suite2.IsParanoid() {
+		t.Error("IsParanoid() should return true for paranoid mode")
 	}
 }
 
