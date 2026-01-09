@@ -29,7 +29,7 @@ jobs:
       run: |
         cd src
         fyne-cross android -arch=arm64 \
-          -app-id io.github.picocrypt-ng.Picocrypt-NG \
+          -app-id io.github.picocryptng.PicocryptNG \
           -icon ../images/key.ico \
           -name Picocrypt-NG \
           -pull
