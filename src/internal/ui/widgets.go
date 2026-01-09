@@ -15,6 +15,7 @@ import (
 
 // PasswordStrengthIndicator is a custom widget that displays password strength
 // as a circular arc, colored from red (weak) to green (strong).
+// Matches original Picocrypt behavior: arc from top going clockwise.
 type PasswordStrengthIndicator struct {
 	widget.BaseWidget
 	strength  int  // 0-4 (zxcvbn score)
@@ -54,14 +55,33 @@ func (p *PasswordStrengthIndicator) MinSize() fyne.Size {
 
 // CreateRenderer creates the renderer for the widget.
 func (p *PasswordStrengthIndicator) CreateRenderer() fyne.WidgetRenderer {
-	r := &passwordStrengthRenderer{indicator: p, lines: make([]*canvas.Line, 20)}
-	// Pre-create line objects
+	const numSegments = 36
+	r := &passwordStrengthRenderer{
+		indicator: p,
+		lines:     make([]*canvas.Line, numSegments),
+	}
+
+	centerX := float32(12)
+	centerY := float32(12)
+	radius := float32(8)
+
+	// Pre-create all line segments for a full circle
 	for i := range r.lines {
+		t1 := 2 * math.Pi * float64(i) / float64(numSegments)
+		t2 := 2 * math.Pi * float64(i+1) / float64(numSegments)
+
+		x1 := centerX + radius*float32(math.Cos(t1))
+		y1 := centerY + radius*float32(math.Sin(t1))
+		x2 := centerX + radius*float32(math.Cos(t2))
+		y2 := centerY + radius*float32(math.Sin(t2))
+
 		line := canvas.NewLine(color.Transparent)
 		line.StrokeWidth = 2
+		line.Position1 = fyne.NewPos(x1, y1)
+		line.Position2 = fyne.NewPos(x2, y2)
 		r.lines[i] = line
 	}
-	r.updateLines()
+	r.updateArc()
 	return r
 }
 
@@ -76,21 +96,19 @@ func (r *passwordStrengthRenderer) MinSize() fyne.Size {
 	return r.indicator.MinSize()
 }
 
-func (r *passwordStrengthRenderer) updateLines() {
-	centerX := float32(12)
-	centerY := float32(12)
-	radius := float32(9)
-
+func (r *passwordStrengthRenderer) updateArc() {
+	// Hide when not visible or in decrypt mode (matches original behavior)
 	if !r.indicator.visible || r.indicator.decryMode {
-		// Hide all lines
 		for _, line := range r.lines {
 			line.StrokeColor = color.Transparent
-			canvas.Refresh(line)
 		}
 		return
 	}
 
 	// Calculate color based on strength (0-4)
+	// Red (weak) to Green (strong): matches original formula exactly
+	// strength=0: R=200(0xc8), G=76(0x4c) - red
+	// strength=4: R=76, G=200 - green
 	col := color.RGBA{
 		R: uint8(0xc8 - 31*r.indicator.strength),
 		G: uint8(0x4c + 31*r.indicator.strength),
@@ -98,32 +116,52 @@ func (r *passwordStrengthRenderer) updateLines() {
 		A: 0xff,
 	}
 
+	// Arc calculation matching original Picocrypt exactly:
+	// Start: -π/2 (top, 12 o'clock position)
+	// End: π * (0.4 * strength - 0.1)
+	//
+	// Examples:
+	// strength=0: arc from -π/2 to -0.1π ≈ 72 degrees (small red arc)
+	// strength=4: arc from -π/2 to 1.5π ≈ 360 degrees (full green circle)
 	startAngle := -math.Pi / 2
 	endAngle := math.Pi * (0.4*float64(r.indicator.strength) - 0.1)
-	steps := len(r.lines)
+	arcLength := endAngle - startAngle
+
+	// If arc has no length, hide all
+	if arcLength <= 0 {
+		for _, line := range r.lines {
+			line.StrokeColor = color.Transparent
+		}
+		return
+	}
+
+	numSegments := len(r.lines)
 
 	for i, line := range r.lines {
-		t1 := startAngle + (endAngle-startAngle)*float64(i)/float64(steps)
-		t2 := startAngle + (endAngle-startAngle)*float64(i+1)/float64(steps)
+		// Segment angle in [0, 2π)
+		segmentAngle := 2 * math.Pi * float64(i) / float64(numSegments)
 
-		if t1 > endAngle || r.indicator.strength == 0 {
-			line.StrokeColor = color.Transparent
-		} else {
-			x1 := centerX + radius*float32(math.Cos(t1))
-			y1 := centerY + radius*float32(math.Sin(t1))
-			x2 := centerX + radius*float32(math.Cos(t2))
-			y2 := centerY + radius*float32(math.Sin(t2))
-
-			line.Position1 = fyne.NewPos(x1, y1)
-			line.Position2 = fyne.NewPos(x2, y2)
-			line.StrokeColor = col
+		// Calculate angular distance from start angle
+		// This tells us how far along the arc this segment is
+		distFromStart := math.Mod(segmentAngle-startAngle, 2*math.Pi)
+		if distFromStart < 0 {
+			distFromStart += 2 * math.Pi
 		}
-		canvas.Refresh(line)
+
+		// Segment is visible if it falls within the arc length
+		if distFromStart < arcLength {
+			line.StrokeColor = col
+		} else {
+			line.StrokeColor = color.Transparent
+		}
 	}
 }
 
 func (r *passwordStrengthRenderer) Refresh() {
-	r.updateLines()
+	r.updateArc()
+	for _, line := range r.lines {
+		canvas.Refresh(line)
+	}
 }
 
 func (r *passwordStrengthRenderer) Destroy() {}
@@ -297,6 +335,11 @@ func NewTooltipButton(label string, tooltip string, onTapped func()) *TooltipBut
 	b.OnTapped = onTapped
 	b.ExtendBaseWidget(b)
 	return b
+}
+
+// SetTooltip updates the tooltip text.
+func (b *TooltipButton) SetTooltip(tooltip string) {
+	b.tooltip = tooltip
 }
 
 // MouseIn is called when the mouse enters the button - shows tooltip.

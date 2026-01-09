@@ -25,6 +25,12 @@ func (a *App) onDrop(names []string) {
 		return
 	}
 
+	// Prevent race condition: ignore new drops while scanning or working
+	// This prevents multiple goroutines from simultaneously modifying AllFiles
+	if a.State.Scanning || a.State.Working {
+		return
+	}
+
 	a.State.Scanning = true
 	a.State.CompressDone = 0
 	a.State.CompressTotal = 0

@@ -50,11 +50,12 @@ var appIconData []byte
 
 // UI dimensions matching original giu implementation
 const (
-	windowWidth  = 318
-	windowHeight = 510 // Original was 507, increased to fit Fyne widgets
-	buttonWidth  = 54
-	padding      = 4 // Reduced from 8 to match compact theme
-	contentWidth = windowWidth - padding*2
+	windowWidth         = 318
+	windowHeightEncrypt = 510 // Full height for encrypt mode (more options)
+	windowHeightDecrypt = 430 // Reduced height for decrypt mode (fewer options)
+	buttonWidth         = 54
+	padding             = 4 // Reduced from 8 to match compact theme
+	contentWidth        = windowWidth - padding*2
 )
 
 // App represents the main UI application.
@@ -89,12 +90,12 @@ type App struct {
 	startButton       *widget.Button
 	statusLabel       *ColoredLabel
 
-	// Password buttons (with tooltips)
-	showHideBtn *TooltipButton
-	clearPwdBtn *TooltipButton
-	copyBtn     *TooltipButton
-	pasteBtn    *TooltipButton
-	createBtn   *TooltipButton
+	// Password buttons
+	showHideBtn *widget.Button
+	clearPwdBtn *widget.Button
+	copyBtn     *widget.Button
+	pasteBtn    *widget.Button
+	createBtn   *widget.Button
 
 	// Keyfile buttons
 	keyfileEditBtn   *widget.Button
@@ -163,18 +164,21 @@ func (a *App) Run() {
 	appIcon := fyne.NewStaticResource("icon.svg", appIconData)
 	a.fyneApp.SetIcon(appIcon)
 
-	// Create main window with fixed size
+	// Create main window with fixed size (starts with encrypt height)
 	a.Window = a.fyneApp.NewWindow("Picocrypt NG " + a.Version[1:])
 	a.Window.SetIcon(appIcon)
 	a.Window.SetFixedSize(true)
-	a.Window.Resize(fyne.NewSize(windowWidth, windowHeight))
+	a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
 
 	// Initialize dialog package
 	extDialog.Init()
 
 	// Set clipboard callback for state
+	// Must use fyne.Do() since this may be called from goroutines (e.g., GenPassword)
 	a.State.SetClipboard = func(text string) {
-		a.Window.Clipboard().SetContent(text)
+		fyne.Do(func() {
+			a.Window.Clipboard().SetContent(text)
+		})
 	}
 
 	// Set close callback to prevent closing during operations
@@ -299,15 +303,15 @@ func (a *App) buildUI() fyne.CanvasObject {
 
 // buildPasswordSection creates the password input section.
 func (a *App) buildPasswordSection() fyne.CanvasObject {
-	// Password buttons row with tooltips
-	a.showHideBtn = NewTooltipButton(a.State.PasswordStateLabel, "Toggle password visibility", func() {
+	// Password buttons row
+	a.showHideBtn = widget.NewButton(a.State.PasswordStateLabel, func() {
 		a.State.TogglePasswordVisibility()
 		a.showHideBtn.SetText(a.State.PasswordStateLabel)
 		a.passwordEntry.SetHidden(a.State.IsPasswordHidden())
 		a.cPasswordEntry.SetHidden(a.State.IsPasswordHidden())
 	})
 
-	a.clearPwdBtn = NewTooltipButton("Clear", "Clear password fields", func() {
+	a.clearPwdBtn = widget.NewButton("Clear", func() {
 		a.State.Password = ""
 		a.State.CPassword = ""
 		a.passwordEntry.SetText("")
@@ -317,11 +321,11 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.copyBtn = NewTooltipButton("Copy", "Copy password to clipboard", func() {
+	a.copyBtn = widget.NewButton("Copy", func() {
 		a.Window.Clipboard().SetContent(a.State.Password)
 	})
 
-	a.pasteBtn = NewTooltipButton("Paste", "Paste password from clipboard", func() {
+	a.pasteBtn = widget.NewButton("Paste", func() {
 		text := a.Window.Clipboard().Content()
 		a.State.Password = text
 		a.passwordEntry.SetText(text)
@@ -334,7 +338,7 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.createBtn = NewTooltipButton("Create", "Generate a secure password", func() {
+	a.createBtn = widget.NewButton("Create", func() {
 		a.showPassgenModal()
 	})
 
@@ -406,6 +410,13 @@ func (a *App) buildCommentsSection() fyne.CanvasObject {
 	a.commentsEntry = widget.NewEntry()
 	a.commentsEntry.SetPlaceHolder("Comments (not encrypted)")
 	a.commentsEntry.OnChanged = func(text string) {
+		// In decrypt mode, comments are read-only - revert any changes
+		if a.State.Mode == "decrypt" {
+			if text != a.State.Comments {
+				a.commentsEntry.SetText(a.State.Comments)
+			}
+			return
+		}
 		a.State.Comments = text
 	}
 
@@ -442,8 +453,16 @@ func (a *App) updateAdvancedSection() {
 
 	if a.State.Mode != "decrypt" {
 		a.buildEncryptOptions()
+		// Resize window for encrypt mode (more options)
+		if a.Window != nil {
+			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
+		}
 	} else {
 		a.buildDecryptOptions()
+		// Resize window for decrypt mode (fewer options)
+		if a.Window != nil {
+			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightDecrypt))
+		}
 	}
 
 	a.advancedContainer.Refresh()
@@ -734,7 +753,11 @@ func (a *App) updateUIState() {
 		(a.State.Comments == "" || a.State.Comments == "Comments are corrupted")
 
 	if a.commentsEntry != nil {
-		if mainDisabled || commentsOuterDisabled || commentsInnerDisabled || a.State.CommentsDisabled {
+		// In decrypt mode with valid comments, keep entry enabled but read-only
+		// (OnChanged will prevent actual changes). This keeps text visible, not pale.
+		if a.State.Mode == "decrypt" && a.State.Comments != "" && a.State.Comments != "Comments are corrupted" {
+			a.commentsEntry.Enable() // Keep text visible (not pale)
+		} else if mainDisabled || commentsOuterDisabled || commentsInnerDisabled || a.State.CommentsDisabled {
 			a.commentsEntry.Disable()
 		} else {
 			a.commentsEntry.Enable()
@@ -1236,6 +1259,10 @@ func (a *App) startRecursiveWork() {
 			} else {
 				failedCount++
 			}
+
+			// Reset Working flag so next iteration's onDrop() isn't blocked
+			// (onDrop has a guard to prevent race conditions during scanning/working)
+			a.State.Working = false
 
 			if a.cancelled.Load() {
 				a.State.Working = false
