@@ -1,4 +1,4 @@
-// Picocrypt NG v2.01
+// Picocrypt NG v2.02
 // Copyright (c) Picocrypt NG developers
 // Released under GPL-3.0-only
 // https://github.com/Picocrypt-NG/Picocrypt-NG
@@ -24,8 +24,8 @@ import (
 )
 
 // version is the application version displayed in the window title.
-// Format: "vMAJOR.MINOR" (e.g., "v2.01")
-const version = "v2.01"
+// Format: "vMAJOR.MINOR" (e.g., "v2.02")
+const version = "v2.02"
 
 func main() {
 	flag.Parse()
