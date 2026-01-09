@@ -114,7 +114,7 @@ func TestIsLegacyV1(t *testing.T) {
 		expected bool
 	}{
 		{"v2.00", false},
-		{"v2.01", false},
+		{"v2.02", false},
 		{"v1.00", true},
 		{"v1.34", true},
 		{"v1.99", true},

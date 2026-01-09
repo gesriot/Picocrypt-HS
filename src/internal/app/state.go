@@ -25,21 +25,27 @@ import (
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/util"
 
-	"github.com/Picocrypt/giu"
 	"github.com/Picocrypt/infectious"
 )
 
 // Version is the application version string.
-const Version = "v2.01"
+const Version = "v2.02"
+
+// PasswordInputMode represents the visibility state of password inputs.
+type PasswordInputMode int
+
+const (
+	PasswordModeHidden PasswordInputMode = iota
+	PasswordModeVisible
+)
 
 // State holds the application state that persists across operations.
 // This centralizes all the global variables from the original implementation.
 type State struct {
 	mu sync.RWMutex
 
-	// Window
-	Window *giu.MasterWindow
-	DPI    float32
+	// DPI scaling factor
+	DPI float32
 
 	// Operation mode
 	Mode     string // "encrypt" or "decrypt"
@@ -66,7 +72,7 @@ type State struct {
 	Password           string
 	CPassword          string // Confirm password
 	PasswordStrength   int
-	PasswordState      giu.InputTextFlags
+	PasswordMode       PasswordInputMode
 	PasswordStateLabel string
 
 	// Password generator
@@ -134,6 +140,9 @@ type State struct {
 	CompressTotal     int64
 	CompressDone      int64
 	CompressStart     time.Time
+
+	// Clipboard callback (set by UI)
+	SetClipboard func(text string)
 }
 
 // NewState creates a new application state with default values.
@@ -151,12 +160,13 @@ func NewState() *State {
 		StartLabel:         "Start",
 		MainStatus:         "Ready",
 		MainStatusColor:    util.WHITE,
-		PasswordState:      giu.InputTextFlagsPassword,
+		PasswordMode:       PasswordModeHidden,
 		PasswordStateLabel: "Show",
 		PassgenLength:      32,
 		SplitSelected:      1, // Default to MiB
 		SplitUnits:         []string{"KiB", "MiB", "GiB", "TiB", "Total"},
 		FastDecode:         true,
+		DPI:                1.0,
 
 		// Reed-Solomon codecs
 		RSCodecs: rs,
@@ -216,7 +226,7 @@ func (s *State) resetUILocked() {
 	s.Password = ""
 	s.CPassword = ""
 	s.PasswordStrength = 0
-	s.PasswordState = giu.InputTextFlagsPassword
+	s.PasswordMode = PasswordModeHidden
 	s.PasswordStateLabel = "Show"
 
 	s.Keyfiles = nil
@@ -322,12 +332,19 @@ func (s *State) TogglePasswordVisibility() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.PasswordStateLabel == "Show" {
-		s.PasswordState = giu.InputTextFlagsNone
+		s.PasswordMode = PasswordModeVisible
 		s.PasswordStateLabel = "Hide"
 	} else {
-		s.PasswordState = giu.InputTextFlagsPassword
+		s.PasswordMode = PasswordModeHidden
 		s.PasswordStateLabel = "Show"
 	}
+}
+
+// IsPasswordHidden returns true if password should be hidden.
+func (s *State) IsPasswordHidden() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.PasswordMode == PasswordModeHidden
 }
 
 // UpdateKeyfileLabel updates the keyfile label based on current keyfiles.
@@ -390,6 +407,8 @@ func (s *State) GenPassword() string {
 		Numbers: s.PassgenNums,
 		Symbols: s.PassgenSymbols,
 	}
+	copyToClipboard := s.PassgenCopy
+	clipboardFunc := s.SetClipboard
 	s.mu.RUnlock()
 
 	password, err := util.GenPassword(opts)
@@ -398,8 +417,8 @@ func (s *State) GenPassword() string {
 		// Return empty string - UI will show no password was generated
 		return ""
 	}
-	if s.PassgenCopy && s.Window != nil {
-		giu.Context.GetPlatform().SetClipboard(password)
+	if copyToClipboard && clipboardFunc != nil {
+		clipboardFunc(password)
 	}
 	return password
 }

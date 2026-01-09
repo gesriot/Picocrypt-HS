@@ -1,4 +1,4 @@
-// Package ui provides the Picocrypt NG graphical user interface using giu (Dear ImGui wrapper).
+// Package ui provides the Picocrypt NG graphical user interface using Fyne.
 //
 // The UI is designed to match the original audited Picocrypt layout exactly, ensuring
 // users familiar with the original application can transition seamlessly. Key features:
@@ -17,10 +17,8 @@ package ui
 
 import (
 	"crypto/rand"
+	_ "embed"
 	"fmt"
-	"image"
-	"image/color"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -34,14 +32,35 @@ import (
 	"Picocrypt-NG/internal/util"
 	"Picocrypt-NG/internal/volume"
 
-	"github.com/Picocrypt/dialog"
-	"github.com/Picocrypt/giu"
+	"fyne.io/fyne/v2"
+	fyneApp "fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
+
+	extDialog "github.com/Picocrypt/dialog"
 	"github.com/Picocrypt/zxcvbn-go"
+)
+
+//go:embed icon.svg
+var appIconData []byte
+
+// UI dimensions matching original giu implementation
+const (
+	windowWidth  = 318
+	windowHeight = 510 // Original was 507, increased to fit Fyne widgets
+	buttonWidth  = 54
+	padding      = 4 // Reduced from 8 to match compact theme
+	contentWidth = windowWidth - padding*2
 )
 
 // App represents the main UI application.
 type App struct {
-	Window  *giu.MasterWindow
+	fyneApp fyne.App
+	Window  fyne.Window
 	Version string
 	DPI     float32
 
@@ -53,6 +72,65 @@ type App struct {
 
 	// Cancellation flag (atomic for thread safety across goroutines)
 	cancelled atomic.Bool
+
+	// UI widgets that need to be updated
+	inputLabel        *widget.Label
+	clearButton       *widget.Button
+	mainContent       *fyne.Container
+	passwordEntry     *PasswordEntry
+	cPasswordEntry    *PasswordEntry
+	strengthIndicator *PasswordStrengthIndicator
+	validIndicator    *ValidationIndicator
+	keyfileLabel      *widget.Label
+	commentsLabel     *widget.Label
+	commentsEntry     *widget.Entry
+	advancedContainer *fyne.Container
+	outputEntry       *widget.Label
+	startButton       *widget.Button
+	statusLabel       *ColoredLabel
+
+	// Password buttons (with tooltips)
+	showHideBtn *TooltipButton
+	clearPwdBtn *TooltipButton
+	copyBtn     *TooltipButton
+	pasteBtn    *TooltipButton
+	createBtn   *TooltipButton
+
+	// Keyfile buttons
+	keyfileEditBtn   *widget.Button
+	keyfileCreateBtn *widget.Button
+
+	// Output section
+	changeBtn *widget.Button
+
+	// Advanced options (encrypt mode)
+	paranoidCheck    *widget.Check
+	compressCheck    *widget.Check
+	reedSolomonCheck *widget.Check
+	deleteCheck      *widget.Check
+	deniabilityCheck *widget.Check
+	recursivelyCheck *widget.Check
+	splitCheck       *widget.Check
+	splitSizeEntry   *widget.Entry
+	splitUnitSelect  *widget.Select
+
+	// Advanced options (decrypt mode)
+	forceDecryptCheck *widget.Check
+	deleteVolumeCheck *widget.Check
+	autoUnzipCheck    *widget.Check
+	sameLevelCheck    *widget.Check
+
+	// Modals
+	passgenModal   dialog.Dialog
+	keyfileModal   dialog.Dialog
+	overwriteModal dialog.Dialog
+	progressModal  dialog.Dialog
+
+	// Progress widgets
+	progressBar    *widget.ProgressBar
+	progressLabel  *widget.Label
+	progressStatus *widget.Label
+	cancelButton   *widget.Button
 }
 
 // NewApp creates a new UI application.
@@ -69,29 +147,801 @@ func NewApp(version string) (*App, error) {
 		Version:  version,
 		State:    state,
 		rsCodecs: rsCodecs,
+		DPI:      1.0,
 	}, nil
 }
 
 // Run starts the UI application.
 func (a *App) Run() {
-	a.Window = giu.NewMasterWindow(
-		"Picocrypt NG "+a.Version[1:],
-		318, 507,
-		giu.MasterWindowFlagsNotResizable,
-	)
+	// Always create a new Fyne app - don't use CurrentApp() as it may not exist
+	a.fyneApp = fyneApp.New()
 
-	dialog.Init()
+	// Apply compact theme to match original Picocrypt look
+	a.fyneApp.Settings().SetTheme(NewCompactTheme())
 
-	a.Window.SetDropCallback(a.onDrop)
-	a.Window.SetCloseCallback(func() bool {
-		return !a.State.Working && !a.State.ShowProgress
+	// Set application icon (embedded SVG)
+	appIcon := fyne.NewStaticResource("icon.svg", appIconData)
+	a.fyneApp.SetIcon(appIcon)
+
+	// Create main window with fixed size
+	a.Window = a.fyneApp.NewWindow("Picocrypt NG " + a.Version[1:])
+	a.Window.SetIcon(appIcon)
+	a.Window.SetFixedSize(true)
+	a.Window.Resize(fyne.NewSize(windowWidth, windowHeight))
+
+	// Initialize dialog package
+	extDialog.Init()
+
+	// Set clipboard callback for state
+	a.State.SetClipboard = func(text string) {
+		a.Window.Clipboard().SetContent(text)
+	}
+
+	// Set close callback to prevent closing during operations
+	a.Window.SetCloseIntercept(func() {
+		if !a.State.Working && !a.State.ShowProgress {
+			a.Window.Close()
+		}
 	})
 
-	a.DPI = giu.Context.GetPlatform().GetContentScale()
-	a.State.DPI = a.DPI
-	a.State.Window = a.Window
+	// Build UI
+	content := a.buildUI()
 
-	a.Window.Run(a.draw)
+	// Set up drag and drop
+	a.Window.SetOnDropped(func(pos fyne.Position, uris []fyne.URI) {
+		paths := make([]string, len(uris))
+		for i, uri := range uris {
+			paths[i] = uri.Path()
+		}
+		a.onDrop(paths)
+	})
+
+	// Set up Enter key handler
+	if deskCanvas, ok := a.Window.Canvas().(desktop.Canvas); ok {
+		deskCanvas.SetOnKeyDown(func(event *fyne.KeyEvent) {
+			if event.Name == fyne.KeyReturn || event.Name == fyne.KeyEnter {
+				a.onClickStart()
+			}
+		})
+	}
+
+	a.Window.SetContent(content)
+	a.Window.ShowAndRun()
+}
+
+// fixedWidthButton creates a button with fixed width.
+func fixedWidthButton(label string, width float32, onTapped func()) *fyne.Container {
+	btn := widget.NewButton(label, onTapped)
+	return container.New(&fixedWidthLayout{width: width}, btn)
+}
+
+// fixedWidthLayout is a layout that forces a fixed width.
+type fixedWidthLayout struct {
+	width float32
+}
+
+func (f *fixedWidthLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	if len(objects) == 0 {
+		return fyne.NewSize(f.width, 0)
+	}
+	min := objects[0].MinSize()
+	return fyne.NewSize(f.width, min.Height)
+}
+
+func (f *fixedWidthLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	for _, obj := range objects {
+		obj.Resize(fyne.NewSize(f.width, size.Height))
+		obj.Move(fyne.NewPos(0, 0))
+	}
+}
+
+// buildUI creates the main UI layout.
+func (a *App) buildUI() fyne.CanvasObject {
+	// Input label with Clear button
+	a.inputLabel = widget.NewLabel(a.State.InputLabel)
+	a.inputLabel.Wrapping = fyne.TextWrapWord
+	a.clearButton = widget.NewButton("Clear", a.resetUI)
+	// MediumImportance gives the button a visible border
+	a.clearButton.Importance = widget.MediumImportance
+
+	headerRow := container.NewBorder(nil, nil, nil, a.clearButton, a.inputLabel)
+
+	// Password section
+	passwordSection := a.buildPasswordSection()
+
+	// Keyfiles section
+	keyfilesSection := a.buildKeyfilesSection()
+
+	// Comments section
+	commentsSection := a.buildCommentsSection()
+
+	// Advanced section
+	a.advancedContainer = container.NewVBox()
+	a.updateAdvancedSection()
+
+	// Output section
+	outputSection := a.buildOutputSection()
+
+	// Start button and status
+	a.startButton = widget.NewButton(a.State.StartLabel, a.onClickStart)
+	a.startButton.Importance = widget.HighImportance
+
+	a.statusLabel = NewColoredLabel(a.State.MainStatus, a.State.MainStatusColor)
+
+	// Main content container
+	a.mainContent = container.NewVBox(
+		passwordSection,
+		keyfilesSection,
+		widget.NewSeparator(),
+		commentsSection,
+		widget.NewLabel("Advanced:"),
+		a.advancedContainer,
+		outputSection,
+		widget.NewSeparator(),
+		a.startButton,
+		a.statusLabel,
+	)
+
+	// Full layout with padding
+	fullLayout := container.NewVBox(
+		headerRow,
+		widget.NewSeparator(),
+		a.mainContent,
+	)
+
+	// Add padding
+	padded := container.NewPadded(fullLayout)
+
+	a.updateUIState()
+
+	return padded
+}
+
+// buildPasswordSection creates the password input section.
+func (a *App) buildPasswordSection() fyne.CanvasObject {
+	// Password buttons row with tooltips
+	a.showHideBtn = NewTooltipButton(a.State.PasswordStateLabel, "Toggle password visibility", func() {
+		a.State.TogglePasswordVisibility()
+		a.showHideBtn.SetText(a.State.PasswordStateLabel)
+		a.passwordEntry.SetHidden(a.State.IsPasswordHidden())
+		a.cPasswordEntry.SetHidden(a.State.IsPasswordHidden())
+	})
+
+	a.clearPwdBtn = NewTooltipButton("Clear", "Clear password fields", func() {
+		a.State.Password = ""
+		a.State.CPassword = ""
+		a.passwordEntry.SetText("")
+		a.cPasswordEntry.SetText("")
+		a.updatePasswordStrength()
+		a.updateValidation()
+		a.updateUIState()
+	})
+
+	a.copyBtn = NewTooltipButton("Copy", "Copy password to clipboard", func() {
+		a.Window.Clipboard().SetContent(a.State.Password)
+	})
+
+	a.pasteBtn = NewTooltipButton("Paste", "Paste password from clipboard", func() {
+		text := a.Window.Clipboard().Content()
+		a.State.Password = text
+		a.passwordEntry.SetText(text)
+		if a.State.Mode != "decrypt" {
+			a.State.CPassword = text
+			a.cPasswordEntry.SetText(text)
+		}
+		a.updatePasswordStrength()
+		a.updateValidation()
+		a.updateUIState()
+	})
+
+	a.createBtn = NewTooltipButton("Create", "Generate a secure password", func() {
+		a.showPassgenModal()
+	})
+
+	// Use adaptive grid that fills available space evenly
+	buttonRow := container.NewGridWithColumns(5,
+		a.showHideBtn, a.clearPwdBtn, a.copyBtn, a.pasteBtn, a.createBtn,
+	)
+
+	// Password input with strength indicator
+	a.passwordEntry = NewPasswordEntry()
+	a.passwordEntry.SetPlaceHolder("Password")
+	a.passwordEntry.OnChanged = func(text string) {
+		a.State.Password = text
+		a.updatePasswordStrength()
+		a.updateValidation()
+		a.updateUIState() // Update button states based on password
+	}
+
+	a.strengthIndicator = NewPasswordStrengthIndicator()
+
+	passwordRow := container.NewBorder(nil, nil, nil, a.strengthIndicator, a.passwordEntry)
+
+	// Confirm password
+	a.cPasswordEntry = NewPasswordEntry()
+	a.cPasswordEntry.SetPlaceHolder("Confirm password")
+	a.cPasswordEntry.OnChanged = func(text string) {
+		a.State.CPassword = text
+		a.updateValidation()
+		a.updateUIState() // Update button states based on password match
+	}
+
+	a.validIndicator = NewValidationIndicator()
+
+	confirmRow := container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
+
+	return container.NewVBox(
+		widget.NewLabel("Password:"),
+		buttonRow,
+		passwordRow,
+		widget.NewLabel("Confirm password:"),
+		confirmRow,
+	)
+}
+
+// buildKeyfilesSection creates the keyfiles input section.
+func (a *App) buildKeyfilesSection() fyne.CanvasObject {
+	a.keyfileEditBtn = widget.NewButton("Edit", func() {
+		a.showKeyfileModal()
+	})
+
+	a.keyfileCreateBtn = widget.NewButton("Create", func() {
+		a.createKeyfile()
+	})
+
+	a.keyfileLabel = widget.NewLabel(a.State.KeyfileLabel)
+
+	// Layout: "Keyfiles:" Edit Create [label fills rest]
+	return container.NewHBox(
+		widget.NewLabel("Keyfiles:"),
+		a.keyfileEditBtn,
+		a.keyfileCreateBtn,
+		a.keyfileLabel,
+	)
+}
+
+// buildCommentsSection creates the comments input section.
+func (a *App) buildCommentsSection() fyne.CanvasObject {
+	a.commentsLabel = widget.NewLabel(a.State.CommentsLabel)
+	a.commentsEntry = widget.NewEntry()
+	a.commentsEntry.SetPlaceHolder("Comments (not encrypted)")
+	a.commentsEntry.OnChanged = func(text string) {
+		a.State.Comments = text
+	}
+
+	return container.NewVBox(
+		a.commentsLabel,
+		a.commentsEntry,
+	)
+}
+
+// buildOutputSection creates the output file section.
+func (a *App) buildOutputSection() fyne.CanvasObject {
+	a.outputEntry = widget.NewLabel("")
+
+	// Create a disabled entry style appearance
+	outputBg := canvas.NewRectangle(theme.InputBackgroundColor())
+	outputBg.CornerRadius = theme.InputRadiusSize()
+	outputWithBg := container.NewStack(outputBg, container.NewPadded(a.outputEntry))
+
+	a.changeBtn = widget.NewButton("Change", func() {
+		a.changeOutputFile()
+	})
+
+	row := container.NewBorder(nil, nil, nil, a.changeBtn, outputWithBg)
+
+	return container.NewVBox(
+		widget.NewLabel("Save output as:"),
+		row,
+	)
+}
+
+// updateAdvancedSection updates the advanced options based on mode.
+func (a *App) updateAdvancedSection() {
+	a.advancedContainer.RemoveAll()
+
+	if a.State.Mode != "decrypt" {
+		a.buildEncryptOptions()
+	} else {
+		a.buildDecryptOptions()
+	}
+
+	a.advancedContainer.Refresh()
+}
+
+// buildEncryptOptions creates encrypt mode options.
+func (a *App) buildEncryptOptions() {
+	// Row 1: Paranoid + Compress
+	a.paranoidCheck = widget.NewCheck("Paranoid mode", func(checked bool) {
+		a.State.Paranoid = checked
+	})
+	a.paranoidCheck.SetChecked(a.State.Paranoid)
+
+	a.compressCheck = widget.NewCheck("Compress files", func(checked bool) {
+		a.State.Compress = checked
+	})
+	a.compressCheck.SetChecked(a.State.Compress)
+
+	row1 := container.NewGridWithColumns(2, a.paranoidCheck, a.compressCheck)
+
+	// Row 2: Reed-Solomon + Delete files
+	a.reedSolomonCheck = widget.NewCheck("Reed-Solomon", func(checked bool) {
+		a.State.ReedSolomon = checked
+	})
+	a.reedSolomonCheck.SetChecked(a.State.ReedSolomon)
+
+	a.deleteCheck = widget.NewCheck("Delete files", func(checked bool) {
+		a.State.Delete = checked
+	})
+	a.deleteCheck.SetChecked(a.State.Delete)
+
+	row2 := container.NewGridWithColumns(2, a.reedSolomonCheck, a.deleteCheck)
+
+	// Row 3: Deniability + Recursively
+	a.deniabilityCheck = widget.NewCheck("Deniability", func(checked bool) {
+		a.State.Deniability = checked
+		a.updateUIState()
+	})
+	a.deniabilityCheck.SetChecked(a.State.Deniability)
+
+	a.recursivelyCheck = widget.NewCheck("Recursively", func(checked bool) {
+		a.State.Recursively = checked
+		if checked {
+			a.State.Compress = false
+			if a.compressCheck != nil {
+				a.compressCheck.SetChecked(false)
+			}
+		}
+		a.updateUIState()
+	})
+	a.recursivelyCheck.SetChecked(a.State.Recursively)
+
+	row3 := container.NewGridWithColumns(2, a.deniabilityCheck, a.recursivelyCheck)
+
+	// Row 4: Split into chunks
+	a.splitCheck = widget.NewCheck("Split:", func(checked bool) {
+		a.State.Split = checked
+		a.updateUIState() // Update status to show increased disk space requirement
+	})
+	a.splitCheck.SetChecked(a.State.Split)
+
+	a.splitSizeEntry = widget.NewEntry()
+	a.splitSizeEntry.SetPlaceHolder("Size")
+	a.splitSizeEntry.SetText(a.State.SplitSize)
+	a.splitSizeEntry.OnChanged = func(text string) {
+		a.State.SplitSize = text
+		a.State.Split = text != ""
+		if a.splitCheck != nil {
+			a.splitCheck.SetChecked(a.State.Split)
+		}
+		a.updateUIState() // Update status to show increased disk space requirement
+	}
+
+	a.splitUnitSelect = widget.NewSelect(a.State.SplitUnits, func(selected string) {
+		for i, unit := range a.State.SplitUnits {
+			if unit == selected {
+				a.State.SplitSelected = int32(i)
+				break
+			}
+		}
+	})
+	a.splitUnitSelect.SetSelectedIndex(int(a.State.SplitSelected))
+
+	splitRow := container.NewBorder(nil, nil,
+		a.splitCheck,
+		a.splitUnitSelect,
+		a.splitSizeEntry,
+	)
+
+	a.advancedContainer.Add(row1)
+	a.advancedContainer.Add(row2)
+	a.advancedContainer.Add(row3)
+	a.advancedContainer.Add(splitRow)
+}
+
+// buildDecryptOptions creates decrypt mode options.
+func (a *App) buildDecryptOptions() {
+	// Row 1: Force decrypt + Delete volume
+	a.forceDecryptCheck = widget.NewCheck("Force decrypt", func(checked bool) {
+		a.State.Keep = checked
+	})
+	a.forceDecryptCheck.SetChecked(a.State.Keep)
+
+	a.deleteVolumeCheck = widget.NewCheck("Delete volume", func(checked bool) {
+		a.State.Delete = checked
+	})
+	a.deleteVolumeCheck.SetChecked(a.State.Delete)
+
+	row1 := container.NewGridWithColumns(2, a.forceDecryptCheck, a.deleteVolumeCheck)
+
+	// Row 2: Auto unzip + Same level
+	a.autoUnzipCheck = widget.NewCheck("Auto unzip", func(checked bool) {
+		a.State.AutoUnzip = checked
+		if !checked {
+			a.State.SameLevel = false
+			if a.sameLevelCheck != nil {
+				a.sameLevelCheck.SetChecked(false)
+			}
+		}
+		a.updateUIState()
+	})
+	a.autoUnzipCheck.SetChecked(a.State.AutoUnzip)
+
+	a.sameLevelCheck = widget.NewCheck("Same level", func(checked bool) {
+		a.State.SameLevel = checked
+	})
+	a.sameLevelCheck.SetChecked(a.State.SameLevel)
+
+	row2 := container.NewGridWithColumns(2, a.autoUnzipCheck, a.sameLevelCheck)
+
+	a.advancedContainer.Add(row1)
+	a.advancedContainer.Add(row2)
+
+	// Disable auto unzip if not a zip file
+	if !strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
+		a.autoUnzipCheck.Disable()
+		a.sameLevelCheck.Disable()
+	}
+
+	// Disable same level if auto unzip is not checked
+	if !a.State.AutoUnzip {
+		a.sameLevelCheck.Disable()
+	}
+
+	// Disable force decrypt if deniability
+	if a.State.Deniability {
+		a.forceDecryptCheck.Disable()
+	}
+}
+
+// updatePasswordStrength updates the password strength indicator.
+func (a *App) updatePasswordStrength() {
+	a.State.PasswordStrength = zxcvbn.PasswordStrength(a.State.Password, nil).Score
+	if a.strengthIndicator != nil {
+		a.strengthIndicator.SetStrength(a.State.PasswordStrength)
+		a.strengthIndicator.SetVisible(a.State.Password != "")
+		a.strengthIndicator.SetDecryptMode(a.State.Mode == "decrypt")
+	}
+}
+
+// updateValidation updates the password validation indicator.
+func (a *App) updateValidation() {
+	if a.validIndicator == nil {
+		return
+	}
+	visible := a.State.Password != "" && a.State.CPassword != "" && a.State.Mode != "decrypt"
+	valid := a.State.Password == a.State.CPassword
+	a.validIndicator.SetVisible(visible)
+	a.validIndicator.SetValid(valid)
+}
+
+// refreshUI updates all UI elements to reflect current state.
+// This is the main entry point for UI updates from the main thread.
+func (a *App) refreshUI() {
+	a.updateUIState()
+}
+
+// refreshAdvanced rebuilds the advanced section for the current mode.
+func (a *App) refreshAdvanced() {
+	a.updateAdvancedSection()
+}
+
+// updateUIState updates the enabled/disabled state of all UI elements.
+// This mirrors the exact logic from the original giu implementation.
+func (a *App) updateUIState() {
+	hasFiles := len(a.State.AllFiles) > 0 || len(a.State.OnlyFiles) > 0 || len(a.State.OnlyFolders) > 0
+	isScanning := a.State.Scanning
+
+	// Main content disabled - matches giu: (len(allFiles) == 0 && len(onlyFiles) == 0) || scanning
+	// Note: we also check onlyFolders for consistency
+	mainDisabled := !hasFiles || isScanning
+
+	// Clear button - matches giu line 461
+	if a.clearButton != nil {
+		if mainDisabled {
+			a.clearButton.Disable()
+		} else {
+			a.clearButton.Enable()
+		}
+	}
+
+	// Password section - all buttons/inputs disabled when mainDisabled (giu line 469)
+	if a.passwordEntry != nil {
+		if mainDisabled {
+			a.passwordEntry.Disable()
+		} else {
+			a.passwordEntry.Enable()
+		}
+	}
+
+	if a.showHideBtn != nil {
+		if mainDisabled {
+			a.showHideBtn.Disable()
+		} else {
+			a.showHideBtn.Enable()
+		}
+	}
+
+	if a.clearPwdBtn != nil {
+		if mainDisabled {
+			a.clearPwdBtn.Disable()
+		} else {
+			a.clearPwdBtn.Enable()
+		}
+	}
+
+	if a.copyBtn != nil {
+		if mainDisabled {
+			a.copyBtn.Disable()
+		} else {
+			a.copyBtn.Enable()
+		}
+	}
+
+	if a.pasteBtn != nil {
+		if mainDisabled {
+			a.pasteBtn.Disable()
+		} else {
+			a.pasteBtn.Enable()
+		}
+	}
+
+	// Create password button - disabled in decrypt mode (giu line 508)
+	if a.createBtn != nil {
+		if mainDisabled || a.State.Mode == "decrypt" {
+			a.createBtn.Disable()
+		} else {
+			a.createBtn.Enable()
+		}
+	}
+
+	// Confirm password - disabled when password == "" || mode == "decrypt" (giu line 542)
+	// This is NESTED inside mainDisabled block, so we check both
+	if a.cPasswordEntry != nil {
+		if mainDisabled || a.State.Password == "" || a.State.Mode == "decrypt" {
+			a.cPasswordEntry.Disable()
+		} else {
+			a.cPasswordEntry.Enable()
+		}
+	}
+
+	// Keyfile section - disabled when mode == "decrypt" && !keyfile && !deniability (giu line 567)
+	keyfileDisabled := mainDisabled || (a.State.Mode == "decrypt" && !a.State.Keyfile && !a.State.Deniability)
+	if a.keyfileEditBtn != nil {
+		if keyfileDisabled {
+			a.keyfileEditBtn.Disable()
+		} else {
+			a.keyfileEditBtn.Enable()
+		}
+	}
+	// Keyfile Create - disabled in decrypt mode (giu line 582)
+	if a.keyfileCreateBtn != nil {
+		if mainDisabled || a.State.Mode == "decrypt" {
+			a.keyfileCreateBtn.Disable()
+		} else {
+			a.keyfileCreateBtn.Enable()
+		}
+	}
+
+	// Comments section - complex nested logic from giu lines 632-633:
+	// Outer: mode != "decrypt" && ((len(keyfiles) == 0 && password == "") || (password != cpassword)) || deniability
+	// Inner: mode == "decrypt" && (comments == "" || comments == "Comments are corrupted")
+	commentsOuterDisabled := (a.State.Mode != "decrypt" &&
+		((len(a.State.Keyfiles) == 0 && a.State.Password == "") ||
+			(a.State.Password != a.State.CPassword))) ||
+		a.State.Deniability
+	commentsInnerDisabled := a.State.Mode == "decrypt" &&
+		(a.State.Comments == "" || a.State.Comments == "Comments are corrupted")
+
+	if a.commentsEntry != nil {
+		if mainDisabled || commentsOuterDisabled || commentsInnerDisabled || a.State.CommentsDisabled {
+			a.commentsEntry.Disable()
+		} else {
+			a.commentsEntry.Enable()
+		}
+	}
+
+	// Advanced section and Start button - giu line 650:
+	// (len(keyfiles) == 0 && password == "") || (mode == "encrypt" && password != cpassword)
+	hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
+	passwordsMatch := a.State.Mode != "encrypt" || a.State.Password == a.State.CPassword
+	advancedAndStartDisabled := !hasCredentials || !passwordsMatch
+
+	// Update advanced section checkboxes/inputs
+	a.updateAdvancedDisableState()
+
+	// Start button - MUST be disabled when no credentials or passwords don't match
+	if a.startButton != nil {
+		label := a.State.StartLabel
+		if a.State.Recursively {
+			label = "Process"
+		}
+		a.startButton.SetText(label)
+
+		if mainDisabled || advancedAndStartDisabled {
+			a.startButton.Disable()
+		} else {
+			a.startButton.Enable()
+		}
+	}
+
+	// Update output display
+	if a.outputEntry != nil {
+		outputDisplay := ""
+		if a.State.OutputFile != "" {
+			outputDisplay = filepath.Base(a.State.OutputFile)
+			if a.State.Split {
+				outputDisplay += ".*"
+			}
+			if a.State.Recursively {
+				outputDisplay = "(multiple values)"
+			}
+		}
+		a.outputEntry.SetText(outputDisplay)
+	}
+
+	// Change button - disabled when recursively (giu line 724)
+	if a.changeBtn != nil {
+		if mainDisabled || advancedAndStartDisabled || a.State.Recursively {
+			a.changeBtn.Disable()
+		} else {
+			a.changeBtn.Enable()
+		}
+	}
+
+	// Update status
+	if a.statusLabel != nil {
+		statusText := a.State.MainStatus
+		if a.State.MainStatus == "Ready" && a.State.RequiredFreeSpace > 0 {
+			multiplier := 1
+			if len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 {
+				multiplier++
+			}
+			if a.State.Deniability {
+				multiplier++
+			}
+			if a.State.Split {
+				multiplier++
+			}
+			if a.State.Recombine {
+				multiplier++
+			}
+			if a.State.AutoUnzip {
+				multiplier++
+			}
+			statusText = "Ready (ensure >" + util.Sizeify(a.State.RequiredFreeSpace*int64(multiplier)) + " free)"
+		}
+		a.statusLabel.SetText(statusText)
+		a.statusLabel.SetColor(a.State.MainStatusColor)
+	}
+
+	// Update labels
+	if a.inputLabel != nil {
+		a.inputLabel.SetText(a.State.InputLabel)
+	}
+
+	if a.keyfileLabel != nil {
+		a.keyfileLabel.SetText(a.State.KeyfileLabel)
+	}
+
+	if a.commentsLabel != nil {
+		a.commentsLabel.SetText(a.State.CommentsLabel)
+	}
+}
+
+// updateAdvancedDisableState updates the disable state of advanced options.
+func (a *App) updateAdvancedDisableState() {
+	hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
+	passwordsMatch := a.State.Mode != "encrypt" || a.State.Password == a.State.CPassword
+	advancedDisabled := !hasCredentials || !passwordsMatch
+
+	if a.State.Mode != "decrypt" {
+		// Encrypt mode options
+		if a.compressCheck != nil {
+			if advancedDisabled || a.State.Recursively || (len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0) {
+				a.compressCheck.Disable()
+			} else {
+				a.compressCheck.Enable()
+			}
+		}
+
+		if a.recursivelyCheck != nil {
+			if advancedDisabled || (len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0) {
+				a.recursivelyCheck.Disable()
+			} else {
+				a.recursivelyCheck.Enable()
+			}
+		}
+
+		if a.paranoidCheck != nil {
+			if advancedDisabled {
+				a.paranoidCheck.Disable()
+			} else {
+				a.paranoidCheck.Enable()
+			}
+		}
+
+		if a.reedSolomonCheck != nil {
+			if advancedDisabled {
+				a.reedSolomonCheck.Disable()
+			} else {
+				a.reedSolomonCheck.Enable()
+			}
+		}
+
+		if a.deleteCheck != nil {
+			if advancedDisabled {
+				a.deleteCheck.Disable()
+			} else {
+				a.deleteCheck.Enable()
+			}
+		}
+
+		if a.deniabilityCheck != nil {
+			if advancedDisabled {
+				a.deniabilityCheck.Disable()
+			} else {
+				a.deniabilityCheck.Enable()
+			}
+		}
+
+		if a.splitCheck != nil {
+			if advancedDisabled {
+				a.splitCheck.Disable()
+			} else {
+				a.splitCheck.Enable()
+			}
+		}
+
+		if a.splitSizeEntry != nil {
+			if advancedDisabled {
+				a.splitSizeEntry.Disable()
+			} else {
+				a.splitSizeEntry.Enable()
+			}
+		}
+
+		if a.splitUnitSelect != nil {
+			if advancedDisabled {
+				a.splitUnitSelect.Disable()
+			} else {
+				a.splitUnitSelect.Enable()
+			}
+		}
+	} else {
+		// Decrypt mode options
+		if a.forceDecryptCheck != nil {
+			if advancedDisabled || a.State.Deniability {
+				a.forceDecryptCheck.Disable()
+			} else {
+				a.forceDecryptCheck.Enable()
+			}
+		}
+
+		if a.deleteVolumeCheck != nil {
+			if advancedDisabled {
+				a.deleteVolumeCheck.Disable()
+			} else {
+				a.deleteVolumeCheck.Enable()
+			}
+		}
+
+		if a.autoUnzipCheck != nil {
+			if advancedDisabled || !strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
+				a.autoUnzipCheck.Disable()
+			} else {
+				a.autoUnzipCheck.Enable()
+			}
+		}
+
+		if a.sameLevelCheck != nil {
+			if advancedDisabled || !a.State.AutoUnzip {
+				a.sameLevelCheck.Disable()
+			} else {
+				a.sameLevelCheck.Enable()
+			}
+		}
+	}
 }
 
 // CreateReporter creates a UIReporter for progress updates.
@@ -99,415 +949,45 @@ func (a *App) CreateReporter() *app.UIReporter {
 	return app.NewUIReporter(
 		func(text string) {
 			a.State.PopupStatus = text
-			giu.Update()
+			fyne.Do(func() {
+				if a.progressStatus != nil {
+					a.progressStatus.SetText(text)
+				}
+			})
 		},
 		func(fraction float32, info string) {
 			a.State.Progress = fraction
 			a.State.ProgressInfo = info
-			giu.Update()
+			fyne.Do(func() {
+				if a.progressBar != nil {
+					a.progressBar.SetValue(float64(fraction))
+				}
+				if a.progressLabel != nil {
+					a.progressLabel.SetText(info)
+				}
+			})
 		},
 		func(can bool) {
 			a.State.CanCancel = can
-			giu.Update()
+			fyne.Do(func() {
+				if a.cancelButton != nil {
+					if can {
+						a.cancelButton.Enable()
+					} else {
+						a.cancelButton.Disable()
+					}
+				}
+			})
 		},
 		func() {
-			giu.Update()
+			fyne.Do(func() {
+				a.updateUIState()
+			})
 		},
 		func() bool {
 			return !a.State.Working
 		},
 	)
-}
-
-// draw is the main render function - matches original layout exactly.
-func (a *App) draw() {
-	giu.SingleWindow().Flags(524351).Layout(
-		giu.Custom(func() {
-			// Handle Enter key
-			if giu.IsKeyReleased(giu.KeyEnter) {
-				a.onClickStart()
-				return
-			}
-
-			// Render popup modals
-			a.drawPassgenModal()
-			a.drawKeyfileModal()
-			a.drawOverwriteModal()
-			a.drawProgressModal()
-		}),
-
-		// Input label with Clear button
-		giu.Row(
-			giu.Label(a.State.InputLabel),
-			giu.Custom(func() {
-				bw, _ := giu.CalcTextSize("Clear")
-				p, _ := giu.GetWindowPadding()
-				bw += p * 2
-				giu.Dummy((bw+p)/-a.DPI, 0).Build()
-				giu.SameLine()
-				giu.Style().SetDisabled(
-					(len(a.State.AllFiles) == 0 && len(a.State.OnlyFiles) == 0) || a.State.Scanning,
-				).To(
-					giu.Button("Clear").Size(bw/a.DPI, 0).OnClick(a.resetUI),
-					giu.Tooltip("Clear all input files and reset UI state"),
-				).Build()
-			}),
-		),
-
-		giu.Separator(),
-
-		// Main content - disabled when no files
-		giu.Style().SetDisabled(
-			(len(a.State.AllFiles) == 0 && len(a.State.OnlyFiles) == 0) || a.State.Scanning,
-		).To(
-			// Password label
-			giu.Label("Password:"),
-
-			// Password buttons row
-			giu.Row(
-				giu.Button(a.State.PasswordStateLabel).Size(54, 0).OnClick(func() {
-					if a.State.PasswordState == giu.InputTextFlagsPassword {
-						a.State.PasswordState = giu.InputTextFlagsNone
-						a.State.PasswordStateLabel = "Hide"
-					} else {
-						a.State.PasswordState = giu.InputTextFlagsPassword
-						a.State.PasswordStateLabel = "Show"
-					}
-					giu.Update()
-				}),
-				giu.Tooltip("Toggle the visibility of password entries"),
-
-				giu.Button("Clear").Size(54, 0).OnClick(func() {
-					a.State.Password = ""
-					a.State.CPassword = ""
-					giu.Update()
-				}),
-				giu.Tooltip("Clear the password entries"),
-
-				giu.Button("Copy").Size(54, 0).OnClick(func() {
-					giu.Context.GetPlatform().SetClipboard(a.State.Password)
-					giu.Update()
-				}),
-				giu.Tooltip("Copy the password into your clipboard"),
-
-				giu.Button("Paste").Size(54, 0).OnClick(func() {
-					tmp := giu.Context.GetPlatform().GetClipboard()
-					a.State.Password = tmp
-					if a.State.Mode != "decrypt" {
-						a.State.CPassword = tmp
-					}
-					a.State.PasswordStrength = zxcvbn.PasswordStrength(a.State.Password, nil).Score
-					giu.Update()
-				}),
-				giu.Tooltip("Paste a password from your clipboard"),
-
-				giu.Style().SetDisabled(a.State.Mode == "decrypt").To(
-					giu.Button("Create").Size(54, 0).OnClick(func() {
-						a.State.ShowPassgen = true
-						a.State.ModalID++
-						giu.Update()
-					}),
-				),
-				giu.Tooltip("Generate a cryptographically secure password"),
-			),
-
-			// Password input with strength indicator
-			giu.Row(
-				giu.InputText(&a.State.Password).Flags(a.State.PasswordState).Size(302/a.DPI).OnChange(func() {
-					a.State.PasswordStrength = zxcvbn.PasswordStrength(a.State.Password, nil).Score
-					giu.Update()
-				}),
-				giu.Custom(func() {
-					c := giu.GetCanvas()
-					p := giu.GetCursorScreenPos()
-					col := color.RGBA{
-						uint8(0xc8 - 31*a.State.PasswordStrength),
-						uint8(0x4c + 31*a.State.PasswordStrength), 0x4b, 0xff,
-					}
-					if a.State.Password == "" || a.State.Mode == "decrypt" {
-						col = util.TRANSPARENT
-					}
-					path := p.Add(image.Pt(
-						int(math.Round(-20*float64(a.DPI))),
-						int(math.Round(12*float64(a.DPI))),
-					))
-					c.PathArcTo(path, 6*a.DPI, -math.Pi/2, math.Pi*(.4*float32(a.State.PasswordStrength)-.1), -1)
-					c.PathStroke(col, false, 2)
-				}),
-			),
-
-			giu.Dummy(0, 0),
-
-			// Confirm password (disabled in decrypt mode or when no password)
-			giu.Style().SetDisabled(a.State.Password == "" || a.State.Mode == "decrypt").To(
-				giu.Label("Confirm password:"),
-				giu.Row(
-					giu.InputText(&a.State.CPassword).Flags(a.State.PasswordState).Size(302/a.DPI),
-					giu.Custom(func() {
-						c := giu.GetCanvas()
-						p := giu.GetCursorScreenPos()
-						col := color.RGBA{0x4c, 0xc8, 0x4b, 0xff}
-						if a.State.CPassword != a.State.Password {
-							col = color.RGBA{0xc8, 0x4c, 0x4b, 0xff}
-						}
-						if a.State.Password == "" || a.State.CPassword == "" || a.State.Mode == "decrypt" {
-							col = util.TRANSPARENT
-						}
-						path := p.Add(image.Pt(
-							int(math.Round(-20*float64(a.DPI))),
-							int(math.Round(12*float64(a.DPI))),
-						))
-						c.PathArcTo(path, 6*a.DPI, 0, 2*math.Pi, -1)
-						c.PathStroke(col, false, 2)
-					}),
-				),
-			),
-
-			giu.Dummy(0, 0),
-
-			// Keyfiles row
-			giu.Style().SetDisabled(a.State.Mode == "decrypt" && !a.State.Keyfile && !a.State.Deniability).To(
-				giu.Row(
-					giu.Label("Keyfiles:"),
-					giu.Button("Edit").Size(54, 0).OnClick(func() {
-						a.State.ShowKeyfile = true
-						a.State.ModalID++
-						giu.Update()
-					}),
-					giu.Tooltip("Manage keyfiles to use for "+func() string {
-						if a.State.Mode != "decrypt" {
-							return "encryption"
-						}
-						return "decryption"
-					}()),
-
-					giu.Style().SetDisabled(a.State.Mode == "decrypt").To(
-						giu.Button("Create").Size(54, 0).OnClick(func() {
-							a.createKeyfile()
-						}),
-						giu.Tooltip("Generate a cryptographically secure keyfile"),
-					),
-					giu.Style().SetDisabled(true).To(
-						giu.InputText(&a.State.KeyfileLabel).Size(giu.Auto),
-					),
-				),
-			),
-		),
-
-		giu.Separator(),
-
-		// Comments and Advanced section - complex disable logic
-		giu.Style().SetDisabled(
-			a.State.Mode != "decrypt" &&
-				((len(a.State.Keyfiles) == 0 && a.State.Password == "") ||
-					(a.State.Password != a.State.CPassword)) ||
-				a.State.Deniability,
-		).To(
-			// Comments
-			giu.Style().SetDisabled(
-				a.State.Mode == "decrypt" && (a.State.Comments == "" || a.State.Comments == "Comments are corrupted"),
-			).To(
-				giu.Label(a.State.CommentsLabel),
-				giu.InputText(&a.State.Comments).Size(giu.Auto).Flags(func() giu.InputTextFlags {
-					if a.State.CommentsDisabled {
-						return giu.InputTextFlagsReadOnly
-					} else if a.State.Deniability {
-						a.State.Comments = ""
-					}
-					return giu.InputTextFlagsNone
-				}()),
-				giu.Custom(func() {
-					if !a.State.CommentsDisabled {
-						giu.Tooltip("Note: comments are not encrypted!").Build()
-					}
-				}),
-			),
-		),
-
-		// Advanced options
-		giu.Style().SetDisabled(
-			(len(a.State.Keyfiles) == 0 && a.State.Password == "") ||
-				(a.State.Mode == "encrypt" && a.State.Password != a.State.CPassword),
-		).To(
-			giu.Label("Advanced:"),
-			giu.Custom(func() {
-				if a.State.Mode != "decrypt" {
-					// Show encrypt options by default (when mode is "" or "encrypt")
-					a.drawEncryptOptions()
-				} else {
-					// Show decrypt options only when mode is "decrypt"
-					a.drawDecryptOptions()
-				}
-			}),
-
-			// Save output as
-			giu.Style().SetDisabled(a.State.Recursively).To(
-				giu.Label("Save output as:"),
-				giu.Custom(func() {
-					w, _ := giu.GetAvailableRegion()
-					bw, _ := giu.CalcTextSize("Change")
-					p, _ := giu.GetWindowPadding()
-					bw += p * 2
-					dw := w - bw - p
-
-					outputDisplay := ""
-					if a.State.OutputFile != "" {
-						outputDisplay = filepath.Base(a.State.OutputFile)
-						if a.State.Split {
-							outputDisplay += ".*"
-						}
-						if a.State.Recursively {
-							outputDisplay = "(multiple values)"
-						}
-					}
-
-					giu.Style().SetDisabled(true).To(
-						giu.InputText(&outputDisplay).Size(dw / a.DPI / a.DPI).Flags(16384),
-					).Build()
-
-					giu.SameLine()
-					giu.Button("Change").Size(bw/a.DPI, 0).OnClick(func() {
-						a.changeOutputFile()
-					}).Build()
-					giu.Tooltip("Save the output with a custom name and path").Build()
-				}),
-			),
-
-			giu.Dummy(0, 0),
-			giu.Separator(),
-			giu.Dummy(0, 0),
-
-			// Start button
-			giu.Button(func() string {
-				if !a.State.Recursively {
-					return a.State.StartLabel
-				}
-				return "Process"
-			}()).Size(giu.Auto, 34).OnClick(a.onClickStart),
-
-			// Status display
-			giu.Custom(func() {
-				if a.State.MainStatus != "Ready" {
-					giu.Style().SetColor(giu.StyleColorText, a.State.MainStatusColor).To(
-						giu.Label(a.State.MainStatus),
-					).Build()
-					return
-				}
-				if a.State.RequiredFreeSpace > 0 {
-					multiplier := 1
-					if len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 {
-						multiplier++
-					}
-					if a.State.Deniability {
-						multiplier++
-					}
-					if a.State.Split {
-						multiplier++
-					}
-					if a.State.Recombine {
-						multiplier++
-					}
-					if a.State.AutoUnzip {
-						multiplier++
-					}
-					giu.Style().SetColor(giu.StyleColorText, util.WHITE).To(
-						giu.Label("Ready (ensure >" + util.Sizeify(a.State.RequiredFreeSpace*int64(multiplier)) + " of disk space is free)"),
-					).Build()
-				} else {
-					giu.Style().SetColor(giu.StyleColorText, util.WHITE).To(
-						giu.Label("Ready"),
-					).Build()
-				}
-			}),
-		),
-
-		// Auto-resize window
-		giu.Custom(func() {
-			a.Window.SetSize(int(318*a.DPI), giu.GetCursorPos().Y+1)
-		}),
-	)
-}
-
-// drawEncryptOptions renders encrypt mode options (matches original exactly).
-func (a *App) drawEncryptOptions() {
-	// Row 1: Paranoid + Compress
-	giu.Row(
-		giu.Checkbox("Paranoid mode", &a.State.Paranoid),
-		giu.Tooltip("Provides the highest level of security attainable"),
-		giu.Dummy(-170, 0),
-		giu.Style().SetDisabled(
-			a.State.Recursively || (len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0),
-		).To(
-			giu.Checkbox("Compress files", &a.State.Compress),
-			giu.Tooltip("Compress files with Deflate before encrypting"),
-		),
-	).Build()
-
-	// Row 2: Reed-Solomon + Delete files
-	giu.Row(
-		giu.Checkbox("Reed-Solomon", &a.State.ReedSolomon),
-		giu.Tooltip("Prevent file corruption with erasure coding"),
-		giu.Dummy(-170, 0),
-		giu.Checkbox("Delete files", &a.State.Delete),
-		giu.Tooltip("Delete the input files after encryption"),
-	).Build()
-
-	// Row 3: Deniability + Recursively
-	giu.Row(
-		giu.Checkbox("Deniability", &a.State.Deniability),
-		giu.Tooltip("Warning: only use this if you know what it does!"),
-		giu.Dummy(-170, 0),
-		giu.Style().SetDisabled(len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0).To(
-			giu.Checkbox("Recursively", &a.State.Recursively).OnChange(func() {
-				a.State.Compress = false
-			}),
-			giu.Tooltip("Warning: only use this if you know what it does!"),
-		),
-	).Build()
-
-	// Row 4: Split into chunks
-	giu.Row(
-		giu.Checkbox("Split into chunks:", &a.State.Split),
-		giu.Tooltip("Split the output file into smaller chunks"),
-		giu.Dummy(-170, 0),
-		giu.InputText(&a.State.SplitSize).Size(86/a.DPI).Flags(2).OnChange(func() {
-			a.State.Split = a.State.SplitSize != ""
-		}),
-		giu.Tooltip("Choose the chunk size"),
-		giu.Combo("##splitter", a.State.SplitUnits[a.State.SplitSelected], a.State.SplitUnits, &a.State.SplitSelected).Size(68),
-		giu.Tooltip("Choose the chunk units"),
-	).Build()
-}
-
-// drawDecryptOptions renders decrypt mode options (matches original exactly).
-func (a *App) drawDecryptOptions() {
-	// Row 1: Force decrypt + Delete volume
-	giu.Row(
-		giu.Style().SetDisabled(a.State.Deniability).To(
-			giu.Checkbox("Force decrypt", &a.State.Keep),
-			giu.Tooltip("Override security measures when decrypting"),
-		),
-		giu.Dummy(-170, 0),
-		giu.Checkbox("Delete volume", &a.State.Delete),
-		giu.Tooltip("Delete the volume after a successful decryption"),
-	).Build()
-
-	// Row 2: Auto unzip + Same level
-	giu.Row(
-		giu.Style().SetDisabled(!strings.HasSuffix(a.State.InputFile, ".zip.pcv")).To(
-			giu.Checkbox("Auto unzip", &a.State.AutoUnzip).OnChange(func() {
-				if !a.State.AutoUnzip {
-					a.State.SameLevel = false
-				}
-			}),
-			giu.Tooltip("Extract .zip upon decryption (may overwrite files)"),
-		),
-		giu.Dummy(-170, 0),
-		giu.Style().SetDisabled(!a.State.AutoUnzip).To(
-			giu.Checkbox("Same level", &a.State.SameLevel),
-			giu.Tooltip("Extract .zip contents to same folder as volume"),
-		),
-	).Build()
 }
 
 // createKeyfile creates a new random keyfile.
@@ -519,7 +999,7 @@ func (a *App) createKeyfile() {
 		startDir = filepath.Dir(a.State.OnlyFolders[0])
 	}
 
-	f := dialog.File().Title("Choose where to save the keyfile")
+	f := extDialog.File().Title("Choose where to save the keyfile")
 	if startDir != "" {
 		f.SetStartDir(startDir)
 	}
@@ -534,7 +1014,7 @@ func (a *App) createKeyfile() {
 	if err != nil {
 		a.State.MainStatus = "Failed to create keyfile"
 		a.State.MainStatusColor = util.RED
-		giu.Update()
+		a.updateUIState()
 		return
 	}
 
@@ -543,7 +1023,7 @@ func (a *App) createKeyfile() {
 		_ = fout.Close()
 		a.State.MainStatus = "Failed to generate keyfile"
 		a.State.MainStatusColor = util.RED
-		giu.Update()
+		a.updateUIState()
 		return
 	}
 
@@ -552,25 +1032,25 @@ func (a *App) createKeyfile() {
 		_ = fout.Close()
 		a.State.MainStatus = "Failed to write keyfile"
 		a.State.MainStatusColor = util.RED
-		giu.Update()
+		a.updateUIState()
 		return
 	}
 
 	if err := fout.Close(); err != nil {
 		a.State.MainStatus = "Failed to close keyfile"
 		a.State.MainStatusColor = util.RED
-		giu.Update()
+		a.updateUIState()
 		return
 	}
 
 	a.State.MainStatus = "Ready"
 	a.State.MainStatusColor = util.WHITE
-	giu.Update()
+	a.updateUIState()
 }
 
 // changeOutputFile opens a dialog to change the output file path.
 func (a *App) changeOutputFile() {
-	f := dialog.File().Title("Choose where to save the output. Don't include extensions")
+	f := extDialog.File().Title("Choose where to save the output. Don't include extensions")
 
 	startDir := ""
 	if len(a.State.OnlyFiles) > 0 {
@@ -614,7 +1094,7 @@ func (a *App) changeOutputFile() {
 	a.State.OutputFile = file
 	a.State.MainStatus = "Ready"
 	a.State.MainStatusColor = util.WHITE
-	giu.Update()
+	a.updateUIState()
 }
 
 // onClickStart handles the Start button click.
@@ -635,9 +1115,7 @@ func (a *App) onClickStart() {
 
 	// Check if output exists (skip check for recursive mode - each file has different output)
 	if _, err := os.Stat(a.State.OutputFile); err == nil && !a.State.Recursively {
-		a.State.ShowOverwrite = true
-		a.State.ModalID++
-		giu.Update()
+		a.showOverwriteModal()
 		return
 	}
 
@@ -651,22 +1129,24 @@ func (a *App) startWork() {
 	a.State.CanCancel = true
 	a.State.ModalID++
 	a.cancelled.Store(false)
-	giu.Update()
+
+	a.showProgressModal()
 
 	if !a.State.Recursively {
 		// Normal mode: process single file/folder(s)
 		go func() {
 			a.doWork()
-			// Success: status set to "Completed" by doEncrypt/doDecrypt
-			// Error: status set to error message by doEncrypt/doDecrypt
-			// Cancel: status set to "Operation cancelled by user" by cancel button
 			a.State.Working = false
 			a.State.ShowProgress = false
-			giu.Update()
+			fyne.Do(func() {
+				if a.progressModal != nil {
+					a.progressModal.Hide()
+				}
+				a.updateUIState()
+			})
 		}()
 	} else {
 		// Recursive mode: process each file individually
-		// (matches original lines 261-313)
 		a.startRecursiveWork()
 	}
 }
@@ -684,29 +1164,22 @@ func (a *App) doWork() bool {
 }
 
 // startRecursiveWork handles batch processing of multiple files individually.
-// This matches the original "Recursively" checkbox behavior (lines 261-313).
-//
-// When enabled:
-//   - Each file in AllFiles is encrypted/decrypted separately
-//   - Same password, keyfiles, and options apply to all files
-//   - Each file gets its own .pcv output (input.txt -> input.txt.pcv)
-//
-// This is different from normal multi-file mode which zips files together.
-//
-// IMPROVEMENT over original: tracks and reports failed files instead of silently continuing.
 func (a *App) startRecursiveWork() {
-	// Handle empty file list case
 	if len(a.State.AllFiles) == 0 {
 		a.State.MainStatus = "No files to process"
 		a.State.MainStatusColor = util.YELLOW
 		a.State.Working = false
 		a.State.ShowProgress = false
-		giu.Update()
+		fyne.Do(func() {
+			if a.progressModal != nil {
+				a.progressModal.Hide()
+			}
+			a.updateUIState()
+		})
 		return
 	}
 
 	// Store all settings before they get cleared by onDrop/resetUI
-	// (matches original lines 263-276)
 	savedPassword := a.State.Password
 	savedKeyfile := a.State.Keyfile
 	savedKeyfiles := make([]string, len(a.State.Keyfiles))
@@ -722,7 +1195,6 @@ func (a *App) startRecursiveWork() {
 	savedSplitSelected := a.State.SplitSelected
 	savedDelete := a.State.Delete
 
-	// Copy the file list since it will be modified
 	files := make([]string, len(a.State.AllFiles))
 	copy(files, a.State.AllFiles)
 
@@ -731,17 +1203,16 @@ func (a *App) startRecursiveWork() {
 		var successCount int
 
 		for i, file := range files {
-			// Update progress info with current file
 			a.State.PopupStatus = fmt.Sprintf("Processing file %d/%d...", i+1, len(files))
-			giu.Update()
+			fyne.Do(func() {
+				if a.progressStatus != nil {
+					a.progressStatus.SetText(a.State.PopupStatus)
+				}
+			})
 
-			// Simulate dropping the file (matches original line 280)
-			// This sets up inputFile, outputFile, mode, etc.
-			// Note: onDrop() calls resetUI() which uses ResetUI() that preserves
-			// ShowProgress, Working, CanCancel (matches original behavior)
 			a.onDrop([]string{file})
 
-			// Restore all saved settings (matches original lines 282-298)
+			// Restore all saved settings
 			a.State.Password = savedPassword
 			a.State.CPassword = savedPassword
 			a.State.Keyfile = savedKeyfile
@@ -752,8 +1223,6 @@ func (a *App) startRecursiveWork() {
 			a.State.Comments = savedComments
 			a.State.Paranoid = savedParanoid
 			a.State.ReedSolomon = savedReedSolomon
-			// Only restore deniability if not decrypting
-			// (original line 292-294: deniability is read from header during decrypt)
 			if a.State.Mode != "decrypt" {
 				a.State.Deniability = savedDeniability
 			}
@@ -762,30 +1231,28 @@ func (a *App) startRecursiveWork() {
 			a.State.SplitSelected = savedSplitSelected
 			a.State.Delete = savedDelete
 
-			// Process this file and track result
 			if a.doWork() {
 				successCount++
 			} else {
 				failedCount++
 			}
 
-			// Check if user cancelled (matches original lines 301-307)
-			// Original only checks `if !working` - it continues on errors, only stops on cancel
-			// The cancel button sets Working=false and MainStatus="Operation cancelled by user"
 			if a.cancelled.Load() {
-				// Don't call resetUI() - it would overwrite the cancellation status
 				a.State.Working = false
 				a.State.ShowProgress = false
-				giu.Update()
+				fyne.Do(func() {
+					if a.progressModal != nil {
+						a.progressModal.Hide()
+					}
+					a.updateUIState()
+				})
 				return
 			}
 		}
 
-		// All files processed - report results
 		a.State.Working = false
 		a.State.ShowProgress = false
 
-		// Set final status based on results
 		if failedCount == 0 {
 			a.State.MainStatus = fmt.Sprintf("Completed (%d files)", successCount)
 			a.State.MainStatusColor = util.GREEN
@@ -797,12 +1264,16 @@ func (a *App) startRecursiveWork() {
 			a.State.MainStatusColor = util.YELLOW
 		}
 
-		giu.Update()
+		fyne.Do(func() {
+			if a.progressModal != nil {
+				a.progressModal.Hide()
+			}
+			a.updateUIState()
+		})
 	}()
 }
 
 // doEncrypt performs encryption using the volume package.
-// Returns true if encryption completed successfully.
 func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	var chunkUnit fileops.SplitUnit
 	switch a.State.SplitSelected {
@@ -829,7 +1300,6 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 		chunkSize = n
 	}
 
-	// Save delete preference before reset
 	shouldDelete := a.State.Delete
 
 	req := &volume.EncryptRequest{
@@ -853,7 +1323,6 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 		RSCodecs:       a.rsCodecs,
 	}
 
-	// Save files for deletion before reset
 	filesToDelete := make([]string, len(a.State.AllFiles))
 	copy(filesToDelete, a.State.AllFiles)
 	foldersToDelete := make([]string, len(a.State.OnlyFolders))
@@ -869,14 +1338,10 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 		return false
 	}
 
-	// Reset UI after successful completion (like original work() line 2583)
-	// Use ResetUI() which preserves ShowProgress, Working, CanCancel
 	a.State.ResetUI()
-
 	a.State.MainStatus = "Completed"
 	a.State.MainStatusColor = util.GREEN
 
-	// Delete files if requested
 	if shouldDelete {
 		var deleteErrors []string
 		if len(filesToDelete) > 0 {
@@ -895,7 +1360,6 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 				deleteErrors = append(deleteErrors, inputFileToDelete)
 			}
 		}
-		// Warn user if some files couldn't be deleted (don't fail the operation)
 		if len(deleteErrors) > 0 {
 			a.State.MainStatus = "Completed (some files couldn't be deleted)"
 			a.State.MainStatusColor = util.YELLOW
@@ -906,11 +1370,9 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 }
 
 // doDecrypt performs decryption using the volume package.
-// Returns true if decryption completed successfully.
 func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	kept := false
 
-	// Save values before potential reset
 	shouldDelete := a.State.Delete
 	recombine := a.State.Recombine
 	inputFile := a.State.InputFile
@@ -939,11 +1401,8 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 		return false
 	}
 
-	// Reset UI after successful completion (like original work() line 2583)
-	// Use ResetUI() which preserves ShowProgress, Working, CanCancel
 	a.State.ResetUI()
 
-	// Check if file was kept despite errors (force decrypt used)
 	if kept {
 		a.State.Kept = true
 		a.State.MainStatus = "The input file was modified. Please be careful"
@@ -953,11 +1412,9 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 		a.State.MainStatusColor = util.GREEN
 	}
 
-	// Delete volume if requested (and not kept)
 	if shouldDelete && !kept {
 		var deleteError bool
 		if recombine {
-			// Remove each chunk: file.pcv.0, file.pcv.1, etc. (matches original lines 2525-2536)
 			for i := 0; ; i++ {
 				chunkPath := inputFile + "." + strconv.Itoa(i)
 				if _, err := os.Stat(chunkPath); os.IsNotExist(err) {
@@ -972,7 +1429,6 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 				deleteError = true
 			}
 		}
-		// Warn user if volume couldn't be deleted (don't fail the operation)
 		if deleteError {
 			a.State.MainStatus = "Completed (volume couldn't be deleted)"
 			a.State.MainStatusColor = util.YELLOW
@@ -982,9 +1438,222 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	return true
 }
 
-// resetUI clears UI state but preserves progress flags (matches original resetUI).
-// For full reset including progress state, call a.State.Reset() directly.
+// resetUI clears UI state but preserves progress flags.
 func (a *App) resetUI() {
 	a.State.ResetUI()
-	giu.Update()
+	if a.passwordEntry != nil {
+		a.passwordEntry.SetText("")
+	}
+	if a.cPasswordEntry != nil {
+		a.cPasswordEntry.SetText("")
+	}
+	if a.commentsEntry != nil {
+		a.commentsEntry.SetText("")
+	}
+	a.updateAdvancedSection()
+	a.updatePasswordStrength()
+	a.updateValidation()
+	a.updateUIState()
+}
+
+// showProgressModal shows the progress dialog.
+func (a *App) showProgressModal() {
+	a.progressBar = widget.NewProgressBar()
+	a.progressBar.Min = 0
+	a.progressBar.Max = 1
+
+	a.progressLabel = widget.NewLabel("")
+	a.progressStatus = widget.NewLabel("")
+
+	a.cancelButton = widget.NewButton("Cancel", func() {
+		a.State.Working = false
+		a.State.CanCancel = false
+		a.cancelled.Store(true)
+		a.State.MainStatus = "Operation cancelled by user"
+		a.State.MainStatusColor = util.WHITE
+		if a.cancelButton != nil {
+			a.cancelButton.Disable()
+		}
+	})
+
+	progressContent := container.NewVBox(
+		container.NewBorder(nil, nil, nil, a.cancelButton, a.progressBar),
+		a.progressLabel,
+		a.progressStatus,
+	)
+
+	a.progressModal = dialog.NewCustomWithoutButtons("Progress:", progressContent, a.Window)
+	a.progressModal.Show()
+}
+
+// showPassgenModal shows the password generator dialog.
+func (a *App) showPassgenModal() {
+	lengthLabel := widget.NewLabel(fmt.Sprintf("Length: %d", a.State.PassgenLength))
+
+	lengthSlider := widget.NewSlider(12, 64)
+	lengthSlider.Value = float64(a.State.PassgenLength)
+	lengthSlider.Step = 1
+	lengthSlider.OnChanged = func(value float64) {
+		a.State.PassgenLength = int32(value)
+		lengthLabel.SetText(fmt.Sprintf("Length: %d", int(value)))
+	}
+
+	upperCheck := widget.NewCheck("Uppercase", func(checked bool) {
+		a.State.PassgenUpper = checked
+	})
+	upperCheck.SetChecked(a.State.PassgenUpper)
+
+	lowerCheck := widget.NewCheck("Lowercase", func(checked bool) {
+		a.State.PassgenLower = checked
+	})
+	lowerCheck.SetChecked(a.State.PassgenLower)
+
+	numsCheck := widget.NewCheck("Numbers", func(checked bool) {
+		a.State.PassgenNums = checked
+	})
+	numsCheck.SetChecked(a.State.PassgenNums)
+
+	symbolsCheck := widget.NewCheck("Symbols", func(checked bool) {
+		a.State.PassgenSymbols = checked
+	})
+	symbolsCheck.SetChecked(a.State.PassgenSymbols)
+
+	copyCheck := widget.NewCheck("Copy to clipboard", func(checked bool) {
+		a.State.PassgenCopy = checked
+	})
+	copyCheck.SetChecked(a.State.PassgenCopy)
+
+	content := container.NewVBox(
+		lengthLabel,
+		lengthSlider,
+		upperCheck,
+		lowerCheck,
+		numsCheck,
+		symbolsCheck,
+		copyCheck,
+	)
+
+	a.passgenModal = dialog.NewCustomConfirm("Generate password:", "Generate", "Cancel", content, func(generate bool) {
+		if generate {
+			// Check if at least one character type is selected
+			if !a.State.PassgenUpper && !a.State.PassgenLower && !a.State.PassgenNums && !a.State.PassgenSymbols {
+				return
+			}
+			password := a.State.GenPassword()
+			a.State.Password = password
+			a.State.CPassword = password
+			a.passwordEntry.SetText(password)
+			a.cPasswordEntry.SetText(password)
+			a.updatePasswordStrength()
+			a.updateValidation()
+		}
+		a.State.ShowPassgen = false
+	}, a.Window)
+	a.State.ShowPassgen = true
+	a.State.ModalID++
+	a.passgenModal.Show()
+}
+
+// keyfileListContainer holds the dynamic list of keyfiles in the modal.
+var keyfileListContainer *fyne.Container
+var keyfileSeparator *widget.Separator
+var keyfileOrderCheck *widget.Check
+
+// showKeyfileModal shows the keyfile manager dialog.
+func (a *App) showKeyfileModal() {
+	// Create order checkbox/label based on mode
+	var orderWidget fyne.CanvasObject
+	if a.State.Mode != "decrypt" {
+		keyfileOrderCheck = widget.NewCheck("Require correct order", func(checked bool) {
+			a.State.KeyfileOrdered = checked
+		})
+		keyfileOrderCheck.SetChecked(a.State.KeyfileOrdered)
+		orderWidget = keyfileOrderCheck
+	} else if a.State.KeyfileOrdered {
+		orderWidget = widget.NewLabel("Correct ordering is required")
+	} else {
+		orderWidget = widget.NewLabel("") // Empty placeholder
+	}
+
+	// Separator (only visible when keyfiles exist)
+	keyfileSeparator = widget.NewSeparator()
+
+	// Container for keyfile labels (dynamic)
+	keyfileListContainer = container.NewVBox()
+	a.updateKeyfileList()
+
+	// Buttons
+	clearBtn := widget.NewButton("Clear", func() {
+		a.State.Keyfiles = nil
+		if a.State.Keyfile {
+			a.State.KeyfileLabel = "Keyfiles required"
+		} else {
+			a.State.KeyfileLabel = "None selected"
+		}
+		a.State.ModalID++
+		a.updateKeyfileList()
+		a.updateUIState()
+	})
+
+	doneBtn := widget.NewButton("Done", func() {
+		a.keyfileModal.Hide()
+		a.State.ShowKeyfile = false
+		a.updateUIState()
+	})
+	doneBtn.Importance = widget.HighImportance
+
+	buttonRow := container.NewGridWithColumns(2, clearBtn, doneBtn)
+
+	content := container.NewVBox(
+		widget.NewLabel("Drag and drop your keyfiles here"),
+		orderWidget,
+		keyfileSeparator,
+		keyfileListContainer,
+		buttonRow,
+	)
+
+	a.keyfileModal = dialog.NewCustomWithoutButtons("Manage keyfiles:", content, a.Window)
+	a.State.ShowKeyfile = true
+	a.State.ModalID++
+	a.keyfileModal.Show()
+}
+
+// updateKeyfileList updates the keyfile list in the modal.
+func (a *App) updateKeyfileList() {
+	if keyfileListContainer == nil {
+		return
+	}
+
+	// Clear existing items
+	keyfileListContainer.RemoveAll()
+
+	// Show/hide separator based on keyfile count
+	if keyfileSeparator != nil {
+		if len(a.State.Keyfiles) > 0 {
+			keyfileSeparator.Show()
+		} else {
+			keyfileSeparator.Hide()
+		}
+	}
+
+	// Add label for each keyfile
+	for _, kf := range a.State.Keyfiles {
+		label := widget.NewLabel(filepath.Base(kf))
+		keyfileListContainer.Add(label)
+	}
+
+	keyfileListContainer.Refresh()
+}
+
+// showOverwriteModal shows the overwrite confirmation dialog.
+func (a *App) showOverwriteModal() {
+	a.overwriteModal = dialog.NewConfirm("Warning:", "Output already exists. Overwrite?", func(overwrite bool) {
+		a.State.ShowOverwrite = false
+		if overwrite {
+			a.startWork()
+		}
+	}, a.Window)
+	a.State.ShowOverwrite = true
+	a.State.ModalID++
+	a.overwriteModal.Show()
 }

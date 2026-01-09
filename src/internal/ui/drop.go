@@ -14,7 +14,7 @@ import (
 	"Picocrypt-NG/internal/util"
 	"Picocrypt-NG/internal/volume"
 
-	"github.com/Picocrypt/giu"
+	"fyne.io/fyne/v2"
 )
 
 // onDrop handles files and folders dropped onto the window (matches original exactly).
@@ -37,7 +37,7 @@ func (a *App) onDrop(names []string) {
 			a.State.MainStatus = "Failed to stat dropped item"
 			a.State.MainStatusColor = util.RED
 			a.State.Scanning = false
-			giu.Update()
+			a.refreshUI()
 			return
 		}
 
@@ -69,7 +69,8 @@ func (a *App) onDrop(names []string) {
 				a.handleDecryptDrop(names[0], isSplit)
 				// For decrypt, no folder scanning needed
 				a.State.Scanning = false
-				giu.Update()
+				a.refreshUI()
+				a.refreshAdvanced()
 				return
 			} else {
 				// Encrypting a single file
@@ -94,40 +95,52 @@ func (a *App) onDrop(names []string) {
 		for _, name := range a.State.OnlyFolders {
 			if filepath.Walk(name, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
-					a.resetUI()
-					a.State.MainStatus = "Failed to walk through dropped items"
-					a.State.MainStatusColor = util.RED
-					giu.Update()
+					fyne.Do(func() {
+						a.resetUI()
+						a.State.MainStatus = "Failed to walk through dropped items"
+						a.State.MainStatusColor = util.RED
+						a.refreshUI()
+					})
 					return err
 				}
 				stat, err := os.Stat(path)
 				if err != nil {
-					a.resetUI()
-					a.State.MainStatus = "Failed to walk through dropped items"
-					a.State.MainStatusColor = util.RED
-					giu.Update()
+					fyne.Do(func() {
+						a.resetUI()
+						a.State.MainStatus = "Failed to walk through dropped items"
+						a.State.MainStatusColor = util.RED
+						a.refreshUI()
+					})
 					return err
 				}
 				// If 'path' is a valid file path, add to 'allFiles'
 				if !stat.IsDir() {
-					a.State.AllFiles = append(a.State.AllFiles, path)
-					a.State.CompressTotal += stat.Size()
-					a.State.RequiredFreeSpace += stat.Size()
-					a.State.InputLabel = fmt.Sprintf("Scanning files... (%s)", util.Sizeify(a.State.CompressTotal))
-					giu.Update()
+					fileSize := stat.Size()
+					fyne.Do(func() {
+						a.State.AllFiles = append(a.State.AllFiles, path)
+						a.State.CompressTotal += fileSize
+						a.State.RequiredFreeSpace += fileSize
+						a.State.InputLabel = fmt.Sprintf("Scanning files... (%s)", util.Sizeify(a.State.CompressTotal))
+						a.refreshUI()
+					})
 				}
 				return nil
 			}) != nil {
-				a.resetUI()
-				a.State.MainStatus = "Failed to walk through dropped items"
-				a.State.MainStatusColor = util.RED
-				giu.Update()
+				fyne.Do(func() {
+					a.resetUI()
+					a.State.MainStatus = "Failed to walk through dropped items"
+					a.State.MainStatusColor = util.RED
+					a.refreshUI()
+				})
 				return
 			}
 		}
-		a.State.InputLabel = fmt.Sprintf("%s (%s)", oldInputLabel, util.Sizeify(a.State.CompressTotal))
-		a.State.Scanning = false
-		giu.Update()
+		fyne.Do(func() {
+			a.State.InputLabel = fmt.Sprintf("%s (%s)", oldInputLabel, util.Sizeify(a.State.CompressTotal))
+			a.State.Scanning = false
+			a.refreshUI()
+			a.refreshAdvanced()
+		})
 	}()
 }
 
@@ -178,7 +191,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		a.resetUI()
 		a.State.MainStatus = "Read access denied"
 		a.State.MainStatusColor = util.RED
-		giu.Update()
+		a.refreshUI()
 		return
 	}
 	defer func() { _ = fin.Close() }()
@@ -233,6 +246,11 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		a.State.Comments = "Comments are corrupted"
 	}
 
+	// Update comments entry if it exists
+	if a.commentsEntry != nil {
+		a.commentsEntry.SetText(a.State.Comments)
+	}
+
 	// Read flags from file
 	flags := make([]byte, 15)
 	if n, err := fin.Read(flags); err != nil || n != 15 {
@@ -280,7 +298,7 @@ func (a *App) handleMultipleDrop(names []string) {
 			a.resetUI()
 			a.State.MainStatus = "Failed to stat dropped items"
 			a.State.MainStatusColor = util.RED
-			giu.Update()
+			a.refreshUI()
 			return
 		}
 		if stat.IsDir() {
@@ -294,7 +312,6 @@ func (a *App) handleMultipleDrop(names []string) {
 			a.State.CompressTotal += stat.Size()
 			a.State.RequiredFreeSpace += stat.Size()
 			a.State.InputLabel = fmt.Sprintf("Scanning files... (%s)", util.Sizeify(a.State.CompressTotal))
-			giu.Update()
 		}
 	}
 
@@ -318,5 +335,61 @@ func (a *App) handleMultipleDrop(names []string) {
 	// Set the input and output paths (matches original lines 1127-1129)
 	a.State.InputFile = filepath.Join(filepath.Dir(names[0]), "encrypted-"+strconv.Itoa(int(time.Now().Unix()))) + ".zip"
 	a.State.OutputFile = a.State.InputFile + ".pcv"
-	giu.Update()
+}
+
+// handleKeyfileDrop processes dropped keyfiles when the modal is open.
+func (a *App) handleKeyfileDrop(paths []string) bool {
+	if !a.State.ShowKeyfile {
+		return false
+	}
+
+	// Add keyfiles, checking for duplicates and access
+	for _, path := range paths {
+		// Check if duplicate
+		duplicate := false
+		for _, existing := range a.State.Keyfiles {
+			if path == existing {
+				duplicate = true
+				break
+			}
+		}
+
+		// Check if accessible and not a directory
+		stat, err := os.Stat(path)
+		if err != nil {
+			a.State.ShowKeyfile = false
+			if a.keyfileModal != nil {
+				a.keyfileModal.Hide()
+			}
+			a.resetUI()
+			a.State.MainStatus = "Keyfile read access denied"
+			a.State.MainStatusColor = util.RED
+			a.refreshUI()
+			return true
+		}
+
+		if !duplicate && !stat.IsDir() {
+			a.State.Keyfiles = append(a.State.Keyfiles, path)
+		}
+	}
+
+	// Update label
+	switch len(a.State.Keyfiles) {
+	case 0:
+		if a.State.Keyfile {
+			a.State.KeyfileLabel = "Keyfiles required"
+		} else {
+			a.State.KeyfileLabel = "None selected"
+		}
+	case 1:
+		a.State.KeyfileLabel = "Using 1 keyfile"
+	default:
+		a.State.KeyfileLabel = "Using " + strconv.Itoa(len(a.State.Keyfiles)) + " keyfiles"
+	}
+
+	// Update the keyfile list in the modal and increment modalId like original
+	a.State.ModalID++
+	a.updateKeyfileList()
+	a.refreshUI()
+	return true
 }

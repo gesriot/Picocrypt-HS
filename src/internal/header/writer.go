@@ -122,7 +122,7 @@ func (w *Writer) WriteHeader(h *VolumeHeader) (int, error) {
 
 // WriteAuthValues writes the authentication values to a seekable writer.
 // This should be called after encryption is complete.
-// offset is the position in the file where auth values begin (309 + comments*3 for v2.01)
+// offset is the position in the file where auth values begin (309 + comments*3 for v2.02)
 func WriteAuthValues(w io.WriterAt, offset int64, keyHash, keyfileHash, authTag []byte, rs *encoding.RSCodecs) error {
 	pos := offset
 
