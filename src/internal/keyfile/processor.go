@@ -3,10 +3,11 @@
 package keyfile
 
 import (
-	"crypto/subtle"
+	"fmt"
 	"io"
 	"os"
 
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/sha3"
@@ -28,18 +29,9 @@ func (r *Result) Close() {
 	if r == nil || r.closed {
 		return
 	}
-	secureZero(r.Key)
+	crypto.SecureZero(r.Key)
 	r.Key = nil
 	r.closed = true
-}
-
-// secureZero overwrites a byte slice with zeros using constant-time copy.
-func secureZero(b []byte) {
-	if len(b) == 0 {
-		return
-	}
-	zeros := make([]byte, len(b))
-	subtle.ConstantTimeCopy(1, b, zeros)
 }
 
 // ProgressFunc is called during keyfile processing with progress 0.0-1.0
@@ -114,12 +106,12 @@ func processOrdered(paths []string, totalSize int64, progress ProgressFunc) ([]b
 				break
 			}
 			if err != nil {
-				fin.Close()
+				_ = fin.Close()
 				return nil, err
 			}
 
 			if _, err := hasher.Write(buf[:n]); err != nil {
-				fin.Close()
+				_ = fin.Close()
 				return nil, err
 			}
 
@@ -158,12 +150,12 @@ func processUnordered(paths []string, totalSize int64, progress ProgressFunc) ([
 				break
 			}
 			if err != nil {
-				fin.Close()
+				_ = fin.Close()
 				return nil, err
 			}
 
 			if _, err := hasher.Write(buf[:n]); err != nil {
-				fin.Close()
+				_ = fin.Close()
 				return nil, err
 			}
 
@@ -208,9 +200,13 @@ func IsDuplicateKeyfileKey(key []byte) bool {
 
 // XORWithKey XORs the keyfile key with the password-derived key.
 // This is the final step to produce the encryption key.
+//
+// INVARIANT: Both keys must be exactly 32 bytes (Argon2KeySize / SHA3-256 output).
+// Violation indicates a programming error, not a runtime condition.
 func XORWithKey(passwordKey, keyfileKey []byte) []byte {
 	if len(passwordKey) != 32 || len(keyfileKey) != 32 {
-		panic("XORWithKey requires 32-byte keys")
+		panic(fmt.Sprintf("XORWithKey: invariant violation - expected 32-byte keys, got %d and %d bytes",
+			len(passwordKey), len(keyfileKey)))
 	}
 
 	result := make([]byte, 32)

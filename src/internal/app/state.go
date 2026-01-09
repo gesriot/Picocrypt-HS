@@ -317,32 +317,6 @@ func (s *State) CanStart() bool {
 	return true
 }
 
-// Status represents current operation status.
-type Status struct {
-	Text  string
-	Color color.RGBA
-}
-
-// NewReadyStatus creates a "Ready" status.
-func NewReadyStatus() Status {
-	return Status{Text: "Ready", Color: util.WHITE}
-}
-
-// NewErrorStatus creates an error status.
-func NewErrorStatus(text string) Status {
-	return Status{Text: text, Color: util.RED}
-}
-
-// NewSuccessStatus creates a success status.
-func NewSuccessStatus(text string) Status {
-	return Status{Text: text, Color: util.GREEN}
-}
-
-// NewWarningStatus creates a warning status.
-func NewWarningStatus(text string) Status {
-	return Status{Text: text, Color: util.YELLOW}
-}
-
 // TogglePasswordVisibility toggles password show/hide.
 func (s *State) TogglePasswordVisibility() {
 	s.mu.Lock()

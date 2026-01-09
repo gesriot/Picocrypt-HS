@@ -43,7 +43,7 @@ func ComputeV2HeaderMAC(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte
 
 	// Write all header fields in exact order
 	mac.Write([]byte(h.Version))
-	mac.Write([]byte(fmt.Sprintf("%05d", len(h.Comments))))
+	_, _ = fmt.Fprintf(mac, "%05d", len(h.Comments))
 	mac.Write([]byte(h.Comments))
 	mac.Write(h.Flags.ToBytes())
 	mac.Write(h.Salt)
@@ -62,7 +62,7 @@ func ComputeV2HeaderMACRaw(subkeyHeader []byte, raw *RawHeaderFields, h *VolumeH
 
 	// Write all header fields in exact order using raw bytes where available
 	mac.Write(raw.Version)
-	mac.Write([]byte(fmt.Sprintf("%05d", raw.CommentsLen)))
+	_, _ = fmt.Fprintf(mac, "%05d", raw.CommentsLen)
 	mac.Write(raw.Comments)
 	mac.Write(raw.Flags)
 	mac.Write(h.Salt)

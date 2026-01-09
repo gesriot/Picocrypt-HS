@@ -57,41 +57,41 @@ func Recombine(opts RecombineOptions) error {
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
-	defer fout.Close()
+	defer func() { _ = fout.Close() }()
 
 	var totalDone int64
 	startTime := time.Now()
 
 	for i := range numChunks {
 		if opts.Cancel != nil && opts.Cancel() {
-			fout.Close()
-			os.Remove(opts.OutputPath)
+			_ = fout.Close()
+			_ = os.Remove(opts.OutputPath)
 			return errors.New("operation cancelled")
 		}
 
 		chunkPath := fmt.Sprintf("%s.%d", opts.InputBase, i)
 		fin, err := os.Open(chunkPath)
 		if err != nil {
-			fout.Close()
-			os.Remove(opts.OutputPath)
+			_ = fout.Close()
+			_ = os.Remove(opts.OutputPath)
 			return fmt.Errorf("open chunk %d: %w", i, err)
 		}
 
 		buf := make([]byte, util.MiB)
 		for {
 			if opts.Cancel != nil && opts.Cancel() {
-				fin.Close()
-				fout.Close()
-				os.Remove(opts.OutputPath)
+				_ = fin.Close()
+				_ = fout.Close()
+				_ = os.Remove(opts.OutputPath)
 				return errors.New("operation cancelled")
 			}
 
 			n, readErr := fin.Read(buf)
 			if n > 0 {
 				if _, err := fout.Write(buf[:n]); err != nil {
-					fin.Close()
-					fout.Close()
-					os.Remove(opts.OutputPath)
+					_ = fin.Close()
+					_ = fout.Close()
+					_ = os.Remove(opts.OutputPath)
 					return fmt.Errorf("write from chunk %d: %w", i, err)
 				}
 				totalDone += int64(n)
@@ -109,9 +109,9 @@ func Recombine(opts RecombineOptions) error {
 				break
 			}
 			if readErr != nil {
-				fin.Close()
-				fout.Close()
-				os.Remove(opts.OutputPath)
+				_ = fin.Close()
+				_ = fout.Close()
+				_ = os.Remove(opts.OutputPath)
 				return fmt.Errorf("read chunk %d: %w", i, readErr)
 			}
 		}

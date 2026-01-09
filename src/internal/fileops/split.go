@@ -78,12 +78,12 @@ func Split(opts SplitOptions) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open input: %w", err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	// Delete existing chunks first
 	existingChunks, _ := filepath.Glob(opts.InputPath + ".*")
 	for _, chunk := range existingChunks {
-		os.Remove(chunk)
+		_ = os.Remove(chunk)
 	}
 
 	var chunks []string
@@ -94,7 +94,7 @@ func Split(opts SplitOptions) ([]string, error) {
 		if opts.Cancel != nil && opts.Cancel() {
 			// Clean up partial chunks
 			for _, chunk := range chunks {
-				os.Remove(chunk)
+				_ = os.Remove(chunk)
 			}
 			return nil, errors.New("operation cancelled")
 		}
@@ -104,7 +104,7 @@ func Split(opts SplitOptions) ([]string, error) {
 		if err != nil {
 			// Clean up partial chunks
 			for _, chunk := range chunks {
-				os.Remove(chunk)
+				_ = os.Remove(chunk)
 			}
 			return nil, fmt.Errorf("create chunk %d: %w", i, err)
 		}
@@ -114,10 +114,10 @@ func Split(opts SplitOptions) ([]string, error) {
 
 		for chunkDone < chunkSize {
 			if opts.Cancel != nil && opts.Cancel() {
-				fout.Close()
-				os.Remove(chunkPath)
+				_ = fout.Close()
+				_ = os.Remove(chunkPath)
 				for _, chunk := range chunks {
-					os.Remove(chunk)
+					_ = os.Remove(chunk)
 				}
 				return nil, errors.New("operation cancelled")
 			}
@@ -131,10 +131,10 @@ func Split(opts SplitOptions) ([]string, error) {
 			n, readErr := fin.Read(buf)
 			if n > 0 {
 				if _, err := fout.Write(buf[:n]); err != nil {
-					fout.Close()
-					os.Remove(chunkPath)
+					_ = fout.Close()
+					_ = os.Remove(chunkPath)
 					for _, chunk := range chunks {
-						os.Remove(chunk)
+						_ = os.Remove(chunk)
 					}
 					return nil, fmt.Errorf("write chunk %d: %w", i, err)
 				}
@@ -154,10 +154,10 @@ func Split(opts SplitOptions) ([]string, error) {
 				break
 			}
 			if readErr != nil {
-				fout.Close()
-				os.Remove(chunkPath)
+				_ = fout.Close()
+				_ = os.Remove(chunkPath)
 				for _, chunk := range chunks {
-					os.Remove(chunk)
+					_ = os.Remove(chunk)
 				}
 				return nil, fmt.Errorf("read for chunk %d: %w", i, readErr)
 			}

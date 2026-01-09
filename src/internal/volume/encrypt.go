@@ -163,7 +163,9 @@ func encryptGenerateValues(ctx *OperationContext, req *EncryptRequest) error {
 	ctx.Total = stat.Size()
 
 	// Determine if padding is needed (RS internals)
-	ctx.Padded = ctx.Total%int64(util.MiB) >= int64(util.MiB)-128
+	// Padding is required when the last partial block would leave fewer than RS128DataSize
+	// bytes after RS128 encoding chunks are filled.
+	ctx.Padded = ctx.Total%int64(util.MiB) >= int64(util.MiB)-encoding.RS128DataSize
 
 	// Create header
 	ctx.Header = header.NewVolumeHeader(salt, hkdfSalt, serpentIV, nonce)
@@ -189,12 +191,12 @@ func encryptWriteHeader(ctx *OperationContext, req *EncryptRequest) error {
 	// Write header
 	w := header.NewWriter(fout, req.RSCodecs)
 	if _, err := w.WriteHeader(ctx.Header); err != nil {
-		fout.Close()
-		os.Remove(fout.Name())
+		_ = fout.Close()
+		_ = os.Remove(fout.Name())
 		return fmt.Errorf("write header: %w", err)
 	}
 
-	fout.Close()
+	_ = fout.Close()
 	return nil
 }
 
@@ -299,13 +301,13 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	if err != nil {
 		return fmt.Errorf("open input: %w", err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("open output: %w", err)
 	}
-	defer fout.Close()
+	defer func() { _ = fout.Close() }()
 
 	// Wrap with temp zip cipher if needed
 	var reader io.Reader = fin
@@ -382,7 +384,7 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 	if err != nil {
 		return fmt.Errorf("open output for auth: %w", err)
 	}
-	defer fout.Close()
+	defer func() { _ = fout.Close() }()
 
 	// Write auth values
 	offset := header.AuthValuesOffset(len(ctx.Header.Comments))
@@ -402,7 +404,7 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 	if err := fout.Sync(); err != nil {
 		return fmt.Errorf("sync output: %w", err)
 	}
-	fout.Close()
+	_ = fout.Close()
 
 	// Rename to final name
 	if err := os.Rename(req.OutputFile+".incomplete", req.OutputFile); err != nil {
@@ -438,12 +440,12 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 		}
 
 		// Remove the unsplit file
-		os.Remove(req.OutputFile)
+		_ = os.Remove(req.OutputFile)
 	}
 
 	// Clean up temp file
 	if ctx.TempFile != "" {
-		os.Remove(ctx.TempFile)
+		_ = os.Remove(ctx.TempFile)
 	}
 
 	return nil
@@ -451,9 +453,9 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 
 func cleanupEncrypt(ctx *OperationContext, req *EncryptRequest) {
 	if ctx.TempFile != "" {
-		os.Remove(ctx.TempFile)
+		_ = os.Remove(ctx.TempFile)
 	}
-	os.Remove(req.OutputFile + ".incomplete")
+	_ = os.Remove(req.OutputFile + ".incomplete")
 	// Note: ctx.Close() is called via defer in Encrypt()
 }
 
@@ -463,32 +465,32 @@ func cleanupEncrypt(ctx *OperationContext, req *EncryptRequest) {
 // the last chunk of partial blocks.
 func encodeWithRS(data []byte, rs *encoding.RSCodecs) []byte {
 	// Pre-allocate result slice to avoid repeated reallocations
-	// Each 128-byte input chunk becomes 136 bytes (128 data + 8 parity)
+	// Each RS128DataSize-byte input chunk becomes RS128EncodedSize bytes (128 data + 8 parity)
 	// For partial blocks, we add one more chunk for padding
-	chunks := (len(data) + 127) / 128
+	chunks := (len(data) + encoding.RS128DataSize - 1) / encoding.RS128DataSize
 	if len(data) < util.MiB {
 		chunks++ // Extra chunk for padding in partial blocks
 	}
-	result := make([]byte, 0, chunks*136)
+	result := make([]byte, 0, chunks*encoding.RS128EncodedSize)
 
 	// Full 1 MiB block - no padding needed within the block
 	if len(data) == util.MiB {
-		for i := 0; i < util.MiB; i += 128 {
-			result = append(result, encoding.Encode(rs.RS128, data[i:i+128])...)
+		for i := 0; i < util.MiB; i += encoding.RS128DataSize {
+			result = append(result, encoding.Encode(rs.RS128, data[i:i+encoding.RS128DataSize])...)
 		}
 		return result
 	}
 
 	// Partial block (< 1 MiB) - need to handle padding
 	// Encode full 128-byte chunks
-	fullChunks := len(data) / 128
+	fullChunks := len(data) / encoding.RS128DataSize
 	for i := 0; i < fullChunks; i++ {
-		result = append(result, encoding.Encode(rs.RS128, data[i*128:(i+1)*128])...)
+		result = append(result, encoding.Encode(rs.RS128, data[i*encoding.RS128DataSize:(i+1)*encoding.RS128DataSize])...)
 	}
 
 	// ALWAYS add a padded chunk for partial blocks (matches original line 2071-2072)
 	// This is because decryption always unpads the last chunk of partial blocks
-	remaining := data[fullChunks*128:]
+	remaining := data[fullChunks*encoding.RS128DataSize:]
 	result = append(result, encoding.Encode(rs.RS128, encoding.Pad(remaining))...)
 
 	return result

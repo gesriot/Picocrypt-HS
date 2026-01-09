@@ -33,8 +33,8 @@ func (a *App) drawPassgenModal() {
 				a.State.ShowPassgen = false
 			}),
 			giu.Style().SetDisabled(
-				!(a.State.PassgenUpper || a.State.PassgenLower ||
-					a.State.PassgenNums || a.State.PassgenSymbols),
+				!a.State.PassgenUpper && !a.State.PassgenLower &&
+					!a.State.PassgenNums && !a.State.PassgenSymbols,
 			).To(
 				giu.Button("Generate").Size(100, 0).OnClick(func() {
 					a.State.Password = a.State.GenPassword()

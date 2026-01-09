@@ -21,6 +21,12 @@ import (
 	"github.com/Picocrypt/infectious"
 )
 
+// Reed-Solomon chunk sizes for payload data (RS128)
+const (
+	RS128DataSize    = 128 // Input chunk size for RS128
+	RS128EncodedSize = 136 // Output chunk size for RS128 (128 + 8 parity)
+)
+
 // RSCodecs holds pre-initialized Reed-Solomon Forward Error Correction (FEC) codecs.
 // All codecs are created once at startup and reused throughout the application lifetime.
 //
@@ -70,9 +76,12 @@ func NewRSCodecs() (*RSCodecs, error) {
 // Example: Encode(rs128, 128-byte-data) -> 136 bytes with 8 parity bytes.
 func Encode(rs *infectious.FEC, data []byte) []byte {
 	res := make([]byte, rs.Total())
-	rs.Encode(data, func(s infectious.Share) {
+	if err := rs.Encode(data, func(s infectious.Share) {
 		res[s.Number] = s.Data[0]
-	})
+	}); err != nil {
+		// This should never happen with correct input size
+		panic("rs.Encode failed: " + err.Error())
+	}
 	return res
 }
 

@@ -181,7 +181,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		giu.Update()
 		return
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	// Check if version can be read from header
 	tmp := make([]byte, 15)

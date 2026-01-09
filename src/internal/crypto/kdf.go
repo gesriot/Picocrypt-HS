@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"io"
 
 	"golang.org/x/crypto/argon2"
@@ -17,7 +18,7 @@ import (
 func RandomBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		return nil, errors.New("fatal crypto/rand error")
+		return nil, fmt.Errorf("fatal crypto/rand error: %w", err)
 	}
 
 	// Sanity check: bytes should not be all zeros
@@ -191,7 +192,7 @@ func (r *SubkeyReader) MACSubkey() ([]byte, error) {
 // SerpentKey reads the 32-byte Serpent key.
 func (r *SubkeyReader) SerpentKey() ([]byte, error) {
 	if r.serpentRead {
-		return nil, errors.New("Serpent key already consumed")
+		return nil, errors.New("serpent key already consumed")
 	}
 	if !r.macRead {
 		return nil, errors.New("must read MAC subkey before Serpent key")

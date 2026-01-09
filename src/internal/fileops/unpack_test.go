@@ -59,13 +59,13 @@ func TestUnpackPathTraversalVariants(t *testing.T) {
 			_, err = w.Create(malPath)
 			if err != nil {
 				// Some paths may be rejected by the zip library itself
-				w.Close()
-				f.Close()
+				_ = w.Close()
+				_ = f.Close()
 				t.Skipf("Zip library rejected path: %v", err)
 				return
 			}
-			w.Close()
-			f.Close()
+			_ = w.Close()
+			_ = f.Close()
 
 			// Attempt to unpack
 			err = Unpack(UnpackOptions{
@@ -106,10 +106,10 @@ func TestUnpackNormalPaths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create entry %q: %v", path, err)
 		}
-		fw.Write([]byte("test content"))
+		_, _ = fw.Write([]byte("test content"))
 	}
-	w.Close()
-	f.Close()
+	_ = w.Close()
+	_ = f.Close()
 
 	// Unpack should succeed
 	extractDir := filepath.Join(tmpDir, "extracted")
@@ -153,10 +153,10 @@ func TestUnpackCancellation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create entry: %v", err)
 		}
-		fw.Write([]byte("test content for file"))
+		_, _ = fw.Write([]byte("test content for file"))
 	}
-	w.Close()
-	f.Close()
+	_ = w.Close()
+	_ = f.Close()
 
 	// Cancel after first file
 	cancelAfter := 1
@@ -196,15 +196,15 @@ func createMaliciousZip(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("Create zip file: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w := zip.NewWriter(f)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	// Create a file with path traversal in name
 	fw, err := w.Create("../escape.txt")
 	if err != nil {
 		t.Fatalf("Create malicious entry: %v", err)
 	}
-	fw.Write([]byte("malicious content"))
+	_, _ = fw.Write([]byte("malicious content"))
 }

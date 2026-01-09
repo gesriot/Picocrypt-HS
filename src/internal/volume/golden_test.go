@@ -242,7 +242,7 @@ func TestGoldenCompressedDecryption(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to open zip: %v", err)
 			}
-			defer zipReader.Close()
+			defer func() { _ = zipReader.Close() }()
 
 			// Find and verify the test file inside the zip
 			found := false
@@ -255,7 +255,7 @@ func TestGoldenCompressedDecryption(t *testing.T) {
 						t.Fatalf("Failed to open file in zip: %v", err)
 					}
 					content, err := io.ReadAll(rc)
-					rc.Close()
+					_ = rc.Close()
 					if err != nil {
 						t.Fatalf("Failed to read file in zip: %v", err)
 					}
@@ -299,11 +299,11 @@ func TestGoldenV1Detection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	// Read version
 	versionEnc := make([]byte, 15)
-	fin.Read(versionEnc)
+	_, _ = fin.Read(versionEnc)
 
 	versionDec, err := encoding.Decode(rsCodecs.RS5, versionEnc, false)
 	if err != nil {
@@ -336,11 +336,11 @@ func TestGoldenV2Detection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	// Read version
 	versionEnc := make([]byte, 15)
-	fin.Read(versionEnc)
+	_, _ = fin.Read(versionEnc)
 
 	versionDec, err := encoding.Decode(rsCodecs.RS5, versionEnc, false)
 	if err != nil {
@@ -496,7 +496,7 @@ func TestGoldenHeaderParsing(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer fin.Close()
+			defer func() { _ = fin.Close() }()
 
 			reader := NewHeaderReaderForTest(fin, rsCodecs)
 			result, err := reader.ReadHeader()

@@ -38,7 +38,7 @@ func FuzzHeaderRead(f *testing.F) {
 
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, codecs)
-	writer.WriteHeader(validHeader)
+	_, _ = writer.WriteHeader(validHeader)
 	f.Add(buf.Bytes())
 
 	// Also add truncated versions

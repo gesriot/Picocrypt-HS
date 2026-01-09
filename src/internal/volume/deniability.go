@@ -44,8 +44,8 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 
 	// Helper to restore original file on error
 	restoreOriginal := func() {
-		os.Remove(incompletePath)
-		os.Rename(tmpPath, volumePath)
+		_ = os.Remove(incompletePath)
+		_ = os.Rename(tmpPath, volumePath)
 	}
 
 	fin, err := os.Open(tmpPath)
@@ -53,15 +53,15 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 		restoreOriginal()
 		return fmt.Errorf("open tmp: %w", err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	fout, err := os.Create(incompletePath)
 	if err != nil {
-		fin.Close()
+		_ = fin.Close()
 		restoreOriginal()
 		return fmt.Errorf("create output: %w", err)
 	}
-	defer fout.Close()
+	defer func() { _ = fout.Close() }()
 
 	// Generate random salt and nonce
 	salt, err := crypto.RandomBytes(16)
@@ -86,7 +86,12 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 
 	// Derive key using Argon2 (normal mode parameters)
-	key := argon2.IDKey([]byte(password), salt, 4, 1<<20, 4, 32)
+	key := argon2.IDKey([]byte(password), salt,
+		crypto.Argon2NormalPasses,
+		crypto.Argon2NormalMemory,
+		crypto.Argon2NormalThreads,
+		crypto.Argon2KeySize,
+	)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
 	if err != nil {
@@ -138,14 +143,14 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 		}
 	}
 
-	fin.Close()
+	_ = fin.Close()
 
 	// Sync to ensure all data is written before renaming
 	if err := fout.Sync(); err != nil {
 		restoreOriginal()
 		return fmt.Errorf("sync output: %w", err)
 	}
-	fout.Close()
+	_ = fout.Close()
 
 	// Clean up: remove .tmp and rename .incomplete to final name
 	if err := os.Remove(tmpPath); err != nil {
@@ -190,7 +195,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	if err != nil {
 		return "", fmt.Errorf("open volume: %w", err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	// Determine output path (strip .tmp suffixes, add .tmp)
 	outputPath := volumePath
@@ -206,8 +211,8 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 
 	// Helper to cleanup on error
 	cleanup := func() {
-		fout.Close()
-		os.Remove(outputPath)
+		_ = fout.Close()
+		_ = os.Remove(outputPath)
 	}
 
 	// Read salt and nonce
@@ -223,8 +228,13 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 		return "", fmt.Errorf("read nonce: %w", err)
 	}
 
-	// Derive key
-	key := argon2.IDKey([]byte(password), salt, 4, 1<<20, 4, 32)
+	// Derive key using Argon2 (normal mode parameters)
+	key := argon2.IDKey([]byte(password), salt,
+		crypto.Argon2NormalPasses,
+		crypto.Argon2NormalMemory,
+		crypto.Argon2NormalThreads,
+		crypto.Argon2KeySize,
+	)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
 	if err != nil {
@@ -276,38 +286,38 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 		}
 	}
 
-	fin.Close()
+	_ = fin.Close()
 
 	// Sync to ensure all data is written before verification
 	if err := fout.Sync(); err != nil {
 		cleanup()
 		return "", fmt.Errorf("sync output: %w", err)
 	}
-	fout.Close()
+	_ = fout.Close()
 
 	// Verify the decrypted file is a valid volume
 	verifyFin, err := os.Open(outputPath)
 	if err != nil {
-		os.Remove(outputPath)
+		_ = os.Remove(outputPath)
 		return "", fmt.Errorf("open for verification: %w", err)
 	}
 
 	versionEnc := make([]byte, 15)
 	if _, err := io.ReadFull(verifyFin, versionEnc); err != nil {
-		verifyFin.Close()
-		os.Remove(outputPath)
+		_ = verifyFin.Close()
+		_ = os.Remove(outputPath)
 		return "", fmt.Errorf("read version: %w", err)
 	}
-	verifyFin.Close()
+	_ = verifyFin.Close()
 
 	versionDec, err := encoding.Decode(rs.RS5, versionEnc, false)
 	if err != nil {
-		os.Remove(outputPath)
+		_ = os.Remove(outputPath)
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
 
 	if valid, _ := regexp.Match(`^v\d\.\d{2}$`, versionDec); !valid {
-		os.Remove(outputPath)
+		_ = os.Remove(outputPath)
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
 
@@ -322,7 +332,7 @@ func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 	if err != nil {
 		return false
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	versionEnc := make([]byte, 15)
 	if _, err := io.ReadFull(fin, versionEnc); err != nil {

@@ -24,12 +24,16 @@ type UnpackOptions struct {
 }
 
 // Unpack extracts a zip archive to the specified directory.
-func Unpack(opts UnpackOptions) error {
+func Unpack(opts UnpackOptions) (retErr error) {
 	reader, err := zip.OpenReader(opts.ZipPath)
 	if err != nil {
 		return fmt.Errorf("open zip: %w", err)
 	}
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil && retErr == nil {
+			retErr = fmt.Errorf("close zip reader: %w", err)
+		}
+	}()
 
 	// Calculate total uncompressed size
 	var totalSize int64
@@ -96,7 +100,7 @@ func Unpack(opts UnpackOptions) error {
 
 		dstFile, err := os.Create(outPath)
 		if err != nil {
-			fileInArchive.Close()
+			_ = fileInArchive.Close()
 			return fmt.Errorf("create %s: %w", outPath, err)
 		}
 
@@ -104,18 +108,18 @@ func Unpack(opts UnpackOptions) error {
 		for {
 			// Check for cancellation during file extraction
 			if opts.Cancel != nil && opts.Cancel() {
-				dstFile.Close()
-				fileInArchive.Close()
-				os.Remove(outPath)
+				_ = dstFile.Close()
+				_ = fileInArchive.Close()
+				_ = os.Remove(outPath)
 				return errors.New("operation cancelled")
 			}
 
 			n, readErr := fileInArchive.Read(buf)
 			if n > 0 {
 				if _, err := dstFile.Write(buf[:n]); err != nil {
-					dstFile.Close()
-					fileInArchive.Close()
-					os.Remove(outPath)
+					_ = dstFile.Close()
+					_ = fileInArchive.Close()
+					_ = os.Remove(outPath)
 					return fmt.Errorf("write %s: %w", outPath, err)
 				}
 
@@ -133,14 +137,14 @@ func Unpack(opts UnpackOptions) error {
 				break
 			}
 			if readErr != nil {
-				dstFile.Close()
-				fileInArchive.Close()
+				_ = dstFile.Close()
+				_ = fileInArchive.Close()
 				return fmt.Errorf("read %s: %w", f.Name, readErr)
 			}
 		}
 
-		dstFile.Close()
-		fileInArchive.Close()
+		_ = dstFile.Close()
+		_ = fileInArchive.Close()
 	}
 
 	return nil

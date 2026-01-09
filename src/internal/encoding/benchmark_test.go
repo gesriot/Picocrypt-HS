@@ -34,7 +34,7 @@ func BenchmarkUnpad(b *testing.B) {
 
 // BenchmarkRS128Encode measures RS128 encoding performance (per 128-byte block).
 func BenchmarkRS128Encode(b *testing.B) {
-	data := make([]byte, 128)
+	data := make([]byte, RS128DataSize)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = Encode(codecs.RS128, data)
@@ -43,7 +43,7 @@ func BenchmarkRS128Encode(b *testing.B) {
 
 // BenchmarkRS128DecodeFast measures RS128 fast decoding (no error correction).
 func BenchmarkRS128DecodeFast(b *testing.B) {
-	data := Encode(codecs.RS128, make([]byte, 128))
+	data := Encode(codecs.RS128, make([]byte, RS128DataSize))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = Decode(codecs.RS128, data, true)
@@ -52,7 +52,7 @@ func BenchmarkRS128DecodeFast(b *testing.B) {
 
 // BenchmarkRS128DecodeFull measures RS128 full decoding (with error correction).
 func BenchmarkRS128DecodeFull(b *testing.B) {
-	data := Encode(codecs.RS128, make([]byte, 128))
+	data := Encode(codecs.RS128, make([]byte, RS128DataSize))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = Decode(codecs.RS128, data, false)
@@ -84,8 +84,8 @@ func BenchmarkRS1MiBEncode(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var result []byte
-		for j := 0; j < MiB; j += 128 {
-			result = append(result, Encode(codecs.RS128, data[j:j+128])...)
+		for j := 0; j < MiB; j += RS128DataSize {
+			result = append(result, Encode(codecs.RS128, data[j:j+RS128DataSize])...)
 		}
 		_ = result
 	}
@@ -97,15 +97,15 @@ func BenchmarkRS1MiBDecodeFast(b *testing.B) {
 	// Create RS-encoded 1 MiB block
 	data := make([]byte, MiB)
 	var encoded []byte
-	for j := 0; j < MiB; j += 128 {
-		encoded = append(encoded, Encode(codecs.RS128, data[j:j+128])...)
+	for j := 0; j < MiB; j += RS128DataSize {
+		encoded = append(encoded, Encode(codecs.RS128, data[j:j+RS128DataSize])...)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var result []byte
-		for j := 0; j < len(encoded); j += 136 {
-			decoded, _ := Decode(codecs.RS128, encoded[j:j+136], true)
+		for j := 0; j < len(encoded); j += RS128EncodedSize {
+			decoded, _ := Decode(codecs.RS128, encoded[j:j+RS128EncodedSize], true)
 			result = append(result, decoded...)
 		}
 		_ = result

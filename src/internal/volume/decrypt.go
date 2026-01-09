@@ -106,10 +106,8 @@ func decryptPreprocess(ctx *OperationContext, req *DecryptRequest) error {
 			return err
 		}
 
-		// If we recombined, the recombined file is intermediate
-		if ctx.TempFile != "" && ctx.TempFile != decrypted {
-			// Keep track of original temp file for cleanup
-		}
+		// Note: if we recombined, the recombined file path is stored in ctx.RecombinedFile
+		// for cleanup after decryption completes (see decryptFinalize)
 
 		ctx.TempFile = decrypted
 		inputFile = decrypted
@@ -134,7 +132,7 @@ func decryptReadHeader(ctx *OperationContext, req *DecryptRequest) error {
 	if err != nil {
 		return fmt.Errorf("open input: %w", err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	reader := header.NewReader(fin, req.RSCodecs)
 	result, err := reader.ReadHeader()
@@ -332,7 +330,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	if err != nil {
 		return fmt.Errorf("open input: %w", err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
 	// Skip past header
 	headerSize := header.HeaderSize(len(ctx.Header.Comments))
@@ -344,7 +342,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
-	defer fout.Close()
+	defer func() { _ = fout.Close() }()
 
 	// Decrypt loop
 	ctx.Reporter.SetCanCancel(true)
@@ -363,7 +361,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 		// Read chunk (RS encoded size if Reed-Solomon enabled)
 		var src []byte
 		if reedsolo {
-			src = make([]byte, util.MiB/128*136) // RS128: 128 -> 136
+			src = make([]byte, util.MiB/encoding.RS128DataSize*encoding.RS128EncodedSize)
 		} else {
 			src = make([]byte, util.MiB)
 		}
@@ -394,7 +392,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 			}
 
 			if reedsolo {
-				done += int64(util.MiB / 128 * 136)
+				done += int64(util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize)
 			} else {
 				done += int64(n)
 			}
@@ -446,7 +444,7 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 			ctx.TriedFullRSDecode = true
 
 			// Remove incomplete file
-			os.Remove(req.OutputFile + ".incomplete")
+			_ = os.Remove(req.OutputFile + ".incomplete")
 
 			// Re-derive keys (needed to reset HKDF stream)
 			if err := decryptDeriveKeys(ctx, req); err != nil {
@@ -476,7 +474,7 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 			}
 		} else {
 			// Remove incomplete output
-			os.Remove(req.OutputFile + ".incomplete")
+			_ = os.Remove(req.OutputFile + ".incomplete")
 			return errors.New("the input file is damaged or modified")
 		}
 	}
@@ -488,11 +486,11 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 
 	// Cleanup temp files
 	if ctx.TempFile != "" {
-		os.Remove(ctx.TempFile)
+		_ = os.Remove(ctx.TempFile)
 	}
 	// Remove recombined file if different from temp file (deniability changes TempFile)
 	if ctx.RecombinedFile != "" && ctx.RecombinedFile != ctx.TempFile {
-		os.Remove(ctx.RecombinedFile)
+		_ = os.Remove(ctx.RecombinedFile)
 	}
 
 	// Auto-unzip if requested and output is a .zip
@@ -514,7 +512,7 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 		}
 
 		// Remove the zip
-		os.Remove(req.OutputFile)
+		_ = os.Remove(req.OutputFile)
 	}
 
 	return nil
@@ -522,13 +520,13 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 
 func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
 	if ctx.TempFile != "" {
-		os.Remove(ctx.TempFile)
+		_ = os.Remove(ctx.TempFile)
 	}
 	// Remove recombined file if different from temp file
 	if ctx.RecombinedFile != "" && ctx.RecombinedFile != ctx.TempFile {
-		os.Remove(ctx.RecombinedFile)
+		_ = os.Remove(ctx.RecombinedFile)
 	}
-	os.Remove(req.OutputFile + ".incomplete")
+	_ = os.Remove(req.OutputFile + ".incomplete")
 	// Note: ctx.Close() is called via defer in Decrypt()
 }
 
@@ -537,41 +535,42 @@ func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
 // This matches the original Picocrypt behavior for performance.
 func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceDecode, fastDecode bool) ([]byte, error) {
 	var result []byte
+	fullBlockEncodedSize := util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
 
 	// Full 1 MiB block
-	if len(data) == util.MiB/128*136 {
-		for i := 0; i < util.MiB/128*136; i += 136 {
-			decoded, err := encoding.Decode(rs.RS128, data[i:i+136], fastDecode)
+	if len(data) == fullBlockEncodedSize {
+		for i := 0; i < fullBlockEncodedSize; i += encoding.RS128EncodedSize {
+			decoded, err := encoding.Decode(rs.RS128, data[i:i+encoding.RS128EncodedSize], fastDecode)
 			if err != nil {
 				if forceDecode {
-					decoded = data[i : i+128] // Use raw data
+					decoded = data[i : i+encoding.RS128DataSize] // Use raw data
 				} else {
 					return nil, errors.New("the input file is irrecoverably damaged")
 				}
 			}
 
 			// Unpad last chunk if needed
-			if isLast && i == util.MiB/128*136-136 && padded {
+			if isLast && i == fullBlockEncodedSize-encoding.RS128EncodedSize && padded {
 				decoded = encoding.Unpad(decoded)
 			}
 
 			result = append(result, decoded...)
 		}
 	} else {
-		// Partial block - must have at least one RS128 chunk (136 bytes)
-		if len(data) < 136 {
+		// Partial block - must have at least one RS128 chunk
+		if len(data) < encoding.RS128EncodedSize {
 			if forceDecode {
 				return data, nil // Return raw data for severely truncated input
 			}
 			return nil, errors.New("the input file is truncated or severely damaged")
 		}
 
-		chunks := len(data)/136 - 1
+		chunks := len(data)/encoding.RS128EncodedSize - 1
 		for i := 0; i < chunks; i++ {
-			decoded, err := encoding.Decode(rs.RS128, data[i*136:(i+1)*136], fastDecode)
+			decoded, err := encoding.Decode(rs.RS128, data[i*encoding.RS128EncodedSize:(i+1)*encoding.RS128EncodedSize], fastDecode)
 			if err != nil {
 				if forceDecode {
-					decoded = data[i*136 : i*136+128]
+					decoded = data[i*encoding.RS128EncodedSize : i*encoding.RS128EncodedSize+encoding.RS128DataSize]
 				} else {
 					return nil, errors.New("the input file is irrecoverably damaged")
 				}
@@ -580,8 +579,8 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 		}
 
 		// Last chunk (always unpad)
-		lastChunkStart := chunks * 136
-		lastChunkEnd := lastChunkStart + 136
+		lastChunkStart := chunks * encoding.RS128EncodedSize
+		lastChunkEnd := lastChunkStart + encoding.RS128EncodedSize
 		if lastChunkEnd > len(data) {
 			lastChunkEnd = len(data)
 		}
@@ -589,7 +588,7 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 		if err != nil {
 			if forceDecode {
 				// Safely extract what we can
-				safeEnd := lastChunkStart + 128
+				safeEnd := lastChunkStart + encoding.RS128DataSize
 				if safeEnd > len(data) {
 					safeEnd = len(data)
 				}

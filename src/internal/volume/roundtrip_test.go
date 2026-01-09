@@ -864,8 +864,8 @@ func TestAutoUnzip(t *testing.T) {
 	}
 
 	// Remove original zip and test folder
-	os.Remove(zipPath)
-	os.RemoveAll(testDir)
+	_ = os.Remove(zipPath)
+	_ = os.RemoveAll(testDir)
 
 	// Decrypt with AutoUnzip enabled
 	decReq := &DecryptRequest{
@@ -955,8 +955,8 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 	}
 
 	// Remove original zip and test folder
-	os.Remove(zipPath)
-	os.RemoveAll(testDir)
+	_ = os.Remove(zipPath)
+	_ = os.RemoveAll(testDir)
 
 	// Decrypt with AutoUnzip + SameLevel enabled
 	decReq := &DecryptRequest{
@@ -999,10 +999,10 @@ func createTestZip(zipPath, sourceDir, baseName string) error {
 	if err != nil {
 		return err
 	}
-	defer zipFile.Close()
+	defer func() { _ = zipFile.Close() }()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer zipWriter.Close()
+	defer func() { _ = zipWriter.Close() }()
 
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -1031,7 +1031,7 @@ func createTestZip(zipPath, sourceDir, baseName string) error {
 		if err != nil {
 			return err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		_, err = io.Copy(writer, file)
 		return err
@@ -1085,9 +1085,9 @@ func TestRoundTripMultiFile(t *testing.T) {
 	}
 
 	// Remove original files
-	os.Remove(file1Path)
-	os.Remove(file2Path)
-	os.Remove(file3Path)
+	_ = os.Remove(file1Path)
+	_ = os.Remove(file2Path)
+	_ = os.Remove(file3Path)
 
 	// Decrypt
 	decReq := &DecryptRequest{
@@ -1635,8 +1635,8 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	}
 
 	// Remove original files
-	os.Remove(file1Path)
-	os.Remove(file2Path)
+	_ = os.Remove(file1Path)
+	_ = os.Remove(file2Path)
 
 	// Decrypt with auto-unzip
 	decReq := &DecryptRequest{
@@ -1849,7 +1849,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	}
 
 	// Clean up for next test
-	os.Remove(decryptedPath)
+	_ = os.Remove(decryptedPath)
 
 	// Test 2: Wrong order should fail
 	decReqWrong := &DecryptRequest{

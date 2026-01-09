@@ -436,7 +436,7 @@ func (a *App) drawEncryptOptions() {
 		giu.Tooltip("Provides the highest level of security attainable"),
 		giu.Dummy(-170, 0),
 		giu.Style().SetDisabled(
-			a.State.Recursively || !(len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0),
+			a.State.Recursively || (len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0),
 		).To(
 			giu.Checkbox("Compress files", &a.State.Compress),
 			giu.Tooltip("Compress files with Deflate before encrypting"),
@@ -457,7 +457,7 @@ func (a *App) drawEncryptOptions() {
 		giu.Checkbox("Deniability", &a.State.Deniability),
 		giu.Tooltip("Warning: only use this if you know what it does!"),
 		giu.Dummy(-170, 0),
-		giu.Style().SetDisabled(!(len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0)).To(
+		giu.Style().SetDisabled(len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0).To(
 			giu.Checkbox("Recursively", &a.State.Recursively).OnChange(func() {
 				a.State.Compress = false
 			}),
@@ -540,7 +540,7 @@ func (a *App) createKeyfile() {
 
 	data := make([]byte, 32)
 	if n, err := rand.Read(data); err != nil || n != 32 {
-		fout.Close()
+		_ = fout.Close()
 		a.State.MainStatus = "Failed to generate keyfile"
 		a.State.MainStatusColor = util.RED
 		giu.Update()
@@ -549,7 +549,7 @@ func (a *App) createKeyfile() {
 
 	n, err := fout.Write(data)
 	if err != nil || n != 32 {
-		fout.Close()
+		_ = fout.Close()
 		a.State.MainStatus = "Failed to write keyfile"
 		a.State.MainStatusColor = util.RED
 		giu.Update()
