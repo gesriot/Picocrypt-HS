@@ -157,6 +157,12 @@ func (a *App) Run() {
 	// Always create a new Fyne app - don't use CurrentApp() as it may not exist
 	a.fyneApp = fyneApp.New()
 
+	// Clean up any leftover temp files from previous sessions (mobile only)
+	// Must be called AFTER Fyne app is initialized (isMobile() requires it)
+	if isMobile() {
+		a.CleanupMobileTempFiles()
+	}
+
 	// Apply compact theme to match original Picocrypt look
 	a.fyneApp.Settings().SetTheme(NewCompactTheme())
 
@@ -164,11 +170,15 @@ func (a *App) Run() {
 	appIcon := fyne.NewStaticResource("key.png", appIconData)
 	a.fyneApp.SetIcon(appIcon)
 
-	// Create main window with fixed size (starts with encrypt height)
+	// Create main window
 	a.Window = a.fyneApp.NewWindow("Picocrypt NG " + a.Version[1:])
 	a.Window.SetIcon(appIcon)
-	a.Window.SetFixedSize(true)
-	a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
+
+	// On desktop: fixed size window; on mobile: flexible size
+	if !isMobile() {
+		a.Window.SetFixedSize(true)
+		a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
+	}
 
 	// Set clipboard callback for state
 	// Must use fyne.Do() since this may be called from goroutines (e.g., GenPassword)
@@ -185,17 +195,22 @@ func (a *App) Run() {
 		}
 	})
 
-	// Build UI
-	content := a.buildUI()
+	// Build UI - use mobile layout on mobile devices
+	var content fyne.CanvasObject
+	if isMobile() {
+		content = a.buildMobileUI()
+	} else {
+		content = a.buildUI()
 
-	// Set up drag and drop
-	a.Window.SetOnDropped(func(pos fyne.Position, uris []fyne.URI) {
-		paths := make([]string, len(uris))
-		for i, uri := range uris {
-			paths[i] = uri.Path()
-		}
-		a.onDrop(paths)
-	})
+		// Set up drag and drop (desktop only)
+		a.Window.SetOnDropped(func(pos fyne.Position, uris []fyne.URI) {
+			paths := make([]string, len(uris))
+			for i, uri := range uris {
+				paths[i] = uri.Path()
+			}
+			a.onDrop(paths)
+		})
+	}
 
 	// Set up Enter key handler
 	if deskCanvas, ok := a.Window.Canvas().(desktop.Canvas); ok {
@@ -446,6 +461,12 @@ func (a *App) buildOutputSection() fyne.CanvasObject {
 
 // updateAdvancedSection updates the advanced options based on mode.
 func (a *App) updateAdvancedSection() {
+	// Use mobile-specific advanced section on mobile
+	if isMobile() {
+		a.updateMobileAdvancedSection()
+		return
+	}
+
 	a.advancedContainer.RemoveAll()
 
 	if a.State.Mode != "decrypt" {
@@ -1185,6 +1206,10 @@ func (a *App) startWork() {
 			a.doWork()
 			a.State.Working = false
 			a.State.ShowProgress = false
+			// Clean up mobile temp files after operation completes
+			if isMobile() {
+				a.CleanupMobileTempFiles()
+			}
 			fyne.Do(func() {
 				if a.progressModal != nil {
 					a.progressModal.Hide()
@@ -1291,6 +1316,10 @@ func (a *App) startRecursiveWork() {
 			if a.cancelled.Load() {
 				a.State.Working = false
 				a.State.ShowProgress = false
+				// Clean up mobile temp files after cancellation
+				if isMobile() {
+					a.CleanupMobileTempFiles()
+				}
 				fyne.Do(func() {
 					if a.progressModal != nil {
 						a.progressModal.Hide()
@@ -1303,6 +1332,10 @@ func (a *App) startRecursiveWork() {
 
 		a.State.Working = false
 		a.State.ShowProgress = false
+		// Clean up mobile temp files after recursive operation completes
+		if isMobile() {
+			a.CleanupMobileTempFiles()
+		}
 
 		if failedCount == 0 {
 			a.State.MainStatus = fmt.Sprintf("Completed (%d files)", successCount)
