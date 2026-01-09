@@ -38,10 +38,10 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	extDialog "github.com/Picocrypt/dialog"
 	"github.com/Picocrypt/zxcvbn-go"
 )
 
@@ -169,9 +169,6 @@ func (a *App) Run() {
 	a.Window.SetIcon(appIcon)
 	a.Window.SetFixedSize(true)
 	a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
-
-	// Initialize dialog package
-	extDialog.Init()
 
 	// Set clipboard callback for state
 	// Must use fyne.Do() since this may be called from goroutines (e.g., GenPassword)
@@ -1015,66 +1012,109 @@ func (a *App) CreateReporter() *app.UIReporter {
 
 // createKeyfile creates a new random keyfile.
 func (a *App) createKeyfile() {
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil || writer == nil {
+			return
+		}
+		defer writer.Close()
+
+		data := make([]byte, 32)
+		if n, err := rand.Read(data); err != nil || n != 32 {
+			a.State.MainStatus = "Failed to generate keyfile"
+			a.State.MainStatusColor = util.RED
+			a.updateUIState()
+			return
+		}
+
+		n, err := writer.Write(data)
+		if err != nil || n != 32 {
+			a.State.MainStatus = "Failed to write keyfile"
+			a.State.MainStatusColor = util.RED
+			a.updateUIState()
+			return
+		}
+
+		a.State.MainStatus = "Ready"
+		a.State.MainStatusColor = util.WHITE
+		a.updateUIState()
+	}, a.Window)
+
+	saveDialog.SetFileName("keyfile-" + strconv.Itoa(int(time.Now().Unix())) + ".bin")
+
+	// Set start directory if we have files selected
 	startDir := ""
 	if len(a.State.OnlyFiles) > 0 {
 		startDir = filepath.Dir(a.State.OnlyFiles[0])
 	} else if len(a.State.OnlyFolders) > 0 {
 		startDir = filepath.Dir(a.State.OnlyFolders[0])
 	}
-
-	f := extDialog.File().Title("Choose where to save the keyfile")
 	if startDir != "" {
-		f.SetStartDir(startDir)
-	}
-	f.SetInitFilename("keyfile-" + strconv.Itoa(int(time.Now().Unix())) + ".bin")
-
-	file, err := f.Save()
-	if file == "" || err != nil {
-		return
+		uri := storage.NewFileURI(startDir)
+		if listable, err := storage.ListerForURI(uri); err == nil {
+			saveDialog.SetLocation(listable)
+		}
 	}
 
-	fout, err := os.Create(file)
-	if err != nil {
-		a.State.MainStatus = "Failed to create keyfile"
-		a.State.MainStatusColor = util.RED
-		a.updateUIState()
-		return
+	// Temporarily enlarge window for larger dialog
+	originalHeight := float32(windowHeightEncrypt)
+	if a.State.Mode == "decrypt" {
+		originalHeight = windowHeightDecrypt
 	}
+	a.Window.SetFixedSize(false)
+	a.Window.Resize(fyne.NewSize(650, 500))
+	saveDialog.SetOnClosed(func() {
+		a.Window.Resize(fyne.NewSize(windowWidth, originalHeight))
+		a.Window.SetFixedSize(true)
+	})
 
-	data := make([]byte, 32)
-	if n, err := rand.Read(data); err != nil || n != 32 {
-		_ = fout.Close()
-		a.State.MainStatus = "Failed to generate keyfile"
-		a.State.MainStatusColor = util.RED
-		a.updateUIState()
-		return
-	}
-
-	n, err := fout.Write(data)
-	if err != nil || n != 32 {
-		_ = fout.Close()
-		a.State.MainStatus = "Failed to write keyfile"
-		a.State.MainStatusColor = util.RED
-		a.updateUIState()
-		return
-	}
-
-	if err := fout.Close(); err != nil {
-		a.State.MainStatus = "Failed to close keyfile"
-		a.State.MainStatusColor = util.RED
-		a.updateUIState()
-		return
-	}
-
-	a.State.MainStatus = "Ready"
-	a.State.MainStatusColor = util.WHITE
-	a.updateUIState()
+	saveDialog.Resize(fyne.NewSize(600, 450))
+	saveDialog.Show()
 }
 
 // changeOutputFile opens a dialog to change the output file path.
 func (a *App) changeOutputFile() {
-	f := extDialog.File().Title("Choose where to save the output. Don't include extensions")
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil || writer == nil {
+			return
+		}
+		// Close immediately - we only need the path, not to write
+		writer.Close()
 
+		file := writer.URI().Path()
+		// Strip any extension user might have added
+		file = filepath.Join(filepath.Dir(file), strings.Split(filepath.Base(file), ".")[0])
+
+		// Add correct extensions
+		if a.State.Mode == "encrypt" {
+			if len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 || a.State.Compress {
+				file += ".zip.pcv"
+			} else {
+				file += filepath.Ext(a.State.InputFile) + ".pcv"
+			}
+		} else {
+			if strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
+				file += ".zip"
+			} else {
+				tmp := strings.TrimSuffix(filepath.Base(a.State.InputFile), ".pcv")
+				file += filepath.Ext(tmp)
+			}
+		}
+
+		a.State.OutputFile = file
+		a.State.MainStatus = "Ready"
+		a.State.MainStatusColor = util.WHITE
+		a.updateUIState()
+	}, a.Window)
+
+	// Prefill filename
+	tmp := strings.TrimSuffix(filepath.Base(a.State.OutputFile), ".pcv")
+	defaultName := strings.TrimSuffix(tmp, filepath.Ext(tmp))
+	if a.State.Mode == "encrypt" && (len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 || a.State.Compress) {
+		defaultName = "encrypted-" + strconv.Itoa(int(time.Now().Unix()))
+	}
+	saveDialog.SetFileName(defaultName)
+
+	// Set start directory
 	startDir := ""
 	if len(a.State.OnlyFiles) > 0 {
 		startDir = filepath.Dir(a.State.OnlyFiles[0])
@@ -1082,42 +1122,26 @@ func (a *App) changeOutputFile() {
 		startDir = filepath.Dir(a.State.OnlyFolders[0])
 	}
 	if startDir != "" {
-		f.SetStartDir(startDir)
-	}
-
-	// Prefill filename
-	tmp := strings.TrimSuffix(filepath.Base(a.State.OutputFile), ".pcv")
-	f.SetInitFilename(strings.TrimSuffix(tmp, filepath.Ext(tmp)))
-	if a.State.Mode == "encrypt" && (len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 || a.State.Compress) {
-		f.SetInitFilename("encrypted-" + strconv.Itoa(int(time.Now().Unix())))
-	}
-
-	file, err := f.Save()
-	if file == "" || err != nil {
-		return
-	}
-	file = filepath.Join(filepath.Dir(file), strings.Split(filepath.Base(file), ".")[0])
-
-	// Add correct extensions
-	if a.State.Mode == "encrypt" {
-		if len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 || a.State.Compress {
-			file += ".zip.pcv"
-		} else {
-			file += filepath.Ext(a.State.InputFile) + ".pcv"
-		}
-	} else {
-		if strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
-			file += ".zip"
-		} else {
-			tmp := strings.TrimSuffix(filepath.Base(a.State.InputFile), ".pcv")
-			file += filepath.Ext(tmp)
+		uri := storage.NewFileURI(startDir)
+		if listable, err := storage.ListerForURI(uri); err == nil {
+			saveDialog.SetLocation(listable)
 		}
 	}
 
-	a.State.OutputFile = file
-	a.State.MainStatus = "Ready"
-	a.State.MainStatusColor = util.WHITE
-	a.updateUIState()
+	// Temporarily enlarge window for larger dialog
+	originalHeight := float32(windowHeightEncrypt)
+	if a.State.Mode == "decrypt" {
+		originalHeight = windowHeightDecrypt
+	}
+	a.Window.SetFixedSize(false)
+	a.Window.Resize(fyne.NewSize(650, 500))
+	saveDialog.SetOnClosed(func() {
+		a.Window.Resize(fyne.NewSize(windowWidth, originalHeight))
+		a.Window.SetFixedSize(true)
+	})
+
+	saveDialog.Resize(fyne.NewSize(600, 450))
+	saveDialog.Show()
 }
 
 // onClickStart handles the Start button click.

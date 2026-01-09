@@ -4,7 +4,6 @@ go 1.24.2
 
 require (
 	fyne.io/fyne/v2 v2.7.2
-	github.com/Picocrypt/dialog v0.0.0-20250412233924-78f7b909315b
 	github.com/Picocrypt/infectious v0.0.0-20250412183341-9f88c6307b39
 	github.com/Picocrypt/serpent v0.0.0-20240830233833-9ad6ab254fd7
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
@@ -14,7 +13,6 @@ require (
 require (
 	fyne.io/systray v1.12.0 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
-	github.com/Picocrypt/w32 v0.0.0-20240831001500-1183079d4d57 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
