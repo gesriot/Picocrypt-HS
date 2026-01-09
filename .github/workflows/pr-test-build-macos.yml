@@ -30,10 +30,16 @@ jobs:
         cd src
         go mod download
 
+    - name: Run tests
+      # Skip internal/crypto and internal/volume - Argon2 is extremely slow on macOS ARM64 runners
+      run: |
+        cd src
+        go test -v -race -timeout 10m ./internal/encoding/... ./internal/fileops/... ./internal/header/... ./internal/keyfile/... ./internal/util/...
+
     - name: Build
       run: |
         cd src
-        go build -v -ldflags="-s -w" -o Picocrypt-NG Picocrypt-NG.go
+        go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
 
