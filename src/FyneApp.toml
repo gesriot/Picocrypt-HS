@@ -1,7 +1,7 @@
 [Details]
-  Icon = "../images/logo.png"
+  Icon = "../images/key.svg"
   Name = "Picocrypt NG"
-  ID = "io.github.picocrypt-ng.Picocrypt-NG"
+  ID = "io.github.picocryptng.PicocryptNG"
   Version = "2.02"
   Build = 1
 
