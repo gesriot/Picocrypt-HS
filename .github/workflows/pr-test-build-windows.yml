@@ -26,10 +26,15 @@ jobs:
         cd src
         go mod download
 
+    - name: Run tests
+      run: |
+        cd src
+        go test -v -timeout 10m ./...
+
     - name: Build
       run: |
         cd src
-        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe Picocrypt-NG.go
+        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
