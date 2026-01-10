@@ -34,9 +34,10 @@ func (a *App) onDrop(names []string) {
 	a.State.Scanning = true
 	a.State.CompressDone = 0
 	a.State.CompressTotal = 0
-	fyne.Do(func() {
-		a.resetUI()
-	})
+	// Reset UI synchronously - onDrop runs on UI thread, so fyne.Do() is not needed
+	// Using fyne.Do() here would cause a race condition where Mode gets cleared
+	// AFTER it's set below, because fyne.Do() queues the call for later execution
+	a.resetUI()
 
 	// One item dropped
 	if len(names) == 1 {

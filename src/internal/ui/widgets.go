@@ -3,7 +3,6 @@ package ui
 
 import (
 	"image/color"
-	"math"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -15,6 +14,7 @@ import (
 
 // PasswordStrengthIndicator is a custom widget that displays password strength
 // as a circular arc, colored from red (weak) to green (strong).
+// Uses canvas.Arc for efficient GPU-accelerated rendering.
 // Matches original Picocrypt behavior: arc from top going clockwise.
 type PasswordStrengthIndicator struct {
 	widget.BaseWidget
@@ -55,31 +55,15 @@ func (p *PasswordStrengthIndicator) MinSize() fyne.Size {
 
 // CreateRenderer creates the renderer for the widget.
 func (p *PasswordStrengthIndicator) CreateRenderer() fyne.WidgetRenderer {
-	const numSegments = 36
+	// Use canvas.Arc for efficient single-object rendering
+	// CutoutRatio 0.6 creates a ring appearance similar to the original
+	// StartAngle 0 = top (12 o'clock) in Fyne's coordinate system
+	arc := canvas.NewArc(0, 0, 0.6, color.Transparent)
+	arc.SetMinSize(fyne.NewSize(20, 20))
+
 	r := &passwordStrengthRenderer{
 		indicator: p,
-		lines:     make([]*canvas.Line, numSegments),
-	}
-
-	centerX := float32(12)
-	centerY := float32(12)
-	radius := float32(8)
-
-	// Pre-create all line segments for a full circle
-	for i := range r.lines {
-		t1 := 2 * math.Pi * float64(i) / float64(numSegments)
-		t2 := 2 * math.Pi * float64(i+1) / float64(numSegments)
-
-		x1 := centerX + radius*float32(math.Cos(t1))
-		y1 := centerY + radius*float32(math.Sin(t1))
-		x2 := centerX + radius*float32(math.Cos(t2))
-		y2 := centerY + radius*float32(math.Sin(t2))
-
-		line := canvas.NewLine(color.Transparent)
-		line.StrokeWidth = 2
-		line.Position1 = fyne.NewPos(x1, y1)
-		line.Position2 = fyne.NewPos(x2, y2)
-		r.lines[i] = line
+		arc:       arc,
 	}
 	r.updateArc()
 	return r
@@ -87,10 +71,19 @@ func (p *PasswordStrengthIndicator) CreateRenderer() fyne.WidgetRenderer {
 
 type passwordStrengthRenderer struct {
 	indicator *PasswordStrengthIndicator
-	lines     []*canvas.Line
+	arc       *canvas.Arc
 }
 
-func (r *passwordStrengthRenderer) Layout(size fyne.Size) {}
+func (r *passwordStrengthRenderer) Layout(size fyne.Size) {
+	// Center the arc in the widget area
+	arcSize := fyne.NewSize(20, 20)
+	offset := fyne.NewPos(
+		(size.Width-arcSize.Width)/2,
+		(size.Height-arcSize.Height)/2,
+	)
+	r.arc.Move(offset)
+	r.arc.Resize(arcSize)
+}
 
 func (r *passwordStrengthRenderer) MinSize() fyne.Size {
 	return r.indicator.MinSize()
@@ -99,9 +92,7 @@ func (r *passwordStrengthRenderer) MinSize() fyne.Size {
 func (r *passwordStrengthRenderer) updateArc() {
 	// Hide when not visible or in decrypt mode (matches original behavior)
 	if !r.indicator.visible || r.indicator.decryMode {
-		for _, line := range r.lines {
-			line.StrokeColor = color.Transparent
-		}
+		r.arc.FillColor = color.Transparent
 		return
 	}
 
@@ -116,66 +107,34 @@ func (r *passwordStrengthRenderer) updateArc() {
 		A: 0xff,
 	}
 
-	// Arc calculation matching original Picocrypt exactly:
-	// Start: -π/2 (top, 12 o'clock position)
-	// End: π * (0.4 * strength - 0.1)
+	// Arc angle calculation matching original Picocrypt:
+	// Original used radians: start=-π/2, end=π*(0.4*strength-0.1)
+	// Arc length = π*(0.4*strength-0.1) - (-π/2) = π*(0.4*strength+0.4) = 0.4π*(strength+1)
+	// In degrees: 72*(strength+1)
 	//
-	// Examples:
-	// strength=0: arc from -π/2 to -0.1π ≈ 72 degrees (small red arc)
-	// strength=4: arc from -π/2 to 1.5π ≈ 360 degrees (full green circle)
-	startAngle := -math.Pi / 2
-	endAngle := math.Pi * (0.4*float64(r.indicator.strength) - 0.1)
-	arcLength := endAngle - startAngle
+	// Fyne Arc: 0° is top, positive is clockwise
+	// strength=0: 72° arc, strength=4: 360° (full circle)
+	endAngle := float32(72 * (r.indicator.strength + 1))
 
-	// If arc has no length, hide all
-	if arcLength <= 0 {
-		for _, line := range r.lines {
-			line.StrokeColor = color.Transparent
-		}
-		return
-	}
-
-	numSegments := len(r.lines)
-
-	for i, line := range r.lines {
-		// Segment angle in [0, 2π)
-		segmentAngle := 2 * math.Pi * float64(i) / float64(numSegments)
-
-		// Calculate angular distance from start angle
-		// This tells us how far along the arc this segment is
-		distFromStart := math.Mod(segmentAngle-startAngle, 2*math.Pi)
-		if distFromStart < 0 {
-			distFromStart += 2 * math.Pi
-		}
-
-		// Segment is visible if it falls within the arc length
-		if distFromStart < arcLength {
-			line.StrokeColor = col
-		} else {
-			line.StrokeColor = color.Transparent
-		}
-	}
+	r.arc.StartAngle = 0
+	r.arc.EndAngle = endAngle
+	r.arc.FillColor = col
 }
 
 func (r *passwordStrengthRenderer) Refresh() {
 	r.updateArc()
-	for _, line := range r.lines {
-		canvas.Refresh(line)
-	}
+	canvas.Refresh(r.arc)
 }
 
 func (r *passwordStrengthRenderer) Destroy() {}
 
 func (r *passwordStrengthRenderer) Objects() []fyne.CanvasObject {
-	objects := make([]fyne.CanvasObject, len(r.lines))
-	for i, line := range r.lines {
-		objects[i] = line
-	}
-	return objects
+	return []fyne.CanvasObject{r.arc}
 }
 
 // ValidationIndicator is a custom widget that displays a circular validation indicator.
 // Shows green circle when valid, red circle when invalid, or invisible when not applicable.
+// Uses canvas.Circle for efficient GPU-accelerated rendering.
 type ValidationIndicator struct {
 	widget.BaseWidget
 	valid   bool // true = green, false = red
@@ -208,71 +167,57 @@ func (v *ValidationIndicator) MinSize() fyne.Size {
 
 // CreateRenderer creates the renderer for the widget.
 func (v *ValidationIndicator) CreateRenderer() fyne.WidgetRenderer {
-	r := &validationRenderer{indicator: v, lines: make([]*canvas.Line, 24)}
-	centerX := float32(12)
-	centerY := float32(12)
-	radius := float32(9)
-	steps := len(r.lines)
+	// Use canvas.Circle for efficient single-object rendering
+	circle := canvas.NewCircle(color.Transparent)
+	circle.StrokeWidth = 2
 
-	// Pre-create circle line segments
-	for i := range r.lines {
-		t1 := 2 * math.Pi * float64(i) / float64(steps)
-		t2 := 2 * math.Pi * float64(i+1) / float64(steps)
-
-		x1 := centerX + radius*float32(math.Cos(t1))
-		y1 := centerY + radius*float32(math.Sin(t1))
-		x2 := centerX + radius*float32(math.Cos(t2))
-		y2 := centerY + radius*float32(math.Sin(t2))
-
-		line := canvas.NewLine(color.Transparent)
-		line.StrokeWidth = 2
-		line.Position1 = fyne.NewPos(x1, y1)
-		line.Position2 = fyne.NewPos(x2, y2)
-		r.lines[i] = line
-	}
+	r := &validationRenderer{indicator: v, circle: circle}
 	r.updateColor()
 	return r
 }
 
 type validationRenderer struct {
 	indicator *ValidationIndicator
-	lines     []*canvas.Line
+	circle    *canvas.Circle
 }
 
-func (r *validationRenderer) Layout(size fyne.Size) {}
+func (r *validationRenderer) Layout(size fyne.Size) {
+	// Center the circle in the widget area - same size as password strength arc (20x20)
+	circleSize := fyne.NewSize(20, 20)
+	offset := fyne.NewPos(
+		(size.Width-circleSize.Width)/2,
+		(size.Height-circleSize.Height)/2,
+	)
+	r.circle.Move(offset)
+	r.circle.Resize(circleSize)
+}
 
 func (r *validationRenderer) MinSize() fyne.Size {
 	return r.indicator.MinSize()
 }
 
 func (r *validationRenderer) updateColor() {
-	var col color.Color
 	if !r.indicator.visible {
-		col = color.Transparent
+		r.circle.StrokeColor = color.Transparent
+		r.circle.FillColor = color.Transparent
 	} else if r.indicator.valid {
-		col = color.RGBA{0x4c, 0xc8, 0x4b, 0xff} // Green
+		r.circle.StrokeColor = color.RGBA{0x4c, 0xc8, 0x4b, 0xff} // Green
+		r.circle.FillColor = color.Transparent
 	} else {
-		col = color.RGBA{0xc8, 0x4c, 0x4b, 0xff} // Red
-	}
-
-	for _, line := range r.lines {
-		line.StrokeColor = col
-		canvas.Refresh(line)
+		r.circle.StrokeColor = color.RGBA{0xc8, 0x4c, 0x4b, 0xff} // Red
+		r.circle.FillColor = color.Transparent
 	}
 }
 
 func (r *validationRenderer) Refresh() {
 	r.updateColor()
+	canvas.Refresh(r.circle)
 }
 
 func (r *validationRenderer) Destroy() {}
 
 func (r *validationRenderer) Objects() []fyne.CanvasObject {
-	objects := make([]fyne.CanvasObject, len(r.lines))
-	for i, line := range r.lines {
-		objects[i] = line
-	}
-	return objects
+	return []fyne.CanvasObject{r.circle}
 }
 
 // DisabledEntry is an Entry widget that appears disabled but still shows content.

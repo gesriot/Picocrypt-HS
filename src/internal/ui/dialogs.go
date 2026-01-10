@@ -103,8 +103,12 @@ func (a *App) showPassgenModal() {
 			password := a.State.GenPassword()
 			a.State.Password = password
 			a.State.CPassword = password
-			a.passwordEntry.SetText(password)
-			a.cPasswordEntry.SetText(password)
+			if a.passwordEntry != nil {
+				a.passwordEntry.SetText(password)
+			}
+			if a.cPasswordEntry != nil {
+				a.cPasswordEntry.SetText(password)
+			}
 			a.updatePasswordStrength()
 			a.updateValidation()
 		}
@@ -185,18 +189,5 @@ func (a *App) changeOutputFile() {
 		}
 	}
 
-	// Temporarily enlarge window for larger dialog
-	originalHeight := float32(windowHeightEncrypt)
-	if a.State.Mode == "decrypt" {
-		originalHeight = windowHeightDecrypt
-	}
-	a.Window.SetFixedSize(false)
-	a.Window.Resize(fyne.NewSize(650, 500))
-	saveDialog.SetOnClosed(func() {
-		a.Window.Resize(fyne.NewSize(windowWidth, originalHeight))
-		a.Window.SetFixedSize(true)
-	})
-
-	saveDialog.Resize(fyne.NewSize(600, 450))
-	saveDialog.Show()
+	a.showFileDialogWithResize(saveDialog, fyne.NewSize(600, 450))
 }

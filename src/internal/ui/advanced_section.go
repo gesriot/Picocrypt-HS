@@ -207,125 +207,44 @@ func (a *App) updateAdvancedDisableState() {
 	}
 }
 
+// setWidgetDisabled is a helper that enables/disables a widget and ensures refresh.
+func setWidgetDisabled(w fyne.Disableable, disabled bool) {
+	if w == nil {
+		return
+	}
+	if disabled {
+		w.Disable()
+	} else {
+		w.Enable()
+	}
+}
+
 // updateEncryptOptionsState updates encrypt mode option states.
 func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
 	// All advanced options are disabled until user enters credentials (password or keyfiles)
+	// AND passwords must match in encrypt mode
 	// Additional conditions apply to some options (e.g., compress requires multiple files)
 
-	if a.compressCheck != nil {
-		notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
-		if advancedDisabled || a.State.Recursively || notEnoughFiles {
-			a.compressCheck.Disable()
-		} else {
-			a.compressCheck.Enable()
-		}
-	}
+	notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
 
-	if a.recursivelyCheck != nil {
-		notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
-		if advancedDisabled || notEnoughFiles {
-			a.recursivelyCheck.Disable()
-		} else {
-			a.recursivelyCheck.Enable()
-		}
-	}
-
-	if a.paranoidCheck != nil {
-		if advancedDisabled {
-			a.paranoidCheck.Disable()
-		} else {
-			a.paranoidCheck.Enable()
-		}
-	}
-
-	if a.reedSolomonCheck != nil {
-		if advancedDisabled {
-			a.reedSolomonCheck.Disable()
-		} else {
-			a.reedSolomonCheck.Enable()
-		}
-	}
-
-	if a.deleteCheck != nil {
-		if advancedDisabled {
-			a.deleteCheck.Disable()
-		} else {
-			a.deleteCheck.Enable()
-		}
-	}
-
-	if a.deniabilityCheck != nil {
-		if advancedDisabled {
-			a.deniabilityCheck.Disable()
-		} else {
-			a.deniabilityCheck.Enable()
-		}
-	}
-
-	if a.splitCheck != nil {
-		if advancedDisabled {
-			a.splitCheck.Disable()
-		} else {
-			a.splitCheck.Enable()
-		}
-	}
-
-	if a.splitSizeEntry != nil {
-		if advancedDisabled {
-			a.splitSizeEntry.Disable()
-		} else {
-			a.splitSizeEntry.Enable()
-		}
-	}
-
-	if a.splitUnitSelect != nil {
-		if advancedDisabled {
-			a.splitUnitSelect.Disable()
-		} else {
-			a.splitUnitSelect.Enable()
-		}
-	}
+	setWidgetDisabled(a.compressCheck, advancedDisabled || a.State.Recursively || notEnoughFiles)
+	setWidgetDisabled(a.recursivelyCheck, advancedDisabled || notEnoughFiles)
+	setWidgetDisabled(a.paranoidCheck, advancedDisabled)
+	setWidgetDisabled(a.reedSolomonCheck, advancedDisabled)
+	setWidgetDisabled(a.deleteCheck, advancedDisabled)
+	setWidgetDisabled(a.deniabilityCheck, advancedDisabled)
+	setWidgetDisabled(a.splitCheck, advancedDisabled)
+	setWidgetDisabled(a.splitSizeEntry, advancedDisabled)
+	setWidgetDisabled(a.splitUnitSelect, advancedDisabled)
 }
 
 // updateDecryptOptionsState updates decrypt mode option states.
 func (a *App) updateDecryptOptionsState(advancedDisabled bool) {
-	if a.forceDecryptCheck != nil {
-		if advancedDisabled || a.State.Deniability {
-			a.forceDecryptCheck.Disable()
-		} else {
-			a.forceDecryptCheck.Enable()
-		}
-	}
-
-	if a.verifyFirstCheck != nil {
-		if advancedDisabled {
-			a.verifyFirstCheck.Disable()
-		} else {
-			a.verifyFirstCheck.Enable()
-		}
-	}
-
-	if a.deleteVolumeCheck != nil {
-		if advancedDisabled {
-			a.deleteVolumeCheck.Disable()
-		} else {
-			a.deleteVolumeCheck.Enable()
-		}
-	}
-
-	if a.autoUnzipCheck != nil {
-		if advancedDisabled || !strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
-			a.autoUnzipCheck.Disable()
-		} else {
-			a.autoUnzipCheck.Enable()
-		}
-	}
-
-	if a.sameLevelCheck != nil {
-		if advancedDisabled || !a.State.AutoUnzip {
-			a.sameLevelCheck.Disable()
-		} else {
-			a.sameLevelCheck.Enable()
-		}
-	}
+	setWidgetDisabled(a.forceDecryptCheck, advancedDisabled || a.State.Deniability)
+	setWidgetDisabled(a.verifyFirstCheck, advancedDisabled)
+	setWidgetDisabled(a.deleteVolumeCheck, advancedDisabled)
+	// On mobile, deleteCheck is used instead of deleteVolumeCheck
+	setWidgetDisabled(a.deleteCheck, advancedDisabled)
+	setWidgetDisabled(a.autoUnzipCheck, advancedDisabled || !strings.HasSuffix(a.State.InputFile, ".zip.pcv"))
+	setWidgetDisabled(a.sameLevelCheck, advancedDisabled || !a.State.AutoUnzip)
 }

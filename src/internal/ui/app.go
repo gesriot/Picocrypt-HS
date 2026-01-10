@@ -129,6 +129,11 @@ type App struct {
 	overwriteModal dialog.Dialog
 	progressModal  dialog.Dialog
 
+	// Keyfile modal widgets (moved from package-level to avoid global state)
+	keyfileListContainer *fyne.Container
+	keyfileSeparator     *widget.Separator
+	keyfileOrderCheck    *widget.Check
+
 	// Progress widgets
 	progressBar    *widget.ProgressBar
 	progressLabel  *widget.Label
@@ -225,6 +230,36 @@ func (a *App) Run() {
 
 	a.Window.SetContent(content)
 	a.Window.ShowAndRun()
+}
+
+// showFileDialogWithResize temporarily resizes the window to accommodate file dialogs.
+// This is necessary because Fyne file dialogs are constrained by the parent window size
+// when using fixed-size windows. The window is restored after the dialog closes.
+func (a *App) showFileDialogWithResize(d dialog.Dialog, dialogSize fyne.Size) {
+	// Skip resize handling on mobile - windows are flexible there
+	if isMobile() {
+		d.Resize(dialogSize)
+		d.Show()
+		return
+	}
+
+	// Calculate current window size to restore later
+	originalHeight := float32(windowHeightEncrypt)
+	if a.State.Mode == "decrypt" {
+		originalHeight = windowHeightDecrypt
+	}
+
+	// Temporarily allow window resizing and make room for dialog
+	a.Window.SetFixedSize(false)
+	a.Window.Resize(fyne.NewSize(dialogSize.Width+50, dialogSize.Height+50))
+
+	d.SetOnClosed(func() {
+		a.Window.Resize(fyne.NewSize(windowWidth, originalHeight))
+		a.Window.SetFixedSize(true)
+	})
+
+	d.Resize(dialogSize)
+	d.Show()
 }
 
 // fixedWidthLayout is a layout that forces a fixed width.
