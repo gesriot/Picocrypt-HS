@@ -34,7 +34,9 @@ func (a *App) onDrop(names []string) {
 	a.State.Scanning = true
 	a.State.CompressDone = 0
 	a.State.CompressTotal = 0
-	a.resetUI()
+	fyne.Do(func() {
+		a.resetUI()
+	})
 
 	// One item dropped
 	if len(names) == 1 {
@@ -43,7 +45,9 @@ func (a *App) onDrop(names []string) {
 			a.State.MainStatus = "Failed to stat dropped item"
 			a.State.MainStatusColor = util.RED
 			a.State.Scanning = false
-			a.refreshUI()
+			fyne.Do(func() {
+				a.refreshUI()
+			})
 			return
 		}
 
@@ -75,8 +79,10 @@ func (a *App) onDrop(names []string) {
 				a.handleDecryptDrop(names[0], isSplit)
 				// For decrypt, no folder scanning needed
 				a.State.Scanning = false
-				a.refreshUI()
-				a.refreshAdvanced()
+				fyne.Do(func() {
+					a.refreshUI()
+					a.refreshAdvanced()
+				})
 				return
 			} else {
 				// Encrypting a single file
@@ -194,10 +200,12 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		fin, err = os.Open(name)
 	}
 	if err != nil {
-		a.resetUI()
 		a.State.MainStatus = "Read access denied"
 		a.State.MainStatusColor = util.RED
-		a.refreshUI()
+		fyne.Do(func() {
+			a.resetUI()
+			a.refreshUI()
+		})
 		return
 	}
 	defer func() { _ = fin.Close() }()
@@ -253,9 +261,11 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	}
 
 	// Update comments entry if it exists
-	if a.commentsEntry != nil {
-		a.commentsEntry.SetText(a.State.Comments)
-	}
+	fyne.Do(func() {
+		if a.commentsEntry != nil {
+			a.commentsEntry.SetText(a.State.Comments)
+		}
+	})
 
 	// Read flags from file
 	flags := make([]byte, 15)
@@ -301,10 +311,12 @@ func (a *App) handleMultipleDrop(names []string) {
 	for _, name := range names {
 		stat, err := os.Stat(name)
 		if err != nil {
-			a.resetUI()
 			a.State.MainStatus = "Failed to stat dropped items"
 			a.State.MainStatusColor = util.RED
-			a.refreshUI()
+			fyne.Do(func() {
+				a.resetUI()
+				a.refreshUI()
+			})
 			return
 		}
 		if stat.IsDir() {
@@ -364,13 +376,15 @@ func (a *App) handleKeyfileDrop(paths []string) bool {
 		stat, err := os.Stat(path)
 		if err != nil {
 			a.State.ShowKeyfile = false
-			if a.keyfileModal != nil {
-				a.keyfileModal.Hide()
-			}
-			a.resetUI()
 			a.State.MainStatus = "Keyfile read access denied"
 			a.State.MainStatusColor = util.RED
-			a.refreshUI()
+			fyne.Do(func() {
+				if a.keyfileModal != nil {
+					a.keyfileModal.Hide()
+				}
+				a.resetUI()
+				a.refreshUI()
+			})
 			return true
 		}
 
@@ -395,7 +409,9 @@ func (a *App) handleKeyfileDrop(paths []string) bool {
 
 	// Update the keyfile list in the modal and increment modalId like original
 	a.State.ModalID++
-	a.updateKeyfileList()
-	a.refreshUI()
+	fyne.Do(func() {
+		a.updateKeyfileList()
+		a.refreshUI()
+	})
 	return true
 }

@@ -157,7 +157,7 @@ func NewApp(version string) (*App, error) {
 // Run starts the UI application.
 func (a *App) Run() {
 	// Create Fyne app with unique ID for preferences API support
-	a.fyneApp = fyneApp.NewWithID("io.picocrypt.PicocryptNG")
+	a.fyneApp = fyneApp.NewWithID("io.github.picocryptng.PicocryptNG")
 
 	// Clean up any leftover temp files from previous sessions (mobile only)
 	// Must be called AFTER Fyne app is initialized (isMobile() requires it)

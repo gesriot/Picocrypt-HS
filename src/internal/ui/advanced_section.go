@@ -33,6 +33,10 @@ func (a *App) updateAdvancedSection() {
 		}
 	}
 
+	// IMPORTANT: Update disable state for newly created checkboxes
+	// This ensures checkboxes are disabled until user enters credentials
+	a.updateAdvancedDisableState()
+
 	a.advancedContainer.Refresh()
 }
 
@@ -205,8 +209,12 @@ func (a *App) updateAdvancedDisableState() {
 
 // updateEncryptOptionsState updates encrypt mode option states.
 func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
+	// All advanced options are disabled until user enters credentials (password or keyfiles)
+	// Additional conditions apply to some options (e.g., compress requires multiple files)
+
 	if a.compressCheck != nil {
-		if advancedDisabled || a.State.Recursively || (len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0) {
+		notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
+		if advancedDisabled || a.State.Recursively || notEnoughFiles {
 			a.compressCheck.Disable()
 		} else {
 			a.compressCheck.Enable()
@@ -214,7 +222,8 @@ func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
 	}
 
 	if a.recursivelyCheck != nil {
-		if advancedDisabled || (len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0) {
+		notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
+		if advancedDisabled || notEnoughFiles {
 			a.recursivelyCheck.Disable()
 		} else {
 			a.recursivelyCheck.Enable()
