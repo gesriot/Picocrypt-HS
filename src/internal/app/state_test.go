@@ -112,11 +112,7 @@ func TestStateResetUI(t *testing.T) {
 	// ResetUI should NOT reset progress flags
 	state.ResetUI()
 
-	// Progress flags should be preserved
-	// (Actually ResetUI doesn't reset Working, ShowProgress, CanCancel)
-	if state.Working != true {
-		// Working is reset by ResetUI based on the code
-	}
+	// Note: Working is reset by ResetUI based on the code
 
 	// Other state should be reset
 	if state.Mode != "" {

@@ -352,10 +352,10 @@ func (b *TooltipButton) MouseIn(e *desktop.MouseEvent) {
 		return
 	}
 	// Use canvas.Text for simple single-line tooltip
-	text := canvas.NewText(b.tooltip, theme.ForegroundColor())
+	text := canvas.NewText(b.tooltip, theme.Color(theme.ColorNameForeground))
 	text.TextSize = theme.CaptionTextSize()
 	// Add padding around the text
-	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg := canvas.NewRectangle(theme.Color(theme.ColorNameOverlayBackground))
 	content := container.NewStack(bg, container.NewPadded(text))
 	b.popup = widget.NewPopUp(content, c)
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(b)
@@ -401,10 +401,10 @@ func (c *TooltipCheckbox) MouseIn(e *desktop.MouseEvent) {
 		return
 	}
 	// Use canvas.Text for simple single-line tooltip
-	text := canvas.NewText(c.tooltip, theme.ForegroundColor())
+	text := canvas.NewText(c.tooltip, theme.Color(theme.ColorNameForeground))
 	text.TextSize = theme.CaptionTextSize()
 	// Add padding around the text
-	bg := canvas.NewRectangle(theme.OverlayBackgroundColor())
+	bg := canvas.NewRectangle(theme.Color(theme.ColorNameOverlayBackground))
 	content := container.NewStack(bg, container.NewPadded(text))
 	c.popup = widget.NewPopUp(content, cv)
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(c)

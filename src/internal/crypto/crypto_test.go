@@ -412,6 +412,45 @@ func TestCipherSuiteIsParanoid(t *testing.T) {
 	}
 }
 
+func TestCipherSuiteMAC(t *testing.T) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 24)
+	serpentKey := make([]byte, 32)
+	serpentIV := make([]byte, 16)
+	hkdfSalt := make([]byte, 32)
+
+	for i := range key {
+		key[i] = byte(i)
+	}
+
+	macKey := make([]byte, 32)
+	mac, _ := NewMAC(macKey, false)
+	hkdf := NewHKDFStream(key, hkdfSalt)
+
+	suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, false)
+	if err != nil {
+		t.Fatalf("NewCipherSuite() failed: %v", err)
+	}
+
+	// MAC() should return the hash.Hash
+	macHash := suite.MAC()
+	if macHash == nil {
+		t.Fatal("MAC() returned nil")
+	}
+
+	// Should be the same instance as the original
+	if macHash != mac {
+		t.Error("MAC() should return the same hash instance")
+	}
+
+	// Writing to the MAC through the suite should work
+	macHash.Write([]byte("test data"))
+	sum := suite.Sum()
+	if len(sum) != MACSize {
+		t.Errorf("Sum() length = %d; want %d", len(sum), MACSize)
+	}
+}
+
 func TestCipherSuiteEncryptDecrypt(t *testing.T) {
 	key := make([]byte, 32)
 	nonce := make([]byte, 24)

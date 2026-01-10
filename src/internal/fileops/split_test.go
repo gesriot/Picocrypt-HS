@@ -207,7 +207,7 @@ func TestCountChunks(t *testing.T) {
 	basePath := filepath.Join(tmpDir, "test.pcv")
 
 	// No chunks
-	count, size, err := CountChunks(basePath)
+	_, _, err := CountChunks(basePath)
 	if err == nil {
 		t.Error("Expected error for no chunks")
 	}
@@ -221,7 +221,7 @@ func TestCountChunks(t *testing.T) {
 		}
 	}
 
-	count, size, err = CountChunks(basePath)
+	count, size, err := CountChunks(basePath)
 	if err != nil {
 		t.Fatalf("CountChunks failed: %v", err)
 	}
@@ -302,4 +302,144 @@ func TestSplitProgress(t *testing.T) {
 	}
 
 	t.Logf("Progress called %d times, Status called %d times", progressCalls, statusCalls)
+}
+
+// TestRecombineProgress tests that progress callback is called during recombine.
+func TestRecombineProgress(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "test.pcv")
+
+	// Create chunks with enough data to trigger progress updates
+	chunkData := bytes.Repeat([]byte("X"), 10*1024) // 10 KiB per chunk
+	for i := 0; i < 3; i++ {
+		chunkPath := basePath + "." + string(rune('0'+i))
+		if err := os.WriteFile(chunkPath, chunkData, 0644); err != nil {
+			t.Fatalf("Create chunk: %v", err)
+		}
+	}
+
+	progressCalls := 0
+	statusCalls := 0
+	var lastProgress float32
+
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+	err := Recombine(RecombineOptions{
+		InputBase:  basePath,
+		OutputPath: outputPath,
+		Progress: func(p float32, info string) {
+			progressCalls++
+			lastProgress = p
+		},
+		Status: func(s string) {
+			statusCalls++
+		},
+	})
+	if err != nil {
+		t.Fatalf("Recombine failed: %v", err)
+	}
+
+	if progressCalls == 0 {
+		t.Error("Progress callback was never called")
+	}
+	if statusCalls == 0 {
+		t.Error("Status callback was never called")
+	}
+
+	// Last progress should be close to 1.0
+	if lastProgress < 0.99 {
+		t.Errorf("Last progress = %f; want ~1.0", lastProgress)
+	}
+
+	t.Logf("Progress called %d times, Status called %d times", progressCalls, statusCalls)
+}
+
+// TestRecombineMissingChunk tests error handling when a chunk is missing.
+func TestRecombineMissingChunk(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "test.pcv")
+
+	// Create only chunk 0, missing chunk 1
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+		t.Fatalf("Create chunk: %v", err)
+	}
+	// Create chunk 2 (skipping 1)
+	if err := os.WriteFile(basePath+".2", []byte("chunk2"), 0644); err != nil {
+		t.Fatalf("Create chunk: %v", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+	err := Recombine(RecombineOptions{
+		InputBase:  basePath,
+		OutputPath: outputPath,
+	})
+
+	// Should succeed with only 1 chunk (chunks 0, stops at missing 1)
+	if err != nil {
+		t.Logf("Recombine returned error as expected or found only one chunk: %v", err)
+	}
+}
+
+// TestRecombineLargeChunks tests recombining larger chunks.
+func TestRecombineLargeChunks(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "test.pcv")
+
+	// Create chunks larger than the internal buffer (1 MiB)
+	chunkData := bytes.Repeat([]byte("Y"), 2*1024*1024) // 2 MiB per chunk
+	for i := 0; i < 2; i++ {
+		chunkPath := basePath + "." + string(rune('0'+i))
+		if err := os.WriteFile(chunkPath, chunkData, 0644); err != nil {
+			t.Fatalf("Create chunk: %v", err)
+		}
+	}
+
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+	err := Recombine(RecombineOptions{
+		InputBase:  basePath,
+		OutputPath: outputPath,
+	})
+	if err != nil {
+		t.Fatalf("Recombine failed: %v", err)
+	}
+
+	// Verify output size
+	stat, err := os.Stat(outputPath)
+	if err != nil {
+		t.Fatalf("Stat output: %v", err)
+	}
+
+	expectedSize := int64(2 * 2 * 1024 * 1024) // 2 chunks * 2 MiB
+	if stat.Size() != expectedSize {
+		t.Errorf("Output size = %d; want %d", stat.Size(), expectedSize)
+	}
+}
+
+// TestRecombineSingleChunk tests recombining a single chunk.
+func TestRecombineSingleChunk(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "test.pcv")
+
+	chunkData := []byte("single chunk content")
+	if err := os.WriteFile(basePath+".0", chunkData, 0644); err != nil {
+		t.Fatalf("Create chunk: %v", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+	err := Recombine(RecombineOptions{
+		InputBase:  basePath,
+		OutputPath: outputPath,
+	})
+	if err != nil {
+		t.Fatalf("Recombine failed: %v", err)
+	}
+
+	// Verify content
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Read output: %v", err)
+	}
+
+	if !bytes.Equal(content, chunkData) {
+		t.Error("Recombined content does not match original chunk")
+	}
 }

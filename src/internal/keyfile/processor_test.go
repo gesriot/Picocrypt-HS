@@ -276,3 +276,104 @@ func TestOrderedSameFileTwice(t *testing.T) {
 		t.Error("Ordered: same file twice should produce different key than once")
 	}
 }
+
+func TestResultClose(t *testing.T) {
+	dir := t.TempDir()
+
+	createTestKeyfiles(t, dir, map[string][]byte{
+		"test.key": []byte("keyfile-content-for-testing"),
+	})
+
+	result, err := Process([]string{filepath.Join(dir, "test.key")}, true, nil)
+	if err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+
+	// Verify key is non-nil before close
+	if result.Key == nil {
+		t.Error("Key should not be nil before Close()")
+	}
+	if len(result.Key) != 32 {
+		t.Errorf("Key length = %d; want 32", len(result.Key))
+	}
+
+	// Close the result
+	result.Close()
+
+	// After close, key should be nil
+	if result.Key != nil {
+		t.Error("Key should be nil after Close()")
+	}
+
+	// Multiple Close() calls should be safe
+	result.Close()
+	result.Close()
+}
+
+func TestResultCloseNil(t *testing.T) {
+	// Close on nil should not panic
+	var result *Result
+	result.Close()
+}
+
+func TestResultClosePreservesHash(t *testing.T) {
+	dir := t.TempDir()
+
+	createTestKeyfiles(t, dir, map[string][]byte{
+		"test.key": []byte("keyfile-content"),
+	})
+
+	result, err := Process([]string{filepath.Join(dir, "test.key")}, true, nil)
+	if err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+
+	// Save hash before close
+	hashCopy := make([]byte, len(result.Hash))
+	copy(hashCopy, result.Hash)
+
+	// Close
+	result.Close()
+
+	// Hash should still be present (needed for header verification)
+	if !bytes.Equal(result.Hash, hashCopy) {
+		t.Error("Hash should be preserved after Close()")
+	}
+}
+
+func TestProcessNonexistentFile(t *testing.T) {
+	_, err := Process([]string{"/nonexistent/path/to/keyfile.bin"}, true, nil)
+	if err == nil {
+		t.Error("Process should fail for nonexistent file")
+	}
+}
+
+func TestProcessOrderedReadError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a directory instead of a file (will cause read error)
+	dirPath := filepath.Join(dir, "not_a_file")
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatalf("Create dir: %v", err)
+	}
+
+	_, err := Process([]string{dirPath}, true, nil)
+	if err == nil {
+		t.Error("Process should fail when given a directory")
+	}
+}
+
+func TestProcessUnorderedReadError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a directory instead of a file (will cause read error)
+	dirPath := filepath.Join(dir, "not_a_file")
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatalf("Create dir: %v", err)
+	}
+
+	_, err := Process([]string{dirPath}, false, nil)
+	if err == nil {
+		t.Error("Process should fail when given a directory")
+	}
+}

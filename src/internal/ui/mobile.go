@@ -11,16 +11,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-)
-
-// Mobile UI constants - larger touch targets
-const (
-	mobileButtonHeight   = 48 // Minimum touch target size (48dp)
-	mobilePadding        = 12
-	mobileButtonFontSize = 16
 )
 
 // isMobile returns true if running on a mobile device
@@ -136,7 +128,12 @@ func (a *App) showAppStorageDialog() {
 	appDir := a.getAppStorageDir()
 
 	// Ensure directory exists
-	os.MkdirAll(appDir, 0700)
+	if err := os.MkdirAll(appDir, 0700); err != nil {
+		a.State.MainStatus = "Failed to create app storage"
+		a.State.MainStatusColor = util.RED
+		a.refreshUI()
+		return
+	}
 
 	// List files in app storage
 	files, err := os.ReadDir(appDir)
@@ -159,7 +156,7 @@ func (a *App) showAppStorageDialog() {
 		content.Wrapping = fyne.TextWrapWord
 
 		copyPathBtn := widget.NewButton("Copy Path", func() {
-			a.Window.Clipboard().SetContent(appDir)
+			a.fyneApp.Clipboard().SetContent(appDir)
 			a.State.MainStatus = "Path copied to clipboard"
 			a.State.MainStatusColor = util.WHITE
 			a.refreshUI()
@@ -251,7 +248,7 @@ func (a *App) showFolderNotSupportedDialog() {
 	content.Wrapping = fyne.TextWrapWord
 
 	copyPathBtn := widget.NewButton("Copy Path to Clipboard", func() {
-		a.Window.Clipboard().SetContent(appDir)
+		a.fyneApp.Clipboard().SetContent(appDir)
 		a.State.MainStatus = "Path copied to clipboard"
 		a.State.MainStatusColor = util.WHITE
 		a.refreshUI()
@@ -313,59 +310,6 @@ func (a *App) copyURIToTemp(reader io.Reader, filename string) (string, error) {
 	return destPath, nil
 }
 
-// copyFolderURIToTemp recursively copies a folder from a content:// URI to a local temp directory
-func (a *App) copyFolderURIToTemp(folderURI fyne.ListableURI) (string, error) {
-	return a.copyFolderURIToTempAt(folderURI, a.getMobileTempDir())
-}
-
-// copyFolderURIToTempAt copies folder contents to a specific base directory
-func (a *App) copyFolderURIToTempAt(folderURI fyne.ListableURI, baseDir string) (string, error) {
-	// Create directory for this folder
-	tempDir := filepath.Join(baseDir, folderURI.Name())
-	if err := os.MkdirAll(tempDir, 0700); err != nil {
-		return "", err
-	}
-
-	// List folder contents
-	items, err := folderURI.List()
-	if err != nil {
-		return "", err
-	}
-
-	for _, item := range items {
-		// Check if it's a folder (listable)
-		if listable, err := storage.ListerForURI(item); err == nil {
-			// Recursively copy subfolder directly into tempDir
-			_, err := a.copyFolderURIToTempAt(listable, tempDir)
-			if err != nil {
-				return "", err
-			}
-		} else {
-			// It's a file, copy it
-			reader, err := storage.Reader(item)
-			if err != nil {
-				return "", err
-			}
-
-			destPath := filepath.Join(tempDir, item.Name())
-			destFile, err := os.Create(destPath)
-			if err != nil {
-				reader.Close()
-				return "", err
-			}
-
-			_, err = io.Copy(destFile, reader)
-			reader.Close()
-			destFile.Close()
-			if err != nil {
-				return "", err
-			}
-		}
-	}
-
-	return tempDir, nil
-}
-
 // buildMobilePasswordSection creates the password section for mobile with larger buttons
 func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 	// Password buttons - 3 per row for better touch targets
@@ -387,11 +331,11 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 	})
 
 	a.copyBtn = widget.NewButton("Copy", func() {
-		a.Window.Clipboard().SetContent(a.State.Password)
+		a.fyneApp.Clipboard().SetContent(a.State.Password)
 	})
 
 	a.pasteBtn = widget.NewButton("Paste", func() {
-		text := a.Window.Clipboard().Content()
+		text := a.fyneApp.Clipboard().Content()
 		a.State.Password = text
 		a.passwordEntry.SetText(text)
 		if a.State.Mode != "decrypt" {
@@ -624,79 +568,4 @@ func (a *App) buildMobileOutputSection() fyne.CanvasObject {
 		a.outputEntry,
 		a.changeBtn,
 	)
-}
-
-// showMobileKeyfilePicker opens file picker for adding keyfiles on mobile
-func (a *App) showMobileKeyfilePicker() {
-	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-		if err != nil || reader == nil {
-			return
-		}
-		defer reader.Close()
-
-		uri := reader.URI()
-		var path string
-
-		// On Android, content:// URIs don't work with os.Stat
-		if uri.Scheme() == "content" {
-			localPath, copyErr := a.copyURIToTemp(reader, uri.Name())
-			if copyErr != nil {
-				a.State.MainStatus = "Failed to access keyfile: " + copyErr.Error()
-				a.State.MainStatusColor = util.RED
-				a.refreshUI()
-				return
-			}
-			path = localPath
-		} else {
-			path = uri.Path()
-		}
-
-		// Add to keyfiles
-		for _, k := range a.State.Keyfiles {
-			if k == path {
-				return // Already added
-			}
-		}
-		a.State.Keyfiles = append(a.State.Keyfiles, path)
-		a.State.UpdateKeyfileLabel()
-		a.keyfileLabel.SetText(a.State.KeyfileLabel)
-		a.updateUIState()
-	}, a.Window)
-
-	// Allow selecting multiple files
-	fd.Show()
-}
-
-// createMobileKeyfile creates a keyfile on mobile using storage API
-func (a *App) createMobileKeyfile() {
-	// Use the existing createKeyfile method which handles mobile properly
-	a.createKeyfile()
-}
-
-// showMobileFileSavePicker opens file save picker for output on mobile
-func (a *App) showMobileFileSavePicker() {
-	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
-		if err != nil || writer == nil {
-			return
-		}
-		writer.Close()
-
-		// Get the path without extension (we'll add the correct one)
-		path := writer.URI().Path()
-		a.State.OutputFile = path
-		a.outputEntry.SetText(a.State.OutputFile)
-		a.updateUIState()
-	}, a.Window)
-
-	// Set start location if we have input files
-	if len(a.State.OnlyFiles) > 0 {
-		uri := storage.NewFileURI(a.State.OnlyFiles[0])
-		if parent, err := storage.Parent(uri); err == nil {
-			if listable, err := storage.ListerForURI(parent); err == nil {
-				saveDialog.SetLocation(listable)
-			}
-		}
-	}
-
-	saveDialog.Show()
 }

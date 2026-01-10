@@ -1,0 +1,202 @@
+// Package ui provides the Picocrypt NG graphical user interface using Fyne.
+package ui
+
+import (
+	"fmt"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"Picocrypt-NG/internal/util"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/widget"
+)
+
+// showProgressModal shows the progress dialog.
+func (a *App) showProgressModal() {
+	a.progressBar = widget.NewProgressBar()
+	a.progressBar.Min = 0
+	a.progressBar.Max = 1
+
+	a.progressLabel = widget.NewLabel("")
+	a.progressStatus = widget.NewLabel("")
+
+	a.cancelButton = widget.NewButton("Cancel", func() {
+		a.State.Working = false
+		a.State.CanCancel = false
+		a.cancelled.Store(true)
+		a.State.MainStatus = "Operation cancelled by user"
+		a.State.MainStatusColor = util.WHITE
+		if a.cancelButton != nil {
+			a.cancelButton.Disable()
+		}
+	})
+
+	progressContent := container.NewVBox(
+		container.NewBorder(nil, nil, nil, a.cancelButton, a.progressBar),
+		a.progressLabel,
+		a.progressStatus,
+	)
+
+	a.progressModal = dialog.NewCustomWithoutButtons("Progress:", progressContent, a.Window)
+	a.progressModal.Show()
+}
+
+// showPassgenModal shows the password generator dialog.
+func (a *App) showPassgenModal() {
+	lengthLabel := widget.NewLabel(fmt.Sprintf("Length: %d", a.State.PassgenLength))
+
+	lengthSlider := widget.NewSlider(12, 64)
+	lengthSlider.Value = float64(a.State.PassgenLength)
+	lengthSlider.Step = 1
+	lengthSlider.OnChanged = func(value float64) {
+		a.State.PassgenLength = int32(value)
+		lengthLabel.SetText(fmt.Sprintf("Length: %d", int(value)))
+	}
+
+	upperCheck := widget.NewCheck("Uppercase", func(checked bool) {
+		a.State.PassgenUpper = checked
+	})
+	upperCheck.SetChecked(a.State.PassgenUpper)
+
+	lowerCheck := widget.NewCheck("Lowercase", func(checked bool) {
+		a.State.PassgenLower = checked
+	})
+	lowerCheck.SetChecked(a.State.PassgenLower)
+
+	numsCheck := widget.NewCheck("Numbers", func(checked bool) {
+		a.State.PassgenNums = checked
+	})
+	numsCheck.SetChecked(a.State.PassgenNums)
+
+	symbolsCheck := widget.NewCheck("Symbols", func(checked bool) {
+		a.State.PassgenSymbols = checked
+	})
+	symbolsCheck.SetChecked(a.State.PassgenSymbols)
+
+	copyCheck := widget.NewCheck("Copy to clipboard", func(checked bool) {
+		a.State.PassgenCopy = checked
+	})
+	copyCheck.SetChecked(a.State.PassgenCopy)
+
+	content := container.NewVBox(
+		lengthLabel,
+		lengthSlider,
+		upperCheck,
+		lowerCheck,
+		numsCheck,
+		symbolsCheck,
+		copyCheck,
+	)
+
+	a.passgenModal = dialog.NewCustomConfirm("Generate password:", "Generate", "Cancel", content, func(generate bool) {
+		if generate {
+			// Check if at least one character type is selected
+			if !a.State.PassgenUpper && !a.State.PassgenLower && !a.State.PassgenNums && !a.State.PassgenSymbols {
+				return
+			}
+			password := a.State.GenPassword()
+			a.State.Password = password
+			a.State.CPassword = password
+			a.passwordEntry.SetText(password)
+			a.cPasswordEntry.SetText(password)
+			a.updatePasswordStrength()
+			a.updateValidation()
+		}
+		a.State.ShowPassgen = false
+	}, a.Window)
+	a.State.ShowPassgen = true
+	a.State.ModalID++
+	a.passgenModal.Show()
+}
+
+// showOverwriteModal shows the overwrite confirmation dialog.
+func (a *App) showOverwriteModal() {
+	a.overwriteModal = dialog.NewConfirm("Warning:", "Output already exists. Overwrite?", func(overwrite bool) {
+		a.State.ShowOverwrite = false
+		if overwrite {
+			a.startWork()
+		}
+	}, a.Window)
+	a.State.ShowOverwrite = true
+	a.State.ModalID++
+	a.overwriteModal.Show()
+}
+
+// changeOutputFile opens a dialog to change the output file path.
+func (a *App) changeOutputFile() {
+	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil || writer == nil {
+			return
+		}
+		// Close immediately - we only need the path, not to write
+		writer.Close()
+
+		file := writer.URI().Path()
+		// Strip any extension user might have added
+		file = filepath.Join(filepath.Dir(file), strings.Split(filepath.Base(file), ".")[0])
+
+		// Add correct extensions
+		if a.State.Mode == "encrypt" {
+			if len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 || a.State.Compress {
+				file += ".zip.pcv"
+			} else {
+				file += filepath.Ext(a.State.InputFile) + ".pcv"
+			}
+		} else {
+			if strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
+				file += ".zip"
+			} else {
+				tmp := strings.TrimSuffix(filepath.Base(a.State.InputFile), ".pcv")
+				file += filepath.Ext(tmp)
+			}
+		}
+
+		a.State.OutputFile = file
+		a.State.MainStatus = "Ready"
+		a.State.MainStatusColor = util.WHITE
+		a.updateUIState()
+	}, a.Window)
+
+	// Prefill filename
+	tmp := strings.TrimSuffix(filepath.Base(a.State.OutputFile), ".pcv")
+	defaultName := strings.TrimSuffix(tmp, filepath.Ext(tmp))
+	if a.State.Mode == "encrypt" && (len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 || a.State.Compress) {
+		defaultName = "encrypted-" + strconv.Itoa(int(time.Now().Unix()))
+	}
+	saveDialog.SetFileName(defaultName)
+
+	// Set start directory
+	startDir := ""
+	if len(a.State.OnlyFiles) > 0 {
+		startDir = filepath.Dir(a.State.OnlyFiles[0])
+	} else if len(a.State.OnlyFolders) > 0 {
+		startDir = filepath.Dir(a.State.OnlyFolders[0])
+	}
+	if startDir != "" {
+		uri := storage.NewFileURI(startDir)
+		if listable, err := storage.ListerForURI(uri); err == nil {
+			saveDialog.SetLocation(listable)
+		}
+	}
+
+	// Temporarily enlarge window for larger dialog
+	originalHeight := float32(windowHeightEncrypt)
+	if a.State.Mode == "decrypt" {
+		originalHeight = windowHeightDecrypt
+	}
+	a.Window.SetFixedSize(false)
+	a.Window.Resize(fyne.NewSize(650, 500))
+	saveDialog.SetOnClosed(func() {
+		a.Window.Resize(fyne.NewSize(windowWidth, originalHeight))
+		a.Window.SetFixedSize(true)
+	})
+
+	saveDialog.Resize(fyne.NewSize(600, 450))
+	saveDialog.Show()
+}
