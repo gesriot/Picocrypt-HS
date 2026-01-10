@@ -295,13 +295,14 @@ func TestOutputFileGeneration(t *testing.T) {
 	})
 
 	t.Run("FolderEncrypt", func(t *testing.T) {
-		folderPath := "/home/user/documents/folder"
+		// Use a platform-specific absolute path for testing
+		folderPath := filepath.Join(os.TempDir(), "documents", "folder")
 		// Encrypted folder creates a zip with timestamp
 		dir := filepath.Dir(folderPath)
 		baseOutput := filepath.Join(dir, "encrypted-") // + timestamp + ".zip.pcv"
 
 		if !filepath.IsAbs(baseOutput) {
-			t.Error("Output path should be absolute")
+			t.Errorf("Output path should be absolute, got: %s", baseOutput)
 		}
 	})
 
