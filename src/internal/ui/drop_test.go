@@ -16,11 +16,11 @@ import (
 // TestFileTypeDetection tests detection of encrypted vs plain files.
 func TestFileTypeDetection(t *testing.T) {
 	testCases := []struct {
-		name       string
-		filename   string
-		isPcv      bool
-		isSplit    bool
-		isEncrypt  bool
+		name      string
+		filename  string
+		isPcv     bool
+		isSplit   bool
+		isEncrypt bool
 	}{
 		{"PlainText", "document.txt", false, false, true},
 		{"PlainPDF", "report.pdf", false, false, true},
@@ -101,9 +101,9 @@ func TestSplitVolumeBasePath(t *testing.T) {
 // TestOutputPathFromDecrypt tests output path derivation for decryption.
 func TestOutputPathFromDecrypt(t *testing.T) {
 	testCases := []struct {
-		name        string
-		inputPath   string
-		outputPath  string
+		name       string
+		inputPath  string
+		outputPath string
 	}{
 		{"SimplePcv", "/path/secret.pcv", "/path/secret"},
 		{"NestedPcv", "/a/b/c/file.pcv", "/a/b/c/file"},
