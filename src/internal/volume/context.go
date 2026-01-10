@@ -91,6 +91,7 @@ type DecryptRequest struct {
 
 	// Decryption options
 	ForceDecrypt bool // Continue despite MAC verification failure (may produce corrupted output)
+	VerifyFirst  bool // Two-pass mode: verify MAC before decryption (slower but more secure, PCC-004)
 	AutoUnzip    bool // Automatically extract if output is a .zip file
 	SameLevel    bool // Extract zip contents to same directory as volume (not subdirectory)
 

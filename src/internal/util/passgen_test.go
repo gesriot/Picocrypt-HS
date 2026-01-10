@@ -1,6 +1,7 @@
 package util
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -104,5 +105,64 @@ func TestGenPasswordEmpty(t *testing.T) {
 	}
 	if password != "" {
 		t.Errorf("GenPassword with zero length should return empty, got %s", password)
+	}
+}
+
+func TestRandomBytes(t *testing.T) {
+	// Test various lengths
+	lengths := []int{1, 16, 32, 64, 128, 1024}
+
+	for _, length := range lengths {
+		data, err := RandomBytes(length)
+		if err != nil {
+			t.Fatalf("RandomBytes(%d) failed: %v", length, err)
+		}
+
+		if len(data) != length {
+			t.Errorf("RandomBytes(%d) returned %d bytes", length, len(data))
+		}
+
+		// Check that it's not all zeros (statistically almost impossible)
+		allZero := true
+		for _, b := range data {
+			if b != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero && length > 0 {
+			t.Errorf("RandomBytes(%d) returned all zeros (extremely unlikely)", length)
+		}
+	}
+}
+
+func TestRandomBytesUniqueness(t *testing.T) {
+	// Two calls should produce different results
+	data1, err := RandomBytes(32)
+	if err != nil {
+		t.Fatalf("RandomBytes(32) failed: %v", err)
+	}
+
+	data2, err := RandomBytes(32)
+	if err != nil {
+		t.Fatalf("RandomBytes(32) failed: %v", err)
+	}
+
+	if bytes.Equal(data1, data2) {
+		t.Error("Two RandomBytes calls should produce different results")
+	}
+}
+
+func TestRandomBytesInvalidLength(t *testing.T) {
+	// Zero length should return error
+	_, err := RandomBytes(0)
+	if err == nil {
+		t.Error("RandomBytes(0) should return error")
+	}
+
+	// Negative length should return error
+	_, err = RandomBytes(-1)
+	if err == nil {
+		t.Error("RandomBytes(-1) should return error")
 	}
 }

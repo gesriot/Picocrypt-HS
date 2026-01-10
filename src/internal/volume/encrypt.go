@@ -321,26 +321,32 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	var done int64
 	var counter int64
 
+	// Pre-allocate buffers outside loop to reduce GC pressure
+	src := make([]byte, util.MiB)
+	dst := make([]byte, util.MiB)
+
 	for {
 		if ctx.IsCancelled() {
 			return errors.New("operation cancelled")
 		}
 
-		src := make([]byte, util.MiB)
 		n, readErr := reader.Read(src)
 		if n > 0 {
-			src = src[:n]
-			dst := make([]byte, len(src))
+			srcData := src[:n]
+			dstData := dst[:n]
 
 			// Encrypt: Serpent -> XChaCha20 -> MAC
-			ctx.CipherSuite.Encrypt(dst, src)
+			ctx.CipherSuite.Encrypt(dstData, srcData)
 
 			// Apply Reed-Solomon if enabled
+			var writeData []byte
 			if req.ReedSolomon {
-				dst = encodeWithRS(dst, req.RSCodecs)
+				writeData = encodeWithRS(dstData, req.RSCodecs)
+			} else {
+				writeData = dstData
 			}
 
-			if _, err := fout.Write(dst); err != nil {
+			if _, err := fout.Write(writeData); err != nil {
 				return fmt.Errorf("write ciphertext: %w", err)
 			}
 
