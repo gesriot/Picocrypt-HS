@@ -39,10 +39,17 @@ jobs:
         cd src
         go test -v -race -timeout 15m ./internal/encoding/... ./internal/fileops/... ./internal/header/... ./internal/keyfile/... ./internal/util/...
 
-    - name: Build
+    - name: Build GUI
       run: |
         cd src
         go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+      env:
+        CGO_ENABLED: 1
+
+    - name: Build CLI-only (no graphics dependencies)
+      run: |
+        cd src
+        go build -v -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
 
@@ -59,10 +66,11 @@ jobs:
         hdiutil create Picocrypt-NG.dmg -volname Picocrypt-NG -fs APFS -format UDZO -srcfolder out
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: pr-test-build-macos-ONLY-FOR-TESTING
         path: |
           Picocrypt-NG.dmg
+          src/Picocrypt-NG-cli
         if-no-files-found: error
         compression-level: 9

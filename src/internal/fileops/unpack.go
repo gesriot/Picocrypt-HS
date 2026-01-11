@@ -23,6 +23,34 @@ type UnpackOptions struct {
 	Cancel     CancelFunc // Cancellation check callback (optional)
 }
 
+// normalizeZipPath normalizes a path from a zip file by converting all separators
+// to the platform-appropriate separator. This handles cross-platform zip files.
+func normalizeZipPath(zipPath string) string {
+	// Replace all backslashes with forward slashes first
+	normalized := strings.ReplaceAll(zipPath, "\\", "/")
+	// Then convert to platform-specific separators
+	return filepath.FromSlash(normalized)
+}
+
+// isValidExtractionPath checks if the output path is within the extraction directory.
+// This prevents zip slip attacks where malicious archives contain paths like ../../etc/passwd
+// while allowing legitimate filenames with double dots like "file..txt".
+func isValidExtractionPath(outPath, extractDir string) bool {
+	// Clean both paths to resolve any .. segments
+	cleanOut := filepath.Clean(outPath)
+	cleanBase := filepath.Clean(extractDir)
+
+	// Get the relative path from extractDir to outPath
+	rel, err := filepath.Rel(cleanBase, cleanOut)
+	if err != nil {
+		return false
+	}
+
+	// If the relative path starts with "..", it's trying to escape
+	// the extraction directory (path traversal attack)
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
+}
+
 // Unpack extracts a zip archive to the specified directory.
 func Unpack(opts UnpackOptions) (retErr error) {
 	reader, err := zip.OpenReader(opts.ZipPath)
@@ -67,14 +95,21 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		}
 	}
 
-	// First pass: create all directories
+	// First pass: create all directories and cache normalized paths
+	// Cache normalized paths to avoid redundant normalization in second pass
+	normalizedPaths := make(map[*zip.File]string, len(reader.File))
 	for _, f := range reader.File {
-		if strings.Contains(f.Name, "..") {
+		// Normalize and validate path to prevent zip slip attacks
+		normalizedName := normalizeZipPath(f.Name)
+		outPath := filepath.Join(extractDir, normalizedName)
+		if !isValidExtractionPath(outPath, extractDir) {
 			return errors.New("potentially malicious zip item path")
 		}
 
+		// Cache the output path for second pass
+		normalizedPaths[f] = outPath
+
 		if f.FileInfo().IsDir() {
-			outPath := filepath.Join(extractDir, f.Name)
 			if err := os.MkdirAll(outPath, 0700); err != nil {
 				return fmt.Errorf("create directory %s: %w", outPath, err)
 			}
@@ -94,15 +129,12 @@ func Unpack(opts UnpackOptions) (retErr error) {
 			return errors.New("operation cancelled")
 		}
 
-		if strings.Contains(f.Name, "..") {
-			return errors.New("potentially malicious zip item path")
-		}
-
 		if f.FileInfo().IsDir() {
 			continue
 		}
 
-		outPath := filepath.Join(extractDir, f.Name)
+		// Retrieve pre-validated output path from cache
+		outPath := normalizedPaths[f]
 
 		// Create parent directories
 		if err := os.MkdirAll(filepath.Dir(outPath), 0700); err != nil {

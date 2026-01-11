@@ -12,32 +12,17 @@
 //   - Plausible deniability through nested encryption
 //
 // The cryptographic implementation was audited in August 2024.
+//
+// Build modes:
+//   - Default build: GUI + CLI (requires graphics libraries)
+//   - CLI-only build: go build -tags cli (no graphics dependencies)
 
 package main
-
-import (
-	"flag"
-	"fmt"
-	"os"
-
-	"Picocrypt-NG/internal/ui"
-)
 
 // version is the application version displayed in the window title.
 // Format: "vMAJOR.MINOR" (e.g., "v2.02")
 const version = "v2.03"
 
 func main() {
-	flag.Parse()
-
-	// Initialize and run the graphical user interface.
-	// The UI handles drag-and-drop file selection, encryption options,
-	// progress reporting, and all user interactions.
-	app, err := ui.NewApp(version)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize: %v\n", err)
-		os.Exit(1)
-	}
-
-	app.Run()
+	run()
 }

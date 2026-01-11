@@ -45,10 +45,18 @@ jobs:
         cd src
         go test -v -race -timeout 15m ./...
 
-    - name: Build
+    - name: Build GUI
       run: |
         cd src
         go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+      env:
+        CGO_ENABLED: 1
+        GOAMD64: v1
+
+    - name: Build CLI-only (no graphics dependencies)
+      run: |
+        cd src
+        go build -v -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
@@ -58,6 +66,7 @@ jobs:
         wget -O upx.tar.xz https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-amd64_linux.tar.xz
         tar -xf upx.tar.xz
         upx-5.0.2-amd64_linux/upx --lzma src/Picocrypt-NG
+        upx-5.0.2-amd64_linux/upx --lzma src/Picocrypt-NG-cli
 
     - name: Package as .deb
       run: |
@@ -75,25 +84,42 @@ jobs:
       run: |
         mkdir out
         mv src/Picocrypt-NG out
+        mv src/Picocrypt-NG-cli out
         mv Picocrypt-NG/Picocrypt-NG.deb out
         rm -rf src
         rm -rf Picocrypt-NG
         mv out/Picocrypt-NG .
+        mv out/Picocrypt-NG-cli .
         mv out/Picocrypt-NG.deb .
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: build-linux
         path: |
           Picocrypt-NG
+          Picocrypt-NG-cli
           Picocrypt-NG.deb
         if-no-files-found: error
         compression-level: 9
 
+    - name: Extract changelog for current version
+      run: |
+        VERSION=$(cat VERSION | tr -d '[:space:]')
+        # Extract content between current version header and next version header
+        CHANGELOG=$(awk "/^# v${VERSION}\$/,/^# v/{if(/^# v${VERSION}\$/){next} if(/^# v/){exit} print}" Changelog.md | sed 's/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+        if [ -z "$CHANGELOG" ]; then
+          CHANGELOG="No changelog entry found for version $VERSION"
+        fi
+        # Escape for GitHub Actions
+        echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+        echo "$CHANGELOG" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
     - name: Generate checksums
       run: |
         echo "CHECKSUM_PICOCRYPT_NG=$(sha256sum Picocrypt-NG | cut -d ' ' -f1)" >> $GITHUB_ENV
+        echo "CHECKSUM_PICOCRYPT_NG_CLI=$(sha256sum Picocrypt-NG-cli | cut -d ' ' -f1)" >> $GITHUB_ENV
         echo "CHECKSUM_DEB=$(sha256sum Picocrypt-NG.deb | cut -d ' ' -f1)" >> $GITHUB_ENV
 
     - name: Release
@@ -101,11 +127,21 @@ jobs:
       with:
         files: |
           Picocrypt-NG
+          Picocrypt-NG-cli
           Picocrypt-NG.deb
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true
         body: |
+          # Changelog
+
+          ${{ env.CHANGELOG }}
+
+          ---
+
+          ## Downloads
+
           **Linux:**
           `sha256(Picocrypt-NG)      ${{ env.CHECKSUM_PICOCRYPT_NG }}`
+          `sha256(Picocrypt-NG-cli)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI }}`
           `sha256(Picocrypt-NG.deb)  ${{ env.CHECKSUM_DEB }}`

@@ -50,7 +50,7 @@ jobs:
         cp src/fyne-cross/dist/android-arm64/Picocrypt-NG.apk out/Picocrypt-NG-arm64.apk
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: pr-test-build-android-ONLY-FOR-TESTING
         path: out/*.apk

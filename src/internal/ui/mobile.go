@@ -563,7 +563,8 @@ func (a *App) buildMobileDecryptOptions() {
 // buildMobileOutputSection creates the output section for mobile
 func (a *App) buildMobileOutputSection() fyne.CanvasObject {
 	a.outputEntry = widget.NewLabel("")
-	a.outputEntry.Wrapping = fyne.TextWrapWord
+	// Truncate long filenames with ellipsis to prevent excessive wrapping
+	a.outputEntry.Truncation = fyne.TextTruncateEllipsis
 
 	a.changeBtn = widget.NewButton("Change", func() {
 		a.changeOutputFile()

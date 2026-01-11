@@ -42,10 +42,17 @@ jobs:
         cd src
         go test -v -race -timeout 15m ./internal/encoding/... ./internal/fileops/... ./internal/header/... ./internal/keyfile/... ./internal/util/...
 
-    - name: Build
+    - name: Build GUI
       run: |
         cd src
         go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+      env:
+        CGO_ENABLED: 1
+
+    - name: Build CLI-only (no graphics dependencies)
+      run: |
+        cd src
+        go build -v -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
 
@@ -62,11 +69,12 @@ jobs:
         hdiutil create Picocrypt-NG.dmg -volname Picocrypt-NG -fs APFS -format UDZO -srcfolder out
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: build-macos
         path: |
           Picocrypt-NG.dmg
+          src/Picocrypt-NG-cli
         if-no-files-found: error
         compression-level: 9
 
@@ -75,19 +83,44 @@ jobs:
         VERSION=$(cat VERSION)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
+    - name: Extract changelog for current version
+      run: |
+        VERSION=$(cat VERSION | tr -d '[:space:]')
+        # Extract content between current version header and next version header
+        CHANGELOG=$(awk "/^# v${VERSION}\$/,/^# v/{if(/^# v${VERSION}\$/){next} if(/^# v/){exit} print}" Changelog.md | sed 's/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
+        if [ -z "$CHANGELOG" ]; then
+          CHANGELOG="No changelog entry found for version $VERSION"
+        fi
+        # Escape for GitHub Actions
+        echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+        echo "$CHANGELOG" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
     - name: Generate checksums
       run: |
         HASH=$(shasum -a 256 Picocrypt-NG.dmg | cut -d ' ' -f1)
         echo "CHECKSUM_PICOCRYPT_NG=$HASH" >> $GITHUB_ENV
+        HASH_CLI=$(shasum -a 256 src/Picocrypt-NG-cli | cut -d ' ' -f1)
+        echo "CHECKSUM_PICOCRYPT_NG_CLI=$HASH_CLI" >> $GITHUB_ENV
 
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
           Picocrypt-NG.dmg
+          src/Picocrypt-NG-cli
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true
         body: |
+          # Changelog
+
+          ${{ env.CHANGELOG }}
+
+          ---
+
+          ## Downloads
+
           **macOS:**
           `sha256(Picocrypt-NG.dmg)  ${{ env.CHECKSUM_PICOCRYPT_NG }}`
+          `sha256(Picocrypt-NG-cli)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI }}`

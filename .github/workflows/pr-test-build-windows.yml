@@ -34,10 +34,18 @@ jobs:
         cd src
         go test -v -timeout 15m ./...
 
-    - name: Build
+    - name: Build GUI
       run: |
         cd src
         go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
+      env:
+        CGO_ENABLED: 1
+        GOAMD64: v1
+
+    - name: Build CLI-only (no graphics dependencies)
+      run: |
+        cd src
+        go build -v -tags cli -ldflags="-s -w -extldflags=-static" -o Picocrypt-NG-cli.exe ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
@@ -68,11 +76,14 @@ jobs:
         Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-win64.zip
         Expand-Archive -DestinationPath upx upx.zip
         upx/upx-5.0.2-win64/upx.exe --lzma -o src/Picocrypt-NG.exe src/5.exe
+        upx/upx-5.0.2-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: pr-test-build-windows-ONLY-FOR-TESTING
-        path: src/*.exe
+        path: |
+          src/Picocrypt-NG.exe
+          src/Picocrypt-NG-cli.exe
         if-no-files-found: error
         compression-level: 9
