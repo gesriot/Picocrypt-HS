@@ -82,6 +82,9 @@ func Unpack(opts UnpackOptions) (retErr error) {
 	}
 
 	// Second pass: extract files
+	// Note: File handles are closed manually at the end of each iteration (not using defer)
+	// to prevent file descriptor exhaustion when extracting large archives with many files.
+	// Using defer here would accumulate all file handles until function exit.
 	var done int64
 	startTime := time.Now()
 
