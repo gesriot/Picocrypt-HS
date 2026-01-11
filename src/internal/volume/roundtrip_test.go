@@ -2,6 +2,7 @@ package volume
 
 import (
 	"archive/zip"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestRoundTripBasic(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -62,7 +63,7 @@ func TestRoundTripBasic(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt failed: %v", err)
 	}
 
@@ -109,7 +110,7 @@ func TestRoundTripParanoid(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (paranoid) failed: %v", err)
 	}
 
@@ -123,7 +124,7 @@ func TestRoundTripParanoid(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (paranoid) failed: %v", err)
 	}
 
@@ -169,7 +170,7 @@ func TestRoundTripReedSolomon(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (RS) failed: %v", err)
 	}
 
@@ -183,7 +184,7 @@ func TestRoundTripReedSolomon(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (RS) failed: %v", err)
 	}
 
@@ -229,7 +230,7 @@ func TestRoundTripDeniability(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (deniability) failed: %v", err)
 	}
 
@@ -249,7 +250,7 @@ func TestRoundTripDeniability(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (deniability) failed: %v", err)
 	}
 
@@ -297,7 +298,7 @@ func TestRoundTripAllOptions(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (all options) failed: %v", err)
 	}
 
@@ -312,7 +313,7 @@ func TestRoundTripAllOptions(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (all options) failed: %v", err)
 	}
 
@@ -358,7 +359,7 @@ func TestRoundTripWithComments(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (with comments) failed: %v", err)
 	}
 
@@ -372,7 +373,7 @@ func TestRoundTripWithComments(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (with comments) failed: %v", err)
 	}
 
@@ -426,7 +427,7 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (with keyfile) failed: %v", err)
 	}
 
@@ -441,7 +442,7 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (with keyfile) failed: %v", err)
 	}
 
@@ -499,7 +500,7 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 		RSCodecs:       rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (multiple keyfiles) failed: %v", err)
 	}
 
@@ -514,7 +515,7 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (multiple keyfiles, reversed) failed: %v", err)
 	}
 
@@ -572,7 +573,7 @@ func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 		RSCodecs:       rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (ordered keyfiles) failed: %v", err)
 	}
 
@@ -587,7 +588,7 @@ func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (ordered keyfiles) failed: %v", err)
 	}
 
@@ -645,7 +646,7 @@ func TestWrongKeyfileFails(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -660,7 +661,7 @@ func TestWrongKeyfileFails(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	if err == nil {
 		t.Error("Decrypt should have failed with wrong keyfile")
 	} else {
@@ -710,7 +711,7 @@ func TestRoundTripSplit(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (split) failed: %v", err)
 	}
 
@@ -740,7 +741,7 @@ func TestRoundTripSplit(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (split/recombine) failed: %v", err)
 	}
 
@@ -792,7 +793,7 @@ func TestWrongPasswordFails(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -806,7 +807,7 @@ func TestWrongPasswordFails(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	if err == nil {
 		t.Error("Decrypt should have failed with wrong password")
 	} else {
@@ -859,7 +860,7 @@ func TestAutoUnzip(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -879,7 +880,7 @@ func TestAutoUnzip(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (auto-unzip) failed: %v", err)
 	}
 
@@ -950,7 +951,7 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -970,7 +971,7 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (same-level) failed: %v", err)
 	}
 
@@ -1080,7 +1081,7 @@ func TestRoundTripMultiFile(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (multi-file) failed: %v", err)
 	}
 
@@ -1101,7 +1102,7 @@ func TestRoundTripMultiFile(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (multi-file) failed: %v", err)
 	}
 
@@ -1169,7 +1170,7 @@ func TestRoundTripSplitWithDeniability(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (split+deniability) failed: %v", err)
 	}
 
@@ -1191,7 +1192,7 @@ func TestRoundTripSplitWithDeniability(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (split+deniability) failed: %v", err)
 	}
 
@@ -1257,7 +1258,7 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (split+RS) failed: %v", err)
 	}
 
@@ -1276,7 +1277,7 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (split+RS) failed: %v", err)
 	}
 
@@ -1337,7 +1338,7 @@ func TestRoundTripSplitAllOptions(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (split+all) failed: %v", err)
 	}
 
@@ -1353,7 +1354,7 @@ func TestRoundTripSplitAllOptions(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (split+all) failed: %v", err)
 	}
 
@@ -1405,7 +1406,7 @@ func TestRoundTripEmptyFile(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (empty) failed: %v", err)
 	}
 
@@ -1419,7 +1420,7 @@ func TestRoundTripEmptyFile(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (empty) failed: %v", err)
 	}
 
@@ -1479,7 +1480,7 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (split+keyfile) failed: %v", err)
 	}
 
@@ -1495,7 +1496,7 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (split+keyfile) failed: %v", err)
 	}
 
@@ -1549,7 +1550,7 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -1582,7 +1583,7 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	// Force decrypt might succeed or fail depending on where corruption landed
 	// The test verifies that force decrypt at least attempts recovery
 	if err != nil {
@@ -1630,7 +1631,7 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (compressed multi-file) failed: %v", err)
 	}
 
@@ -1650,7 +1651,7 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt (compressed multi-file) failed: %v", err)
 	}
 
@@ -1705,7 +1706,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -1746,7 +1747,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	if err == nil {
 		t.Fatal("Expected decryption to fail due to header tampering, but it succeeded")
 	}
@@ -1765,7 +1766,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReqForce)
+	err = Decrypt(context.Background(), decReqForce)
 	// ForceDecrypt may succeed or fail depending on corruption severity
 	if err != nil {
 		t.Logf("ForceDecrypt also failed (severe tampering): %v", err)
@@ -1820,7 +1821,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 		RSCodecs:       rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -1835,7 +1836,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReqCorrect); err != nil {
+	if err := Decrypt(context.Background(), decReqCorrect); err != nil {
 		t.Fatalf("Decrypt with correct keyfile order failed: %v", err)
 	}
 
@@ -1862,7 +1863,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReqWrong)
+	err = Decrypt(context.Background(), decReqWrong)
 	if err == nil {
 		t.Fatal("Expected decryption to fail with wrong keyfile order, but it succeeded")
 	}
@@ -1901,7 +1902,7 @@ func TestZeroLengthComments(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt with zero-length comments failed: %v", err)
 	}
 
@@ -1915,7 +1916,7 @@ func TestZeroLengthComments(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt with zero-length comments failed: %v", err)
 	}
 
@@ -1968,7 +1969,7 @@ func TestDuplicateKeyfilesRejected(t *testing.T) {
 		RSCodecs:       rsCodecs,
 	}
 
-	err = Encrypt(encReq)
+	err = Encrypt(context.Background(), encReq)
 	if err == nil {
 		t.Fatal("Expected encryption to fail with duplicate keyfiles, but it succeeded")
 	}

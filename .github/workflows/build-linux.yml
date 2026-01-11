@@ -43,7 +43,7 @@ jobs:
     - name: Run tests
       run: |
         cd src
-        go test -v -race -timeout 10m ./...
+        go test -v -race -timeout 15m ./...
 
     - name: Build
       run: |

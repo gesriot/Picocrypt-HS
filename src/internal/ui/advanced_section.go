@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"reflect"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -19,19 +20,39 @@ func (a *App) updateAdvancedSection() {
 
 	a.advancedContainer.RemoveAll()
 
-	if a.State.Mode != "decrypt" {
+	switch a.State.Mode {
+	case "":
+		// Initial state - no files selected, hide advanced section entirely
+		if a.advancedLabel != nil {
+			a.advancedLabel.Hide()
+		}
+		// Resize to compact initial height
+		if a.Window != nil {
+			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightInitial))
+		}
+	case "encrypt":
+		if a.advancedLabel != nil {
+			a.advancedLabel.Show()
+		}
 		a.buildEncryptOptions()
 		// Resize window for encrypt mode (more options)
 		if a.Window != nil {
 			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
 		}
-	} else {
+	case "decrypt":
+		if a.advancedLabel != nil {
+			a.advancedLabel.Show()
+		}
 		a.buildDecryptOptions()
 		// Resize window for decrypt mode (fewer options)
 		if a.Window != nil {
 			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightDecrypt))
 		}
 	}
+
+	// IMPORTANT: Update disable state for newly created checkboxes
+	// This ensures checkboxes are disabled until user enters credentials
+	a.updateAdvancedDisableState()
 
 	a.advancedContainer.Refresh()
 }
@@ -203,120 +224,46 @@ func (a *App) updateAdvancedDisableState() {
 	}
 }
 
+// setWidgetDisabled is a helper that enables/disables a widget and ensures refresh.
+// Note: Uses reflect to handle nil interface values containing nil pointers.
+func setWidgetDisabled(w fyne.Disableable, disabled bool) {
+	// Check for nil interface or nil pointer inside interface
+	if w == nil || reflect.ValueOf(w).IsNil() {
+		return
+	}
+	if disabled {
+		w.Disable()
+	} else {
+		w.Enable()
+	}
+}
+
 // updateEncryptOptionsState updates encrypt mode option states.
 func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
-	if a.compressCheck != nil {
-		if advancedDisabled || a.State.Recursively || (len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0) {
-			a.compressCheck.Disable()
-		} else {
-			a.compressCheck.Enable()
-		}
-	}
+	// All advanced options are disabled until user enters credentials (password or keyfiles)
+	// AND passwords must match in encrypt mode
+	// Additional conditions apply to some options (e.g., compress requires multiple files)
 
-	if a.recursivelyCheck != nil {
-		if advancedDisabled || (len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0) {
-			a.recursivelyCheck.Disable()
-		} else {
-			a.recursivelyCheck.Enable()
-		}
-	}
+	notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
 
-	if a.paranoidCheck != nil {
-		if advancedDisabled {
-			a.paranoidCheck.Disable()
-		} else {
-			a.paranoidCheck.Enable()
-		}
-	}
-
-	if a.reedSolomonCheck != nil {
-		if advancedDisabled {
-			a.reedSolomonCheck.Disable()
-		} else {
-			a.reedSolomonCheck.Enable()
-		}
-	}
-
-	if a.deleteCheck != nil {
-		if advancedDisabled {
-			a.deleteCheck.Disable()
-		} else {
-			a.deleteCheck.Enable()
-		}
-	}
-
-	if a.deniabilityCheck != nil {
-		if advancedDisabled {
-			a.deniabilityCheck.Disable()
-		} else {
-			a.deniabilityCheck.Enable()
-		}
-	}
-
-	if a.splitCheck != nil {
-		if advancedDisabled {
-			a.splitCheck.Disable()
-		} else {
-			a.splitCheck.Enable()
-		}
-	}
-
-	if a.splitSizeEntry != nil {
-		if advancedDisabled {
-			a.splitSizeEntry.Disable()
-		} else {
-			a.splitSizeEntry.Enable()
-		}
-	}
-
-	if a.splitUnitSelect != nil {
-		if advancedDisabled {
-			a.splitUnitSelect.Disable()
-		} else {
-			a.splitUnitSelect.Enable()
-		}
-	}
+	setWidgetDisabled(a.compressCheck, advancedDisabled || a.State.Recursively || notEnoughFiles)
+	setWidgetDisabled(a.recursivelyCheck, advancedDisabled || notEnoughFiles)
+	setWidgetDisabled(a.paranoidCheck, advancedDisabled)
+	setWidgetDisabled(a.reedSolomonCheck, advancedDisabled)
+	setWidgetDisabled(a.deleteCheck, advancedDisabled)
+	setWidgetDisabled(a.deniabilityCheck, advancedDisabled)
+	setWidgetDisabled(a.splitCheck, advancedDisabled)
+	setWidgetDisabled(a.splitSizeEntry, advancedDisabled)
+	setWidgetDisabled(a.splitUnitSelect, advancedDisabled)
 }
 
 // updateDecryptOptionsState updates decrypt mode option states.
 func (a *App) updateDecryptOptionsState(advancedDisabled bool) {
-	if a.forceDecryptCheck != nil {
-		if advancedDisabled || a.State.Deniability {
-			a.forceDecryptCheck.Disable()
-		} else {
-			a.forceDecryptCheck.Enable()
-		}
-	}
-
-	if a.verifyFirstCheck != nil {
-		if advancedDisabled {
-			a.verifyFirstCheck.Disable()
-		} else {
-			a.verifyFirstCheck.Enable()
-		}
-	}
-
-	if a.deleteVolumeCheck != nil {
-		if advancedDisabled {
-			a.deleteVolumeCheck.Disable()
-		} else {
-			a.deleteVolumeCheck.Enable()
-		}
-	}
-
-	if a.autoUnzipCheck != nil {
-		if advancedDisabled || !strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
-			a.autoUnzipCheck.Disable()
-		} else {
-			a.autoUnzipCheck.Enable()
-		}
-	}
-
-	if a.sameLevelCheck != nil {
-		if advancedDisabled || !a.State.AutoUnzip {
-			a.sameLevelCheck.Disable()
-		} else {
-			a.sameLevelCheck.Enable()
-		}
-	}
+	setWidgetDisabled(a.forceDecryptCheck, advancedDisabled || a.State.Deniability)
+	setWidgetDisabled(a.verifyFirstCheck, advancedDisabled)
+	setWidgetDisabled(a.deleteVolumeCheck, advancedDisabled)
+	// On mobile, deleteCheck is used instead of deleteVolumeCheck
+	setWidgetDisabled(a.deleteCheck, advancedDisabled)
+	setWidgetDisabled(a.autoUnzipCheck, advancedDisabled || !strings.HasSuffix(a.State.InputFile, ".zip.pcv"))
+	setWidgetDisabled(a.sameLevelCheck, advancedDisabled || !a.State.AutoUnzip)
 }

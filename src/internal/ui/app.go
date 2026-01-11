@@ -40,6 +40,7 @@ import (
 	fyneApp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
@@ -54,6 +55,7 @@ const (
 	windowWidth         = 318
 	windowHeightEncrypt = 510 // Full height for encrypt mode (more options)
 	windowHeightDecrypt = 430 // Reduced height for decrypt mode (fewer options)
+	windowHeightInitial = 350 // Compact height for initial state (no advanced options)
 	buttonWidth         = 54
 	padding             = 4 // Reduced from 8 to match compact theme
 	contentWidth        = windowWidth - padding*2
@@ -86,6 +88,7 @@ type App struct {
 	keyfileLabel      *widget.Label
 	commentsLabel     *widget.Label
 	commentsEntry     *widget.Entry
+	advancedLabel     *widget.Label
 	advancedContainer *fyne.Container
 	outputEntry       *widget.Label
 	startButton       *widget.Button
@@ -129,11 +132,19 @@ type App struct {
 	overwriteModal dialog.Dialog
 	progressModal  dialog.Dialog
 
+	// Keyfile modal widgets (moved from package-level to avoid global state)
+	keyfileListContainer *fyne.Container
+	keyfileSeparator     *widget.Separator
+	keyfileOrderCheck    *widget.Check
+
 	// Progress widgets
 	progressBar    *widget.ProgressBar
-	progressLabel  *widget.Label
 	progressStatus *widget.Label
 	cancelButton   *widget.Button
+
+	// Data bindings for reactive UI updates
+	boundProgress binding.Float  // Progress bar value (0.0-1.0)
+	boundStatus   binding.String // Status text (e.g., "Encrypting at 100 MiB/s")
 }
 
 // NewApp creates a new UI application.
@@ -151,13 +162,16 @@ func NewApp(version string) (*App, error) {
 		State:    state,
 		rsCodecs: rsCodecs,
 		DPI:      1.0,
+		// Initialize data bindings
+		boundProgress: binding.NewFloat(),
+		boundStatus:   binding.NewString(),
 	}, nil
 }
 
 // Run starts the UI application.
 func (a *App) Run() {
 	// Create Fyne app with unique ID for preferences API support
-	a.fyneApp = fyneApp.NewWithID("io.picocrypt.PicocryptNG")
+	a.fyneApp = fyneApp.NewWithID("io.github.picocryptng.PicocryptNG")
 
 	// Clean up any leftover temp files from previous sessions (mobile only)
 	// Must be called AFTER Fyne app is initialized (isMobile() requires it)
@@ -227,6 +241,36 @@ func (a *App) Run() {
 	a.Window.ShowAndRun()
 }
 
+// showFileDialogWithResize temporarily resizes the window to accommodate file dialogs.
+// This is necessary because Fyne file dialogs are constrained by the parent window size
+// when using fixed-size windows. The window is restored after the dialog closes.
+func (a *App) showFileDialogWithResize(d dialog.Dialog, dialogSize fyne.Size) {
+	// Skip resize handling on mobile - windows are flexible there
+	if isMobile() {
+		d.Resize(dialogSize)
+		d.Show()
+		return
+	}
+
+	// Calculate current window size to restore later
+	originalHeight := float32(windowHeightEncrypt)
+	if a.State.Mode == "decrypt" {
+		originalHeight = windowHeightDecrypt
+	}
+
+	// Temporarily allow window resizing and make room for dialog
+	a.Window.SetFixedSize(false)
+	a.Window.Resize(fyne.NewSize(dialogSize.Width+50, dialogSize.Height+50))
+
+	d.SetOnClosed(func() {
+		a.Window.Resize(fyne.NewSize(windowWidth, originalHeight))
+		a.Window.SetFixedSize(true)
+	})
+
+	d.Resize(dialogSize)
+	d.Show()
+}
+
 // fixedWidthLayout is a layout that forces a fixed width.
 type fixedWidthLayout struct {
 	width float32
@@ -280,13 +324,17 @@ func (a *App) buildUI() fyne.CanvasObject {
 
 	a.statusLabel = NewColoredLabel(a.State.MainStatus, a.State.MainStatusColor)
 
+	// Advanced section label (hidden when no mode selected)
+	a.advancedLabel = widget.NewLabel("Advanced:")
+	a.advancedLabel.Hide() // Initially hidden until files are dropped
+
 	// Main content container
 	a.mainContent = container.NewVBox(
 		passwordSection,
 		keyfilesSection,
 		widget.NewSeparator(),
 		commentsSection,
-		widget.NewLabel("Advanced:"),
+		a.advancedLabel,
 		a.advancedContainer,
 		outputSection,
 		widget.NewSeparator(),

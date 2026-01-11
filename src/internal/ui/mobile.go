@@ -444,6 +444,10 @@ func (a *App) updateMobileAdvancedSection() {
 		a.buildMobileDecryptOptions()
 	}
 
+	// IMPORTANT: Update disable state for newly created checkboxes
+	// This ensures checkboxes are disabled until user enters credentials
+	a.updateAdvancedDisableState()
+
 	a.advancedContainer.Refresh()
 }
 

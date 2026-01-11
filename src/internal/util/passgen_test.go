@@ -122,16 +122,19 @@ func TestRandomBytes(t *testing.T) {
 			t.Errorf("RandomBytes(%d) returned %d bytes", length, len(data))
 		}
 
-		// Check that it's not all zeros (statistically almost impossible)
-		allZero := true
-		for _, b := range data {
-			if b != 0 {
-				allZero = false
-				break
+		// Check that it's not all zeros (statistically almost impossible for large lengths)
+		// Skip this check for small lengths where all zeros is plausible (e.g., 1 byte = 1/256 chance)
+		if length >= 8 {
+			allZero := true
+			for _, b := range data {
+				if b != 0 {
+					allZero = false
+					break
+				}
 			}
-		}
-		if allZero && length > 0 {
-			t.Errorf("RandomBytes(%d) returned all zeros (extremely unlikely)", length)
+			if allZero {
+				t.Errorf("RandomBytes(%d) returned all zeros (extremely unlikely)", length)
+			}
 		}
 	}
 }

@@ -1,3 +1,13 @@
+# v2.02
+<ul>
+	<li>✓ Refactored to modular package structure (crypto, header, volume, etc.)</li>
+	<li>✓ Switched from giu to Fyne UI toolkit</li>
+	<li>✓ Added mobile support (Android)</li>
+	<li>✓ v2 header format with HMAC-SHA3-512 authentication (audit recommendation PCC-001)</li>
+	<li>✓ Backward compatible with v1.x volumes</li>
+	<li>✓ Added project documentation (ARCHITECTURE.md, API.md, CONTRIBUTING.md)</li>
+</ul>
+
 # v2.00 (Released 08/07/2025)
 <ul>
 	<li>✓ First release in new Picocrypt-NG organization!</li>

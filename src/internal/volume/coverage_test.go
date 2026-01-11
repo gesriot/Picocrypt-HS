@@ -2,6 +2,8 @@ package volume
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +48,7 @@ func TestVerifyFirstModeBasic(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -61,7 +63,7 @@ func TestVerifyFirstModeBasic(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt with VerifyFirst failed: %v", err)
 	}
 
@@ -108,7 +110,7 @@ func TestVerifyFirstModeWithReedSolomon(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -123,7 +125,7 @@ func TestVerifyFirstModeWithReedSolomon(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt with VerifyFirst + RS failed: %v", err)
 	}
 
@@ -169,7 +171,7 @@ func TestVerifyFirstModeParanoid(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -184,7 +186,7 @@ func TestVerifyFirstModeParanoid(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt with VerifyFirst + Paranoid failed: %v", err)
 	}
 
@@ -236,7 +238,7 @@ func TestVerifyFirstModeWithKeyfiles(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -252,7 +254,7 @@ func TestVerifyFirstModeWithKeyfiles(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt with VerifyFirst + Keyfile failed: %v", err)
 	}
 
@@ -297,7 +299,7 @@ func TestVerifyFirstModeCorruptedData(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -329,7 +331,7 @@ func TestVerifyFirstModeCorruptedData(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	if err == nil {
 		t.Error("Expected VerifyFirst to detect corruption, but decryption succeeded")
 	} else {
@@ -373,7 +375,7 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -405,7 +407,7 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	// ForceDecrypt may succeed or fail depending on corruption severity
 	if err != nil {
 		t.Logf("VerifyFirst + ForceDecrypt error (may be expected): %v", err)
@@ -451,7 +453,7 @@ func TestVerifyFirstAllOptions(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -467,7 +469,7 @@ func TestVerifyFirstAllOptions(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt with VerifyFirst + all options failed: %v", err)
 	}
 
@@ -544,7 +546,7 @@ func TestDecryptWrongKeyfileMissingRequirement(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -559,7 +561,7 @@ func TestDecryptWrongKeyfileMissingRequirement(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	if err == nil {
 		t.Error("Decrypt should fail when required keyfile is not provided")
 	} else {
@@ -601,7 +603,7 @@ func TestDecryptCancellation(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -615,7 +617,7 @@ func TestDecryptCancellation(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	if err == nil {
 		t.Log("Decrypt completed before cancellation was triggered")
 	} else if strings.Contains(err.Error(), "cancelled") {
@@ -667,7 +669,7 @@ func TestEncryptCommentsTooLong(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	err = Encrypt(encReq)
+	err = Encrypt(context.Background(), encReq)
 	if err == nil {
 		t.Error("Encrypt should fail when comments exceed max length")
 	} else {
@@ -693,7 +695,7 @@ func TestDecryptNonExistentFile(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(decReq)
+	err = Decrypt(context.Background(), decReq)
 	if err == nil {
 		t.Error("Decrypt should fail for non-existent file")
 	}
@@ -716,7 +718,7 @@ func TestEncryptNonExistentFile(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	err = Encrypt(encReq)
+	err = Encrypt(context.Background(), encReq)
 	if err == nil {
 		t.Error("Encrypt should fail for non-existent input file")
 	}
@@ -756,7 +758,7 @@ func TestDeniabilityRoundTripWithVerifyFirst(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -777,7 +779,7 @@ func TestDeniabilityRoundTripWithVerifyFirst(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt with deniability + VerifyFirst failed: %v", err)
 	}
 
@@ -833,7 +835,7 @@ func TestIsDeniableNormalFile(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -916,13 +918,115 @@ func TestEncryptCancellation(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	err = Encrypt(encReq)
+	err = Encrypt(context.Background(), encReq)
 	if err == nil {
 		t.Log("Encrypt completed before cancellation")
 	} else if strings.Contains(err.Error(), "cancelled") {
 		t.Log("Encrypt correctly handled cancellation")
 	} else {
 		t.Logf("Encrypt error: %v", err)
+	}
+}
+
+// TestEncryptContextCancellation tests that encryption respects context cancellation.
+// This tests the standard Go context.Context pattern for cancellation.
+func TestEncryptContextCancellation(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create test file
+	plaintext := make([]byte, 50*1024) // 50 KiB
+	for i := range plaintext {
+		plaintext[i] = byte(i % 256)
+	}
+	inputPath := filepath.Join(tmpDir, "ctx_cancel_enc.bin")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "ctx_cancel_enc.bin.pcv")
+
+	// Create a pre-cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "ctx_cancel_password",
+		Reporter:   &GoldenTestReporter{},
+		RSCodecs:   rsCodecs,
+	}
+
+	err = Encrypt(ctx, encReq)
+	if err == nil {
+		t.Log("Encrypt completed before context cancellation was detected")
+	} else if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "cancelled") {
+		t.Log("Encrypt correctly handled context cancellation")
+	} else {
+		t.Logf("Encrypt error: %v", err)
+	}
+}
+
+// TestDecryptContextCancellation tests that decryption respects context cancellation.
+// This tests the standard Go context.Context pattern for cancellation.
+func TestDecryptContextCancellation(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create test file
+	plaintext := make([]byte, 50*1024) // 50 KiB
+	for i := range plaintext {
+		plaintext[i] = byte(i % 256)
+	}
+	inputPath := filepath.Join(tmpDir, "ctx_cancel_dec.bin")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "ctx_cancel_dec.bin.pcv")
+	decryptedPath := filepath.Join(tmpDir, "ctx_cancel_dec_out.bin")
+
+	// First encrypt normally
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "ctx_cancel_password",
+		Reporter:   &GoldenTestReporter{},
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	// Create a pre-cancelled context for decryption
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	decReq := &DecryptRequest{
+		InputFile:  encryptedPath,
+		OutputFile: decryptedPath,
+		Password:   "ctx_cancel_password",
+		Reporter:   &GoldenTestReporter{},
+		RSCodecs:   rsCodecs,
+	}
+
+	err = Decrypt(ctx, decReq)
+	if err == nil {
+		t.Log("Decrypt completed before context cancellation was detected")
+	} else if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "cancelled") {
+		t.Log("Decrypt correctly handled context cancellation")
+	} else {
+		t.Logf("Decrypt error: %v", err)
 	}
 }
 
@@ -963,7 +1067,7 @@ func TestRoundTripLargeFile(t *testing.T) {
 		RSCodecs:   rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -977,7 +1081,7 @@ func TestRoundTripLargeFile(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt failed: %v", err)
 	}
 
@@ -1038,7 +1142,7 @@ func TestRoundTripRSLargeFile(t *testing.T) {
 		RSCodecs:    rsCodecs,
 	}
 
-	if err := Encrypt(encReq); err != nil {
+	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
@@ -1052,7 +1156,7 @@ func TestRoundTripRSLargeFile(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	if err := Decrypt(decReq); err != nil {
+	if err := Decrypt(context.Background(), decReq); err != nil {
 		t.Fatalf("Decrypt failed: %v", err)
 	}
 

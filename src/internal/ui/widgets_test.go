@@ -83,8 +83,9 @@ func TestPasswordStrengthIndicator(t *testing.T) {
 		}
 
 		objects := renderer.Objects()
-		if len(objects) != 36 {
-			t.Errorf("Expected 36 line segments, got %d", len(objects))
+		// Uses single canvas.Arc instead of 36 line segments for efficient rendering
+		if len(objects) != 1 {
+			t.Errorf("Expected 1 canvas object (Arc), got %d", len(objects))
 		}
 	})
 }
@@ -150,8 +151,9 @@ func TestValidationIndicator(t *testing.T) {
 		}
 
 		objects := renderer.Objects()
-		if len(objects) != 24 {
-			t.Errorf("Expected 24 line segments, got %d", len(objects))
+		// Uses single canvas.Circle instead of 24 line segments for efficient rendering
+		if len(objects) != 1 {
+			t.Errorf("Expected 1 canvas object (Circle), got %d", len(objects))
 		}
 	})
 }

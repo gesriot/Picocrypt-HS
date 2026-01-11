@@ -2,6 +2,7 @@ package volume
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -159,7 +160,7 @@ func TestGoldenDecryption(t *testing.T) {
 				RSCodecs:     rsCodecs,
 			}
 
-			err := Decrypt(req)
+			err := Decrypt(context.Background(), req)
 			if err != nil {
 				t.Fatalf("Decrypt failed: %v (status: %s)", err, reporter.status)
 			}
@@ -227,7 +228,7 @@ func TestGoldenCompressedDecryption(t *testing.T) {
 				RSCodecs:     rsCodecs,
 			}
 
-			err := Decrypt(req)
+			err := Decrypt(context.Background(), req)
 			if err != nil {
 				t.Fatalf("Decrypt failed: %v (status: %s)", err, reporter.status)
 			}
@@ -422,7 +423,7 @@ func TestGoldenWrongPassword(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(req)
+	err = Decrypt(context.Background(), req)
 	if err == nil {
 		t.Error("Decrypt should have failed with wrong password")
 	} else {
@@ -464,7 +465,7 @@ func TestGoldenV1WrongPassword(t *testing.T) {
 		RSCodecs:     rsCodecs,
 	}
 
-	err = Decrypt(req)
+	err = Decrypt(context.Background(), req)
 	if err == nil {
 		t.Error("Decrypt should have failed with wrong password")
 	} else {

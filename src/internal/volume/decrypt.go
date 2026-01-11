@@ -1,8 +1,8 @@
 package volume
 
 import (
+	"context"
 	"crypto/subtle"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,45 +11,50 @@ import (
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
+	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/keyfile"
+	"Picocrypt-NG/internal/log"
 	"Picocrypt-NG/internal/util"
 )
 
 // Decrypt performs a complete volume decryption operation.
 // This is the main entry point for decryption.
-func Decrypt(req *DecryptRequest) error {
-	ctx := NewDecryptContext(req)
-	defer ctx.Close() // Secure zeroing of key material
+// If ctx is nil, a background context is used.
+func Decrypt(ctx context.Context, req *DecryptRequest) error {
+	opCtx := NewDecryptContext(ctx, req)
+	defer opCtx.Close() // Secure zeroing of key material
+
+	log.Info("starting decryption", log.String("input", req.InputFile))
 
 	// Phase 1: Preprocess (recombine if split, remove deniability)
-	if err := decryptPreprocess(ctx, req); err != nil {
-		cleanupDecrypt(ctx, req) // Clean up any partial temp files
+	if err := decryptPreprocess(opCtx, req); err != nil {
+		cleanupDecrypt(opCtx, req) // Clean up any partial temp files
 		return err
 	}
 
 	// Phase 2: Read header
-	if err := decryptReadHeader(ctx, req); err != nil {
-		cleanupDecrypt(ctx, req)
+	if err := decryptReadHeader(opCtx, req); err != nil {
+		cleanupDecrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 3: Derive keys
-	if err := decryptDeriveKeys(ctx, req); err != nil {
-		cleanupDecrypt(ctx, req)
+	if err := decryptDeriveKeys(opCtx, req); err != nil {
+		cleanupDecrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 4: Process keyfiles
-	if err := decryptProcessKeyfiles(ctx, req); err != nil {
-		cleanupDecrypt(ctx, req)
+	if err := decryptProcessKeyfiles(opCtx, req); err != nil {
+		cleanupDecrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 5: Verify authentication
-	if err := decryptVerifyAuth(ctx, req); err != nil {
-		cleanupDecrypt(ctx, req)
+	if err := decryptVerifyAuth(opCtx, req); err != nil {
+		cleanupDecrypt(opCtx, req)
 		return err
 	}
 
@@ -57,38 +62,39 @@ func Decrypt(req *DecryptRequest) error {
 	// This addresses security audit recommendation PCC-004: authenticate ciphertext
 	// before decrypting. Slower but ensures we never decrypt attacker-controlled data.
 	if req.VerifyFirst {
-		if err := decryptVerifyMACFirst(ctx, req); err != nil {
-			cleanupDecrypt(ctx, req)
+		if err := decryptVerifyMACFirst(opCtx, req); err != nil {
+			cleanupDecrypt(opCtx, req)
 			return err
 		}
 
 		// Re-derive keys to reset HKDF stream for actual decryption
-		if err := decryptDeriveKeys(ctx, req); err != nil {
-			cleanupDecrypt(ctx, req)
+		if err := decryptDeriveKeys(opCtx, req); err != nil {
+			cleanupDecrypt(opCtx, req)
 			return err
 		}
-		if err := decryptProcessKeyfiles(ctx, req); err != nil {
-			cleanupDecrypt(ctx, req)
+		if err := decryptProcessKeyfiles(opCtx, req); err != nil {
+			cleanupDecrypt(opCtx, req)
 			return err
 		}
-		if err := decryptVerifyAuth(ctx, req); err != nil {
-			cleanupDecrypt(ctx, req)
+		if err := decryptVerifyAuth(opCtx, req); err != nil {
+			cleanupDecrypt(opCtx, req)
 			return err
 		}
 	}
 
 	// Phase 6: Decrypt payload
-	if err := decryptPayload(ctx, req); err != nil {
-		cleanupDecrypt(ctx, req)
+	if err := decryptPayload(opCtx, req); err != nil {
+		cleanupDecrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 7: Finalize (verify MAC, cleanup, auto-unzip)
-	if err := decryptFinalize(ctx, req); err != nil {
-		cleanupDecrypt(ctx, req)
+	if err := decryptFinalize(opCtx, req); err != nil {
+		cleanupDecrypt(opCtx, req)
 		return err
 	}
 
+	log.Info("decryption completed successfully")
 	return nil
 }
 
@@ -206,7 +212,7 @@ func decryptProcessKeyfiles(ctx *OperationContext, req *DecryptRequest) error {
 	}
 
 	if len(req.Keyfiles) == 0 {
-		return errors.New("keyfiles required but none provided")
+		return perrors.NewValidationError("keyfiles", "keyfiles required but none provided")
 	}
 
 	ctx.SetStatus("Reading keyfiles...")
@@ -300,7 +306,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 		// For v2, XOR keyfile key AFTER HKDF init
 		if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
 			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
-				return errors.New("duplicate keyfiles detected")
+				return perrors.ErrDuplicateKeyfiles
 			}
 			ctx.Key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
 		}
@@ -369,7 +375,7 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 
 	for {
 		if ctx.IsCancelled() {
-			return errors.New("operation cancelled")
+			return ctx.CancellationError()
 		}
 
 		n, readErr := fin.Read(src)
@@ -426,7 +432,7 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 			// Continue anyway - user forced it
 			ctx.SetStatus("MAC verification failed, continuing anyway...")
 		} else {
-			return errors.New("integrity verification failed: file is damaged or modified")
+			return perrors.ErrAuthFailed
 		}
 	}
 
@@ -510,12 +516,13 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	} else {
 		srcBufSize = util.MiB
 	}
-	src := make([]byte, srcBufSize)
-	dst := make([]byte, util.MiB) // Decrypted data is always <= 1 MiB
+	src := make([]byte, srcBufSize) // Variable size due to RS encoding
+	dst := util.GetMiBBuffer()      // Decrypted data is always <= 1 MiB
+	defer util.PutMiBBuffer(dst)
 
 	for {
 		if ctx.IsCancelled() {
-			return errors.New("operation cancelled")
+			return ctx.CancellationError()
 		}
 
 		n, readErr := fin.Read(src)
@@ -627,7 +634,7 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 		} else {
 			// Remove incomplete output
 			_ = os.Remove(req.OutputFile + ".incomplete")
-			return errors.New("the input file is damaged or modified")
+			return perrors.ErrCorruptData
 		}
 	}
 
@@ -697,7 +704,7 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 				if forceDecode {
 					decoded = data[i : i+encoding.RS128DataSize] // Use raw data
 				} else {
-					return nil, errors.New("the input file is irrecoverably damaged")
+					return nil, perrors.ErrCorruptData
 				}
 			}
 
@@ -714,7 +721,7 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 			if forceDecode {
 				return data, nil // Return raw data for severely truncated input
 			}
-			return nil, errors.New("the input file is truncated or severely damaged")
+			return nil, perrors.ErrCorruptData
 		}
 
 		chunks := len(data)/encoding.RS128EncodedSize - 1
@@ -724,7 +731,7 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 				if forceDecode {
 					decoded = data[i*encoding.RS128EncodedSize : i*encoding.RS128EncodedSize+encoding.RS128DataSize]
 				} else {
-					return nil, errors.New("the input file is irrecoverably damaged")
+					return nil, perrors.ErrCorruptData
 				}
 			}
 			result = append(result, decoded...)
@@ -746,7 +753,7 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 				}
 				decoded = data[lastChunkStart:safeEnd]
 			} else {
-				return nil, errors.New("the input file is irrecoverably damaged")
+				return nil, perrors.ErrCorruptData
 			}
 		}
 		result = append(result, encoding.Unpad(decoded)...)

@@ -16,11 +16,6 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// keyfileListContainer holds the dynamic list of keyfiles in the modal.
-var keyfileListContainer *fyne.Container
-var keyfileSeparator *widget.Separator
-var keyfileOrderCheck *widget.Check
-
 // buildKeyfilesSection creates the keyfiles input section.
 func (a *App) buildKeyfilesSection() fyne.CanvasObject {
 	a.keyfileEditBtn = widget.NewButton("Edit", func() {
@@ -47,11 +42,11 @@ func (a *App) showKeyfileModal() {
 	// Create order checkbox/label based on mode
 	var orderWidget fyne.CanvasObject
 	if a.State.Mode != "decrypt" {
-		keyfileOrderCheck = widget.NewCheck("Require correct order", func(checked bool) {
+		a.keyfileOrderCheck = widget.NewCheck("Require correct order", func(checked bool) {
 			a.State.KeyfileOrdered = checked
 		})
-		keyfileOrderCheck.SetChecked(a.State.KeyfileOrdered)
-		orderWidget = keyfileOrderCheck
+		a.keyfileOrderCheck.SetChecked(a.State.KeyfileOrdered)
+		orderWidget = a.keyfileOrderCheck
 	} else if a.State.KeyfileOrdered {
 		orderWidget = widget.NewLabel("Correct ordering is required")
 	} else {
@@ -59,10 +54,10 @@ func (a *App) showKeyfileModal() {
 	}
 
 	// Separator (only visible when keyfiles exist)
-	keyfileSeparator = widget.NewSeparator()
+	a.keyfileSeparator = widget.NewSeparator()
 
 	// Container for keyfile labels (dynamic)
-	keyfileListContainer = container.NewVBox()
+	a.keyfileListContainer = container.NewVBox()
 	a.updateKeyfileList()
 
 	// Buttons
@@ -90,8 +85,8 @@ func (a *App) showKeyfileModal() {
 	content := container.NewVBox(
 		widget.NewLabel("Drag and drop your keyfiles here"),
 		orderWidget,
-		keyfileSeparator,
-		keyfileListContainer,
+		a.keyfileSeparator,
+		a.keyfileListContainer,
 		buttonRow,
 	)
 
@@ -103,29 +98,29 @@ func (a *App) showKeyfileModal() {
 
 // updateKeyfileList updates the keyfile list in the modal.
 func (a *App) updateKeyfileList() {
-	if keyfileListContainer == nil {
+	if a.keyfileListContainer == nil {
 		return
 	}
 
 	// Clear existing items
-	keyfileListContainer.RemoveAll()
+	a.keyfileListContainer.RemoveAll()
 
 	// Show/hide separator based on keyfile count
-	if keyfileSeparator != nil {
+	if a.keyfileSeparator != nil {
 		if len(a.State.Keyfiles) > 0 {
-			keyfileSeparator.Show()
+			a.keyfileSeparator.Show()
 		} else {
-			keyfileSeparator.Hide()
+			a.keyfileSeparator.Hide()
 		}
 	}
 
 	// Add label for each keyfile
 	for _, kf := range a.State.Keyfiles {
 		label := widget.NewLabel(filepath.Base(kf))
-		keyfileListContainer.Add(label)
+		a.keyfileListContainer.Add(label)
 	}
 
-	keyfileListContainer.Refresh()
+	a.keyfileListContainer.Refresh()
 }
 
 // createKeyfile creates a new random keyfile.
@@ -173,20 +168,7 @@ func (a *App) createKeyfile() {
 		}
 	}
 
-	// Temporarily enlarge window for larger dialog
-	originalHeight := float32(windowHeightEncrypt)
-	if a.State.Mode == "decrypt" {
-		originalHeight = windowHeightDecrypt
-	}
-	a.Window.SetFixedSize(false)
-	a.Window.Resize(fyne.NewSize(650, 500))
-	saveDialog.SetOnClosed(func() {
-		a.Window.Resize(fyne.NewSize(windowWidth, originalHeight))
-		a.Window.SetFixedSize(true)
-	})
-
-	saveDialog.Resize(fyne.NewSize(600, 450))
-	saveDialog.Show()
+	a.showFileDialogWithResize(saveDialog, fyne.NewSize(600, 450))
 }
 
 // updateKeyfileUIState updates the enabled/disabled state of keyfile controls.
