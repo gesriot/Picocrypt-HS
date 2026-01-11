@@ -1,3 +1,17 @@
+# v2.04
+<ul>
+	<li>✓ Added comprehensive CLI documentation (CLI.md)</li>
+	<li>✓ CLI-only build mode: compile with <code>-tags cli</code> for headless servers and containers</li>
+	<li>✓ Full CLI feature parity with GUI for all encryption operations</li>
+	<li>✓ Password stdin support (<code>-P</code>) for secure scripting and automation</li>
+	<li>✓ Glob pattern expansion for batch file encryption</li>
+	<li>✓ Smart split volume auto-detection during decryption</li>
+	<li>✓ Thread-safe progress reporting with ETA display</li>
+	<li>✓ Graceful signal handling (Ctrl+C) with proper cleanup</li>
+	<li>✓ Fixed warning text readability by changing yellow color to dark amber for better contrast</li>
+	<li>✓ Hide "Confirm password" field in decrypt mode (only needed for encryption)</li>
+</ul>
+
 # v2.03
 <ul>
 	<li>✓ Enhanced file extraction and compression handling with automatic directory creation</li>

@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -144,9 +145,12 @@ func (a *App) changeOutputFile() {
 			return
 		}
 		// Close immediately - we only need the path, not to write
+		// Fyne's file save dialog creates a 0-byte file, so we must remove it
+		filePath := writer.URI().Path()
 		writer.Close()
+		os.Remove(filePath)
 
-		file := writer.URI().Path()
+		file := filePath
 		// Strip any extension user might have added
 		file = filepath.Join(filepath.Dir(file), strings.Split(filepath.Base(file), ".")[0])
 
@@ -172,11 +176,15 @@ func (a *App) changeOutputFile() {
 		a.updateUIState()
 	}, a.Window)
 
-	// Prefill filename
+	// Prefill filename - preserve user's choice, only generate random name if needed
 	tmp := strings.TrimSuffix(filepath.Base(a.State.OutputFile), ".pcv")
 	defaultName := strings.TrimSuffix(tmp, filepath.Ext(tmp))
+	// Only generate a new random name if there isn't already a meaningful filename,
+	// or if the current name is auto-generated (starts with "encrypted-")
 	if a.State.Mode == "encrypt" && (len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 || a.State.Compress) {
-		defaultName = "encrypted-" + strconv.Itoa(int(time.Now().Unix()))
+		if defaultName == "" || strings.HasPrefix(defaultName, "encrypted-") {
+			defaultName = "encrypted-" + strconv.Itoa(int(time.Now().Unix()))
+		}
 	}
 	saveDialog.SetFileName(defaultName)
 
