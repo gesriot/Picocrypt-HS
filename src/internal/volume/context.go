@@ -4,7 +4,7 @@
 // The package orchestrates the complete encryption/decryption workflow:
 //
 // Encryption pipeline:
-//  1. Preprocess: Create zip archive if multiple files
+//  1. Preprocess: Create zip archive if multiple files or compression requested
 //  2. Generate: Create random salts, nonces, IVs
 //  3. Write header: RS-encode and write header fields
 //  4. Derive keys: Argon2id password derivation

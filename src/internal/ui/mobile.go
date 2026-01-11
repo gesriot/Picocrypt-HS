@@ -461,6 +461,8 @@ func (a *App) buildMobileEncryptOptions() {
 
 	a.compressCheck = widget.NewCheck("Compress files", func(checked bool) {
 		a.State.Compress = checked
+		// Auto-toggle .zip suffix in output filename
+		a.updateOutputFileForCompress(checked)
 	})
 	a.compressCheck.SetChecked(a.State.Compress)
 

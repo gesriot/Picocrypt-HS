@@ -28,7 +28,7 @@ func Encrypt(ctx context.Context, req *EncryptRequest) error {
 
 	log.Info("starting encryption", log.String("output", req.OutputFile))
 
-	// Phase 1: Preprocess (zip if multiple files)
+	// Phase 1: Preprocess (zip if multiple files or compression requested)
 	if err := encryptPreprocess(opCtx, req); err != nil {
 		cleanupEncrypt(opCtx, req) // Clean up any partial temp files
 		return err
@@ -81,8 +81,8 @@ func Encrypt(ctx context.Context, req *EncryptRequest) error {
 }
 
 func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
-	// If multiple files or folders, create a zip
-	if len(req.InputFiles) > 1 {
+	// If multiple files, or single file with compression requested, create a zip
+	if len(req.InputFiles) > 1 || (len(req.InputFiles) == 1 && req.Compress) {
 		ctx.SetStatus("Compressing files...")
 
 		// Create temp zip ciphers for encrypting the temporary file

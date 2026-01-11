@@ -326,6 +326,7 @@ func (a *App) buildUI() fyne.CanvasObject {
 
 	// Advanced section label (hidden when no mode selected)
 	a.advancedLabel = widget.NewLabel("Advanced:")
+	a.advancedLabel.TextStyle = fyne.TextStyle{Bold: true}
 	a.advancedLabel.Hide() // Initially hidden until files are dropped
 
 	// Main content container
@@ -360,6 +361,8 @@ func (a *App) buildUI() fyne.CanvasObject {
 // buildCommentsSection creates the comments input section.
 func (a *App) buildCommentsSection() fyne.CanvasObject {
 	a.commentsLabel = widget.NewLabel(a.State.CommentsLabel)
+	a.commentsLabel.TextStyle = fyne.TextStyle{Bold: true}
+
 	a.commentsEntry = widget.NewEntry()
 	a.commentsEntry.SetPlaceHolder("Comments (not encrypted)")
 	a.commentsEntry.OnChanged = func(text string) {
@@ -394,8 +397,12 @@ func (a *App) buildOutputSection() fyne.CanvasObject {
 
 	row := container.NewBorder(nil, nil, nil, a.changeBtn, outputWithBg)
 
+	// Create bold label for better visual hierarchy
+	outputLabel := widget.NewLabel("Save output as:")
+	outputLabel.TextStyle = fyne.TextStyle{Bold: true}
+
 	return container.NewVBox(
-		widget.NewLabel("Save output as:"),
+		outputLabel,
 		row,
 	)
 }
