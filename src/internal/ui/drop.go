@@ -91,8 +91,14 @@ func (a *App) onDrop(names []string) {
 				a.State.InputFile = names[0]
 				a.State.InputLabel = "1 file"
 				a.State.StartLabel = "Encrypt"
-				a.State.OutputFile = names[0] + ".pcv"
+				// Set output file based on compress state
+				if a.State.Compress {
+					a.State.OutputFile = names[0] + ".zip.pcv"
+				} else {
+					a.State.OutputFile = names[0] + ".pcv"
+				}
 				a.State.OnlyFiles = append(a.State.OnlyFiles, names[0])
+				a.State.AllFiles = append(a.State.AllFiles, names[0])
 				// Add to compressTotal for size display (like original line 1077)
 				a.State.CompressTotal += stat.Size()
 			}

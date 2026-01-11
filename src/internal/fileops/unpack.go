@@ -54,6 +54,19 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		}
 	}
 
+	// Create the extraction directory if SameLevel is false
+	// (when SameLevel is true, extractDir is the parent dir which should already exist)
+	if !opts.SameLevel {
+		// Check if extractDir exists as a file (not a directory)
+		if info, err := os.Stat(extractDir); err == nil && !info.IsDir() {
+			return fmt.Errorf("cannot extract to %s: path exists as a file (not a directory). Enable 'Same level' option or move/rename the existing file", extractDir)
+		}
+
+		if err := os.MkdirAll(extractDir, 0700); err != nil {
+			return fmt.Errorf("create extraction directory %s: %w", extractDir, err)
+		}
+	}
+
 	// First pass: create all directories
 	for _, f := range reader.File {
 		if strings.Contains(f.Name, "..") {

@@ -67,6 +67,8 @@ func (a *App) buildEncryptOptions() {
 
 	a.compressCheck = widget.NewCheck("Compress files", func(checked bool) {
 		a.State.Compress = checked
+		// Auto-toggle .zip suffix in output filename
+		a.updateOutputFileForCompress(checked)
 	})
 	a.compressCheck.SetChecked(a.State.Compress)
 
@@ -242,11 +244,11 @@ func setWidgetDisabled(w fyne.Disableable, disabled bool) {
 func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
 	// All advanced options are disabled until user enters credentials (password or keyfiles)
 	// AND passwords must match in encrypt mode
-	// Additional conditions apply to some options (e.g., compress requires multiple files)
+	// Additional conditions apply to some options
 
 	notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
 
-	setWidgetDisabled(a.compressCheck, advancedDisabled || a.State.Recursively || notEnoughFiles)
+	setWidgetDisabled(a.compressCheck, advancedDisabled || a.State.Recursively)
 	setWidgetDisabled(a.recursivelyCheck, advancedDisabled || notEnoughFiles)
 	setWidgetDisabled(a.paranoidCheck, advancedDisabled)
 	setWidgetDisabled(a.reedSolomonCheck, advancedDisabled)
@@ -266,4 +268,26 @@ func (a *App) updateDecryptOptionsState(advancedDisabled bool) {
 	setWidgetDisabled(a.deleteCheck, advancedDisabled)
 	setWidgetDisabled(a.autoUnzipCheck, advancedDisabled || !strings.HasSuffix(a.State.InputFile, ".zip.pcv"))
 	setWidgetDisabled(a.sameLevelCheck, advancedDisabled || !a.State.AutoUnzip)
+}
+
+// updateOutputFileForCompress toggles .zip suffix in output filename based on compress state.
+func (a *App) updateOutputFileForCompress(compress bool) {
+	if a.State.Mode != "encrypt" {
+		return
+	}
+
+	if compress {
+		// Add .zip suffix before .pcv if not already present
+		if strings.HasSuffix(a.State.OutputFile, ".pcv") && !strings.HasSuffix(a.State.OutputFile, ".zip.pcv") {
+			a.State.OutputFile = strings.TrimSuffix(a.State.OutputFile, ".pcv") + ".zip.pcv"
+		}
+	} else {
+		// Remove .zip suffix if present
+		if strings.HasSuffix(a.State.OutputFile, ".zip.pcv") {
+			a.State.OutputFile = strings.TrimSuffix(a.State.OutputFile, ".zip.pcv") + ".pcv"
+		}
+	}
+
+	// Refresh the output entry to show the updated filename
+	a.refreshUI()
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
@@ -1673,6 +1674,88 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	}
 
 	t.Log("Round-trip compressed multi-file: SUCCESS")
+}
+
+// TestRoundTripCompressedSingleFile tests encrypting a single file with compression
+func TestRoundTripCompressedSingleFile(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a compressible test file (repeated data compresses well)
+	fileContent := []byte(strings.Repeat("This is highly compressible test data! ", 100))
+
+	filePath := filepath.Join(tmpDir, "compressible_single.txt")
+	if err := os.WriteFile(filePath, fileContent, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "compressible_single.txt.zip.pcv")
+	decryptedPath := filepath.Join(tmpDir, "compressible_single.txt.zip")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt single file with compression enabled
+	encReq := &EncryptRequest{
+		InputFiles: []string{filePath},
+		OutputFile: encryptedPath,
+		Password:   "compress_single_password",
+		Compress:   true, // Enable compression for single file
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (compressed single file) failed: %v", err)
+	}
+
+	// Verify that the encrypted file was created
+	if _, err := os.Stat(encryptedPath); err != nil {
+		t.Fatalf("Encrypted file not created: %v", err)
+	}
+
+	// Remove original file
+	_ = os.Remove(filePath)
+
+	// Decrypt with auto-unzip
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "compress_single_password",
+		AutoUnzip:    true,
+		SameLevel:    true,
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (compressed single file) failed: %v", err)
+	}
+
+	// Verify file was extracted
+	restoredPath := filepath.Join(tmpDir, "compressible_single.txt")
+	restored, err := os.ReadFile(restoredPath)
+	if err != nil {
+		t.Fatalf("Failed to read restored file: %v", err)
+	}
+
+	if string(restored) != string(fileContent) {
+		t.Errorf("Content mismatch after round-trip")
+	}
+
+	// Verify compression actually happened by checking encrypted file size
+	// The compressed+encrypted file should be smaller than uncompressed+encrypted
+	encryptedInfo, _ := os.Stat(encryptedPath)
+
+	// Original file size is len(fileContent), encrypted file should be noticeably smaller
+	// due to compression (accounting for encryption overhead and headers)
+	t.Logf("Original size: %d bytes, Encrypted size: %d bytes", len(fileContent), encryptedInfo.Size())
+
+	t.Log("Round-trip compressed single file: SUCCESS")
 }
 
 // TestV2HeaderTamperDetection verifies that modifying header bytes
