@@ -8,6 +8,8 @@
 	<li>✓ Smart split volume auto-detection during decryption</li>
 	<li>✓ Thread-safe progress reporting with ETA display</li>
 	<li>✓ Graceful signal handling (Ctrl+C) with proper cleanup</li>
+	<li>✓ Fixed warning text readability by changing yellow color to dark amber for better contrast</li>
+	<li>✓ Hide "Confirm password" field in decrypt mode (only needed for encryption)</li>
 </ul>
 
 # v2.03

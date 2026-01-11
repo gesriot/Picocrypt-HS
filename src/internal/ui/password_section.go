@@ -80,21 +80,21 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 
 	a.validIndicator = NewValidationIndicator()
 
-	confirmRow := container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
+	a.confirmRow = container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
 
 	// Create bold labels for better visual hierarchy
 	passwordLabel := widget.NewLabel("Password:")
 	passwordLabel.TextStyle = fyne.TextStyle{Bold: true}
 
-	confirmLabel := widget.NewLabel("Confirm password:")
-	confirmLabel.TextStyle = fyne.TextStyle{Bold: true}
+	a.confirmLabel = widget.NewLabel("Confirm password:")
+	a.confirmLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	return container.NewVBox(
 		passwordLabel,
 		buttonRow,
 		passwordRow,
-		confirmLabel,
-		confirmRow,
+		a.confirmLabel,
+		a.confirmRow,
 	)
 }
 
@@ -177,6 +177,22 @@ func (a *App) updatePasswordUIState(mainDisabled bool) {
 			a.cPasswordEntry.Disable()
 		} else {
 			a.cPasswordEntry.Enable()
+		}
+	}
+
+	// Hide confirm password section entirely in decrypt mode
+	if a.confirmLabel != nil {
+		if a.State.Mode == "decrypt" {
+			a.confirmLabel.Hide()
+		} else {
+			a.confirmLabel.Show()
+		}
+	}
+	if a.confirmRow != nil {
+		if a.State.Mode == "decrypt" {
+			a.confirmRow.Hide()
+		} else {
+			a.confirmRow.Show()
 		}
 	}
 }

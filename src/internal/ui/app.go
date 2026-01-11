@@ -94,6 +94,10 @@ type App struct {
 	startButton       *widget.Button
 	statusLabel       *ColoredLabel
 
+	// Confirm password section (hidden in decrypt mode)
+	confirmLabel *widget.Label
+	confirmRow   *fyne.Container
+
 	// Password buttons
 	showHideBtn *widget.Button
 	clearPwdBtn *widget.Button
