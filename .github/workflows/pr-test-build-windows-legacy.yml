@@ -94,8 +94,11 @@ jobs:
         # Copy the executable
         Copy-Item src/Picocrypt-NG-Legacy.exe legacy-package/
 
-        # Copy Mesa3D opengl32.dll for software rendering
+        # Copy Mesa3D DLLs for software rendering
+        # Mesa llvmpipe requires multiple DLLs to function properly
         Copy-Item mesa3d/x64/opengl32.dll legacy-package/
+        Copy-Item mesa3d/x64/libgallium_wgl.dll legacy-package/
+        Copy-Item mesa3d/x64/libglapi.dll legacy-package/
 
         # Create README explaining the bundle
         @"
@@ -111,10 +114,15 @@ jobs:
         CONTENTS:
         - Picocrypt-NG-Legacy.exe: Main application compiled with go-legacy-win7
         - opengl32.dll: Mesa3D software OpenGL renderer (llvmpipe)
+        - libgallium_wgl.dll: Mesa3D Gallium WGL state tracker
+        - libglapi.dll: Mesa3D GL API dispatcher
 
         SYSTEM REQUIREMENTS:
         - Windows 7 SP1 / Windows 8 / Windows Server 2008 R2 or newer
         - No GPU or graphics driver requirements (software rendering)
+
+        INSTALLATION:
+        Keep all files in the same directory and run Picocrypt-NG-Legacy.exe
 
         BUILD INFO:
         - Go Compiler: go-legacy-win7 v1.25.5-1 (based on Go 1.25.5 with Windows 7 patches)
