@@ -277,6 +277,21 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	a.State.MainStatus = "Completed"
 	a.State.MainStatusColor = util.GREEN
 
+	// Clear UI widgets to match the reset state
+	fyne.Do(func() {
+		if a.passwordEntry != nil {
+			a.passwordEntry.SetText("")
+		}
+		if a.cPasswordEntry != nil {
+			a.cPasswordEntry.SetText("")
+		}
+		if a.commentsEntry != nil {
+			a.commentsEntry.SetText("")
+		}
+		a.updatePasswordStrength()
+		a.updateValidation()
+	})
+
 	if shouldDelete {
 		var deleteErrors []string
 		if len(filesToDelete) > 0 {
@@ -338,6 +353,21 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	}
 
 	a.State.ResetUI()
+
+	// Clear UI widgets to match the reset state
+	fyne.Do(func() {
+		if a.passwordEntry != nil {
+			a.passwordEntry.SetText("")
+		}
+		if a.cPasswordEntry != nil {
+			a.cPasswordEntry.SetText("")
+		}
+		if a.commentsEntry != nil {
+			a.commentsEntry.SetText("")
+		}
+		a.updatePasswordStrength()
+		a.updateValidation()
+	})
 
 	if kept {
 		a.State.Kept = true

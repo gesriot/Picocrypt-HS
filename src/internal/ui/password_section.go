@@ -82,11 +82,18 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 
 	confirmRow := container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
 
+	// Create bold labels for better visual hierarchy
+	passwordLabel := widget.NewLabel("Password:")
+	passwordLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+	confirmLabel := widget.NewLabel("Confirm password:")
+	confirmLabel.TextStyle = fyne.TextStyle{Bold: true}
+
 	return container.NewVBox(
-		widget.NewLabel("Password:"),
+		passwordLabel,
 		buttonRow,
 		passwordRow,
-		widget.NewLabel("Confirm password:"),
+		confirmLabel,
 		confirmRow,
 	)
 }

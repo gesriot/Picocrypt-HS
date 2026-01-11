@@ -426,15 +426,15 @@ func TestCompactTheme(t *testing.T) {
 	t.Run("Size", func(t *testing.T) {
 		theme := NewCompactTheme().(*CompactTheme)
 
-		// Test custom sizes are smaller than defaults
+		// Test custom sizes for improved readability
 		textSize := theme.Size("text")
-		if textSize != 12 {
-			t.Errorf("Expected text size 12, got %f", textSize)
+		if textSize != 14 {
+			t.Errorf("Expected text size 14, got %f", textSize)
 		}
 
 		paddingSize := theme.Size("padding")
-		if paddingSize != 4 {
-			t.Errorf("Expected padding 4, got %f", paddingSize)
+		if paddingSize != 6 {
+			t.Errorf("Expected padding 6, got %f", paddingSize)
 		}
 	})
 
