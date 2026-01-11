@@ -1,0 +1,171 @@
+name: build-windows-legacy
+
+permissions:
+  contents: write
+
+on:
+  push:
+    paths:
+      - "VERSION"
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Download go-legacy-win7
+      shell: pwsh
+      run: |
+        # Download go-legacy-win7 (Go 1.23.x with Windows 7 support)
+        Invoke-WebRequest -OutFile go-legacy.zip https://github.com/thongtech/go-legacy-win7/releases/download/go1.23.5-1/go1.23.5-1.windows-amd64.zip
+        Expand-Archive -DestinationPath C:\go-legacy go-legacy.zip
+        echo "C:\go-legacy\go\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Verify Go installation
+      run: |
+        go version
+        go env
+
+    - name: Install dependencies
+      run: |
+        cd src
+        go mod download
+
+    - name: Run tests
+      run: |
+        cd src
+        go test -v -timeout 15m ./...
+
+    - name: Build
+      run: |
+        cd src
+        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
+      env:
+        CGO_ENABLED: 1
+        GOAMD64: v1
+
+    - name: Add icon, manifest, and version info
+      shell: pwsh
+      run: |
+        Invoke-WebRequest -OutFile reshacker_setup.zip https://github.com/user-attachments/files/18878075/reshacker_setup.zip
+        Expand-Archive -DestinationPath reshacker_setup reshacker_setup.zip
+        reshacker_setup/reshacker_setup.exe /SILENT
+        Start-Sleep -Seconds 60
+        Invoke-Expression "& `"$Env:P`" -open src/1.exe -save src/2.exe -action addoverwrite -res images/key.ico -mask `"ICONGROUP,MAINICON,`""
+        Start-Sleep -Seconds 30
+        Invoke-Expression "& `"$Env:P`" -open src/2.exe -save src/3.exe -action addoverwrite -res images/key.ico -mask `"ICONGROUP,A,`""
+        Start-Sleep -Seconds 30
+        Invoke-Expression "& `"$Env:P`" -open src/3.exe -save src/4.exe -action addoverwrite -res dist/windows/manifest.xml -mask `"MANIFEST,1,`""
+        Start-Sleep -Seconds 30
+        Invoke-Expression "& `"$Env:P`" -open dist/windows/versioninfo.rc -save resources.res -action compile"
+        Start-Sleep -Seconds 30
+        Invoke-Expression "& `"$Env:P`" -open src/4.exe -save src/5.exe -action addoverwrite -res resources.res"
+        Start-Sleep -Seconds 30
+      env:
+        P: "C:\\Program Files (x86)\\Resource Hacker\\ResourceHacker.exe"
+
+    - name: Compress with upx
+      shell: pwsh
+      run: |
+        Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-win64.zip
+        Expand-Archive -DestinationPath upx upx.zip
+        upx/upx-5.0.2-win64/upx.exe --lzma -o src/Picocrypt-NG-Legacy.exe src/5.exe
+
+    - name: Download and bundle Mesa3D for OpenGL software rendering
+      shell: pwsh
+      run: |
+        # Download Mesa3D llvmpipe (software OpenGL renderer)
+        Invoke-WebRequest -OutFile mesa3d.7z https://github.com/pal1000/mesa-dist-win/releases/download/25.0.1/mesa3d-25.0.1-release-msvc.7z
+
+        # Install 7zip to extract
+        choco install 7zip -y
+
+        # Extract Mesa3D
+        & "C:\Program Files\7-Zip\7z.exe" x mesa3d.7z -omesa3d
+
+        # Create legacy package directory
+        New-Item -ItemType Directory -Force -Path legacy-package
+
+        # Copy the executable
+        Copy-Item src/Picocrypt-NG-Legacy.exe legacy-package/
+
+        # Copy Mesa3D opengl32.dll for software rendering
+        Copy-Item mesa3d/x64/opengl32.dll legacy-package/
+
+        # Create README explaining the bundle
+        @"
+        Picocrypt-NG Legacy Build for Windows 7/8
+        ==========================================
+
+        This build is specifically designed for older Windows systems that lack:
+        - Native OpenGL support
+        - Windows 10+ APIs
+
+        CONTENTS:
+        - Picocrypt-NG-Legacy.exe: Main application compiled with go-legacy-win7
+        - opengl32.dll: Mesa3D software OpenGL renderer (llvmpipe)
+
+        SYSTEM REQUIREMENTS:
+        - Windows 7 SP1 / Windows 8 / Windows Server 2008 R2 or newer
+        - No GPU or graphics driver requirements (software rendering)
+
+        INSTALLATION:
+        Keep both files in the same directory and run Picocrypt-NG-Legacy.exe
+
+        PERFORMANCE NOTE:
+        This build uses CPU-based software rendering for graphics, which may be
+        slower than GPU-accelerated builds on modern systems. For Windows 10+,
+        please use the standard Picocrypt-NG.exe build instead.
+
+        BUILD INFO:
+        - Go Compiler: go-legacy-win7 (maintains Windows 7 compatibility)
+        - OpenGL: Mesa3D 25.0.1 llvmpipe (software renderer)
+        - Repository: https://github.com/Picocrypt/Picocrypt-NG
+        "@ | Out-File -FilePath legacy-package/README-LEGACY.txt -Encoding utf8
+
+        # Create a zip package
+        Compress-Archive -Path legacy-package/* -DestinationPath Picocrypt-NG-Legacy-Windows.zip
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-windows-legacy
+        path: |
+          legacy-package/*
+          Picocrypt-NG-Legacy-Windows.zip
+        if-no-files-found: error
+        compression-level: 9
+
+    - name: Get version tag
+      shell: pwsh
+      run: |
+        $version = Get-Content -Path "VERSION"
+        echo "VERSION=$version" >> $env:GITHUB_ENV
+
+    - name: Generate checksums
+      shell: pwsh
+      run: |
+        $hash = Get-FileHash "Picocrypt-NG-Legacy-Windows.zip" -Algorithm SHA256
+        echo "CHECKSUM_LEGACY=$($hash.Hash)" >> $env:GITHUB_ENV
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          Picocrypt-NG-Legacy-Windows.zip
+        tag_name: ${{ env.VERSION }}
+        make_latest: true
+        append_body: true
+        body: |
+          **Windows Legacy (Windows 7/8):**
+          `sha256(Picocrypt-NG-Legacy-Windows.zip)  ${{ env.CHECKSUM_LEGACY }}`
+
+          *This build includes Mesa3D software OpenGL rendering for systems without graphics drivers. Keep all files together.*
