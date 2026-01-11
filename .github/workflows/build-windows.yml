@@ -86,6 +86,24 @@ jobs:
         $version = Get-Content -Path "VERSION"
         echo "VERSION=$version" >> $env:GITHUB_ENV
 
+    - name: Extract changelog for current version
+      shell: pwsh
+      run: |
+        $version = Get-Content -Path "VERSION"
+        $version = $version.Trim()
+        $changelog = Get-Content -Path "Changelog.md" -Raw
+
+        # Extract content between current version header and next version header
+        $pattern = "(?s)# v$version\s*(.*?)(?=# v|\z)"
+        if ($changelog -match $pattern) {
+          $versionChangelog = $matches[1].Trim()
+          # Escape newlines for GitHub environment variable
+          $versionChangelog = $versionChangelog -replace "`r`n", "%0A" -replace "`n", "%0A"
+          echo "CHANGELOG=$versionChangelog" >> $env:GITHUB_ENV
+        } else {
+          echo "CHANGELOG=No changelog entry found for version $version" >> $env:GITHUB_ENV
+        }
+
     - name: Generate checksums
       shell: pwsh
       run: |
@@ -101,5 +119,13 @@ jobs:
         make_latest: true
         append_body: true
         body: |
+          # Changelog
+
+          ${{ env.CHANGELOG }}
+
+          ---
+
+          ## Downloads
+
           **Windows:**
           `sha256(Picocrypt-NG.exe)  ${{ env.CHECKSUM_PICOCRYPT_NG }}`

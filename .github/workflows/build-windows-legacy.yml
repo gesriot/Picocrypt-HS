@@ -24,8 +24,8 @@ jobs:
     - name: Download go-legacy-win7
       shell: pwsh
       run: |
-        # Download go-legacy-win7 (Go 1.23.x with Windows 7 support)
-        Invoke-WebRequest -OutFile go-legacy.zip https://github.com/thongtech/go-legacy-win7/releases/download/go1.23.5-1/go1.23.5-1.windows-amd64.zip
+        # Download go-legacy-win7 (Go 1.25.x with Windows 7 support)
+        Invoke-WebRequest -OutFile go-legacy.zip https://github.com/thongtech/go-legacy-win7/releases/download/v1.25.5-1/go-legacy-win7-1.25.5-1.windows_amd64.zip
         Expand-Archive -DestinationPath C:\go-legacy go-legacy.zip
         echo "C:\go-legacy\go\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
@@ -126,7 +126,7 @@ jobs:
         please use the standard Picocrypt-NG.exe build instead.
 
         BUILD INFO:
-        - Go Compiler: go-legacy-win7 (maintains Windows 7 compatibility)
+        - Go Compiler: go-legacy-win7 v1.25.5-1 (based on Go 1.25.5 with Windows 7 patches)
         - OpenGL: Mesa3D 25.0.1 llvmpipe (software renderer)
         - Repository: https://github.com/Picocrypt/Picocrypt-NG
         "@ | Out-File -FilePath legacy-package/README-LEGACY.txt -Encoding utf8
