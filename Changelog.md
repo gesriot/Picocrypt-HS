@@ -1,3 +1,14 @@
+# v2.03
+<ul>
+	<li>✓ Enhanced file extraction and compression handling with automatic directory creation</li>
+	<li>✓ Added auto-toggling of .zip suffix in output filenames based on compression state</li>
+	<li>✓ Improved single file compression support with proper file handling and naming conventions</li>
+	<li>✓ Enhanced UI with bold labels for better visual hierarchy</li>
+	<li>✓ Automatically clear input fields (password, confirm password, comments) upon operation completion</li>
+	<li>✓ Improved theme colors and sizes for better readability and contrast</li>
+	<li>✓ Added resource management documentation explaining manual file handle closing pattern</li>
+</ul>
+
 # v2.02
 <ul>
 	<li>✓ Refactored to modular package structure (crypto, header, volume, etc.)</li>
