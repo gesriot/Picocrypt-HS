@@ -44,10 +44,10 @@ jobs:
         cd src
         go test -v -timeout 15m ./...
 
-    - name: Build
+    - name: Build with GLES (OpenGL ES for better Mesa compatibility)
       run: |
         cd src
-        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
+        go build -v -tags gles -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
@@ -91,23 +91,14 @@ jobs:
         # Extract Mesa3D
         & "C:\Program Files\7-Zip\7z.exe" x mesa3d.7z -omesa3d
 
-        # List extracted contents for debugging
-        Get-ChildItem -Recurse mesa3d | Select-Object FullName
-
         # Create legacy package directory
         New-Item -ItemType Directory -Force -Path legacy-package
 
         # Copy the executable
         Copy-Item src/Picocrypt-NG-Legacy.exe legacy-package/
 
-        # Copy Mesa3D DLLs for software rendering
-        # Mesa llvmpipe requires these core DLLs to function properly
-        Copy-Item mesa3d/x64/opengl32.dll legacy-package/
-        Copy-Item mesa3d/x64/libgallium_wgl.dll legacy-package/
-        # Copy optional DLLs that may or may not exist in newer Mesa versions
-        Copy-Item mesa3d/x64/libglapi.dll legacy-package/ -ErrorAction SilentlyContinue
-        Copy-Item mesa3d/x64/dxil.dll legacy-package/ -ErrorAction SilentlyContinue
-        Copy-Item mesa3d/x64/libEGL.dll legacy-package/ -ErrorAction SilentlyContinue
+        # Copy Mesa3D DLLs for software rendering (x64 folder)
+        Copy-Item mesa3d/x64/*.dll legacy-package/ -ErrorAction SilentlyContinue
 
         # Create README explaining the bundle
         @"
@@ -119,10 +110,8 @@ jobs:
         - Windows 10+ APIs
 
         CONTENTS:
-        - Picocrypt-NG-Legacy.exe: Main application compiled with go-legacy-win7
-        - opengl32.dll: Mesa3D software OpenGL renderer (llvmpipe)
-        - libgallium_wgl.dll: Mesa3D Gallium WGL state tracker
-        - Additional Mesa3D DLLs as required for software rendering
+        - Picocrypt-NG-Legacy.exe: Main application (GLES mode for Mesa compatibility)
+        - Mesa3D DLLs: Software OpenGL renderer (llvmpipe)
 
         SYSTEM REQUIREMENTS:
         - Windows 7 SP1 / Windows 8 / Windows Server 2008 R2 or newer
@@ -139,6 +128,7 @@ jobs:
         BUILD INFO:
         - Go Compiler: go-legacy-win7 v1.25.5-1 (based on Go 1.25.5 with Windows 7 patches)
         - OpenGL: Mesa3D 25.0.1 llvmpipe (software renderer)
+        - Build mode: GLES (OpenGL ES)
         - Repository: https://github.com/Picocrypt/Picocrypt-NG
         "@ | Out-File -FilePath legacy-package/README-LEGACY.txt -Encoding utf8
 
@@ -179,4 +169,4 @@ jobs:
           **Windows Legacy (Windows 7/8):**
           `sha256(Picocrypt-NG-Legacy-Windows.zip)  ${{ env.CHECKSUM_LEGACY }}`
 
-          *This build includes Mesa3D software OpenGL rendering for systems without graphics drivers. Keep all files together.*
+          *This build includes Mesa3D software OpenGL rendering (GLES mode) for systems without graphics drivers. Keep all files together.*
