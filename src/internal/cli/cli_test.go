@@ -408,7 +408,7 @@ func TestReporterOutput(t *testing.T) {
 		os.Stderr = old
 
 		var buf bytes.Buffer
-		buf.ReadFrom(r2)
+		_, _ = buf.ReadFrom(r2)
 
 		if buf.Len() != 0 {
 			t.Errorf("quiet mode should not produce output, got: %q", buf.String())
@@ -428,7 +428,7 @@ func TestReporterOutput(t *testing.T) {
 		os.Stderr = old
 
 		var buf bytes.Buffer
-		buf.ReadFrom(r2)
+		_, _ = buf.ReadFrom(r2)
 
 		if buf.Len() != 0 {
 			t.Errorf("quiet mode should suppress success, got: %q", buf.String())
@@ -448,7 +448,7 @@ func TestReporterOutput(t *testing.T) {
 		os.Stderr = old
 
 		var buf bytes.Buffer
-		buf.ReadFrom(r2)
+		_, _ = buf.ReadFrom(r2)
 
 		if !strings.Contains(buf.String(), "error message") {
 			t.Errorf("PrintError should always output, got: %q", buf.String())
