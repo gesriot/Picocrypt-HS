@@ -37,6 +37,7 @@ import (
 	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/data/binding"
 	fyneApp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -54,6 +55,7 @@ const (
 	windowWidth         = 318
 	windowHeightEncrypt = 510 // Full height for encrypt mode (more options)
 	windowHeightDecrypt = 430 // Reduced height for decrypt mode (fewer options)
+	windowHeightInitial = 350 // Compact height for initial state (no advanced options)
 	buttonWidth         = 54
 	padding             = 4 // Reduced from 8 to match compact theme
 	contentWidth        = windowWidth - padding*2
@@ -86,6 +88,7 @@ type App struct {
 	keyfileLabel      *widget.Label
 	commentsLabel     *widget.Label
 	commentsEntry     *widget.Entry
+	advancedLabel     *widget.Label
 	advancedContainer *fyne.Container
 	outputEntry       *widget.Label
 	startButton       *widget.Button
@@ -136,9 +139,12 @@ type App struct {
 
 	// Progress widgets
 	progressBar    *widget.ProgressBar
-	progressLabel  *widget.Label
 	progressStatus *widget.Label
 	cancelButton   *widget.Button
+
+	// Data bindings for reactive UI updates
+	boundProgress binding.Float  // Progress bar value (0.0-1.0)
+	boundStatus   binding.String // Status text (e.g., "Encrypting at 100 MiB/s")
 }
 
 // NewApp creates a new UI application.
@@ -156,6 +162,9 @@ func NewApp(version string) (*App, error) {
 		State:    state,
 		rsCodecs: rsCodecs,
 		DPI:      1.0,
+		// Initialize data bindings
+		boundProgress: binding.NewFloat(),
+		boundStatus:   binding.NewString(),
 	}, nil
 }
 
@@ -315,13 +324,17 @@ func (a *App) buildUI() fyne.CanvasObject {
 
 	a.statusLabel = NewColoredLabel(a.State.MainStatus, a.State.MainStatusColor)
 
+	// Advanced section label (hidden when no mode selected)
+	a.advancedLabel = widget.NewLabel("Advanced:")
+	a.advancedLabel.Hide() // Initially hidden until files are dropped
+
 	// Main content container
 	a.mainContent = container.NewVBox(
 		passwordSection,
 		keyfilesSection,
 		widget.NewSeparator(),
 		commentsSection,
-		widget.NewLabel("Advanced:"),
+		a.advancedLabel,
 		a.advancedContainer,
 		outputSection,
 		widget.NewSeparator(),

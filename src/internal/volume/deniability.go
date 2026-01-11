@@ -102,15 +102,17 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	// Encrypt the entire volume
 	var done int64
 	var counter int64
-	buf := make([]byte, util.MiB)
+	buf := util.GetMiBBuffer()
+	defer util.PutMiBBuffer(buf)
+	dst := util.GetMiBBuffer()
+	defer util.PutMiBBuffer(dst)
 
 	for {
 		n, readErr := fin.Read(buf)
 		if n > 0 {
-			dst := make([]byte, n)
-			cipher.XORKeyStream(dst, buf[:n])
+			cipher.XORKeyStream(dst[:n], buf[:n])
 
-			if _, err := fout.Write(dst); err != nil {
+			if _, err := fout.Write(dst[:n]); err != nil {
 				restoreOriginal()
 				return fmt.Errorf("write encrypted: %w", err)
 			}
@@ -245,15 +247,17 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	// Decrypt the volume
 	var done int64
 	var counter int64
-	buf := make([]byte, util.MiB)
+	buf := util.GetMiBBuffer()
+	defer util.PutMiBBuffer(buf)
+	dst := util.GetMiBBuffer()
+	defer util.PutMiBBuffer(dst)
 
 	for {
 		n, readErr := fin.Read(buf)
 		if n > 0 {
-			dst := make([]byte, n)
-			cipher.XORKeyStream(dst, buf[:n])
+			cipher.XORKeyStream(dst[:n], buf[:n])
 
-			if _, err := fout.Write(dst); err != nil {
+			if _, err := fout.Write(dst[:n]); err != nil {
 				cleanup()
 				return "", fmt.Errorf("write decrypted: %w", err)
 			}

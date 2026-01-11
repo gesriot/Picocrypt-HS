@@ -26,10 +26,12 @@
 package volume
 
 import (
+	"context"
 	"io"
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
+	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 )
@@ -112,6 +114,9 @@ type DecryptRequest struct {
 // OperationContext holds mutable state during encryption/decryption operations.
 // This is created at the start of Encrypt()/Decrypt() and passed through all phases.
 type OperationContext struct {
+	// Context for cancellation and timeouts
+	Ctx context.Context
+
 	// File paths
 	InputFile  string // Current input file (may change during preprocessing)
 	OutputFile string // Final output destination
@@ -148,18 +153,28 @@ type OperationContext struct {
 	Reporter ProgressReporter // UI callback (may be nil)
 }
 
-// NewEncryptContext creates a context for encryption operations
-func NewEncryptContext(req *EncryptRequest) *OperationContext {
+// NewEncryptContext creates a context for encryption operations.
+// If ctx is nil, context.Background() is used.
+func NewEncryptContext(ctx context.Context, req *EncryptRequest) *OperationContext {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &OperationContext{
+		Ctx:        ctx,
 		OutputFile: req.OutputFile,
 		Reporter:   req.Reporter,
 		Counter:    crypto.NewCounter(),
 	}
 }
 
-// NewDecryptContext creates a context for decryption operations
-func NewDecryptContext(req *DecryptRequest) *OperationContext {
+// NewDecryptContext creates a context for decryption operations.
+// If ctx is nil, context.Background() is used.
+func NewDecryptContext(ctx context.Context, req *DecryptRequest) *OperationContext {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &OperationContext{
+		Ctx:        ctx,
 		InputFile:  req.InputFile,
 		OutputFile: req.OutputFile,
 		Reporter:   req.Reporter,
@@ -183,12 +198,36 @@ func (ctx *OperationContext) SetStatus(status string) {
 	}
 }
 
-// IsCancelled checks if the operation has been cancelled
-func (ctx *OperationContext) IsCancelled() bool {
-	if ctx.Reporter != nil {
-		return ctx.Reporter.IsCancelled()
+// IsCancelled checks if the operation has been cancelled.
+// Returns true if either the context is done or the reporter indicates cancellation.
+func (opCtx *OperationContext) IsCancelled() bool {
+	// Check context cancellation first (standard Go pattern)
+	if opCtx.Ctx != nil {
+		select {
+		case <-opCtx.Ctx.Done():
+			return true
+		default:
+		}
+	}
+
+	// Also check reporter-based cancellation (for UI cancel button)
+	if opCtx.Reporter != nil {
+		return opCtx.Reporter.IsCancelled()
 	}
 	return false
+}
+
+// CancellationError returns the appropriate error when cancelled.
+// Returns context error if context is done, otherwise returns ErrCancelled.
+func (opCtx *OperationContext) CancellationError() error {
+	if opCtx.Ctx != nil {
+		select {
+		case <-opCtx.Ctx.Done():
+			return opCtx.Ctx.Err()
+		default:
+		}
+	}
+	return perrors.ErrCancelled
 }
 
 // TempZipReader wraps the input file with decryption if temp zip was used

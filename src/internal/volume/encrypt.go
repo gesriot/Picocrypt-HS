@@ -1,7 +1,7 @@
 package volume
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,66 +11,72 @@ import (
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
+	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/keyfile"
+	"Picocrypt-NG/internal/log"
 	"Picocrypt-NG/internal/util"
 )
 
 // Encrypt performs a complete volume encryption operation.
 // This is the main entry point for encryption.
-func Encrypt(req *EncryptRequest) error {
-	ctx := NewEncryptContext(req)
-	defer ctx.Close() // Secure zeroing of key material
+// If ctx is nil, a background context is used.
+func Encrypt(ctx context.Context, req *EncryptRequest) error {
+	opCtx := NewEncryptContext(ctx, req)
+	defer opCtx.Close() // Secure zeroing of key material
+
+	log.Info("starting encryption", log.String("output", req.OutputFile))
 
 	// Phase 1: Preprocess (zip if multiple files)
-	if err := encryptPreprocess(ctx, req); err != nil {
-		cleanupEncrypt(ctx, req) // Clean up any partial temp files
+	if err := encryptPreprocess(opCtx, req); err != nil {
+		cleanupEncrypt(opCtx, req) // Clean up any partial temp files
 		return err
 	}
 
 	// Phase 2: Generate cryptographic values
-	if err := encryptGenerateValues(ctx, req); err != nil {
-		cleanupEncrypt(ctx, req)
+	if err := encryptGenerateValues(opCtx, req); err != nil {
+		cleanupEncrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 3: Write header
-	if err := encryptWriteHeader(ctx, req); err != nil {
-		cleanupEncrypt(ctx, req)
+	if err := encryptWriteHeader(opCtx, req); err != nil {
+		cleanupEncrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 4: Derive keys
-	if err := encryptDeriveKeys(ctx, req); err != nil {
-		cleanupEncrypt(ctx, req)
+	if err := encryptDeriveKeys(opCtx, req); err != nil {
+		cleanupEncrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 5: Process keyfiles
-	if err := encryptProcessKeyfiles(ctx, req); err != nil {
-		cleanupEncrypt(ctx, req)
+	if err := encryptProcessKeyfiles(opCtx, req); err != nil {
+		cleanupEncrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 6: Compute header auth
-	if err := encryptComputeAuth(ctx, req); err != nil {
-		cleanupEncrypt(ctx, req)
+	if err := encryptComputeAuth(opCtx, req); err != nil {
+		cleanupEncrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 7: Encrypt payload
-	if err := encryptPayload(ctx, req); err != nil {
-		cleanupEncrypt(ctx, req)
+	if err := encryptPayload(opCtx, req); err != nil {
+		cleanupEncrypt(opCtx, req)
 		return err
 	}
 
 	// Phase 8: Finalize (write auth values, add deniability, split)
-	if err := encryptFinalize(ctx, req); err != nil {
-		cleanupEncrypt(ctx, req)
+	if err := encryptFinalize(opCtx, req); err != nil {
+		cleanupEncrypt(opCtx, req)
 		return err
 	}
 
+	log.Info("encryption completed successfully")
 	return nil
 }
 
@@ -259,7 +265,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	key := ctx.Key
 	if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
 		if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
-			return errors.New("duplicate keyfiles detected")
+			return perrors.ErrDuplicateKeyfiles
 		}
 		key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
 	}
@@ -321,13 +327,15 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	var done int64
 	var counter int64
 
-	// Pre-allocate buffers outside loop to reduce GC pressure
-	src := make([]byte, util.MiB)
-	dst := make([]byte, util.MiB)
+	// Get buffers from pool to reduce GC pressure
+	src := util.GetMiBBuffer()
+	defer util.PutMiBBuffer(src)
+	dst := util.GetMiBBuffer()
+	defer util.PutMiBBuffer(dst)
 
 	for {
 		if ctx.IsCancelled() {
-			return errors.New("operation cancelled")
+			return ctx.CancellationError()
 		}
 
 		n, readErr := reader.Read(src)

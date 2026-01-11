@@ -19,12 +19,18 @@ import (
 
 // showProgressModal shows the progress dialog.
 func (a *App) showProgressModal() {
-	a.progressBar = widget.NewProgressBar()
+	// Reset bindings for new operation
+	_ = a.boundProgress.Set(0)
+	_ = a.boundStatus.Set("")
+
+	// Create bound widgets - they auto-update when bindings change
+	a.progressBar = widget.NewProgressBarWithData(a.boundProgress)
 	a.progressBar.Min = 0
 	a.progressBar.Max = 1
 
-	a.progressLabel = widget.NewLabel("")
-	a.progressStatus = widget.NewLabel("")
+	// Status shows speed and ETA (e.g., "Encrypting at 10.33 MiB/s (ETA: 00:00:00)")
+	// Progress bar already shows percentage, so no need for separate percentage label
+	a.progressStatus = widget.NewLabelWithData(a.boundStatus)
 
 	a.cancelButton = widget.NewButton("Cancel", func() {
 		a.State.Working = false
@@ -39,7 +45,6 @@ func (a *App) showProgressModal() {
 
 	progressContent := container.NewVBox(
 		container.NewBorder(nil, nil, nil, a.cancelButton, a.progressBar),
-		a.progressLabel,
 		a.progressStatus,
 	)
 

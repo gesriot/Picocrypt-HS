@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"reflect"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -19,13 +20,29 @@ func (a *App) updateAdvancedSection() {
 
 	a.advancedContainer.RemoveAll()
 
-	if a.State.Mode != "decrypt" {
+	switch a.State.Mode {
+	case "":
+		// Initial state - no files selected, hide advanced section entirely
+		if a.advancedLabel != nil {
+			a.advancedLabel.Hide()
+		}
+		// Resize to compact initial height
+		if a.Window != nil {
+			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightInitial))
+		}
+	case "encrypt":
+		if a.advancedLabel != nil {
+			a.advancedLabel.Show()
+		}
 		a.buildEncryptOptions()
 		// Resize window for encrypt mode (more options)
 		if a.Window != nil {
 			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
 		}
-	} else {
+	case "decrypt":
+		if a.advancedLabel != nil {
+			a.advancedLabel.Show()
+		}
 		a.buildDecryptOptions()
 		// Resize window for decrypt mode (fewer options)
 		if a.Window != nil {
@@ -208,8 +225,10 @@ func (a *App) updateAdvancedDisableState() {
 }
 
 // setWidgetDisabled is a helper that enables/disables a widget and ensures refresh.
+// Note: Uses reflect to handle nil interface values containing nil pointers.
 func setWidgetDisabled(w fyne.Disableable, disabled bool) {
-	if w == nil {
+	// Check for nil interface or nil pointer inside interface
+	if w == nil || reflect.ValueOf(w).IsNil() {
 		return
 	}
 	if disabled {

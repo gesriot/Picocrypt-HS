@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -63,6 +64,8 @@ func (a *App) startWork() {
 				if a.progressModal != nil {
 					a.progressModal.Hide()
 				}
+				// Rebuild advanced section (clears options, resizes window for empty mode)
+				a.updateAdvancedSection()
 				a.updateUIState()
 			})
 		}()
@@ -125,11 +128,8 @@ func (a *App) startRecursiveWork() {
 
 		for i, file := range files {
 			a.State.PopupStatus = fmt.Sprintf("Processing file %d/%d...", i+1, len(files))
-			fyne.Do(func() {
-				if a.progressStatus != nil {
-					a.progressStatus.SetText(a.State.PopupStatus)
-				}
-			})
+			// Use binding - automatically updates bound widget
+			_ = a.boundStatus.Set(a.State.PopupStatus)
 
 			a.onDrop([]string{file})
 
@@ -173,6 +173,7 @@ func (a *App) startRecursiveWork() {
 					if a.progressModal != nil {
 						a.progressModal.Hide()
 					}
+					a.updateAdvancedSection()
 					a.updateUIState()
 				})
 				return
@@ -201,6 +202,7 @@ func (a *App) startRecursiveWork() {
 			if a.progressModal != nil {
 				a.progressModal.Hide()
 			}
+			a.updateAdvancedSection()
 			a.updateUIState()
 		})
 	}()
@@ -262,7 +264,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	copy(foldersToDelete, a.State.OnlyFolders)
 	inputFileToDelete := a.State.InputFile
 
-	err := volume.Encrypt(req)
+	err := volume.Encrypt(context.Background(), req)
 	if err != nil {
 		if !a.cancelled.Load() {
 			a.State.MainStatus = err.Error()
@@ -326,7 +328,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 		Kept:         &kept,
 	}
 
-	err := volume.Decrypt(req)
+	err := volume.Decrypt(context.Background(), req)
 	if err != nil {
 		if !a.cancelled.Load() {
 			a.State.MainStatus = err.Error()
@@ -377,23 +379,15 @@ func (a *App) CreateReporter() *app.UIReporter {
 	return app.NewUIReporter(
 		func(text string) {
 			a.State.PopupStatus = text
-			fyne.Do(func() {
-				if a.progressStatus != nil {
-					a.progressStatus.SetText(text)
-				}
-			})
+			// Use binding - automatically thread-safe and updates bound widgets
+			_ = a.boundStatus.Set(text)
 		},
 		func(fraction float32, info string) {
 			a.State.Progress = fraction
 			a.State.ProgressInfo = info
-			fyne.Do(func() {
-				if a.progressBar != nil {
-					a.progressBar.SetValue(float64(fraction))
-				}
-				if a.progressLabel != nil {
-					a.progressLabel.SetText(info)
-				}
-			})
+			// Use binding - automatically thread-safe and updates bound widget
+			// Note: info (percentage string) not displayed separately - progress bar shows percentage
+			_ = a.boundProgress.Set(float64(fraction))
 		},
 		func(can bool) {
 			a.State.CanCancel = can
