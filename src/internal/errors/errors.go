@@ -17,23 +17,23 @@ var (
 	ErrCorruptData   = errors.New("data corrupted")
 
 	// Input validation errors
-	ErrNoInputFiles    = errors.New("no input files specified")
-	ErrNoCredentials   = errors.New("no password or keyfiles provided")
-	ErrPasswordMismatch = errors.New("passwords do not match")
-	ErrInvalidChunkSize = errors.New("invalid chunk size")
+	ErrNoInputFiles      = errors.New("no input files specified")
+	ErrNoCredentials     = errors.New("no password or keyfiles provided")
+	ErrPasswordMismatch  = errors.New("passwords do not match")
+	ErrInvalidChunkSize  = errors.New("invalid chunk size")
 	ErrDuplicateKeyfiles = errors.New("duplicate keyfiles detected")
 
 	// File errors
-	ErrFileNotFound   = errors.New("file not found")
-	ErrFileExists     = errors.New("file already exists")
-	ErrInvalidFormat  = errors.New("invalid volume format")
+	ErrFileNotFound    = errors.New("file not found")
+	ErrFileExists      = errors.New("file already exists")
+	ErrInvalidFormat   = errors.New("invalid volume format")
 	ErrVersionMismatch = errors.New("unsupported volume version")
 
 	// Crypto errors
-	ErrRandFailure  = errors.New("crypto/rand failure")
+	ErrRandFailure   = errors.New("crypto/rand failure")
 	ErrKeyDerivation = errors.New("key derivation failed")
-	ErrHKDFFailure  = errors.New("HKDF stream failure")
-	ErrMACFailure   = errors.New("MAC computation failed")
+	ErrHKDFFailure   = errors.New("HKDF stream failure")
+	ErrMACFailure    = errors.New("MAC computation failed")
 	ErrCipherFailure = errors.New("cipher operation failed")
 
 	// Reed-Solomon errors

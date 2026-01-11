@@ -18,7 +18,8 @@ func NewBufferPool(size int) *BufferPool {
 		size: size,
 		pool: sync.Pool{
 			New: func() any {
-				return make([]byte, size)
+				b := make([]byte, size)
+				return &b
 			},
 		},
 	}
@@ -27,7 +28,7 @@ func NewBufferPool(size int) *BufferPool {
 // Get retrieves a buffer from the pool.
 // The buffer contents are undefined and should be overwritten.
 func (p *BufferPool) Get() []byte {
-	return p.pool.Get().([]byte)
+	return *p.pool.Get().(*[]byte)
 }
 
 // Put returns a buffer to the pool after securely zeroing it.
@@ -39,7 +40,7 @@ func (p *BufferPool) Put(b []byte) {
 	}
 	// Secure zero before returning to pool
 	secureZeroBytes(b)
-	p.pool.Put(b)
+	p.pool.Put(&b)
 }
 
 // secureZeroBytes zeros a byte slice in a way that won't be optimized away.
