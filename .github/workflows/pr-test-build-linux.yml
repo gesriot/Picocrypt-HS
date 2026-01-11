@@ -42,10 +42,18 @@ jobs:
         cd src
         go test -v -race -timeout 15m ./...
 
-    - name: Build
+    - name: Build GUI
       run: |
         cd src
         go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+      env:
+        CGO_ENABLED: 1
+        GOAMD64: v1
+
+    - name: Build CLI-only (no graphics dependencies)
+      run: |
+        cd src
+        go build -v -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
@@ -55,6 +63,7 @@ jobs:
         wget -O upx.tar.xz https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-amd64_linux.tar.xz
         tar -xf upx.tar.xz
         upx-5.0.2-amd64_linux/upx --lzma src/Picocrypt-NG
+        upx-5.0.2-amd64_linux/upx --lzma src/Picocrypt-NG-cli
 
     - name: Package as .deb
       run: |
@@ -72,10 +81,12 @@ jobs:
       run: |
         mkdir out
         mv src/Picocrypt-NG out
+        mv src/Picocrypt-NG-cli out
         mv Picocrypt-NG/Picocrypt-NG.deb out
         rm -rf src
         rm -rf Picocrypt-NG
         mv out/Picocrypt-NG .
+        mv out/Picocrypt-NG-cli .
         mv out/Picocrypt-NG.deb .
 
     - name: Upload artifacts
@@ -84,6 +95,7 @@ jobs:
         name: build-linux
         path: |
           Picocrypt-NG
+          Picocrypt-NG-cli
           Picocrypt-NG.deb
         if-no-files-found: error
         compression-level: 9

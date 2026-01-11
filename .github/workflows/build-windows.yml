@@ -37,10 +37,18 @@ jobs:
         cd src
         go test -v -timeout 15m ./...
 
-    - name: Build
+    - name: Build GUI
       run: |
         cd src
         go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
+      env:
+        CGO_ENABLED: 1
+        GOAMD64: v1
+
+    - name: Build CLI-only (no graphics dependencies)
+      run: |
+        cd src
+        go build -v -tags cli -ldflags="-s -w -extldflags=-static" -o Picocrypt-NG-cli.exe ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
@@ -71,12 +79,15 @@ jobs:
         Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-win64.zip
         Expand-Archive -DestinationPath upx upx.zip
         upx/upx-5.0.2-win64/upx.exe --lzma -o src/Picocrypt-NG.exe src/5.exe
+        upx/upx-5.0.2-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
 
     - name: Upload artifact
       uses: actions/upload-artifact@v6
       with:
         name: build-windows
-        path: src/*.exe
+        path: |
+          src/Picocrypt-NG.exe
+          src/Picocrypt-NG-cli.exe
         if-no-files-found: error
         compression-level: 9
 
@@ -109,12 +120,15 @@ jobs:
       run: |
         $hash = Get-FileHash "src/Picocrypt-NG.exe" -Algorithm SHA256
         echo "CHECKSUM_PICOCRYPT_NG=$($hash.Hash)" >> $env:GITHUB_ENV
+        $hashCli = Get-FileHash "src/Picocrypt-NG-cli.exe" -Algorithm SHA256
+        echo "CHECKSUM_PICOCRYPT_NG_CLI=$($hashCli.Hash)" >> $env:GITHUB_ENV
 
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
           src/Picocrypt-NG.exe
+          src/Picocrypt-NG-cli.exe
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true
@@ -128,4 +142,5 @@ jobs:
           ## Downloads
 
           **Windows:**
-          `sha256(Picocrypt-NG.exe)  ${{ env.CHECKSUM_PICOCRYPT_NG }}`
+          `sha256(Picocrypt-NG.exe)      ${{ env.CHECKSUM_PICOCRYPT_NG }}`
+          `sha256(Picocrypt-NG-cli.exe)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI }}`
