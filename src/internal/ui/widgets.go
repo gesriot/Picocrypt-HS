@@ -471,7 +471,6 @@ func (r *coloredLabelRenderer) truncateText(text string, maxWidth float32) strin
 		return text
 	}
 
-	// Binary search for the right length
 	ellipsis := "..."
 	ellipsisWidth := fyne.MeasureText(ellipsis, theme.TextSize(), fyne.TextStyle{}).Width
 	availableWidth := maxWidth - ellipsisWidth
@@ -480,27 +479,26 @@ func (r *coloredLabelRenderer) truncateText(text string, maxWidth float32) strin
 		return ellipsis
 	}
 
-	// Start with approximate character count
 	runes := []rune(text)
-	estimatedChars := int(float32(len(runes)) * availableWidth / textSize.Width)
 
-	if estimatedChars <= 0 {
-		return ellipsis
-	}
-
-	// Find the longest substring that fits
-	for i := estimatedChars; i < len(runes); i++ {
-		candidate := string(runes[:i]) + ellipsis
+	// Binary search for the longest substring that fits with ellipsis
+	low, high := 0, len(runes)
+	for low < high {
+		mid := (low + high + 1) / 2
+		candidate := string(runes[:mid]) + ellipsis
 		candidateWidth := fyne.MeasureText(candidate, theme.TextSize(), fyne.TextStyle{}).Width
-		if candidateWidth > maxWidth {
-			if i > 0 {
-				return string(runes[:i-1]) + ellipsis
-			}
-			return ellipsis
+
+		if candidateWidth <= maxWidth {
+			low = mid // This length fits, try longer
+		} else {
+			high = mid - 1 // This length is too long, try shorter
 		}
 	}
 
-	return text
+	if low == 0 {
+		return ellipsis
+	}
+	return string(runes[:low]) + ellipsis
 }
 
 func (r *coloredLabelRenderer) Destroy() {}

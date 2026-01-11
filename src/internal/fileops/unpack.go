@@ -95,7 +95,9 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		}
 	}
 
-	// First pass: create all directories
+	// First pass: create all directories and cache normalized paths
+	// Cache normalized paths to avoid redundant normalization in second pass
+	normalizedPaths := make(map[*zip.File]string, len(reader.File))
 	for _, f := range reader.File {
 		// Normalize and validate path to prevent zip slip attacks
 		normalizedName := normalizeZipPath(f.Name)
@@ -103,6 +105,9 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		if !isValidExtractionPath(outPath, extractDir) {
 			return errors.New("potentially malicious zip item path")
 		}
+
+		// Cache the output path for second pass
+		normalizedPaths[f] = outPath
 
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(outPath, 0700); err != nil {
@@ -128,12 +133,8 @@ func Unpack(opts UnpackOptions) (retErr error) {
 			continue
 		}
 
-		// Normalize and validate path to prevent zip slip attacks
-		normalizedName := normalizeZipPath(f.Name)
-		outPath := filepath.Join(extractDir, normalizedName)
-		if !isValidExtractionPath(outPath, extractDir) {
-			return errors.New("potentially malicious zip item path")
-		}
+		// Retrieve pre-validated output path from cache
+		outPath := normalizedPaths[f]
 
 		// Create parent directories
 		if err := os.MkdirAll(filepath.Dir(outPath), 0700); err != nil {
