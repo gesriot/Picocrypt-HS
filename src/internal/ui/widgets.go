@@ -370,13 +370,18 @@ func (c *TooltipCheckbox) MouseOut() {
 // ColoredLabel is a label with custom text color.
 type ColoredLabel struct {
 	widget.BaseWidget
-	text  string
-	color color.Color
+	text       string
+	color      color.Color
+	truncation fyne.TextTruncation
 }
 
 // NewColoredLabel creates a new label with custom color.
 func NewColoredLabel(text string, col color.Color) *ColoredLabel {
-	l := &ColoredLabel{text: text, color: col}
+	l := &ColoredLabel{
+		text:       text,
+		color:      col,
+		truncation: fyne.TextTruncateEllipsis, // Default to ellipsis truncation
+	}
 	l.ExtendBaseWidget(l)
 	return l
 }
@@ -393,9 +398,23 @@ func (l *ColoredLabel) SetColor(col color.Color) {
 	l.Refresh()
 }
 
+// SetTruncation updates the label truncation mode.
+func (l *ColoredLabel) SetTruncation(truncation fyne.TextTruncation) {
+	l.truncation = truncation
+	l.Refresh()
+}
+
 // MinSize returns the minimum size needed to display the label.
+// When truncation is enabled, limits width to prevent window resizing.
 func (l *ColoredLabel) MinSize() fyne.Size {
 	textSize := fyne.MeasureText(l.text, theme.TextSize(), fyne.TextStyle{})
+
+	// If truncation is enabled, don't let the label force window resizing
+	// Use a reasonable maximum width (e.g., 600 pixels)
+	if l.truncation != fyne.TextTruncateOff && textSize.Width > 600 {
+		textSize.Width = 600
+	}
+
 	return textSize
 }
 
@@ -407,12 +426,16 @@ func (l *ColoredLabel) CreateRenderer() fyne.WidgetRenderer {
 }
 
 type coloredLabelRenderer struct {
-	label *ColoredLabel
-	text  *canvas.Text
+	label         *ColoredLabel
+	text          *canvas.Text
+	availableSize fyne.Size
 }
 
 func (r *coloredLabelRenderer) Layout(size fyne.Size) {
+	r.availableSize = size
 	r.text.Move(fyne.NewPos(0, 0))
+	r.text.Resize(size)
+	r.updateText()
 }
 
 func (r *coloredLabelRenderer) MinSize() fyne.Size {
@@ -420,9 +443,64 @@ func (r *coloredLabelRenderer) MinSize() fyne.Size {
 }
 
 func (r *coloredLabelRenderer) Refresh() {
-	r.text.Text = r.label.text
+	r.updateText()
+}
+
+// updateText updates the displayed text with truncation if needed
+func (r *coloredLabelRenderer) updateText() {
+	displayText := r.label.text
+
+	// Apply truncation if needed and we have available size
+	if r.label.truncation != fyne.TextTruncateOff && r.availableSize.Width > 0 {
+		displayText = r.truncateText(displayText, r.availableSize.Width)
+	}
+
+	r.text.Text = displayText
 	r.text.Color = r.label.color
 	canvas.Refresh(r.text)
+}
+
+// truncateText truncates text with ellipsis if it exceeds maxWidth
+func (r *coloredLabelRenderer) truncateText(text string, maxWidth float32) string {
+	if maxWidth <= 0 {
+		return text
+	}
+
+	textSize := fyne.MeasureText(text, theme.TextSize(), fyne.TextStyle{})
+	if textSize.Width <= maxWidth {
+		return text
+	}
+
+	// Binary search for the right length
+	ellipsis := "..."
+	ellipsisWidth := fyne.MeasureText(ellipsis, theme.TextSize(), fyne.TextStyle{}).Width
+	availableWidth := maxWidth - ellipsisWidth
+
+	if availableWidth <= 0 {
+		return ellipsis
+	}
+
+	// Start with approximate character count
+	runes := []rune(text)
+	estimatedChars := int(float32(len(runes)) * availableWidth / textSize.Width)
+
+	if estimatedChars <= 0 {
+		return ellipsis
+	}
+
+	// Find the longest substring that fits
+	for i := estimatedChars; i < len(runes); i++ {
+		candidate := string(runes[:i]) + ellipsis
+		candidateWidth := fyne.MeasureText(candidate, theme.TextSize(), fyne.TextStyle{}).Width
+		if candidateWidth > maxWidth {
+			if i > 0 {
+				return string(runes[:i-1]) + ellipsis
+			}
+			return ellipsis
+		}
+	}
+
+	return text
 }
 
 func (r *coloredLabelRenderer) Destroy() {}

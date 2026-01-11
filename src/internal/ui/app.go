@@ -385,6 +385,8 @@ func (a *App) buildCommentsSection() fyne.CanvasObject {
 // buildOutputSection creates the output file section.
 func (a *App) buildOutputSection() fyne.CanvasObject {
 	a.outputEntry = widget.NewLabel("")
+	// Truncate long filenames with ellipsis to prevent window resizing
+	a.outputEntry.Truncation = fyne.TextTruncateEllipsis
 
 	// Create a disabled entry style appearance
 	outputBg := canvas.NewRectangle(theme.Color(theme.ColorNameInputBackground))

@@ -89,6 +89,11 @@ func TestUnpackNormalPaths(t *testing.T) {
 		"dir/file.txt",
 		"dir/subdir/file.txt",
 		"a.b.c/d.e.f/file.txt",
+		// Files with double dots in name (NOT path traversal)
+		"test..txt",
+		"file..backup",
+		"dir/file..copy.txt",
+		"Исследования..копия.docx",
 	}
 
 	tmpDir := t.TempDir()
