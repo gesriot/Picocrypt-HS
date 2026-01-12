@@ -14,26 +14,35 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func init() {
+	// Silence Cobra's default error/usage printing - we handle it ourselves
+	decryptCmd.SilenceErrors = true
+	decryptCmd.SilenceUsage = true
+}
+
 var decryptCmd = &cobra.Command{
 	Use:   "decrypt",
 	Short: "Decrypt a .pcv volume",
 	Long: `Decrypt a Picocrypt volume (.pcv) back to its original files.
 
+If no password is provided, you will be prompted to enter one interactively.
+The password is hidden while typing.
+
 Examples:
-  # Decrypt a file with a password
+  # Decrypt interactively (prompts for password)
+  Picocrypt-NG decrypt -i secret.pcv
+
+  # Decrypt with password on command line (visible in shell history)
   Picocrypt-NG decrypt -i secret.pcv -o secret.txt -p "mypassword"
 
-  # Decrypt with auto-detection of output name
-  Picocrypt-NG decrypt -i secret.pcv -p "mypassword"
-
-  # Decrypt with keyfile
-  Picocrypt-NG decrypt -i secret.pcv -p "mypassword" -k keyfile.key
+  # Decrypt with keyfile only (no password)
+  Picocrypt-NG decrypt -i secret.pcv -k keyfile.key
 
   # Decrypt and auto-extract zip
-  Picocrypt-NG decrypt -i archive.pcv -p "mypassword" --auto-unzip
+  Picocrypt-NG decrypt -i archive.pcv --auto-unzip
 
   # Force decryption despite errors (may produce corrupted output)
-  Picocrypt-NG decrypt -i damaged.pcv -p "mypassword" --force
+  Picocrypt-NG decrypt -i damaged.pcv --force
 
   # Read password from stdin (for scripts)
   echo "mypassword" | Picocrypt-NG decrypt -i secret.pcv -P`,
@@ -144,13 +153,11 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	// Get password
 	password := decPassword
 	if decPasswordStdin {
-		reader := bufio.NewReader(os.Stdin)
-		pw, err := reader.ReadString('\n')
+		var err error
+		password, err = ReadPasswordFromStdin()
 		if err != nil {
-			return fmt.Errorf("reading password from stdin: %w", err)
+			return err
 		}
-		password = strings.TrimSuffix(pw, "\n")
-		password = strings.TrimSuffix(password, "\r")
 	}
 
 	// Validate keyfiles exist
@@ -166,19 +173,21 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing Reed-Solomon codecs: %w", err)
 	}
 
-	// Try to read header to check if keyfiles are required and password is needed
-	if !decQuiet && password == "" {
+	// Try to read header to check if keyfiles are required
+	if !decQuiet && password == "" && len(decKeyfiles) == 0 {
 		hdr, err := readHeaderInfo(decInput, rsCodecs)
-		if err == nil {
-			if hdr.Flags.UseKeyfiles && len(decKeyfiles) == 0 {
-				fmt.Fprintln(os.Stderr, "Warning: This volume requires keyfiles")
-			}
+		if err == nil && hdr.Flags.UseKeyfiles {
+			fmt.Fprintln(os.Stderr, "Warning: This volume requires keyfiles")
 		}
 	}
 
-	// Validate credentials
+	// Prompt for password interactively if not provided
 	if password == "" && len(decKeyfiles) == 0 {
-		return fmt.Errorf("password (-p) or keyfile (-k) is required")
+		var err error
+		password, err = ReadPasswordInteractive(false) // confirm=false for decryption
+		if err != nil {
+			return fmt.Errorf("password input: %w", err)
+		}
 	}
 
 	// Create reporter
