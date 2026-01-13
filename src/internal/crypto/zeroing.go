@@ -6,6 +6,7 @@ package crypto
 import (
 	"crypto/subtle"
 	"hash"
+	"sync"
 )
 
 // SecureZero overwrites a byte slice with zeros to prevent sensitive data
@@ -46,6 +47,7 @@ func SecureZeroHash(h hash.Hash) {
 
 // KeyMaterial wraps sensitive key data with automatic zeroing on Close().
 // Use this for temporary key storage that must be cleaned up.
+// KeyMaterial is safe for concurrent use.
 //
 // Example:
 //
@@ -53,6 +55,7 @@ func SecureZeroHash(h hash.Hash) {
 //	defer km.Close()
 //	// ... use km.Bytes() ...
 type KeyMaterial struct {
+	mu     sync.Mutex
 	data   []byte
 	closed bool
 }
@@ -72,6 +75,8 @@ func NewKeyMaterial(data []byte) *KeyMaterial {
 // Bytes returns the underlying key data.
 // Returns nil if the KeyMaterial has been closed.
 func (km *KeyMaterial) Bytes() []byte {
+	km.mu.Lock()
+	defer km.mu.Unlock()
 	if km.closed {
 		return nil
 	}
@@ -80,6 +85,8 @@ func (km *KeyMaterial) Bytes() []byte {
 
 // Len returns the length of the key data.
 func (km *KeyMaterial) Len() int {
+	km.mu.Lock()
+	defer km.mu.Unlock()
 	if km.closed || km.data == nil {
 		return 0
 	}
@@ -89,6 +96,8 @@ func (km *KeyMaterial) Len() int {
 // Close securely zeros the key data and marks it as closed.
 // This method is idempotent - multiple calls are safe.
 func (km *KeyMaterial) Close() {
+	km.mu.Lock()
+	defer km.mu.Unlock()
 	if km.closed || km.data == nil {
 		return
 	}
@@ -99,12 +108,16 @@ func (km *KeyMaterial) Close() {
 
 // IsClosed returns whether the KeyMaterial has been closed.
 func (km *KeyMaterial) IsClosed() bool {
+	km.mu.Lock()
+	defer km.mu.Unlock()
 	return km.closed
 }
 
 // CryptoContext holds all sensitive cryptographic materials for an operation.
 // Use Close() to securely zero all materials when done.
+// CryptoContext is safe for concurrent use.
 type CryptoContext struct {
+	mu           sync.Mutex
 	Key          []byte
 	KeyfileKey   []byte
 	MacSubkey    []byte
@@ -116,6 +129,8 @@ type CryptoContext struct {
 // Close securely zeros all cryptographic materials.
 // This should be called via defer immediately after creating the context.
 func (cc *CryptoContext) Close() {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
 	if cc.closed {
 		return
 	}

@@ -35,8 +35,11 @@ Examples:
   # Decrypt with password on command line (visible in shell history)
   Picocrypt-NG decrypt -i secret.pcv -o secret.txt -p "mypassword"
 
-  # Decrypt with keyfile only (no password)
+  # Decrypt with keyfile (prompts for password, press Enter if keyfile-only)
   Picocrypt-NG decrypt -i secret.pcv -k keyfile.key
+
+  # Decrypt with keyfile only, no password prompt
+  Picocrypt-NG decrypt -i secret.pcv -k keyfile.key -p ""
 
   # Decrypt and auto-extract zip
   Picocrypt-NG decrypt -i archive.pcv --auto-unzip
@@ -174,17 +177,39 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Try to read header to check if keyfiles are required
-	if !decQuiet && password == "" && len(decKeyfiles) == 0 {
+	// Note: with deniability, we can't read the header until wrapper is removed
+	var volumeUsesKeyfiles bool
+	if password == "" && !decDeniability {
 		hdr, err := readHeaderInfo(decInput, rsCodecs)
-		if err == nil && hdr.Flags.UseKeyfiles {
-			fmt.Fprintln(os.Stderr, "Warning: This volume requires keyfiles")
+		if err == nil {
+			volumeUsesKeyfiles = hdr.Flags.UseKeyfiles
+			if !decQuiet && volumeUsesKeyfiles && len(decKeyfiles) == 0 {
+				fmt.Fprintln(os.Stderr, "Warning: This volume requires keyfiles")
+			}
 		}
 	}
 
-	// Prompt for password interactively if not provided
-	if password == "" && len(decKeyfiles) == 0 {
+	// Prompt for password interactively if not provided via -p/-P
+	if password == "" {
+		hasKeyfiles := len(decKeyfiles) > 0
+
+		// With deniability, we can't know if volume uses keyfiles until wrapper is removed.
+		// Allow empty password if keyfiles are provided (deniability wrapper may use empty password).
+		// Without deniability, we can check the header to know if keyfiles are used.
+		allowEmpty := hasKeyfiles || volumeUsesKeyfiles
+
+		if !decQuiet {
+			if decDeniability {
+				fmt.Fprintln(os.Stderr, "Deniability mode: enter the password used for the deniability wrapper.")
+				if hasKeyfiles {
+					fmt.Fprintln(os.Stderr, "Press Enter if the volume was encrypted with keyfiles only.")
+				}
+			} else if hasKeyfiles {
+				fmt.Fprintln(os.Stderr, "Keyfiles provided. Press Enter if the volume uses keyfile-only encryption.")
+			}
+		}
 		var err error
-		password, err = ReadPasswordInteractive(false) // confirm=false for decryption
+		password, err = ReadPasswordInteractive(false, allowEmpty) // confirm=false for decryption
 		if err != nil {
 			return fmt.Errorf("password input: %w", err)
 		}

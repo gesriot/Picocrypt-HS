@@ -42,8 +42,11 @@ Examples:
   # Encrypt with paranoid mode and Reed-Solomon error correction
   Picocrypt-NG encrypt -i data.db -o data.pcv --paranoid --reed-solomon
 
-  # Encrypt with keyfile
+  # Encrypt with keyfile (prompts for password, can leave empty for keyfile-only)
   Picocrypt-NG encrypt -i secret.txt -o secret.pcv -k keyfile.key
+
+  # Encrypt with keyfile only (no password)
+  Picocrypt-NG encrypt -i secret.txt -o secret.pcv -k keyfile.key -p ""
 
   # Read password from stdin (for scripts)
   echo "mypassword" | Picocrypt-NG encrypt -i secret.txt -o secret.pcv -P`,
@@ -191,10 +194,15 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-	} else if password == "" && len(encKeyfiles) == 0 {
-		// No password provided and no keyfiles - prompt interactively
+	} else if password == "" {
+		// Prompt for password interactively
+		// Allow empty password only if keyfiles are provided
+		hasKeyfiles := len(encKeyfiles) > 0
+		if hasKeyfiles {
+			fmt.Fprintln(os.Stderr, "Keyfiles provided. Press Enter for keyfile-only encryption, or enter a password.")
+		}
 		var err error
-		password, err = ReadPasswordInteractive(true) // confirm=true for encryption
+		password, err = ReadPasswordInteractive(true, hasKeyfiles) // confirm=true, allowEmpty=hasKeyfiles
 		if err != nil {
 			return fmt.Errorf("password input: %w", err)
 		}

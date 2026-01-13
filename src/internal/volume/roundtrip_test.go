@@ -2015,6 +2015,515 @@ func TestZeroLengthComments(t *testing.T) {
 	t.Log("Zero-length comments: SUCCESS")
 }
 
+// TestRoundTripKeyfileOnly tests encryption with keyfile only (no password).
+// This is a security-critical test as keyfile-only mode uses empty password string.
+func TestRoundTripKeyfileOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping keyfile-only test in short mode")
+	}
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create test file
+	plaintext := []byte("Keyfile-only encryption test - no password used!")
+	inputPath := filepath.Join(tmpDir, "keyfile_only_test.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Create keyfile
+	keyfilePath := filepath.Join(tmpDir, "keyfile_only.bin")
+	keyfileData := []byte("This keyfile is the ONLY credential needed!")
+	if err := os.WriteFile(keyfilePath, keyfileData, 0644); err != nil {
+		t.Fatalf("Failed to write keyfile: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "keyfile_only_test.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "keyfile_only_decrypted.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt with keyfile only - empty password
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "", // Empty password - keyfile only!
+		Keyfiles:   []string{keyfilePath},
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (keyfile-only) failed: %v", err)
+	}
+
+	// Decrypt with keyfile only - empty password
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "", // Empty password
+		Keyfiles:     []string{keyfilePath},
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (keyfile-only) failed: %v", err)
+	}
+
+	// Verify content
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+
+	if string(decrypted) != string(plaintext) {
+		t.Errorf("Content mismatch.\nExpected: %q\nGot: %q", plaintext, decrypted)
+	}
+
+	t.Log("Keyfile-only roundtrip: SUCCESS")
+}
+
+// TestRoundTripKeyfileOnlyParanoid tests keyfile-only with paranoid mode.
+func TestRoundTripKeyfileOnlyParanoid(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping keyfile-only paranoid test in short mode")
+	}
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Paranoid keyfile-only test data.")
+	inputPath := filepath.Join(tmpDir, "kf_paranoid.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	keyfilePath := filepath.Join(tmpDir, "kf_paranoid.key")
+	if err := os.WriteFile(keyfilePath, []byte("paranoid_keyfile_content"), 0644); err != nil {
+		t.Fatalf("Failed to write keyfile: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "kf_paranoid.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "kf_paranoid_dec.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt keyfile-only + paranoid
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "",
+		Keyfiles:   []string{keyfilePath},
+		Paranoid:   true,
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (keyfile-only paranoid) failed: %v", err)
+	}
+
+	// Decrypt
+	decReq := &DecryptRequest{
+		InputFile:  encryptedPath,
+		OutputFile: decryptedPath,
+		Password:   "",
+		Keyfiles:   []string{keyfilePath},
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (keyfile-only paranoid) failed: %v", err)
+	}
+
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+
+	if string(decrypted) != string(plaintext) {
+		t.Errorf("Content mismatch (keyfile-only paranoid)")
+	}
+
+	t.Log("Keyfile-only paranoid: SUCCESS")
+}
+
+// TestDeniabilityKeyfileOnly tests deniability with keyfile-only encryption.
+// This verifies that deniability wrapper uses empty password correctly.
+func TestDeniabilityKeyfileOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping deniability+keyfile test in short mode")
+	}
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Deniability with keyfile-only - wrapper uses empty password!")
+	inputPath := filepath.Join(tmpDir, "deny_kf_only.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	keyfilePath := filepath.Join(tmpDir, "deny_kf_only.key")
+	if err := os.WriteFile(keyfilePath, []byte("deniability_keyfile_content"), 0644); err != nil {
+		t.Fatalf("Failed to write keyfile: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "deny_kf_only.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "deny_kf_only_dec.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt with deniability + keyfile-only
+	encReq := &EncryptRequest{
+		InputFile:   inputPath,
+		OutputFile:  encryptedPath,
+		Password:    "", // Empty password
+		Keyfiles:    []string{keyfilePath},
+		Deniability: true,
+		Reporter:    reporter,
+		RSCodecs:    rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (deniability+keyfile-only) failed: %v", err)
+	}
+
+	// Verify deniability was applied
+	if !IsDeniable(encryptedPath, rsCodecs) {
+		t.Error("Volume should be detected as deniable")
+	}
+
+	// Decrypt with deniability + keyfile-only
+	decReq := &DecryptRequest{
+		InputFile:   encryptedPath,
+		OutputFile:  decryptedPath,
+		Password:    "", // Empty password for deniability wrapper
+		Keyfiles:    []string{keyfilePath},
+		Deniability: true,
+		Reporter:    reporter,
+		RSCodecs:    rsCodecs,
+	}
+
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (deniability+keyfile-only) failed: %v", err)
+	}
+
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+
+	if string(decrypted) != string(plaintext) {
+		t.Errorf("Content mismatch (deniability+keyfile-only)")
+	}
+
+	t.Log("Deniability keyfile-only: SUCCESS")
+}
+
+// TestDeniabilityPasswordAndKeyfiles tests deniability with both password and keyfiles.
+func TestDeniabilityPasswordAndKeyfiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping deniability+password+keyfile test in short mode")
+	}
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Deniability with password + keyfiles - maximum security!")
+	inputPath := filepath.Join(tmpDir, "deny_pw_kf.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	keyfilePath := filepath.Join(tmpDir, "deny_pw_kf.key")
+	if err := os.WriteFile(keyfilePath, []byte("combined_keyfile_content"), 0644); err != nil {
+		t.Fatalf("Failed to write keyfile: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "deny_pw_kf.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "deny_pw_kf_dec.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt with deniability + password + keyfile
+	encReq := &EncryptRequest{
+		InputFile:   inputPath,
+		OutputFile:  encryptedPath,
+		Password:    "deniability_password",
+		Keyfiles:    []string{keyfilePath},
+		Deniability: true,
+		Reporter:    reporter,
+		RSCodecs:    rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (deniability+password+keyfile) failed: %v", err)
+	}
+
+	// Decrypt with all credentials
+	decReq := &DecryptRequest{
+		InputFile:   encryptedPath,
+		OutputFile:  decryptedPath,
+		Password:    "deniability_password",
+		Keyfiles:    []string{keyfilePath},
+		Deniability: true,
+		Reporter:    reporter,
+		RSCodecs:    rsCodecs,
+	}
+
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (deniability+password+keyfile) failed: %v", err)
+	}
+
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+
+	if string(decrypted) != string(plaintext) {
+		t.Errorf("Content mismatch (deniability+password+keyfile)")
+	}
+
+	t.Log("Deniability password+keyfiles: SUCCESS")
+}
+
+// TestWrongPasswordWithKeyfilesFails verifies that providing the wrong password
+// fails decryption even when the correct keyfile is provided.
+// This is security-critical: keyfile alone shouldn't unlock password-protected volumes.
+func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping wrong password+keyfile test in short mode")
+	}
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Wrong password test - keyfile alone shouldn't work!")
+	inputPath := filepath.Join(tmpDir, "wrong_pw_kf.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	keyfilePath := filepath.Join(tmpDir, "wrong_pw_kf.key")
+	if err := os.WriteFile(keyfilePath, []byte("correct_keyfile_content"), 0644); err != nil {
+		t.Fatalf("Failed to write keyfile: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "wrong_pw_kf.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "wrong_pw_kf_dec.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt with password + keyfile
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "correct_password",
+		Keyfiles:   []string{keyfilePath},
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	// Attempt decrypt with WRONG password but CORRECT keyfile
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "wrong_password", // Wrong!
+		Keyfiles:     []string{keyfilePath},
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	err = Decrypt(context.Background(), decReq)
+	if err == nil {
+		t.Fatal("Decrypt should have failed with wrong password (even with correct keyfile)")
+	}
+
+	t.Logf("Wrong password correctly rejected: %v", err)
+
+	// Verify decrypted file doesn't exist
+	if _, statErr := os.Stat(decryptedPath); !os.IsNotExist(statErr) {
+		t.Error("Decrypted file should not exist after failed decryption")
+	}
+
+	// Now verify correct password works
+	decReqCorrect := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "correct_password",
+		Keyfiles:     []string{keyfilePath},
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	if err := Decrypt(context.Background(), decReqCorrect); err != nil {
+		t.Fatalf("Decrypt with correct credentials failed: %v", err)
+	}
+
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+
+	if string(decrypted) != string(plaintext) {
+		t.Errorf("Content mismatch with correct credentials")
+	}
+
+	t.Log("Wrong password with keyfiles correctly rejected: SUCCESS")
+}
+
+// TestKeyfileOnlyWrongKeyfileFails verifies that for keyfile-only volumes,
+// providing a wrong keyfile fails (with or without empty password).
+func TestKeyfileOnlyWrongKeyfileFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping keyfile-only wrong keyfile test in short mode")
+	}
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Keyfile-only wrong keyfile test")
+	inputPath := filepath.Join(tmpDir, "kf_only_wrong.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	correctKeyfile := filepath.Join(tmpDir, "correct.key")
+	wrongKeyfile := filepath.Join(tmpDir, "wrong.key")
+	if err := os.WriteFile(correctKeyfile, []byte("correct_key_content"), 0644); err != nil {
+		t.Fatalf("Failed to write correct keyfile: %v", err)
+	}
+	if err := os.WriteFile(wrongKeyfile, []byte("wrong_key_content"), 0644); err != nil {
+		t.Fatalf("Failed to write wrong keyfile: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "kf_only_wrong.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "kf_only_wrong_dec.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt with keyfile only
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "",
+		Keyfiles:   []string{correctKeyfile},
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	// Attempt decrypt with wrong keyfile
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "",
+		Keyfiles:     []string{wrongKeyfile},
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	err = Decrypt(context.Background(), decReq)
+	if err == nil {
+		t.Fatal("Decrypt should have failed with wrong keyfile")
+	}
+
+	t.Logf("Wrong keyfile correctly rejected: %v", err)
+	t.Log("Keyfile-only wrong keyfile: SUCCESS")
+}
+
+// TestDeniabilityWrongPasswordFails verifies that deniability wrapper correctly
+// rejects wrong password for the deniability layer.
+func TestDeniabilityWrongPasswordFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping deniability wrong password test in short mode")
+	}
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := []byte("Deniability wrong password test")
+	inputPath := filepath.Join(tmpDir, "deny_wrong_pw.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "deny_wrong_pw.txt.pcv")
+	decryptedPath := filepath.Join(tmpDir, "deny_wrong_pw_dec.txt")
+
+	reporter := &GoldenTestReporter{}
+
+	// Encrypt with deniability
+	encReq := &EncryptRequest{
+		InputFile:   inputPath,
+		OutputFile:  encryptedPath,
+		Password:    "correct_deniability_password",
+		Deniability: true,
+		Reporter:    reporter,
+		RSCodecs:    rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	// Attempt decrypt with wrong password - deniability layer should fail
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "wrong_deniability_password",
+		Deniability:  true,
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	err = Decrypt(context.Background(), decReq)
+	if err == nil {
+		t.Fatal("Decrypt should have failed with wrong deniability password")
+	}
+
+	// Error should indicate password issue (version decode fails)
+	t.Logf("Deniability wrong password correctly rejected: %v", err)
+	t.Log("Deniability wrong password: SUCCESS")
+}
+
 // TestDuplicateKeyfilesRejected verifies that encryption fails when
 // duplicate keyfiles would cause XOR cancellation (zero key).
 func TestDuplicateKeyfilesRejected(t *testing.T) {

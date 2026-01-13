@@ -49,22 +49,23 @@ func readPasswordSecure(prompt string) (string, error) {
 
 // ReadPasswordInteractive prompts for password interactively.
 // If confirm is true, asks for confirmation (for encryption).
-func ReadPasswordInteractive(confirm bool) (string, error) {
+// If allowEmpty is true, empty password is allowed (useful when keyfiles provide credentials).
+func ReadPasswordInteractive(confirm, allowEmpty bool) (string, error) {
 	password, err := readPasswordSecure("Password: ")
 	if err != nil {
 		return "", err
 	}
 
-	if password == "" {
+	if password == "" && !allowEmpty {
 		return "", ErrPasswordEmpty
 	}
 
-	if confirm {
-		confirm, err := readPasswordSecure("Confirm password: ")
+	if confirm && password != "" {
+		confirmPw, err := readPasswordSecure("Confirm password: ")
 		if err != nil {
 			return "", err
 		}
-		if password != confirm {
+		if password != confirmPw {
 			return "", ErrPasswordMismatch
 		}
 	}
