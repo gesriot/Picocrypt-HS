@@ -15,23 +15,38 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func init() {
+	// Silence Cobra's default error/usage printing - we handle it ourselves
+	encryptCmd.SilenceErrors = true
+	encryptCmd.SilenceUsage = true
+}
+
 var encryptCmd = &cobra.Command{
 	Use:   "encrypt",
 	Short: "Encrypt files into a .pcv volume",
 	Long: `Encrypt one or more files into a Picocrypt volume (.pcv).
 
+If no password is provided, you will be prompted to enter one interactively
+(with confirmation). The password is hidden while typing.
+
 Examples:
-  # Encrypt a single file with a password
+  # Encrypt interactively (prompts for password)
+  Picocrypt-NG encrypt -i secret.txt -o secret.pcv
+
+  # Encrypt with password on command line (visible in shell history)
   Picocrypt-NG encrypt -i secret.txt -o secret.pcv -p "mypassword"
 
   # Encrypt multiple files (creates zip archive internally)
-  Picocrypt-NG encrypt -i file1.txt -i file2.txt -o archive.pcv -p "mypassword"
+  Picocrypt-NG encrypt -i file1.txt -i file2.txt -o archive.pcv
 
   # Encrypt with paranoid mode and Reed-Solomon error correction
-  Picocrypt-NG encrypt -i data.db -o data.pcv -p "mypassword" --paranoid --reed-solomon
+  Picocrypt-NG encrypt -i data.db -o data.pcv --paranoid --reed-solomon
 
-  # Encrypt with keyfile
-  Picocrypt-NG encrypt -i secret.txt -o secret.pcv -p "mypassword" -k keyfile.key
+  # Encrypt with keyfile (prompts for password, can leave empty for keyfile-only)
+  Picocrypt-NG encrypt -i secret.txt -o secret.pcv -k keyfile.key
+
+  # Encrypt with keyfile only (no password)
+  Picocrypt-NG encrypt -i secret.txt -o secret.pcv -k keyfile.key -p ""
 
   # Read password from stdin (for scripts)
   echo "mypassword" | Picocrypt-NG encrypt -i secret.txt -o secret.pcv -P`,
@@ -174,18 +189,23 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	// Get password
 	password := encPassword
 	if encPasswordStdin {
-		reader := bufio.NewReader(os.Stdin)
-		pw, err := reader.ReadString('\n')
+		var err error
+		password, err = ReadPasswordFromStdin()
 		if err != nil {
-			return fmt.Errorf("reading password from stdin: %w", err)
+			return err
 		}
-		password = strings.TrimSuffix(pw, "\n")
-		password = strings.TrimSuffix(password, "\r")
-	}
-
-	// Validate credentials
-	if password == "" && len(encKeyfiles) == 0 {
-		return fmt.Errorf("password (-p) or keyfile (-k) is required")
+	} else if password == "" {
+		// Prompt for password interactively
+		// Allow empty password only if keyfiles are provided
+		hasKeyfiles := len(encKeyfiles) > 0
+		if hasKeyfiles {
+			fmt.Fprintln(os.Stderr, "Keyfiles provided. Press Enter for keyfile-only encryption, or enter a password.")
+		}
+		var err error
+		password, err = ReadPasswordInteractive(true, hasKeyfiles) // confirm=true, allowEmpty=hasKeyfiles
+		if err != nil {
+			return fmt.Errorf("password input: %w", err)
+		}
 	}
 
 	// Validate keyfiles exist

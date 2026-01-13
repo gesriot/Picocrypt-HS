@@ -92,7 +92,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v6
       with:
-        name: build-linux
+        name: pr-test-build-linux-ONLY-FOR-TESTING
         path: |
           Picocrypt-NG
           Picocrypt-NG-cli

@@ -103,19 +103,6 @@ jobs:
         if-no-files-found: error
         compression-level: 9
 
-    - name: Extract changelog for current version
-      run: |
-        VERSION=$(cat VERSION | tr -d '[:space:]')
-        # Extract content between current version header and next version header
-        CHANGELOG=$(awk "/^# v${VERSION}\$/,/^# v/{if(/^# v${VERSION}\$/){next} if(/^# v/){exit} print}" Changelog.md | sed 's/$/\\n/' | tr -d '\n' | sed 's/\\n$//')
-        if [ -z "$CHANGELOG" ]; then
-          CHANGELOG="No changelog entry found for version $VERSION"
-        fi
-        # Escape for GitHub Actions
-        echo "CHANGELOG<<EOF" >> $GITHUB_ENV
-        echo "$CHANGELOG" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
-
     - name: Generate checksums
       run: |
         echo "CHECKSUM_PICOCRYPT_NG=$(sha256sum Picocrypt-NG | cut -d ' ' -f1)" >> $GITHUB_ENV
@@ -133,14 +120,6 @@ jobs:
         make_latest: true
         append_body: true
         body: |
-          # Changelog
-
-          ${{ env.CHANGELOG }}
-
-          ---
-
-          ## Downloads
-
           **Linux:**
           `sha256(Picocrypt-NG)      ${{ env.CHECKSUM_PICOCRYPT_NG }}`
           `sha256(Picocrypt-NG-cli)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI }}`

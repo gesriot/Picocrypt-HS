@@ -90,6 +90,24 @@ Plausible deniability in Picocrypt NG is achieved by simply re-encrypting the vo
 [argon2 salt][xchacha20 nonce][encrypted stream of bytes]
 ```
 
+**Security Note:** The deniability layer intentionally uses unauthenticated encryption (XChaCha20 without a MAC). Adding authentication would defeat the purpose of deniability, as the MAC would be identifiable metadata. The inner volume remains fully authenticated, so data integrity is still protected.
+
+# Security Considerations
+
+## CLI Password Input
+
+The CLI provides three methods for password input:
+
+1. **Interactive (recommended)**: Omit `-p` and `-P` flags. The password is entered without echo and won't appear in shell history.
+2. **Stdin (`-P`)**: For scripted use. Pipe password via stdin: `echo "pw" | picocrypt -P ...`
+3. **Command-line (`-p`)**: **Warning**: The password will be visible in shell history, process listings (`ps`), and potentially system logs. Only use in environments where shell history is disabled or for testing.
+
+For maximum security, prefer interactive prompts or stdin piping.
+
+## Memory Handling
+
+Picocrypt NG zeros sensitive key material after use via `crypto.SecureZero()`. This uses constant-time operations to prevent compiler optimization from removing the zeroing. However, Go's garbage collector may create copies of sensitive data that cannot be zeroed. This is an inherent limitation of garbage-collected languages. For most threat models, the implemented zeroing significantly reduces the attack window.
+
 # Code Structure
 
 Picocrypt NG v2.00+ has been refactored into a modular architecture. The codebase is organized as follows:
