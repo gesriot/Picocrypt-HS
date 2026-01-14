@@ -217,6 +217,11 @@ func CreateZip(opts ZipOptions) error {
 		header.Name = strings.TrimPrefix(path, opts.RootDir)
 		header.Name = filepath.ToSlash(header.Name)
 		header.Name = strings.TrimPrefix(header.Name, "/")
+		rel, err := filepath.Rel(opts.RootDir, path)
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(rel)
 
 		if opts.Compress {
 			header.Method = zip.Deflate
