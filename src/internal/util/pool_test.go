@@ -21,7 +21,7 @@ func TestBufferPool(t *testing.T) {
 	// Put buffer back
 	pool.Put(buf)
 
-	// Get buffer again - should be zeroed
+	// Get buffer again - should be zeroed (buffers may hold plaintext)
 	buf2 := pool.Get()
 	for i, v := range buf2 {
 		if v != 0 {

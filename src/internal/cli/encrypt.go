@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,7 +180,10 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(outputFile); err == nil && !encYes {
 		fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
 		reader := bufio.NewReader(os.Stdin)
-		response, _ := reader.ReadString('\n')
+		response, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("reading confirmation: %w", err)
+		}
 		response = strings.TrimSpace(strings.ToLower(response))
 		if response != "y" && response != "yes" {
 			return fmt.Errorf("operation cancelled")
@@ -248,7 +252,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	// Create reporter
 	reporter := NewReporter(encQuiet)
-	globalReporter = reporter
+	globalReporter.Store(reporter)
 
 	// Build request
 	req := &volume.EncryptRequest{

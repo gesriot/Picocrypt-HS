@@ -92,6 +92,8 @@ func Process(paths []string, ordered bool, progress ProgressFunc) (*Result, erro
 func processOrdered(paths []string, totalSize int64, progress ProgressFunc) ([]byte, error) {
 	hasher := sha3.New256()
 	var done int64
+	buf := make([]byte, util.MiB)
+	defer crypto.SecureZero(buf)
 
 	for _, path := range paths {
 		fin, err := os.Open(path)
@@ -99,7 +101,6 @@ func processOrdered(paths []string, totalSize int64, progress ProgressFunc) ([]b
 			return nil, err
 		}
 
-		buf := make([]byte, util.MiB)
 		for {
 			n, err := fin.Read(buf)
 			if err == io.EOF {
@@ -135,6 +136,8 @@ func processOrdered(paths []string, totalSize int64, progress ProgressFunc) ([]b
 func processUnordered(paths []string, totalSize int64, progress ProgressFunc) ([]byte, error) {
 	var combinedKey []byte
 	var done int64
+	buf := make([]byte, util.MiB)
+	defer crypto.SecureZero(buf)
 
 	for _, path := range paths {
 		fin, err := os.Open(path)
@@ -143,7 +146,6 @@ func processUnordered(paths []string, totalSize int64, progress ProgressFunc) ([
 		}
 
 		hasher := sha3.New256()
-		buf := make([]byte, util.MiB)
 		for {
 			n, err := fin.Read(buf)
 			if err == io.EOF {

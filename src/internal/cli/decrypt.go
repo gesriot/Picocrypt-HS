@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -146,7 +147,10 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(outputFile); err == nil && !decYes {
 		fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
 		reader := bufio.NewReader(os.Stdin)
-		response, _ := reader.ReadString('\n')
+		response, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("reading confirmation: %w", err)
+		}
 		response = strings.TrimSpace(strings.ToLower(response))
 		if response != "y" && response != "yes" {
 			return fmt.Errorf("operation cancelled")
@@ -217,7 +221,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// Create reporter
 	reporter := NewReporter(decQuiet)
-	globalReporter = reporter
+	globalReporter.Store(reporter)
 
 	// Build request
 	var kept bool

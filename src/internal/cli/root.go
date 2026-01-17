@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -25,8 +26,8 @@ var rootCmd = &cobra.Command{
 	Version: Version,
 }
 
-// Global reporter for signal handling
-var globalReporter *Reporter
+// Global reporter for signal handling (atomic for safe concurrent access)
+var globalReporter atomic.Pointer[Reporter]
 
 // Execute runs the CLI application.
 // Returns true if CLI mode was activated, false if GUI should run instead.
@@ -50,8 +51,8 @@ func Execute(version string) bool {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		if globalReporter != nil {
-			globalReporter.Cancel()
+		if r := globalReporter.Load(); r != nil {
+			r.Cancel()
 			fmt.Fprintln(os.Stderr, "\nCancelling operation...")
 		} else {
 			os.Exit(1)
@@ -59,6 +60,7 @@ func Execute(version string) bool {
 	}()
 
 	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 	return true
