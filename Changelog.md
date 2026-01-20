@@ -1,3 +1,12 @@
+# v2.05
+<ul>
+	<li>✓ Stdin/stdout streaming support (<code>-i -</code> and <code>-o -</code>) for pipeline automation</li>
+	<li>✓ Fixed data race in signal handler using atomic pointer</li>
+	<li>✓ Improved buffer security: zero-page copy for plaintext safety, SecureZero for keyfile buffers</li>
+	<li>✓ Better error handling: display errors before exit, handle EOF in interactive input</li>
+	<li>✓ Fixed test compatibility on Windows (binary naming, file permissions)</li>
+</ul>
+
 # v2.04
 <ul>
 	<li>✓ Added comprehensive CLI documentation (CLI.md)</li>
