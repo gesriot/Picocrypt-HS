@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -18,7 +19,11 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 	// Build CLI binary
 	tmpDir := t.TempDir()
-	binaryPath := filepath.Join(tmpDir, "picocrypt-test")
+	binaryName := "picocrypt-test"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(tmpDir, binaryName)
 
 	// Get absolute path to src directory (parent of internal/cli)
 	srcDir, err := filepath.Abs(filepath.Join("..", ".."))
@@ -339,7 +344,11 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 
 	// Build CLI binary
 	tmpDir := t.TempDir()
-	binaryPath := filepath.Join(tmpDir, "picocrypt-test")
+	binaryName := "picocrypt-test"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(tmpDir, binaryName)
 
 	srcDir, err := filepath.Abs("../..")
 	if err != nil {
