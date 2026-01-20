@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -83,7 +84,8 @@ func TestBufferStdinToTemp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp file not found: %v", err)
 	}
-	if info.Mode().Perm() != 0600 {
+	// Windows doesn't support Unix-style permissions
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
 	}
 
@@ -174,7 +176,8 @@ func TestCreateTempOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("temp file not found: %v", err)
 	}
-	if info.Mode().Perm() != 0600 {
+	// Windows doesn't support Unix-style permissions
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
 	}
 
