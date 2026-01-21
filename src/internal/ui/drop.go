@@ -122,19 +122,10 @@ func (a *App) onDrop(names []string) {
 					})
 					return err
 				}
-				stat, err := os.Stat(path)
-				if err != nil {
-					fyne.Do(func() {
-						a.resetUI()
-						a.State.MainStatus = "Failed to walk through dropped items"
-						a.State.MainStatusColor = util.RED
-						a.refreshUI()
-					})
-					return err
-				}
-				// If 'path' is a valid file path, add to 'allFiles'
-				if !stat.IsDir() {
-					fileSize := stat.Size()
+				// If 'path' is a valid regular file, add to 'allFiles'
+				// Use info.Mode().IsRegular() to skip symlinks, devices, pipes, sockets
+				if info.Mode().IsRegular() {
+					fileSize := info.Size()
 					fyne.Do(func() {
 						a.State.AllFiles = append(a.State.AllFiles, path)
 						a.State.CompressTotal += fileSize

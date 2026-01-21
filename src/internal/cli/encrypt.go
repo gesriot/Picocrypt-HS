@@ -77,8 +77,9 @@ var (
 	encSplit         bool
 	encSplitSize     int
 	encSplitUnit     string
-	encQuiet         bool
-	encYes           bool
+	encQuiet          bool
+	encYes            bool
+	encFollowSymlinks bool
 )
 
 func init() {
@@ -109,6 +110,7 @@ func init() {
 	// Other
 	encryptCmd.Flags().BoolVarP(&encQuiet, "quiet", "q", false, "Suppress progress output")
 	encryptCmd.Flags().BoolVarP(&encYes, "yes", "y", false, "Overwrite output file without prompting")
+	encryptCmd.Flags().BoolVar(&encFollowSymlinks, "follow-symlinks", false, "Follow symlinks to regular files")
 
 	// Mark required
 	_ = encryptCmd.MarkFlagRequired("input")
@@ -196,7 +198,19 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 						if err != nil {
 							return err
 						}
-						if !info.IsDir() {
+						mode := info.Mode()
+						if mode.IsRegular() {
+							allFiles = append(allFiles, path)
+						} else if encFollowSymlinks && mode&os.ModeSymlink != 0 {
+							// Follow symlink if flag set
+							target, err := filepath.EvalSymlinks(path)
+							if err != nil {
+								return nil // skip broken symlinks
+							}
+							targetInfo, err := os.Stat(target)
+							if err != nil || !targetInfo.Mode().IsRegular() {
+								return nil // skip symlinks to dirs/special files
+							}
 							allFiles = append(allFiles, path)
 						}
 						return nil
@@ -242,16 +256,21 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	// Check if output exists (skip for stdout)
 	if !useStdout {
-		if _, err := os.Stat(outputFile); err == nil && !encYes {
-			fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
-			reader := bufio.NewReader(os.Stdin)
-			response, err := reader.ReadString('\n')
-			if err != nil && err != io.EOF {
-				return fmt.Errorf("reading confirmation: %w", err)
+		if info, err := os.Stat(outputFile); err == nil {
+			if info.IsDir() {
+				return fmt.Errorf("output path is a directory: %s", outputFile)
 			}
-			response = strings.TrimSpace(strings.ToLower(response))
-			if response != "y" && response != "yes" {
-				return fmt.Errorf("operation cancelled")
+			if !encYes {
+				fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
+				reader := bufio.NewReader(os.Stdin)
+				response, err := reader.ReadString('\n')
+				if err != nil && err != io.EOF {
+					return fmt.Errorf("reading confirmation: %w", err)
+				}
+				response = strings.TrimSpace(strings.ToLower(response))
+				if response != "y" && response != "yes" {
+					return fmt.Errorf("operation cancelled")
+				}
 			}
 		}
 	}
