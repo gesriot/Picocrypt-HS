@@ -467,3 +467,203 @@ func TestVersionFlag(t *testing.T) {
 		t.Errorf("expected version v1.0.0, got %s", rootCmd.Version)
 	}
 }
+
+func TestEncryptStdinValidation(t *testing.T) {
+	t.Run("stdin with password stdin conflict", func(t *testing.T) {
+		encInput = []string{"-"}
+		encOutput = "test.pcv"
+		encPassword = ""
+		encPasswordStdin = true
+		encKeyfiles = nil
+		encSplit = false
+		encDeniability = false
+
+		cmd := encryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdin with -P conflict")
+		}
+		if !strings.Contains(err.Error(), "cannot use -P") {
+			t.Errorf("error should mention -P conflict: %v", err)
+		}
+
+		// Reset
+		encPasswordStdin = false
+	})
+
+	t.Run("stdin with multiple inputs conflict", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "test.txt")
+		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		encInput = []string{"-", tmpFile}
+		encOutput = "test.pcv"
+		encPassword = "test"
+
+		cmd := encryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdin with multiple inputs")
+		}
+		if !strings.Contains(err.Error(), "cannot be combined") {
+			t.Errorf("error should mention cannot be combined: %v", err)
+		}
+	})
+
+	t.Run("stdin/stdout with split conflict", func(t *testing.T) {
+		encInput = []string{"-"}
+		encOutput = "test.pcv"
+		encPassword = "test"
+		encPasswordStdin = false
+		encSplit = true
+		encSplitSize = 10
+		encSplitUnit = "MiB"
+
+		cmd := encryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdin with --split")
+		}
+		if !strings.Contains(err.Error(), "not compatible with --split") {
+			t.Errorf("error should mention --split incompatibility: %v", err)
+		}
+
+		// Reset
+		encSplit = false
+		encSplitSize = 0
+	})
+
+	t.Run("stdout with split conflict", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "test.txt")
+		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		encInput = []string{tmpFile}
+		encOutput = "-"
+		encPassword = "test"
+		encSplit = true
+		encSplitSize = 10
+		encSplitUnit = "MiB"
+
+		cmd := encryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdout with --split")
+		}
+		if !strings.Contains(err.Error(), "not compatible with --split") {
+			t.Errorf("error should mention --split incompatibility: %v", err)
+		}
+
+		// Reset
+		encSplit = false
+		encSplitSize = 0
+	})
+
+	t.Run("stdin with deniability conflict", func(t *testing.T) {
+		encInput = []string{"-"}
+		encOutput = "test.pcv"
+		encPassword = "test"
+		encDeniability = true
+
+		cmd := encryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdin with --deniability")
+		}
+		if !strings.Contains(err.Error(), "not compatible with --deniability") {
+			t.Errorf("error should mention --deniability incompatibility: %v", err)
+		}
+
+		// Reset
+		encDeniability = false
+	})
+}
+
+func TestDecryptStdinValidation(t *testing.T) {
+	t.Run("stdin with password stdin conflict", func(t *testing.T) {
+		decInput = "-"
+		decOutput = "test.txt"
+		decPassword = ""
+		decPasswordStdin = true
+		decKeyfiles = nil
+		decRecombine = false
+		decDeniability = false
+		decAutoUnzip = false
+
+		cmd := decryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdin with -P conflict")
+		}
+		if !strings.Contains(err.Error(), "cannot use -P") {
+			t.Errorf("error should mention -P conflict: %v", err)
+		}
+
+		// Reset
+		decPasswordStdin = false
+	})
+
+	t.Run("stdin with recombine conflict", func(t *testing.T) {
+		decInput = "-"
+		decOutput = "test.txt"
+		decPassword = "test"
+		decRecombine = true
+
+		cmd := decryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdin with --recombine")
+		}
+		if !strings.Contains(err.Error(), "not compatible with --recombine") {
+			t.Errorf("error should mention --recombine incompatibility: %v", err)
+		}
+
+		// Reset
+		decRecombine = false
+	})
+
+	t.Run("stdin with deniability conflict", func(t *testing.T) {
+		decInput = "-"
+		decOutput = "test.txt"
+		decPassword = "test"
+		decDeniability = true
+
+		cmd := decryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdin with --deniability")
+		}
+		if !strings.Contains(err.Error(), "not compatible with --deniability") {
+			t.Errorf("error should mention --deniability incompatibility: %v", err)
+		}
+
+		// Reset
+		decDeniability = false
+	})
+
+	t.Run("stdout with auto-unzip conflict", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "test.pcv")
+		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		decInput = tmpFile
+		decOutput = "-"
+		decPassword = "test"
+		decAutoUnzip = true
+
+		cmd := decryptCmd
+		err := cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Error("expected error for stdout with --auto-unzip")
+		}
+		if !strings.Contains(err.Error(), "not compatible with --auto-unzip") {
+			t.Errorf("error should mention --auto-unzip incompatibility: %v", err)
+		}
+
+		// Reset
+		decAutoUnzip = false
+	})
+}

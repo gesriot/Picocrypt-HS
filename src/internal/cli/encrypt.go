@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"Picocrypt-NG/internal/encoding"
@@ -49,7 +51,13 @@ Examples:
   Picocrypt-NG encrypt -i secret.txt -o secret.pcv -k keyfile.key -p ""
 
   # Read password from stdin (for scripts)
-  echo "mypassword" | Picocrypt-NG encrypt -i secret.txt -o secret.pcv -P`,
+  echo "mypassword" | Picocrypt-NG encrypt -i secret.txt -o secret.pcv -P
+
+  # Encrypt from stdin to stdout (use -p since stdin is taken by data)
+  cat data.txt | Picocrypt-NG encrypt -i - -o - -p "pw" > data.pcv
+
+  # Encrypt to stdout
+  Picocrypt-NG encrypt -i secret.txt -o - -p "pw" > secret.pcv`,
 	RunE: runEncrypt,
 }
 
@@ -112,45 +120,94 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("at least one input file is required (-i)")
 	}
 
+	// Check for stdin/stdout
+	useStdout := IsStdout(encOutput)
+
+	// Check if any input is stdin
+	hasStdinInput := slices.ContainsFunc(encInput, IsStdin)
+	useStdin := len(encInput) == 1 && hasStdinInput
+
+	// Validate stdin/stdout constraints
+	if hasStdinInput && len(encInput) > 1 {
+		return fmt.Errorf("stdin (-i -) cannot be combined with other input files")
+	}
+	if useStdin && encPasswordStdin {
+		return fmt.Errorf("cannot use -P (password from stdin) with -i - (input from stdin)")
+	}
+	if (useStdin || useStdout) && encSplit {
+		return fmt.Errorf("stdin/stdout not compatible with --split")
+	}
+	if (useStdin || useStdout) && encDeniability {
+		return fmt.Errorf("stdin/stdout not compatible with --deniability")
+	}
+
+	// Auto-quiet when outputting to stdout (avoid mixing progress with data)
+	if useStdout {
+		encQuiet = true
+	}
+
+	// Track temp files for cleanup
+	var stdinTempFile string
+	var stdoutTempFile string
+	defer func() {
+		if stdinTempFile != "" {
+			os.Remove(stdinTempFile)
+		}
+		if stdoutTempFile != "" {
+			os.Remove(stdoutTempFile)
+		}
+	}()
+
 	// Check input files exist
 	var allFiles []string
 	var onlyFiles []string
 	var onlyFolders []string
 
-	for _, input := range encInput {
-		// Expand glob patterns
-		matches, err := filepath.Glob(input)
+	// Handle stdin input
+	if useStdin {
+		var err error
+		stdinTempFile, err = BufferStdinToTemp()
 		if err != nil {
-			return fmt.Errorf("invalid glob pattern %q: %w", input, err)
+			return fmt.Errorf("buffering stdin: %w", err)
 		}
-		if len(matches) == 0 {
-			return fmt.Errorf("input file not found: %s", input)
-		}
-
-		for _, match := range matches {
-			info, err := os.Stat(match)
+		allFiles = []string{stdinTempFile}
+		onlyFiles = []string{stdinTempFile}
+	} else {
+		for _, input := range encInput {
+			// Expand glob patterns
+			matches, err := filepath.Glob(input)
 			if err != nil {
-				return fmt.Errorf("cannot access %s: %w", match, err)
+				return fmt.Errorf("invalid glob pattern %q: %w", input, err)
+			}
+			if len(matches) == 0 {
+				return fmt.Errorf("input file not found: %s", input)
 			}
 
-			if info.IsDir() {
-				onlyFolders = append(onlyFolders, match)
-				// Walk directory to get all files
-				err := filepath.Walk(match, func(path string, info os.FileInfo, err error) error {
-					if err != nil {
-						return err
-					}
-					if !info.IsDir() {
-						allFiles = append(allFiles, path)
-					}
-					return nil
-				})
+			for _, match := range matches {
+				info, err := os.Stat(match)
 				if err != nil {
-					return fmt.Errorf("walking directory %s: %w", match, err)
+					return fmt.Errorf("cannot access %s: %w", match, err)
 				}
-			} else {
-				onlyFiles = append(onlyFiles, match)
-				allFiles = append(allFiles, match)
+
+				if info.IsDir() {
+					onlyFolders = append(onlyFolders, match)
+					// Walk directory to get all files
+					err := filepath.Walk(match, func(path string, info os.FileInfo, err error) error {
+						if err != nil {
+							return err
+						}
+						if !info.IsDir() {
+							allFiles = append(allFiles, path)
+						}
+						return nil
+					})
+					if err != nil {
+						return fmt.Errorf("walking directory %s: %w", match, err)
+					}
+				} else {
+					onlyFiles = append(onlyFiles, match)
+					allFiles = append(allFiles, match)
+				}
 			}
 		}
 	}
@@ -161,28 +218,41 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	// Determine output file
 	outputFile := encOutput
-	if outputFile == "" {
+	if useStdout {
+		// Create temp file for stdout output
+		var err error
+		stdoutTempFile, err = CreateTempOutput()
+		if err != nil {
+			return fmt.Errorf("creating temp output: %w", err)
+		}
+		outputFile = stdoutTempFile
+	} else if outputFile == "" {
 		// Auto-generate output name
-		if len(encInput) == 1 {
+		if len(encInput) == 1 && !useStdin {
 			outputFile = encInput[0] + ".pcv"
 		} else {
 			outputFile = "encrypted.pcv"
 		}
 	}
 
-	// Add .pcv extension if missing
-	if !strings.HasSuffix(outputFile, ".pcv") {
+	// Add .pcv extension if missing (not for stdout temp)
+	if !useStdout && !strings.HasSuffix(outputFile, ".pcv") {
 		outputFile += ".pcv"
 	}
 
-	// Check if output exists
-	if _, err := os.Stat(outputFile); err == nil && !encYes {
-		fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
-		reader := bufio.NewReader(os.Stdin)
-		response, _ := reader.ReadString('\n')
-		response = strings.TrimSpace(strings.ToLower(response))
-		if response != "y" && response != "yes" {
-			return fmt.Errorf("operation cancelled")
+	// Check if output exists (skip for stdout)
+	if !useStdout {
+		if _, err := os.Stat(outputFile); err == nil && !encYes {
+			fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
+			reader := bufio.NewReader(os.Stdin)
+			response, err := reader.ReadString('\n')
+			if err != nil && err != io.EOF {
+				return fmt.Errorf("reading confirmation: %w", err)
+			}
+			response = strings.TrimSpace(strings.ToLower(response))
+			if response != "y" && response != "yes" {
+				return fmt.Errorf("operation cancelled")
+			}
 		}
 	}
 
@@ -248,7 +318,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	// Create reporter
 	reporter := NewReporter(encQuiet)
-	globalReporter = reporter
+	globalReporter.Store(reporter)
 
 	// Build request
 	req := &volume.EncryptRequest{
@@ -273,7 +343,15 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	// Print info
 	if !encQuiet {
-		fmt.Fprintf(os.Stderr, "Encrypting %d file(s) to %s\n", len(allFiles), outputFile)
+		destName := outputFile
+		if useStdout {
+			destName = "stdout"
+		}
+		srcName := fmt.Sprintf("%d file(s)", len(allFiles))
+		if useStdin {
+			srcName = "stdin"
+		}
+		fmt.Fprintf(os.Stderr, "Encrypting %s to %s\n", srcName, destName)
 		if encParanoid {
 			fmt.Fprintln(os.Stderr, "Mode: Paranoid (Serpent-CTR + XChaCha20, HMAC-SHA3)")
 		}
@@ -292,10 +370,20 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		reporter.PrintError("%v", err)
-		// Clean up partial output on error
-		_ = os.Remove(outputFile)
-		_ = os.Remove(outputFile + ".incomplete")
+		// Clean up partial output on error (temp files cleaned by defer)
+		if !useStdout {
+			_ = os.Remove(outputFile)
+			_ = os.Remove(outputFile + ".incomplete")
+		}
 		return err
+	}
+
+	// Stream to stdout if requested
+	if useStdout {
+		if err := StreamFileToStdout(outputFile); err != nil {
+			return fmt.Errorf("streaming to stdout: %w", err)
+		}
+		return nil
 	}
 
 	reporter.PrintSuccess("Encryption completed successfully: %s", outputFile)

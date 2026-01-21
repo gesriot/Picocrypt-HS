@@ -11,6 +11,7 @@ This document provides comprehensive usage instructions for the Picocrypt NG com
   - [Encrypt](#encrypt-command)
   - [Decrypt](#decrypt-command)
 - [Usage Examples](#usage-examples)
+- [Stdin/Stdout Streaming](#stdinstdout-streaming)
 - [Scripting Guide](#scripting-guide)
 - [Exit Codes](#exit-codes)
 - [Troubleshooting](#troubleshooting)
@@ -258,6 +259,65 @@ picocrypt decrypt -i damaged.pcv -p "password" --force
 picocrypt decrypt -i innocent.pcv -p "real-password" --deniability
 ```
 
+## Stdin/Stdout Streaming
+
+Use `-` as the filename for stdin/stdout to enable full pipeline automation. This allows encrypting data from pipes and streaming encrypted output without intermediate files.
+
+### Basic Streaming
+
+```bash
+# Encrypt from stdin to file
+cat document.txt | picocrypt encrypt -i - -o document.pcv -p "password"
+
+# Encrypt file to stdout
+picocrypt encrypt -i document.txt -o - -p "password" > document.pcv
+
+# Full pipeline: stdin to stdout
+cat secret.txt | picocrypt encrypt -i - -o - -p "password" > secret.pcv
+
+# Decrypt from stdin
+curl https://example.com/file.pcv | picocrypt decrypt -i - -o file.txt -p "password"
+
+# Decrypt to stdout
+picocrypt decrypt -i secret.pcv -o - -p "password" | less
+
+# Round-trip pipeline
+echo "secret data" | picocrypt encrypt -i - -o - -p "pw" | picocrypt decrypt -i - -o - -p "pw"
+```
+
+### Pipeline Examples
+
+```bash
+# Encrypt and upload in one pipeline
+tar czf - /home/user/documents | picocrypt encrypt -i - -o - -p "password" | \
+    curl -X PUT -T - https://storage.example.com/backup.pcv
+
+# Download, decrypt, and extract
+curl -s https://storage.example.com/backup.pcv | \
+    picocrypt decrypt -i - -o - -p "password" | tar xzf -
+
+# Encrypt database dump directly
+pg_dump mydb | picocrypt encrypt -i - -o - -p "password" > mydb.pcv
+
+# Stream decrypt to database restore
+picocrypt decrypt -i mydb.pcv -o - -p "password" | psql mydb
+```
+
+### Constraints
+
+Stdin/stdout streaming has the following limitations:
+
+| Constraint | Reason |
+|------------|--------|
+| `-i -` cannot combine with `-P` | Both use stdin |
+| `-i -` cannot combine with multiple `-i` flags | Stdin is single input |
+| `-o -` cannot combine with `--split` | Cannot split stdout |
+| `-i -` / `-o -` cannot combine with `--deniability` | Requires file manipulation |
+| `-o -` cannot combine with `--auto-unzip` (decrypt) | Cannot extract to stdout |
+| `-o -` cannot combine with `--recombine` (decrypt) | Requires file access |
+
+**Note:** When using `-o -`, progress output is automatically suppressed (quiet mode) to avoid mixing progress with encrypted data.
+
 ## Scripting Guide
 
 ### Reading Password from Stdin
@@ -340,10 +400,25 @@ PASSWORD=$(cat "$PASSWORD_FILE")
 
 # Create encrypted backup with Reed-Solomon protection
 tar czf - /home/user/documents | \
-    picocrypt encrypt -i /dev/stdin -o "$BACKUP_DIR/backup-$DATE.pcv" \
-    -P --reed-solomon --paranoid -q <<< "$PASSWORD"
+    picocrypt encrypt -i - -o "$BACKUP_DIR/backup-$DATE.pcv" \
+    -p "$PASSWORD" --reed-solomon --paranoid -q
 
 echo "Backup completed: backup-$DATE.pcv"
+```
+
+### Streaming Backup Example
+
+```bash
+#!/bin/bash
+# Encrypt and stream directly to remote storage
+
+PASSWORD="$BACKUP_PASSWORD"
+DATE=$(date +%Y%m%d)
+
+# Backup to stdout, pipe to remote storage
+tar czf - /home/user/documents | \
+    picocrypt encrypt -i - -o - -p "$PASSWORD" --reed-solomon -q | \
+    aws s3 cp - "s3://my-bucket/backups/backup-$DATE.pcv"
 ```
 
 ## Exit Codes
@@ -390,7 +465,7 @@ Ensure all chunk files are in the same directory before decryption.
 
 ## Version
 
-This documentation applies to Picocrypt NG v2.04 and later.
+This documentation applies to Picocrypt NG v2.05 and later.
 
 ## See Also
 

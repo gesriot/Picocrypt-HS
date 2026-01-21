@@ -5,8 +5,8 @@ import (
 )
 
 // BufferPool provides reusable byte buffers to reduce GC pressure
-// during large file operations. Buffers are securely zeroed before
-// being returned to the pool.
+// during large file operations. Buffers are zeroed before returning
+// to pool because they may hold plaintext during encrypt/decrypt.
 type BufferPool struct {
 	pool sync.Pool
 	size int
@@ -26,29 +26,28 @@ func NewBufferPool(size int) *BufferPool {
 }
 
 // Get retrieves a buffer from the pool.
-// The buffer contents are undefined and should be overwritten.
+// The buffer is zeroed but callers should overwrite entirely.
 func (p *BufferPool) Get() []byte {
 	return *p.pool.Get().(*[]byte)
 }
 
-// Put returns a buffer to the pool after securely zeroing it.
+// zeroPage is a static zero buffer used for zeroing via copy().
+// copy() has observable side effects the compiler must preserve.
+var zeroPage [4096]byte
+
+// Put returns a buffer to the pool after zeroing it.
 // The buffer should not be used after calling Put.
 func (p *BufferPool) Put(b []byte) {
 	if len(b) != p.size {
 		// Don't return mismatched buffers to avoid corruption
 		return
 	}
-	// Secure zero before returning to pool
-	secureZeroBytes(b)
-	p.pool.Put(&b)
-}
-
-// secureZeroBytes zeros a byte slice in a way that won't be optimized away.
-// This is a simplified version - the full SecureZero is in crypto package.
-func secureZeroBytes(b []byte) {
-	for i := range b {
-		b[i] = 0
+	// Zero before returning - buffers may contain plaintext.
+	// Uses copy() which has observable effects compiler must preserve.
+	for i := 0; i < len(b); i += len(zeroPage) {
+		copy(b[i:], zeroPage[:])
 	}
+	p.pool.Put(&b)
 }
 
 // Default buffer pools for common sizes

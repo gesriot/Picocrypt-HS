@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -48,7 +49,13 @@ Examples:
   Picocrypt-NG decrypt -i damaged.pcv --force
 
   # Read password from stdin (for scripts)
-  echo "mypassword" | Picocrypt-NG decrypt -i secret.pcv -P`,
+  echo "mypassword" | Picocrypt-NG decrypt -i secret.pcv -P
+
+  # Decrypt from stdin (use -p since stdin is taken by data)
+  curl https://example.com/file.pcv | Picocrypt-NG decrypt -i - -o file.txt -p "pw"
+
+  # Decrypt to stdout
+  Picocrypt-NG decrypt -i secret.pcv -o - -p "pw" | less`,
 	RunE: runDecrypt,
 }
 
@@ -105,16 +112,62 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("input file is required (-i)")
 	}
 
-	inputInfo, err := os.Stat(decInput)
-	if err != nil {
-		return fmt.Errorf("input file not found: %s", decInput)
+	// Check for stdin/stdout
+	useStdin := IsStdin(decInput)
+	useStdout := IsStdout(decOutput)
+
+	// Validate stdin/stdout constraints
+	if useStdin && decPasswordStdin {
+		return fmt.Errorf("cannot use -P (password from stdin) with -i - (input from stdin)")
 	}
-	if inputInfo.IsDir() {
-		return fmt.Errorf("input must be a file, not a directory: %s", decInput)
+	if useStdin && decRecombine {
+		return fmt.Errorf("stdin not compatible with --recombine")
+	}
+	if useStdin && decDeniability {
+		return fmt.Errorf("stdin not compatible with --deniability")
+	}
+	if useStdout && decAutoUnzip {
+		return fmt.Errorf("stdout not compatible with --auto-unzip")
 	}
 
-	// Check if this looks like a split volume
-	if strings.Contains(decInput, ".pcv.") && !decRecombine {
+	// Auto-quiet when outputting to stdout
+	if useStdout {
+		decQuiet = true
+	}
+
+	// Track temp files for cleanup
+	var stdinTempFile string
+	var stdoutTempFile string
+	defer func() {
+		if stdinTempFile != "" {
+			os.Remove(stdinTempFile)
+		}
+		if stdoutTempFile != "" {
+			os.Remove(stdoutTempFile)
+		}
+	}()
+
+	// Handle stdin input
+	inputFile := decInput
+	if useStdin {
+		var err error
+		stdinTempFile, err = BufferStdinToTemp()
+		if err != nil {
+			return fmt.Errorf("buffering stdin: %w", err)
+		}
+		inputFile = stdinTempFile
+	} else {
+		inputInfo, err := os.Stat(decInput)
+		if err != nil {
+			return fmt.Errorf("input file not found: %s", decInput)
+		}
+		if inputInfo.IsDir() {
+			return fmt.Errorf("input must be a file, not a directory: %s", decInput)
+		}
+	}
+
+	// Check if this looks like a split volume (skip for stdin)
+	if !useStdin && strings.Contains(decInput, ".pcv.") && !decRecombine {
 		// Check if it's a chunk file like .pcv.0, .pcv.1, etc.
 		ext := decInput[strings.LastIndex(decInput, ".pcv.")+5:]
 		if _, err := fmt.Sscanf(ext, "%d", new(int)); err == nil {
@@ -127,29 +180,46 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// Determine output file
 	outputFile := decOutput
-	if outputFile == "" {
-		// Auto-generate from input by removing .pcv extension
-		outputFile = strings.TrimSuffix(decInput, ".pcv")
-		if decRecombine {
-			// For split files like file.pcv.0, need to strip more
-			if idx := strings.LastIndex(outputFile, ".pcv."); idx > 0 {
-				outputFile = outputFile[:idx]
-			}
+	if useStdout {
+		// Create temp file for stdout output
+		var err error
+		stdoutTempFile, err = CreateTempOutput()
+		if err != nil {
+			return fmt.Errorf("creating temp output: %w", err)
 		}
-		// If we're left with the same name, add .decrypted
-		if outputFile == decInput {
-			outputFile = decInput + ".decrypted"
+		outputFile = stdoutTempFile
+	} else if outputFile == "" {
+		// Auto-generate from input by removing .pcv extension
+		if useStdin {
+			outputFile = "decrypted"
+		} else {
+			outputFile = strings.TrimSuffix(decInput, ".pcv")
+			if decRecombine {
+				// For split files like file.pcv.0, need to strip more
+				if idx := strings.LastIndex(outputFile, ".pcv."); idx > 0 {
+					outputFile = outputFile[:idx]
+				}
+			}
+			// If we're left with the same name, add .decrypted
+			if outputFile == decInput {
+				outputFile = decInput + ".decrypted"
+			}
 		}
 	}
 
-	// Check if output exists
-	if _, err := os.Stat(outputFile); err == nil && !decYes {
-		fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
-		reader := bufio.NewReader(os.Stdin)
-		response, _ := reader.ReadString('\n')
-		response = strings.TrimSpace(strings.ToLower(response))
-		if response != "y" && response != "yes" {
-			return fmt.Errorf("operation cancelled")
+	// Check if output exists (skip for stdout)
+	if !useStdout {
+		if _, err := os.Stat(outputFile); err == nil && !decYes {
+			fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
+			reader := bufio.NewReader(os.Stdin)
+			response, err := reader.ReadString('\n')
+			if err != nil && err != io.EOF {
+				return fmt.Errorf("reading confirmation: %w", err)
+			}
+			response = strings.TrimSpace(strings.ToLower(response))
+			if response != "y" && response != "yes" {
+				return fmt.Errorf("operation cancelled")
+			}
 		}
 	}
 
@@ -180,7 +250,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	// Note: with deniability, we can't read the header until wrapper is removed
 	var volumeUsesKeyfiles bool
 	if password == "" && !decDeniability {
-		hdr, err := readHeaderInfo(decInput, rsCodecs)
+		hdr, err := readHeaderInfo(inputFile, rsCodecs)
 		if err == nil {
 			volumeUsesKeyfiles = hdr.Flags.UseKeyfiles
 			if !decQuiet && volumeUsesKeyfiles && len(decKeyfiles) == 0 {
@@ -217,12 +287,12 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// Create reporter
 	reporter := NewReporter(decQuiet)
-	globalReporter = reporter
+	globalReporter.Store(reporter)
 
 	// Build request
 	var kept bool
 	req := &volume.DecryptRequest{
-		InputFile:    decInput,
+		InputFile:    inputFile,
 		OutputFile:   outputFile,
 		Password:     password,
 		Keyfiles:     decKeyfiles,
@@ -239,7 +309,11 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// Print info
 	if !decQuiet {
-		fmt.Fprintf(os.Stderr, "Decrypting %s\n", decInput)
+		srcName := decInput
+		if useStdin {
+			srcName = "stdin"
+		}
+		fmt.Fprintf(os.Stderr, "Decrypting %s\n", srcName)
 		if decVerifyFirst {
 			fmt.Fprintln(os.Stderr, "Mode: Verify-first (two-pass, slower but more secure)")
 		}
@@ -255,9 +329,19 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		reporter.PrintError("%v", err)
-		// Clean up partial output on error
-		_ = os.Remove(outputFile + ".incomplete")
+		// Clean up partial output on error (temp files cleaned by defer)
+		if !useStdout {
+			_ = os.Remove(outputFile + ".incomplete")
+		}
 		return err
+	}
+
+	// Stream to stdout if requested
+	if useStdout {
+		if err := StreamFileToStdout(outputFile); err != nil {
+			return fmt.Errorf("streaming to stdout: %w", err)
+		}
+		return nil
 	}
 
 	if kept {
