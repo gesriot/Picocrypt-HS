@@ -209,16 +209,21 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// Check if output exists (skip for stdout)
 	if !useStdout {
-		if _, err := os.Stat(outputFile); err == nil && !decYes {
-			fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
-			reader := bufio.NewReader(os.Stdin)
-			response, err := reader.ReadString('\n')
-			if err != nil && err != io.EOF {
-				return fmt.Errorf("reading confirmation: %w", err)
+		if info, err := os.Stat(outputFile); err == nil {
+			if info.IsDir() {
+				return fmt.Errorf("output path is a directory: %s", outputFile)
 			}
-			response = strings.TrimSpace(strings.ToLower(response))
-			if response != "y" && response != "yes" {
-				return fmt.Errorf("operation cancelled")
+			if !decYes {
+				fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
+				reader := bufio.NewReader(os.Stdin)
+				response, err := reader.ReadString('\n')
+				if err != nil && err != io.EOF {
+					return fmt.Errorf("reading confirmation: %w", err)
+				}
+				response = strings.TrimSpace(strings.ToLower(response))
+				if response != "y" && response != "yes" {
+					return fmt.Errorf("operation cancelled")
+				}
 			}
 		}
 	}
