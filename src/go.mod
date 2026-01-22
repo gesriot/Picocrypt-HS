@@ -4,7 +4,7 @@ go 1.24.2
 
 require (
 	fyne.io/fyne/v2 v2.7.2
-	github.com/Picocrypt/infectious v0.0.0-20250412183341-9f88c6307b39
+	github.com/Picocrypt/infectious v0.0.0-20250713161924-ae9b3ccb49d7
 	github.com/Picocrypt/serpent v0.0.0-20240830233833-9ad6ab254fd7
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
 	github.com/spf13/cobra v1.10.2
