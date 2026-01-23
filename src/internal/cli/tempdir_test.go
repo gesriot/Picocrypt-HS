@@ -134,9 +134,9 @@ func TestRequiredSpace(t *testing.T) {
 		estimated int64
 		wantMin   int64
 	}{
-		{0, minBuffer},                                    // min buffer
-		{100 * 1024 * 1024, 150*1024*1024 + minBuffer},    // 100MB -> 150MB + buffer
-		{1024 * 1024 * 1024, 1536*1024*1024 + minBuffer},  // 1GB -> 1.5GB + buffer
+		{0, minBuffer}, // min buffer
+		{100 * 1024 * 1024, 150*1024*1024 + minBuffer},   // 100MB -> 150MB + buffer
+		{1024 * 1024 * 1024, 1536*1024*1024 + minBuffer}, // 1GB -> 1.5GB + buffer
 	}
 
 	for _, tt := range tests {

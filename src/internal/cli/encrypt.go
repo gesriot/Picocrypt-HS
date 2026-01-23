@@ -63,20 +63,20 @@ Examples:
 
 // Encrypt flags
 var (
-	encInput         []string
-	encOutput        string
-	encPassword      string
-	encPasswordStdin bool
-	encKeyfiles      []string
-	encKeyfileOrder  bool
-	encComments      string
-	encParanoid      bool
-	encReedSolomon   bool
-	encDeniability   bool
-	encCompress      bool
-	encSplit         bool
-	encSplitSize     int
-	encSplitUnit     string
+	encInput          []string
+	encOutput         string
+	encPassword       string
+	encPasswordStdin  bool
+	encKeyfiles       []string
+	encKeyfileOrder   bool
+	encComments       string
+	encParanoid       bool
+	encReedSolomon    bool
+	encDeniability    bool
+	encCompress       bool
+	encSplit          bool
+	encSplitSize      int
+	encSplitUnit      string
 	encQuiet          bool
 	encYes            bool
 	encFollowSymlinks bool
