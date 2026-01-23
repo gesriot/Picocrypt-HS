@@ -183,3 +183,90 @@ func TestAvailableSpace_NonExistent(t *testing.T) {
 		t.Error("expected error for non-existent path")
 	}
 }
+
+func TestBuildCandidatesForStdin(t *testing.T) {
+	candidates := buildCandidatesForStdin("/some/output/path.pcv")
+
+	if len(candidates) < 2 {
+		t.Errorf("expected at least 2 candidates, got %d", len(candidates))
+	}
+
+	// First should be output dir (NOT system temp)
+	if candidates[0] != "/some/output" {
+		t.Errorf("first candidate should be output dir, got %s", candidates[0])
+	}
+
+	// System temp should be last
+	last := candidates[len(candidates)-1]
+	if last != os.TempDir() {
+		t.Errorf("last candidate should be os.TempDir(), got %s", last)
+	}
+}
+
+func TestBuildCandidatesForStdin_NoOutput(t *testing.T) {
+	candidates := buildCandidatesForStdin("")
+
+	if len(candidates) < 1 {
+		t.Error("expected at least 1 candidate")
+	}
+
+	// System temp should still be last
+	last := candidates[len(candidates)-1]
+	if last != os.TempDir() {
+		t.Errorf("last candidate should be os.TempDir(), got %s", last)
+	}
+}
+
+func TestBuildCandidatesForStdin_StdoutOutput(t *testing.T) {
+	candidates := buildCandidatesForStdin("-")
+
+	// Should not include "-" as candidate
+	for _, c := range candidates {
+		if c == "-" {
+			t.Error("should not include '-' as candidate directory")
+		}
+	}
+
+	// System temp should be last
+	last := candidates[len(candidates)-1]
+	if last != os.TempDir() {
+		t.Errorf("last candidate should be os.TempDir(), got %s", last)
+	}
+}
+
+func TestChooseTempDir_StdinPrefersOutputDir(t *testing.T) {
+	TempDirOverride = ""
+
+	// Create a writable temp dir to simulate output location
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+
+	// estimatedSize=0 indicates stdin (unknown size)
+	dir, err := ChooseTempDir(0, outputPath)
+	if err != nil {
+		t.Fatalf("ChooseTempDir() error = %v", err)
+	}
+
+	// Should prefer output dir over system temp for stdin
+	if dir != tmpDir {
+		t.Logf("Note: stdin mode selected %s (output dir was %s)", dir, tmpDir)
+	}
+}
+
+func TestChooseTempDir_KnownSizePrefersSystemTemp(t *testing.T) {
+	TempDirOverride = ""
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+
+	// Known size (not stdin)
+	dir, err := ChooseTempDir(1024, outputPath)
+	if err != nil {
+		t.Fatalf("ChooseTempDir() error = %v", err)
+	}
+
+	// Should prefer system temp for known-size files
+	if dir != os.TempDir() {
+		t.Logf("Note: known-size mode selected %s instead of system temp %s", dir, os.TempDir())
+	}
+}

@@ -21,16 +21,17 @@ const (
 )
 
 // ChooseTempDir selects an appropriate temp directory for buffering.
-// Priority: --temp-dir flag > system temp > output dir > cwd > ~/.cache/picocrypt
+// For known-size files: system temp > output dir > cwd > ~/.cache/picocrypt
+// For stdin (size=0): output dir > cwd > cache > system temp (avoids tmpfs)
 // estimatedSize is the expected file size (0 for unknown stdin).
 // outputPath is used to determine the output directory as a fallback.
 func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
+	isStdin := estimatedSize == 0
+
 	if estimatedSize <= 0 {
 		estimatedSize = defaultEstimate
 	}
 	required := requiredSpace(estimatedSize)
-
-	candidates := buildCandidates(outputPath)
 
 	// Check explicit override first
 	if TempDirOverride != "" {
@@ -47,17 +48,17 @@ func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
 		return "", fmt.Errorf("--temp-dir %s: not writable", TempDirOverride)
 	}
 
-	// Try system default first (index 0)
-	systemDefault := candidates[0]
-	if isWritable(systemDefault) {
-		space, err := availableSpace(systemDefault)
-		if err == nil && space >= required {
-			return systemDefault, nil
-		}
+	// For stdin: prefer disk-backed dirs over system temp (may be tmpfs)
+	var candidates []string
+	if isStdin {
+		candidates = buildCandidatesForStdin(outputPath)
+	} else {
+		candidates = buildCandidates(outputPath)
 	}
 
-	// Try fallbacks
-	for _, dir := range candidates[1:] {
+	// Try candidates in order
+	systemTemp := os.TempDir()
+	for _, dir := range candidates {
 		if dir == "" {
 			continue
 		}
@@ -68,8 +69,10 @@ func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
 		if err != nil || space < required {
 			continue
 		}
-		// Warn when not using system default
-		fmt.Fprintf(os.Stderr, "Warning: using %s for temp files (system temp dir has insufficient space)\n", dir)
+		// Warn when not using system default (unless stdin mode where it's expected)
+		if !isStdin && dir != systemTemp {
+			fmt.Fprintf(os.Stderr, "Warning: using %s for temp files (system temp dir has insufficient space)\n", dir)
+		}
 		return dir, nil
 	}
 
@@ -77,6 +80,7 @@ func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
 }
 
 // buildCandidates returns temp dir candidates in priority order.
+// For known-size files: system temp first (fast), then fallbacks.
 func buildCandidates(outputPath string) []string {
 	candidates := []string{os.TempDir()}
 
@@ -94,6 +98,32 @@ func buildCandidates(outputPath string) []string {
 	if cacheDir, err := userCacheDir(); err == nil {
 		candidates = append(candidates, cacheDir)
 	}
+
+	return candidates
+}
+
+// buildCandidatesForStdin returns candidates with system temp last.
+// For stdin (unknown size), prefer disk-backed dirs over potentially RAM-backed /tmp.
+func buildCandidatesForStdin(outputPath string) []string {
+	var candidates []string
+
+	// Output directory first (same disk as final destination)
+	if outputPath != "" && outputPath != "-" {
+		candidates = append(candidates, filepath.Dir(outputPath))
+	}
+
+	// Current working directory
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, cwd)
+	}
+
+	// User cache directory
+	if cacheDir, err := userCacheDir(); err == nil {
+		candidates = append(candidates, cacheDir)
+	}
+
+	// System temp last (may be tmpfs with limited RAM)
+	candidates = append(candidates, os.TempDir())
 
 	return candidates
 }
