@@ -69,4 +69,7 @@ func Execute(version string) bool {
 func init() {
 	// Disable default completion command
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	// Global flags
+	rootCmd.PersistentFlags().StringVar(&TempDirOverride, "temp-dir", "", "Directory for temp files (overrides automatic selection)")
 }

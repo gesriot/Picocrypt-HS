@@ -168,7 +168,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	// Handle stdin input
 	if useStdin {
 		var err error
-		stdinTempFile, err = BufferStdinToTemp()
+		stdinTempFile, err = BufferStdinToTemp(encOutput)
 		if err != nil {
 			return fmt.Errorf("buffering stdin: %w", err)
 		}
@@ -235,7 +235,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	if useStdout {
 		// Create temp file for stdout output
 		var err error
-		stdoutTempFile, err = CreateTempOutput()
+		stdoutTempFile, err = CreateTempOutput(0)
 		if err != nil {
 			return fmt.Errorf("creating temp output: %w", err)
 		}
