@@ -275,11 +275,13 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	if err != nil {
 		return err
 	}
+	defer crypto.SecureZero(macSubkey)
 
 	serpentKey, err := ctx.SubkeyReader.SerpentKey()
 	if err != nil {
 		return err
 	}
+	defer crypto.SecureZero(serpentKey)
 
 	// Create MAC
 	mac, err := crypto.NewMAC(macSubkey, req.Paranoid)

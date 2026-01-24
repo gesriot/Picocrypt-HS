@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 
 	"golang.org/x/term"
 )
@@ -18,7 +17,7 @@ var (
 
 // isTerminal returns true if stdin is a terminal (not piped/redirected).
 func isTerminal() bool {
-	return term.IsTerminal(int(syscall.Stdin))
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // readPasswordSecure reads a password from stdin without echo.
@@ -39,7 +38,7 @@ func readPasswordSecure(prompt string) (string, error) {
 	}
 
 	// Terminal mode: disable echo
-	pw, err := term.ReadPassword(int(syscall.Stdin))
+	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr) // newline after hidden input
 	if err != nil {
 		return "", fmt.Errorf("reading password: %w", err)

@@ -49,7 +49,7 @@ jobs:
     - name: Build CLI-only (no graphics dependencies)
       run: |
         cd src
-        go build -v -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
+        go build -v -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli-macos ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
 
@@ -71,6 +71,6 @@ jobs:
         name: pr-test-build-macos-ONLY-FOR-TESTING
         path: |
           Picocrypt-NG.dmg
-          src/Picocrypt-NG-cli
+          src/Picocrypt-NG-cli-macos
         if-no-files-found: error
         compression-level: 9

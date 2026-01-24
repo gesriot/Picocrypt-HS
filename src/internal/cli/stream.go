@@ -17,9 +17,16 @@ func IsStdout(path string) bool {
 }
 
 // BufferStdinToTemp copies stdin to a temp file and returns the path.
+// outputPath is used to determine fallback temp directories.
 // Caller is responsible for removing the temp file.
-func BufferStdinToTemp() (string, error) {
-	tmp, err := os.CreateTemp("", "picocrypt-stdin-*")
+func BufferStdinToTemp(outputPath string) (string, error) {
+	// Choose temp directory with space checking
+	tempDir, err := ChooseTempDir(0, outputPath) // 0 = unknown size, use default estimate
+	if err != nil {
+		return "", fmt.Errorf("selecting temp directory: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(tempDir, "picocrypt-stdin-*")
 	if err != nil {
 		return "", fmt.Errorf("creating temp file: %w", err)
 	}
@@ -64,9 +71,16 @@ func StreamFileToStdout(path string) error {
 }
 
 // CreateTempOutput creates a temp file for output.
+// estimatedSize is the expected output size (0 for unknown).
 // Caller is responsible for removing the temp file.
-func CreateTempOutput() (string, error) {
-	tmp, err := os.CreateTemp("", "picocrypt-out-*")
+func CreateTempOutput(estimatedSize int64) (string, error) {
+	// Choose temp directory with space checking
+	tempDir, err := ChooseTempDir(estimatedSize, "")
+	if err != nil {
+		return "", fmt.Errorf("selecting temp directory: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(tempDir, "picocrypt-out-*")
 	if err != nil {
 		return "", fmt.Errorf("creating temp output file: %w", err)
 	}
