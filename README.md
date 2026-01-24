@@ -39,12 +39,18 @@ Make sure to only download Picocrypt NG from this repository to ensure that you 
 If your antivirus flags Picocrypt NG as a virus, please report it as a false positive to help everyone.
 
 ## macOS
-Download Picocrypt NG <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.dmg">here</a>, open the container, and drag Picocrypt NG to your Applications. You will need to manually trust the app from a terminal if macOS prevents you from opening it:
-```
-xattr -d com.apple.quarantine /Applications/Picocrypt-NG.app
-```
+Download Picocrypt NG <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.dmg">here</a>, open the container, and drag Picocrypt NG to your Applications.
 
-Note: the macOS app is built for Apple silicon only. If you're still on Intel, you can build from source.
+**Apple Silicon vs Intel:** The macOS app is built for Apple Silicon (M1/M2/M3/M4/M5+) only. Intel Mac users need to <a href="src/README.md">build from source</a> or use the CLI-only version.
+
+**Gatekeeper Warning:** macOS may block the app with a "forbidden" icon or "incompatible with this version of macOS" message. This is a Gatekeeper issue (unsigned app), not a compatibility problem. Picocrypt NG supports macOS 10.11+.
+
+To fix, use one of these methods:
+- **Right-click → Open** (instead of double-clicking), then confirm
+- **System Settings → Privacy & Security** → scroll down → "Open Anyway"
+- **Terminal:** `xattr -cr /Applications/Picocrypt-NG.app`
+
+The CLI-only build doesn't trigger Gatekeeper warnings.
 
 ## Linux
 Download the raw binary <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG">here</a> (you may need the packages below). Alternatively, try the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.deb">.deb</a> or <a href="https://flathub.org/apps/io.github.picocrypt-ng.Picocrypt-NG">Flatpak</a>.
