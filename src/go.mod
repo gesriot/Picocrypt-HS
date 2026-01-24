@@ -9,6 +9,7 @@ require (
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.47.0
+	golang.org/x/sys v0.40.0
 	golang.org/x/term v0.39.0
 )
 
@@ -44,7 +45,6 @@ require (
 	github.com/yuin/goldmark v1.7.8 // indirect
 	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

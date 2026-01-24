@@ -65,7 +65,8 @@ func TestChooseTempDir_WithOutputPath(t *testing.T) {
 }
 
 func TestBuildCandidates(t *testing.T) {
-	candidates := buildCandidates("/some/output/path.pcv")
+	testPath := filepath.Join("some", "output", "path.pcv")
+	candidates := buildCandidates(testPath)
 
 	if len(candidates) < 2 {
 		t.Errorf("expected at least 2 candidates, got %d", len(candidates))
@@ -77,8 +78,9 @@ func TestBuildCandidates(t *testing.T) {
 	}
 
 	// Second should be output dir
-	if candidates[1] != "/some/output" {
-		t.Errorf("second candidate should be output dir, got %s", candidates[1])
+	expectedDir := filepath.Dir(testPath)
+	if candidates[1] != expectedDir {
+		t.Errorf("second candidate should be output dir %s, got %s", expectedDir, candidates[1])
 	}
 }
 
@@ -185,15 +187,17 @@ func TestAvailableSpace_NonExistent(t *testing.T) {
 }
 
 func TestBuildCandidatesForStdin(t *testing.T) {
-	candidates := buildCandidatesForStdin("/some/output/path.pcv")
+	testPath := filepath.Join("some", "output", "path.pcv")
+	candidates := buildCandidatesForStdin(testPath)
 
 	if len(candidates) < 2 {
 		t.Errorf("expected at least 2 candidates, got %d", len(candidates))
 	}
 
 	// First should be output dir (NOT system temp)
-	if candidates[0] != "/some/output" {
-		t.Errorf("first candidate should be output dir, got %s", candidates[0])
+	expectedDir := filepath.Dir(testPath)
+	if candidates[0] != expectedDir {
+		t.Errorf("first candidate should be output dir %s, got %s", expectedDir, candidates[0])
 	}
 
 	// System temp should be last
