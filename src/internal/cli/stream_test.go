@@ -73,7 +73,7 @@ func TestBufferStdinToTemp(t *testing.T) {
 	}()
 
 	// Call function under test
-	tmpPath, err := BufferStdinToTemp()
+	tmpPath, err := BufferStdinToTemp("")
 	if err != nil {
 		t.Fatalf("BufferStdinToTemp() error = %v", err)
 	}
@@ -113,7 +113,7 @@ func TestBufferStdinToTempEmpty(t *testing.T) {
 	// Close immediately (empty input)
 	w.Close()
 
-	tmpPath, err := BufferStdinToTemp()
+	tmpPath, err := BufferStdinToTemp("")
 	if err != nil {
 		t.Fatalf("BufferStdinToTemp() error = %v", err)
 	}
@@ -149,7 +149,7 @@ func TestBufferStdinToTempLarge(t *testing.T) {
 		w.Close()
 	}()
 
-	tmpPath, err := BufferStdinToTemp()
+	tmpPath, err := BufferStdinToTemp("")
 	if err != nil {
 		t.Fatalf("BufferStdinToTemp() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestBufferStdinToTempLarge(t *testing.T) {
 }
 
 func TestCreateTempOutput(t *testing.T) {
-	tmpPath, err := CreateTempOutput()
+	tmpPath, err := CreateTempOutput(0)
 	if err != nil {
 		t.Fatalf("CreateTempOutput() error = %v", err)
 	}

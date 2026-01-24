@@ -63,20 +63,20 @@ Examples:
 
 // Encrypt flags
 var (
-	encInput         []string
-	encOutput        string
-	encPassword      string
-	encPasswordStdin bool
-	encKeyfiles      []string
-	encKeyfileOrder  bool
-	encComments      string
-	encParanoid      bool
-	encReedSolomon   bool
-	encDeniability   bool
-	encCompress      bool
-	encSplit         bool
-	encSplitSize     int
-	encSplitUnit     string
+	encInput          []string
+	encOutput         string
+	encPassword       string
+	encPasswordStdin  bool
+	encKeyfiles       []string
+	encKeyfileOrder   bool
+	encComments       string
+	encParanoid       bool
+	encReedSolomon    bool
+	encDeniability    bool
+	encCompress       bool
+	encSplit          bool
+	encSplitSize      int
+	encSplitUnit      string
 	encQuiet          bool
 	encYes            bool
 	encFollowSymlinks bool
@@ -168,7 +168,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	// Handle stdin input
 	if useStdin {
 		var err error
-		stdinTempFile, err = BufferStdinToTemp()
+		stdinTempFile, err = BufferStdinToTemp(encOutput)
 		if err != nil {
 			return fmt.Errorf("buffering stdin: %w", err)
 		}
@@ -235,7 +235,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	if useStdout {
 		// Create temp file for stdout output
 		var err error
-		stdoutTempFile, err = CreateTempOutput()
+		stdoutTempFile, err = CreateTempOutput(0)
 		if err != nil {
 			return fmt.Errorf("creating temp output: %w", err)
 		}
