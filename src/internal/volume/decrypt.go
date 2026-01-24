@@ -329,12 +329,14 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 	if err != nil {
 		return err
 	}
+	defer crypto.SecureZero(macSubkey)
 
 	// Skip serpent key read to maintain HKDF stream position
-	_, err = ctx.SubkeyReader.SerpentKey()
+	serpentKey, err := ctx.SubkeyReader.SerpentKey()
 	if err != nil {
 		return err
 	}
+	defer crypto.SecureZero(serpentKey)
 
 	// Create MAC for verification
 	mac, err := crypto.NewMAC(macSubkey, ctx.Header.Flags.Paranoid)
@@ -453,11 +455,13 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	if err != nil {
 		return err
 	}
+	defer crypto.SecureZero(macSubkey)
 
 	serpentKey, err := ctx.SubkeyReader.SerpentKey()
 	if err != nil {
 		return err
 	}
+	defer crypto.SecureZero(serpentKey)
 
 	// Create MAC
 	mac, err := crypto.NewMAC(macSubkey, ctx.Header.Flags.Paranoid)
