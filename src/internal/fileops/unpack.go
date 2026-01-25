@@ -146,12 +146,22 @@ func Unpack(opts UnpackOptions) (retErr error) {
 			return fmt.Errorf("open %s in archive: %w", f.Name, err)
 		}
 
-		dstFile, err := os.Create(outPath)
+		dstFile, err := CreateSecure(outPath)
 		if err != nil {
 			_ = fileInArchive.Close()
 			return fmt.Errorf("create %s: %w", outPath, err)
 		}
 
+		// Decompression bomb protection
+		compressedSize := int64(f.CompressedSize64)
+		maxByRatio := compressedSize * util.MaxDecompressRatio
+		maxBytes := min(maxByRatio, util.MaxDecompressSize)
+		// Edge case: very small compressed files rely on absolute limit only
+		if compressedSize < 1024 {
+			maxBytes = util.MaxDecompressSize
+		}
+
+		var written int64
 		buf := make([]byte, util.MiB)
 		for {
 			// Check for cancellation during file extraction
@@ -164,6 +174,15 @@ func Unpack(opts UnpackOptions) (retErr error) {
 
 			n, readErr := fileInArchive.Read(buf)
 			if n > 0 {
+				written += int64(n)
+				if written > maxBytes {
+					_ = dstFile.Close()
+					_ = fileInArchive.Close()
+					_ = os.Remove(outPath)
+					return fmt.Errorf("decompression limit exceeded: %s (ratio >%d:1 or >%d GiB)",
+						f.Name, util.MaxDecompressRatio, util.MaxDecompressSize/util.GiB)
+				}
+
 				if _, err := dstFile.Write(buf[:n]); err != nil {
 					_ = dstFile.Close()
 					_ = fileInArchive.Close()
