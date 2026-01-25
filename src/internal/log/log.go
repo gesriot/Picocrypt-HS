@@ -196,6 +196,7 @@ func EnableDebugLogging() {
 
 // EnableFileLogging enables logging to a file.
 func EnableFileLogging(path string, level Level) error {
+	//nolint:gosec // G302: logs intentionally readable by monitoring tools
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return err

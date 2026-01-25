@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
@@ -294,7 +295,7 @@ func (a *App) copyURIToTemp(reader io.Reader, filename string) (string, error) {
 
 	// Create the destination file
 	destPath := filepath.Join(tempDir, filename)
-	destFile, err := os.Create(destPath)
+	destFile, err := fileops.CreateSecure(destPath)
 	if err != nil {
 		return "", err
 	}

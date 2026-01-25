@@ -10,6 +10,7 @@ import (
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/argon2"
@@ -55,7 +56,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 	defer func() { _ = fin.Close() }()
 
-	fout, err := os.Create(incompletePath)
+	fout, err := fileops.CreateSecure(incompletePath)
 	if err != nil {
 		_ = fin.Close()
 		restoreOriginal()
@@ -206,7 +207,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	}
 	outputPath += ".tmp"
 
-	fout, err := os.Create(outputPath)
+	fout, err := fileops.CreateSecure(outputPath)
 	if err != nil {
 		return "", fmt.Errorf("create output: %w", err)
 	}

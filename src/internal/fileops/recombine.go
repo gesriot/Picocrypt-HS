@@ -53,7 +53,7 @@ func Recombine(opts RecombineOptions) error {
 		return fmt.Errorf("output file already exists: %s", opts.OutputPath)
 	}
 
-	fout, err := os.Create(opts.OutputPath)
+	fout, err := CreateSecure(opts.OutputPath)
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
