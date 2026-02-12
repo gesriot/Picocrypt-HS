@@ -22,8 +22,7 @@ const (
 
 // Decompression limits to prevent zip bombs
 const (
-	MaxDecompressRatio = 1000    // Below DEFLATE max (~1032:1), catches bombs
-	MaxDecompressSize  = 100 * GiB // Absolute limit
+	MaxDecompressRatio = 1000 // Below DEFLATE max (~1032:1), catches bombs
 )
 
 // Color constants for UI status messages
