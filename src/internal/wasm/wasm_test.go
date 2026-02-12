@@ -25,6 +25,8 @@ func TestDecryptV1(t *testing.T) {
 		t.Fatalf("failed to read expected file: %v", err)
 	}
 
+	// Normalize line endings: git may convert \n → \r\n on Windows checkout
+	expected = bytes.ReplaceAll(expected, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(plaintext, expected) {
 		t.Errorf("decrypted content doesn't match expected\ngot: %q\nwant: %q", plaintext, expected)
 	}
@@ -49,6 +51,7 @@ func TestDecryptV2(t *testing.T) {
 		t.Fatalf("failed to read expected file: %v", err)
 	}
 
+	expected = bytes.ReplaceAll(expected, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(plaintext, expected) {
 		t.Errorf("decrypted content doesn't match expected\ngot: %q\nwant: %q", plaintext, expected)
 	}
