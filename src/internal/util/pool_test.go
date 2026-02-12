@@ -65,7 +65,7 @@ func BenchmarkBufferPoolGetPut(b *testing.B) {
 	pool := NewBufferPool(MiB)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := pool.Get()
 		pool.Put(buf)
 	}
@@ -73,7 +73,7 @@ func BenchmarkBufferPoolGetPut(b *testing.B) {
 
 func BenchmarkBufferPoolNoPool(b *testing.B) {
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := make([]byte, MiB)
 		_ = buf
 	}

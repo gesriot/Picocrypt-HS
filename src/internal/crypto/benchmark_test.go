@@ -13,7 +13,7 @@ func BenchmarkDeriveKeyNormal(b *testing.B) {
 	salt := make([]byte, 16)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = DeriveKey(password, salt, false)
 	}
 }
@@ -25,7 +25,7 @@ func BenchmarkDeriveKeyParanoid(b *testing.B) {
 	salt := make([]byte, 16)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = DeriveKey(password, salt, true)
 	}
 }
@@ -35,7 +35,7 @@ func BenchmarkNewMAC_BLAKE2b(b *testing.B) {
 	subkey := make([]byte, 32)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = NewMAC(subkey, false)
 	}
 }
@@ -45,7 +45,7 @@ func BenchmarkNewMAC_HMACSHA3(b *testing.B) {
 	subkey := make([]byte, 32)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = NewMAC(subkey, true)
 	}
 }
@@ -58,7 +58,7 @@ func BenchmarkMACWrite_BLAKE2b(b *testing.B) {
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		mac.Reset()
 		mac.Write(data)
 		_ = mac.Sum(nil)
@@ -73,7 +73,7 @@ func BenchmarkMACWrite_HMACSHA3(b *testing.B) {
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		mac.Reset()
 		mac.Write(data)
 		_ = mac.Sum(nil)
@@ -90,7 +90,7 @@ func BenchmarkXChaCha20(b *testing.B) {
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		cipher.XORKeyStream(dst, data)
 	}
 }
@@ -100,7 +100,7 @@ func BenchmarkSecureZero(b *testing.B) {
 	data := make([]byte, 32) // Typical key size
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		SecureZero(data)
 	}
 }
@@ -111,7 +111,7 @@ func BenchmarkSecureZeroLarge(b *testing.B) {
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		SecureZero(data)
 	}
 }
@@ -122,7 +122,7 @@ func BenchmarkDeniabilityRekey(b *testing.B) {
 	nonce := make([]byte, 24)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, _ = DeniabilityRekey(key, nonce)
 	}
 }
