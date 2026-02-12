@@ -153,10 +153,10 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	var stdoutTempFile string
 	defer func() {
 		if stdinTempFile != "" {
-			os.Remove(stdinTempFile)
+			_ = os.Remove(stdinTempFile)
 		}
 		if stdoutTempFile != "" {
-			os.Remove(stdoutTempFile)
+			_ = os.Remove(stdoutTempFile)
 		}
 	}()
 

@@ -147,8 +147,8 @@ func (a *App) changeOutputFile() {
 		// Close immediately - we only need the path, not to write
 		// Fyne's file save dialog creates a 0-byte file, so we must remove it
 		filePath := writer.URI().Path()
-		writer.Close()
-		os.Remove(filePath)
+		_ = writer.Close()
+		_ = os.Remove(filePath)
 
 		file := filePath
 		// Strip any extension user might have added

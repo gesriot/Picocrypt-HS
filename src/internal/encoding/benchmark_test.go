@@ -18,7 +18,7 @@ func init() {
 func BenchmarkPad(b *testing.B) {
 	data := make([]byte, 100) // Typical partial chunk size
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = Pad(data)
 	}
 }
@@ -27,7 +27,7 @@ func BenchmarkPad(b *testing.B) {
 func BenchmarkUnpad(b *testing.B) {
 	data := Pad(make([]byte, 100))
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = Unpad(data)
 	}
 }
@@ -36,7 +36,7 @@ func BenchmarkUnpad(b *testing.B) {
 func BenchmarkRS128Encode(b *testing.B) {
 	data := make([]byte, RS128DataSize)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = Encode(codecs.RS128, data)
 	}
 }
@@ -45,7 +45,7 @@ func BenchmarkRS128Encode(b *testing.B) {
 func BenchmarkRS128DecodeFast(b *testing.B) {
 	data := Encode(codecs.RS128, make([]byte, RS128DataSize))
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = Decode(codecs.RS128, data, true)
 	}
 }
@@ -54,7 +54,7 @@ func BenchmarkRS128DecodeFast(b *testing.B) {
 func BenchmarkRS128DecodeFull(b *testing.B) {
 	data := Encode(codecs.RS128, make([]byte, RS128DataSize))
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = Decode(codecs.RS128, data, false)
 	}
 }
@@ -63,7 +63,7 @@ func BenchmarkRS128DecodeFull(b *testing.B) {
 func BenchmarkRS5Encode(b *testing.B) {
 	data := make([]byte, 5) // Version, flags, etc.
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = Encode(codecs.RS5, data)
 	}
 }
@@ -72,7 +72,7 @@ func BenchmarkRS5Encode(b *testing.B) {
 func BenchmarkRS5Decode(b *testing.B) {
 	data := Encode(codecs.RS5, make([]byte, 5))
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = Decode(codecs.RS5, data, false)
 	}
 }
@@ -82,7 +82,7 @@ func BenchmarkRS1MiBEncode(b *testing.B) {
 	const MiB = 1 << 20
 	data := make([]byte, MiB)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var result []byte
 		for j := 0; j < MiB; j += RS128DataSize {
 			result = append(result, Encode(codecs.RS128, data[j:j+RS128DataSize])...)
@@ -102,7 +102,7 @@ func BenchmarkRS1MiBDecodeFast(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		var result []byte
 		for j := 0; j < len(encoded); j += RS128EncodedSize {
 			decoded, _ := Decode(codecs.RS128, encoded[j:j+RS128EncodedSize], true)

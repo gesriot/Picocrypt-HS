@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,10 +64,17 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		}
 	}()
 
-	// Calculate total uncompressed size
+	// Calculate total uncompressed size with overflow protection
 	var totalSize int64
 	for _, f := range reader.File {
-		totalSize += int64(f.UncompressedSize64)
+		size, ok := util.SafeUint64ToInt64(f.UncompressedSize64)
+		if !ok {
+			return fmt.Errorf("file %s: uncompressed size exceeds int64 max", f.Name)
+		}
+		if totalSize > math.MaxInt64-size {
+			return errors.New("total uncompressed size exceeds int64 max")
+		}
+		totalSize += size
 	}
 
 	// Determine extraction directory
@@ -146,12 +154,32 @@ func Unpack(opts UnpackOptions) (retErr error) {
 			return fmt.Errorf("open %s in archive: %w", f.Name, err)
 		}
 
-		dstFile, err := os.Create(outPath)
+		dstFile, err := CreateSecure(outPath)
 		if err != nil {
 			_ = fileInArchive.Close()
 			return fmt.Errorf("create %s: %w", outPath, err)
 		}
 
+		// Decompression bomb protection
+		compressedSize, ok := util.SafeUint64ToInt64(f.CompressedSize64)
+		if !ok {
+			_ = dstFile.Close()
+			_ = fileInArchive.Close()
+			return fmt.Errorf("file %s: compressed size exceeds int64 max", f.Name)
+		}
+		// Overflow-safe ratio calculation: check before multiply
+		var maxBytes int64
+		if compressedSize > math.MaxInt64/util.MaxDecompressRatio {
+			maxBytes = math.MaxInt64 // allow: ratio can't overflow, trust content
+		} else {
+			maxBytes = compressedSize * util.MaxDecompressRatio
+		}
+		// Floor for small compressed files to avoid false positives
+		if maxBytes < util.MiB {
+			maxBytes = util.MiB
+		}
+
+		var written int64
 		buf := make([]byte, util.MiB)
 		for {
 			// Check for cancellation during file extraction
@@ -164,6 +192,15 @@ func Unpack(opts UnpackOptions) (retErr error) {
 
 			n, readErr := fileInArchive.Read(buf)
 			if n > 0 {
+				written += int64(n)
+				if written > maxBytes {
+					_ = dstFile.Close()
+					_ = fileInArchive.Close()
+					_ = os.Remove(outPath)
+					return fmt.Errorf("decompression limit exceeded: %s (ratio >%d:1)",
+						f.Name, util.MaxDecompressRatio)
+				}
+
 				if _, err := dstFile.Write(buf[:n]); err != nil {
 					_ = dstFile.Close()
 					_ = fileInArchive.Close()
