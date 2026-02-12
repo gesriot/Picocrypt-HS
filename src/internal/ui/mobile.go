@@ -206,7 +206,7 @@ func (a *App) showMobileFilePicker() {
 		if err != nil || reader == nil {
 			return
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 
 		// On Android, content:// URIs don't work with os.Stat()
 		// We need to copy the file to a local temp directory
@@ -281,7 +281,7 @@ func (a *App) getMobileTempDir() string {
 // Call this after encryption/decryption is complete.
 func (a *App) CleanupMobileTempFiles() {
 	tempDir := a.getMobileTempDir()
-	os.RemoveAll(tempDir)
+	_ = os.RemoveAll(tempDir)
 }
 
 // copyURIToTemp copies a file from a content:// URI to a local temp file
@@ -299,12 +299,12 @@ func (a *App) copyURIToTemp(reader io.Reader, filename string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer destFile.Close()
+	defer func() { _ = destFile.Close() }()
 
 	// Copy the content
 	_, err = io.Copy(destFile, reader)
 	if err != nil {
-		os.Remove(destPath)
+		_ = os.Remove(destPath)
 		return "", err
 	}
 
@@ -522,6 +522,7 @@ func (a *App) buildMobileEncryptOptions() {
 	a.splitUnitSelect = widget.NewSelect(a.State.SplitUnits, func(selected string) {
 		for i, unit := range a.State.SplitUnits {
 			if unit == selected {
+				// #nosec G115 -- i is bounded by SplitUnits length (5 items: KiB, MiB, GiB, TiB, Total)
 				a.State.SplitSelected = int32(i)
 				break
 			}

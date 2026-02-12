@@ -121,19 +121,19 @@ func (s *simpleLogger) log(level Level, msg string, fields ...Field) {
 
 	// Format: timestamp level message field1=value1 field2=value2
 	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
-	fmt.Fprintf(s.out, "%s %s %s", timestamp, level.String(), msg)
+	_, _ = fmt.Fprintf(s.out, "%s %s %s", timestamp, level.String(), msg)
 
 	// Add persistent fields first
 	for _, f := range s.fields {
-		fmt.Fprintf(s.out, " %s=%v", f.Key, f.Value)
+		_, _ = fmt.Fprintf(s.out, " %s=%v", f.Key, f.Value)
 	}
 
 	// Add call-specific fields
 	for _, f := range fields {
-		fmt.Fprintf(s.out, " %s=%v", f.Key, f.Value)
+		_, _ = fmt.Fprintf(s.out, " %s=%v", f.Key, f.Value)
 	}
 
-	fmt.Fprintln(s.out)
+	_, _ = fmt.Fprintln(s.out)
 }
 
 func (s *simpleLogger) Debug(msg string, fields ...Field) {
@@ -196,7 +196,7 @@ func EnableDebugLogging() {
 
 // EnableFileLogging enables logging to a file.
 func EnableFileLogging(path string, level Level) error {
-	//nolint:gosec // G302: logs intentionally readable by monitoring tools
+	// #nosec G302,G304 -- logs intentionally readable by monitoring tools; path from user config
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return err

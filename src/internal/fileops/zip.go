@@ -231,6 +231,7 @@ func CreateZip(opts ZipOptions) error {
 			return fmt.Errorf("create entry for %s: %w", path, err)
 		}
 
+		// #nosec G304 -- input paths from user-provided file list
 		fin, err := os.Open(path)
 		if err != nil {
 			cleanup()

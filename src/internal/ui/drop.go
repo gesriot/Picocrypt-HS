@@ -193,8 +193,10 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	var fin *os.File
 	var err error
 	if isSplit {
+		// #nosec G304 -- user-dropped file path
 		fin, err = os.Open(name + ".0")
 	} else {
+		// #nosec G304 -- user-dropped file path
 		fin, err = os.Open(name)
 	}
 	if err != nil {

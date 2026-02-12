@@ -96,6 +96,7 @@ func processOrdered(paths []string, totalSize int64, progress ProgressFunc) ([]b
 	defer crypto.SecureZero(buf)
 
 	for _, path := range paths {
+		// #nosec G304 -- keyfile paths validated by caller
 		fin, err := os.Open(path)
 		if err != nil {
 			return nil, err
@@ -140,6 +141,7 @@ func processUnordered(paths []string, totalSize int64, progress ProgressFunc) ([
 	defer crypto.SecureZero(buf)
 
 	for _, path := range paths {
+		// #nosec G304 -- keyfile paths validated by caller
 		fin, err := os.Open(path)
 		if err != nil {
 			return nil, err

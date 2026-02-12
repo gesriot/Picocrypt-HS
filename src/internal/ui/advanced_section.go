@@ -130,6 +130,7 @@ func (a *App) buildEncryptOptions() {
 	a.splitUnitSelect = widget.NewSelect(a.State.SplitUnits, func(selected string) {
 		for i, unit := range a.State.SplitUnits {
 			if unit == selected {
+				// #nosec G115 -- i is bounded by SplitUnits length (5 items: KiB, MiB, GiB, TiB, Total)
 				a.State.SplitSelected = int32(i)
 				break
 			}

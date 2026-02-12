@@ -275,11 +275,14 @@ func (a *App) showFileDialogWithResize(d dialog.Dialog, dialogSize fyne.Size) {
 	d.Show()
 }
 
-// fixedWidthLayout is a layout that forces a fixed width.
+// fixedWidthLayout is a layout that forces a fixed width (used in tests).
+//
+//nolint:unused // used by widgets_test.go
 type fixedWidthLayout struct {
 	width float32
 }
 
+//nolint:unused // used by widgets_test.go
 func (f *fixedWidthLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	if len(objects) == 0 {
 		return fyne.NewSize(f.width, 0)
@@ -288,6 +291,7 @@ func (f *fixedWidthLayout) MinSize(objects []fyne.CanvasObject) fyne.Size {
 	return fyne.NewSize(f.width, min.Height)
 }
 
+//nolint:unused // used by widgets_test.go
 func (f *fixedWidthLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	for _, obj := range objects {
 		obj.Resize(fyne.NewSize(f.width, size.Height))

@@ -70,6 +70,7 @@ func Recombine(opts RecombineOptions) error {
 		}
 
 		chunkPath := fmt.Sprintf("%s.%d", opts.InputBase, i)
+		// #nosec G304 -- chunk paths derived from user-provided base path
 		fin, err := os.Open(chunkPath)
 		if err != nil {
 			_ = fout.Close()
