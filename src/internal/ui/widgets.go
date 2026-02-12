@@ -100,9 +100,17 @@ func (r *passwordStrengthRenderer) updateArc() {
 	// Red (weak) to Green (strong): matches original formula exactly
 	// strength=0: R=200(0xc8), G=76(0x4c) - red
 	// strength=4: R=76, G=200 - green
+	// Clamp strength to valid range to prevent overflow
+	s := r.indicator.strength
+	if s < 0 {
+		s = 0
+	} else if s > 4 {
+		s = 4
+	}
+	// #nosec G115 -- s is clamped to [0,4], so 31*s is [0,124], result always fits uint8
 	col := color.RGBA{
-		R: uint8(0xc8 - 31*r.indicator.strength),
-		G: uint8(0x4c + 31*r.indicator.strength),
+		R: uint8(0xc8 - 31*s),
+		G: uint8(0x4c + 31*s),
 		B: 0x4b,
 		A: 0xff,
 	}

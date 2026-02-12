@@ -1,0 +1,75 @@
+run:
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - gosec
+    - staticcheck
+
+linters-settings:
+  gosec:
+    excludes:
+      - G407  # False positive: IV passed as param, not hardcoded
+
+issues:
+  exclude-dirs:
+    - testdata
+
+  exclude-rules:
+    # G304 in fileops - paths validated via isValidExtractionPath
+    - path: internal/fileops/unpack\.go
+      linters:
+        - gosec
+      text: "G304"
+
+    # G304 in keyfile - user-provided paths expected
+    - path: internal/keyfile/
+      linters:
+        - gosec
+      text: "G304"
+
+    # G104 in cleanup paths - errors intentionally ignored
+    - linters:
+        - gosec
+      text: "G104.*os\\.Remove"
+    - linters:
+        - gosec
+      text: "G104.*Close"
+
+    # G115 - bounded by header format (5-digit max = 99999)
+    - path: internal/header/
+      linters:
+        - gosec
+      text: "G115"
+
+    # G115 in UI - color calculations, bounded 0-255
+    - path: internal/ui/
+      linters:
+        - gosec
+      text: "G115"
+
+    # Relax errcheck in test files
+    - path: _test\.go
+      linters:
+        - errcheck
+
+    # G306 in test files - test data doesn't need strict perms
+    - path: _test\.go
+      linters:
+        - gosec
+      text: "G306"
+
+    # G115 in fileops - zip file sizes from archive, realistic files < 2^63
+    - path: internal/fileops/
+      linters:
+        - gosec
+      text: "G115"
+
+    # G115 in cli - disk space calculations, syscall returns
+    - path: internal/cli/
+      linters:
+        - gosec
+      text: "G115"

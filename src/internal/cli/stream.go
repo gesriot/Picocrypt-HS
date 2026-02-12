@@ -34,20 +34,20 @@ func BufferStdinToTemp(outputPath string) (string, error) {
 
 	// Set restrictive permissions
 	if err := tmp.Chmod(0600); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("setting temp file permissions: %w", err)
 	}
 
 	_, err = io.Copy(tmp, os.Stdin)
 	if err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("buffering stdin: %w", err)
 	}
 
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("closing temp file: %w", err)
 	}
 
@@ -56,11 +56,12 @@ func BufferStdinToTemp(outputPath string) (string, error) {
 
 // StreamFileToStdout copies a file to stdout.
 func StreamFileToStdout(path string) error {
+	// #nosec G304 -- path is temp file created by this package
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("opening file for stdout: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	_, err = io.Copy(os.Stdout, f)
 	if err != nil {
@@ -88,14 +89,14 @@ func CreateTempOutput(estimatedSize int64) (string, error) {
 
 	// Set restrictive permissions
 	if err := tmp.Chmod(0600); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("setting temp file permissions: %w", err)
 	}
 
 	// Close immediately - volume package will reopen
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("closing temp file: %w", err)
 	}
 

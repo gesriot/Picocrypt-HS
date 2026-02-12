@@ -129,6 +129,9 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	if useStdout && decAutoUnzip {
 		return fmt.Errorf("stdout not compatible with --auto-unzip")
 	}
+	if useStdout && decRecombine {
+		return fmt.Errorf("stdout not compatible with --recombine")
+	}
 
 	// Auto-quiet when outputting to stdout
 	if useStdout {
@@ -140,10 +143,10 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	var stdoutTempFile string
 	defer func() {
 		if stdinTempFile != "" {
-			os.Remove(stdinTempFile)
+			_ = os.Remove(stdinTempFile)
 		}
 		if stdoutTempFile != "" {
-			os.Remove(stdoutTempFile)
+			_ = os.Remove(stdoutTempFile)
 		}
 	}()
 
@@ -359,11 +362,12 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 // readHeaderInfo reads just the header to get volume information
 func readHeaderInfo(inputFile string, rsCodecs *encoding.RSCodecs) (*header.VolumeHeader, error) {
+	// #nosec G304 -- inputFile is user-provided .pcv file
 	f, err := os.Open(inputFile)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	reader := header.NewReader(f, rsCodecs)
 	result, err := reader.ReadHeader()

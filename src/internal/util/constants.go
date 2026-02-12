@@ -20,6 +20,11 @@ const (
 	TiB = 1 << 40 // 1,099,511,627,776
 )
 
+// Decompression limits to prevent zip bombs
+const (
+	MaxDecompressRatio = 1000 // Below DEFLATE max (~1032:1), catches bombs
+)
+
 // Color constants for UI status messages
 var (
 	WHITE       = color.RGBA{0xff, 0xff, 0xff, 0xff}
