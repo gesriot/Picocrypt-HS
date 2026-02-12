@@ -100,7 +100,7 @@ func Split(opts SplitOptions) ([]string, error) {
 		}
 
 		chunkPath := fmt.Sprintf("%s.%d.incomplete", opts.InputPath, i)
-		fout, err := os.Create(chunkPath)
+		fout, err := CreateSecure(chunkPath)
 		if err != nil {
 			// Clean up partial chunks
 			for _, chunk := range chunks {

@@ -22,3 +22,12 @@ go.work
 go.work.sum
 .idea/
 TODO
+
+# Build artifacts
+src/picocrypt
+src/picocrypt.wasm
+src/picocrypt.wasm.b64
+src/wasm_exec.js
+
+# Logs
+*.log

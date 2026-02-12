@@ -46,6 +46,7 @@ func NewCipherSuite(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkd
 			return nil, err
 		}
 		cs.serpentS = s
+		// #nosec G407 -- serpentIV is derived from header, not hardcoded
 		cs.serpent = cipher.NewCTR(s, serpentIV)
 	}
 
@@ -109,6 +110,7 @@ func (cs *CipherSuite) Rekey() error {
 		if _, err := io.ReadFull(cs.hkdf, serpentIV); err != nil {
 			return errors.New("fatal hkdf.Read error during rekey (serpent IV)")
 		}
+		// #nosec G407 -- serpentIV is derived from HKDF, not hardcoded
 		cs.serpent = cipher.NewCTR(cs.serpentS, serpentIV)
 	}
 

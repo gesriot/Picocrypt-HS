@@ -133,7 +133,7 @@ func (a *App) createKeyfile() {
 		if err != nil || writer == nil {
 			return
 		}
-		defer writer.Close()
+		defer func() { _ = writer.Close() }()
 
 		data := make([]byte, 32)
 		if n, err := rand.Read(data); err != nil || n != 32 {

@@ -3,6 +3,9 @@
 package cli
 
 import (
+	"errors"
+	"math"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -16,6 +19,10 @@ func availableSpace(path string) (int64, error) {
 	err = windows.GetDiskFreeSpaceEx(pathPtr, &freeBytesAvailable, &totalBytes, &totalFreeBytes)
 	if err != nil {
 		return 0, err
+	}
+	// Safe conversion: check for overflow before cast
+	if freeBytesAvailable > uint64(math.MaxInt64) {
+		return 0, errors.New("available space exceeds int64 max")
 	}
 	return int64(freeBytesAvailable), nil
 }

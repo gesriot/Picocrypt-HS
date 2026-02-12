@@ -189,7 +189,7 @@ func encryptGenerateValues(ctx *OperationContext, req *EncryptRequest) error {
 
 func encryptWriteHeader(ctx *OperationContext, req *EncryptRequest) error {
 	// Create output file
-	fout, err := os.Create(req.OutputFile + ".incomplete")
+	fout, err := fileops.CreateSecure(req.OutputFile + ".incomplete")
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
@@ -311,7 +311,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	}
 	defer func() { _ = fin.Close() }()
 
-	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_WRONLY|os.O_APPEND, 0644)
+	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("open output: %w", err)
 	}
@@ -396,7 +396,7 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 	ctx.SetStatus("Writing values...")
 
 	// Open output file for seeking
-	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_RDWR, 0644)
+	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_RDWR, 0600)
 	if err != nil {
 		return fmt.Errorf("open output for auth: %w", err)
 	}
