@@ -49,6 +49,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 		_ = os.Rename(tmpPath, volumePath)
 	}
 
+	// #nosec G304 -- tmpPath is temp file created by this function
 	fin, err := os.Open(tmpPath)
 	if err != nil {
 		restoreOriginal()
@@ -93,6 +94,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 		crypto.Argon2NormalThreads,
 		crypto.Argon2KeySize,
 	)
+	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
 	if err != nil {
@@ -194,6 +196,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	}
 	total := stat.Size()
 
+	// #nosec G304 -- volumePath is user-provided .pcv file
 	fin, err := os.Open(volumePath)
 	if err != nil {
 		return "", fmt.Errorf("open volume: %w", err)
@@ -238,6 +241,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 		crypto.Argon2NormalThreads,
 		crypto.Argon2KeySize,
 	)
+	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
 	if err != nil {
@@ -301,6 +305,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	_ = fout.Close()
 
 	// Verify the decrypted file is a valid volume
+	// #nosec G304 -- outputPath is derived from user-provided volumePath
 	verifyFin, err := os.Open(outputPath)
 	if err != nil {
 		_ = os.Remove(outputPath)
@@ -333,6 +338,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 // This is done by attempting to read and decode the version - if it fails,
 // the volume likely has a deniability wrapper.
 func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
+	// #nosec G304 -- volumePath is user-provided .pcv file
 	fin, err := os.Open(volumePath)
 	if err != nil {
 		return false

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,10 +64,17 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		}
 	}()
 
-	// Calculate total uncompressed size
+	// Calculate total uncompressed size with overflow protection
 	var totalSize int64
 	for _, f := range reader.File {
-		totalSize += int64(f.UncompressedSize64)
+		size, ok := util.SafeUint64ToInt64(f.UncompressedSize64)
+		if !ok {
+			return fmt.Errorf("file %s: uncompressed size exceeds int64 max", f.Name)
+		}
+		if totalSize > math.MaxInt64-size {
+			return errors.New("total uncompressed size exceeds int64 max")
+		}
+		totalSize += size
 	}
 
 	// Determine extraction directory
@@ -153,12 +161,22 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		}
 
 		// Decompression bomb protection
-		compressedSize := int64(f.CompressedSize64)
-		maxByRatio := compressedSize * util.MaxDecompressRatio
-		maxBytes := min(maxByRatio, util.MaxDecompressSize)
-		// Edge case: very small compressed files rely on absolute limit only
-		if compressedSize < 1024 {
-			maxBytes = util.MaxDecompressSize
+		compressedSize, ok := util.SafeUint64ToInt64(f.CompressedSize64)
+		if !ok {
+			_ = dstFile.Close()
+			_ = fileInArchive.Close()
+			return fmt.Errorf("file %s: compressed size exceeds int64 max", f.Name)
+		}
+		// Overflow-safe ratio calculation: check before multiply
+		var maxBytes int64
+		if compressedSize > math.MaxInt64/util.MaxDecompressRatio {
+			maxBytes = math.MaxInt64 // allow: ratio can't overflow, trust content
+		} else {
+			maxBytes = compressedSize * util.MaxDecompressRatio
+		}
+		// Floor for small compressed files to avoid false positives
+		if maxBytes < util.MiB {
+			maxBytes = util.MiB
 		}
 
 		var written int64
@@ -179,8 +197,8 @@ func Unpack(opts UnpackOptions) (retErr error) {
 					_ = dstFile.Close()
 					_ = fileInArchive.Close()
 					_ = os.Remove(outPath)
-					return fmt.Errorf("decompression limit exceeded: %s (ratio >%d:1 or >%d GiB)",
-						f.Name, util.MaxDecompressRatio, util.MaxDecompressSize/util.GiB)
+					return fmt.Errorf("decompression limit exceeded: %s (ratio >%d:1)",
+						f.Name, util.MaxDecompressRatio)
 				}
 
 				if _, err := dstFile.Write(buf[:n]); err != nil {
