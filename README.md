@@ -53,7 +53,7 @@ To fix, use one of these methods:
 The CLI-only build doesn't trigger Gatekeeper warnings.
 
 ## Linux
-Download the raw binary <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG">here</a> (you may need the packages below). Alternatively, try the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.deb">.deb</a> or <a href="https://flathub.org/apps/io.github.picocrypt-ng.Picocrypt-NG">Flatpak</a>.
+Download the raw binary <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG">here</a> (you may need the packages below). Alternatively, try the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.deb">.deb</a> or <a href="https://flathub.org/apps/io.github.picocrypt_ng.Picocrypt-NG">Flatpak</a>.
 ```
 sudo apt install -y libc6 libgcc-s1 libgl1 libgtk-3-0 libstdc++6 libx11-6
 ```

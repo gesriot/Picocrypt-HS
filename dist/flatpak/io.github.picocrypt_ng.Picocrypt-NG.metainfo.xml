@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.picocrypt_ng.Picocrypt-NG</id>
+  <name>Picocrypt NG</name>
+  <summary>A very small, very simple, yet very secure encryption tool</summary>
+  <developer id="io.github.picocrypt_ng">
+    <name>Picocrypt NG developers</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0</project_license>
+  <url type="homepage">https://github.com/Picocrypt-NG/Picocrypt-NG</url>
+  <url type="bugtracker">https://github.com/Picocrypt-NG/Picocrypt-NG/issues</url>
+  <content_rating type="oars-1.1"/>
+  <description>
+    <p>Picocrypt NG is a small, simple, yet very secure file encryption tool.
+    It uses XChaCha20 for encryption and Argon2id for key derivation, with
+    optional cascaded Serpent encryption in paranoid mode.</p>
+    <p>Features include Reed-Solomon error correction for data recovery,
+    keyfile support, volume splitting, and a full command-line interface
+    for scripting and automation.</p>
+  </description>
+  <categories>
+    <category>Utility</category>
+    <category>Security</category>
+  </categories>
+  <launchable type="desktop-id">io.github.picocrypt_ng.Picocrypt-NG.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/Picocrypt-NG/Picocrypt-NG/main/images/screenshot.png</image>
+      <caption>Main window</caption>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="2.06" date="2026-02-21">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v206</url>
+      <description>
+        <ul>
+          <li>Updated Flatpak app ID to io.github.picocrypt_ng.Picocrypt-NG for Flathub compliance</li>
+          <li>Renamed Flatpak desktop and metainfo files to match the new app ID</li>
+          <li>Expanded Flatpak metainfo content and release metadata</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.05" date="2026-01-21">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v205</url>
+      <description>
+        <ul>
+          <li>Stdin/stdout streaming support for pipeline automation</li>
+          <li>Fixed data race in signal handler and improved buffer security</li>
+          <li>Improved error handling and test compatibility</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.04" date="2026-01-11">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v204</url>
+      <description>
+        <ul>
+          <li>Added comprehensive CLI documentation and CLI-only build mode</li>
+          <li>Implemented full CLI feature parity with GUI encryption operations</li>
+          <li>Added secure password stdin support and graceful signal handling</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.03" date="2026-01-11">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v203</url>
+      <description>
+        <ul>
+          <li>Improved extraction and compression handling with better naming</li>
+          <li>Enhanced UI readability and visual hierarchy</li>
+          <li>Automatically clears sensitive input fields after completion</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.02" date="2025-12-09">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v202</url>
+      <description>
+        <ul>
+          <li>Refactored into modular packages and switched to the Fyne toolkit</li>
+          <li>Added mobile support and v2 header authentication with HMAC-SHA3-512</li>
+          <li>Maintained backward compatibility with v1.x volumes</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.01" date="2025-12-09">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/releases/tag/2.01</url>
+      <description>
+        <ul>
+          <li>Maintenance release following v2.00</li>
+          <li>Dependency updates and stability improvements</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.00" date="2025-08-07">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v200-released-08072025</url>
+      <description>
+        <ul>
+          <li>First release in new Picocrypt-NG organization!</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>
