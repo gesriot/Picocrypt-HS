@@ -31,6 +31,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.06" date="2026-02-21">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v206</url>
+      <description>
+        <ul>
+          <li>Updated Flatpak app ID to io.github.picocrypt_ng.Picocrypt-NG for Flathub compliance</li>
+          <li>Renamed Flatpak desktop and metainfo files to match the new app ID</li>
+          <li>Expanded Flatpak metainfo content and release metadata</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.05" date="2026-01-21">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v205</url>
       <description>
