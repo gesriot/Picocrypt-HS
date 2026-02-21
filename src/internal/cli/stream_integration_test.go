@@ -33,7 +33,6 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 	cmd := exec.Command("go", "build", "-tags", "cli", "-o", binaryPath, "./cmd/picocrypt")
 	cmd.Dir = srcDir
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=1")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -357,7 +356,6 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 
 	cmd := exec.Command("go", "build", "-tags", "cli", "-o", binaryPath, "./cmd/picocrypt")
 	cmd.Dir = srcDir
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=1")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

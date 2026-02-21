@@ -1,3 +1,11 @@
+# v2.06
+<ul>
+	<li>✓ Updated Flatpak app ID to <code>io.github.picocrypt_ng.Picocrypt-NG</code> for Flathub naming compliance</li>
+	<li>✓ Renamed Flatpak desktop/metainfo files to the underscore app ID variant</li>
+	<li>✓ Expanded Flatpak metainfo with full app description and release entries for v2.01-v2.06</li>
+	<li>✓ Updated Flatpak metadata links and IDs for AppStream validation compatibility</li>
+</ul>
+
 # v2.05
 <ul>
 	<li>✓ Stdin/stdout streaming support (<code>-i -</code> and <code>-o -</code>) for pipeline automation</li>
