@@ -1,3 +1,10 @@
+# v2.07
+<ul>
+	<li>✓ Flathub-only packaging release (no application feature changes)</li>
+	<li>✓ Added the current Flatpak launcher script for backend selection in Flathub builds</li>
+	<li>✓ Aligned Flathub packaging assets and cleaned up Flatpak/AppStream metadata</li>
+</ul>
+
 # v2.06
 <ul>
 	<li>✓ Updated Flatpak app ID to <code>io.github.picocrypt_ng.Picocrypt-NG</code> for Flathub naming compliance</li>
