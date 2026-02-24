@@ -465,7 +465,7 @@ Ensure all chunk files are in the same directory before decryption.
 
 ## Version
 
-This documentation applies to Picocrypt NG v2.06 and later.
+This documentation applies to Picocrypt NG v2.07 and later.
 
 ## See Also
 
