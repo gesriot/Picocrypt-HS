@@ -53,13 +53,13 @@ To fix, use one of these methods:
 The CLI-only build doesn't trigger Gatekeeper warnings.
 
 ## Linux
-Download the raw binary <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG">here</a> (you may need the packages below). Alternatively, try the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.deb">.deb</a> or <a href="https://flathub.org/apps/io.github.picocrypt_ng.Picocrypt-NG">Flatpak</a>.
+Download the raw binary <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG">here</a> (you may need the packages below). Alternatively, try the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.deb">.deb</a> or <a href="https://flathub.org/en/apps/io.github.picocrypt_ng.Picocrypt-NG">Flatpak</a>.
 ```
 sudo apt install -y libc6 libgcc-s1 libgl1 libgtk-3-0 libstdc++6 libx11-6
 ```
 
 ## CLI
-A command-line interface is available for Picocrypt NG <a href="https://github.com/Picocrypt-NG/CLI">here</a>. It can encrypt and decrypt files, folders, and glob patterns, and supports paranoid mode and Reed-Solomon encoding. You can use it on systems that don't have a GUI or can't run the GUI app.
+Picocrypt NG includes a command-line interface in this repository; see <a href="CLI.md">CLI.md</a> for usage. It can encrypt and decrypt files, folders, and glob patterns, and supports paranoid mode and Reed-Solomon encoding. You can use it on systems that don't have a GUI or can't run the GUI app.
 
 ## Web
 A functionally limited web app is available <a href="https://picocrypt-ng.github.io/">here</a> which allows you to encrypt and decrypt standard Picocrypt NG volumes (no advanced features or keyfiles) on any modern browser, including mobile devices. It's a simple, future-proof way to securely encrypt files that should work indefinitely due to the web's stable nature. Note that you can only encrypt/decrypt single files up to a maximum size of 512 MiB.
