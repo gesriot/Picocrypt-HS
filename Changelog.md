@@ -1,3 +1,10 @@
+# v2.08
+<ul>
+	<li>✓ Added Linux ARM64 build artifacts for both GUI and CLI in CI/release pipelines</li>
+	<li>✓ Updated Linux workflows to build/test amd64 and arm64 variants on architecture-specific runners</li>
+	<li>✓ Updated UPX from v5.0.2 to v5.1.0 across Linux and Windows build workflows</li>
+</ul>
+
 # v2.07
 <ul>
 	<li>✓ Flathub-only packaging release (no application feature changes)</li>
