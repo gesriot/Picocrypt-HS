@@ -14,7 +14,25 @@ concurrency:
 
 jobs:
   pr-test-build-linux:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            upx_pkg: upx-5.1.0-amd64_linux
+            gui_binary: Picocrypt-NG
+            cli_binary: Picocrypt-NG-cli
+            artifact_name: pr-test-build-linux-amd64-ONLY-FOR-TESTING
+            build_deb: "true"
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            upx_pkg: upx-5.1.0-arm64_linux
+            gui_binary: Picocrypt-NG-arm64
+            cli_binary: Picocrypt-NG-cli-arm64
+            artifact_name: pr-test-build-linux-arm64-ONLY-FOR-TESTING
+            build_deb: "false"
+    runs-on: ${{ matrix.runner }}
     steps:
     - uses: actions/checkout@v6
 
@@ -45,31 +63,32 @@ jobs:
     - name: Build GUI
       run: |
         cd src
-        go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
-      env:
-        CGO_ENABLED: 1
-        GOAMD64: v1
+        if [ "${{ matrix.arch }}" = "amd64" ]; then
+          export GOAMD64=v1
+        fi
+        GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -v -ldflags="-s -w" -o "${{ matrix.gui_binary }}" ./cmd/picocrypt
 
     - name: Build CLI-only (no graphics dependencies)
       run: |
         cd src
-        go build -v -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
-      env:
-        CGO_ENABLED: 1
-        GOAMD64: v1
+        if [ "${{ matrix.arch }}" = "amd64" ]; then
+          export GOAMD64=v1
+        fi
+        GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -v -tags cli -ldflags="-s -w" -o "${{ matrix.cli_binary }}" ./cmd/picocrypt
 
     - name: Compress with upx
       run: |
-        wget -O upx.tar.xz https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-amd64_linux.tar.xz
+        wget -O upx.tar.xz https://github.com/upx/upx/releases/download/v5.1.0/${{ matrix.upx_pkg }}.tar.xz
         tar -xf upx.tar.xz
-        upx-5.0.2-amd64_linux/upx --lzma src/Picocrypt-NG
-        upx-5.0.2-amd64_linux/upx --lzma src/Picocrypt-NG-cli
+        ${{ matrix.upx_pkg }}/upx --lzma "src/${{ matrix.gui_binary }}"
+        ${{ matrix.upx_pkg }}/upx --lzma "src/${{ matrix.cli_binary }}"
 
     - name: Package as .deb
+      if: matrix.build_deb == 'true'
       run: |
         wget https://github.com/user-attachments/files/21703014/Picocrypt-NG.zip
         python -m zipfile -e Picocrypt-NG.zip Picocrypt-NG
-        cp src/Picocrypt-NG Picocrypt-NG/Picocrypt-NG/usr/bin/picocrypt-ng-gui
+        cp "src/${{ matrix.gui_binary }}" Picocrypt-NG/Picocrypt-NG/usr/bin/picocrypt-ng-gui
         VERSION=$(cat VERSION)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
         echo "Version: $VERSION" >> Picocrypt-NG/Picocrypt-NG/DEBIAN/control
@@ -79,23 +98,17 @@ jobs:
 
     - name: Prepare to upload artifacts
       run: |
-        mkdir out
-        mv src/Picocrypt-NG out
-        mv src/Picocrypt-NG-cli out
-        mv Picocrypt-NG/Picocrypt-NG.deb out
-        rm -rf src
-        rm -rf Picocrypt-NG
-        mv out/Picocrypt-NG .
-        mv out/Picocrypt-NG-cli .
-        mv out/Picocrypt-NG.deb .
+        mkdir -p out
+        mv "src/${{ matrix.gui_binary }}" out
+        mv "src/${{ matrix.cli_binary }}" out
+        if [ "${{ matrix.build_deb }}" = "true" ]; then
+          mv Picocrypt-NG/Picocrypt-NG.deb out
+        fi
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
-        name: pr-test-build-linux-ONLY-FOR-TESTING
-        path: |
-          Picocrypt-NG
-          Picocrypt-NG-cli
-          Picocrypt-NG.deb
+        name: ${{ matrix.artifact_name }}
+        path: out/*
         if-no-files-found: error
         compression-level: 9
