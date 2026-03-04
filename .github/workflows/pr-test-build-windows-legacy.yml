@@ -80,10 +80,10 @@ jobs:
     - name: Compress with upx
       shell: pwsh
       run: |
-        Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-win64.zip
+        Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.1.0/upx-5.1.0-win64.zip
         Expand-Archive -DestinationPath upx upx.zip
-        upx/upx-5.0.2-win64/upx.exe --lzma -o src/Picocrypt-NG-Legacy.exe src/5.exe
-        upx/upx-5.0.2-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
+        upx/upx-5.1.0-win64/upx.exe --lzma -o src/Picocrypt-NG-Legacy.exe src/5.exe
+        upx/upx-5.1.0-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
 
     - name: Download and bundle Mesa3D for OpenGL software rendering
       shell: pwsh
@@ -156,7 +156,7 @@ jobs:
         Compress-Archive -Path legacy-package/* -DestinationPath Picocrypt-NG-Legacy-Windows-TEST.zip
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: pr-test-build-windows-legacy-ONLY-FOR-TESTING
         path: |

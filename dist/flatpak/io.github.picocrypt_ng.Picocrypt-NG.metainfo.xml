@@ -32,6 +32,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.08" date="2026-03-04">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v208</url>
+      <description>
+        <ul>
+          <li>Added Linux ARM64 build artifacts for both GUI and CLI</li>
+          <li>Updated Linux CI workflows to build/test amd64 and arm64 variants</li>
+          <li>Updated UPX from v5.0.2 to v5.1.0 in build workflows</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.07" date="2026-02-24">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v207</url>
       <description>

@@ -17,7 +17,25 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            upx_pkg: upx-5.1.0-amd64_linux
+            gui_binary: Picocrypt-NG
+            cli_binary: Picocrypt-NG-cli
+            artifact_name: build-linux-amd64
+            build_deb: "true"
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            upx_pkg: upx-5.1.0-arm64_linux
+            gui_binary: Picocrypt-NG-arm64
+            cli_binary: Picocrypt-NG-cli-arm64
+            artifact_name: build-linux-arm64
+            build_deb: "false"
+    runs-on: ${{ matrix.runner }}
     steps:
     - uses: actions/checkout@v6
 
@@ -48,33 +66,33 @@ jobs:
     - name: Build GUI
       run: |
         cd src
-        go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
-      env:
-        CGO_ENABLED: 1
-        GOAMD64: v1
+        if [ "${{ matrix.arch }}" = "amd64" ]; then
+          export GOAMD64=v1
+        fi
+        GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -v -ldflags="-s -w" -o "${{ matrix.gui_binary }}" ./cmd/picocrypt
 
     - name: Build CLI-only (no graphics dependencies)
       run: |
         cd src
-        go build -v -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
-      env:
-        CGO_ENABLED: 1
-        GOAMD64: v1
+        if [ "${{ matrix.arch }}" = "amd64" ]; then
+          export GOAMD64=v1
+        fi
+        GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -v -tags cli -ldflags="-s -w" -o "${{ matrix.cli_binary }}" ./cmd/picocrypt
 
     - name: Compress with upx
       run: |
-        wget -O upx.tar.xz https://github.com/upx/upx/releases/download/v5.0.2/upx-5.0.2-amd64_linux.tar.xz
+        wget -O upx.tar.xz https://github.com/upx/upx/releases/download/v5.1.0/${{ matrix.upx_pkg }}.tar.xz
         tar -xf upx.tar.xz
-        upx-5.0.2-amd64_linux/upx --lzma src/Picocrypt-NG
-        upx-5.0.2-amd64_linux/upx --lzma src/Picocrypt-NG-cli
+        ${{ matrix.upx_pkg }}/upx --lzma "src/${{ matrix.gui_binary }}"
+        ${{ matrix.upx_pkg }}/upx --lzma "src/${{ matrix.cli_binary }}"
 
     - name: Package as .deb
+      if: matrix.build_deb == 'true'
       run: |
         wget https://github.com/user-attachments/files/21703014/Picocrypt-NG.zip
         python -m zipfile -e Picocrypt-NG.zip Picocrypt-NG
-        cp src/Picocrypt-NG Picocrypt-NG/Picocrypt-NG/usr/bin/picocrypt-ng-gui
+        cp "src/${{ matrix.gui_binary }}" Picocrypt-NG/Picocrypt-NG/usr/bin/picocrypt-ng-gui
         VERSION=$(cat VERSION)
-        echo "VERSION=$VERSION" >> $GITHUB_ENV
         echo "Version: $VERSION" >> Picocrypt-NG/Picocrypt-NG/DEBIAN/control
         echo "Version=$VERSION" >> Picocrypt-NG/Picocrypt-NG/usr/share/applications/picocrypt-ng.desktop
         cd Picocrypt-NG
@@ -82,45 +100,62 @@ jobs:
 
     - name: Prepare to upload artifacts
       run: |
-        mkdir out
-        mv src/Picocrypt-NG out
-        mv src/Picocrypt-NG-cli out
-        mv Picocrypt-NG/Picocrypt-NG.deb out
-        rm -rf src
-        rm -rf Picocrypt-NG
-        mv out/Picocrypt-NG .
-        mv out/Picocrypt-NG-cli .
-        mv out/Picocrypt-NG.deb .
+        mkdir -p out
+        mv "src/${{ matrix.gui_binary }}" out
+        mv "src/${{ matrix.cli_binary }}" out
+        if [ "${{ matrix.build_deb }}" = "true" ]; then
+          mv Picocrypt-NG/Picocrypt-NG.deb out
+        fi
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
-        name: build-linux
-        path: |
-          Picocrypt-NG
-          Picocrypt-NG-cli
-          Picocrypt-NG.deb
+        name: ${{ matrix.artifact_name }}
+        path: out/*
         if-no-files-found: error
         compression-level: 9
 
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v8
+      with:
+        path: artifacts
+
+    - name: Get version tag
+      run: |
+        VERSION=$(cat VERSION)
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+
     - name: Generate checksums
       run: |
-        echo "CHECKSUM_PICOCRYPT_NG=$(sha256sum Picocrypt-NG | cut -d ' ' -f1)" >> $GITHUB_ENV
-        echo "CHECKSUM_PICOCRYPT_NG_CLI=$(sha256sum Picocrypt-NG-cli | cut -d ' ' -f1)" >> $GITHUB_ENV
-        echo "CHECKSUM_DEB=$(sha256sum Picocrypt-NG.deb | cut -d ' ' -f1)" >> $GITHUB_ENV
+        echo "CHECKSUM_PICOCRYPT_NG_AMD64=$(sha256sum artifacts/build-linux-amd64/Picocrypt-NG | cut -d ' ' -f1)" >> $GITHUB_ENV
+        echo "CHECKSUM_PICOCRYPT_NG_CLI_AMD64=$(sha256sum artifacts/build-linux-amd64/Picocrypt-NG-cli | cut -d ' ' -f1)" >> $GITHUB_ENV
+        echo "CHECKSUM_DEB_AMD64=$(sha256sum artifacts/build-linux-amd64/Picocrypt-NG.deb | cut -d ' ' -f1)" >> $GITHUB_ENV
+        echo "CHECKSUM_PICOCRYPT_NG_ARM64=$(sha256sum artifacts/build-linux-arm64/Picocrypt-NG-arm64 | cut -d ' ' -f1)" >> $GITHUB_ENV
+        echo "CHECKSUM_PICOCRYPT_NG_CLI_ARM64=$(sha256sum artifacts/build-linux-arm64/Picocrypt-NG-cli-arm64 | cut -d ' ' -f1)" >> $GITHUB_ENV
 
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          Picocrypt-NG
-          Picocrypt-NG-cli
-          Picocrypt-NG.deb
+          artifacts/build-linux-amd64/Picocrypt-NG
+          artifacts/build-linux-amd64/Picocrypt-NG-cli
+          artifacts/build-linux-amd64/Picocrypt-NG.deb
+          artifacts/build-linux-arm64/Picocrypt-NG-arm64
+          artifacts/build-linux-arm64/Picocrypt-NG-cli-arm64
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true
         body: |
-          **Linux:**
-          `sha256(Picocrypt-NG)      ${{ env.CHECKSUM_PICOCRYPT_NG }}`
-          `sha256(Picocrypt-NG-cli)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI }}`
-          `sha256(Picocrypt-NG.deb)  ${{ env.CHECKSUM_DEB }}`
+          **Linux (amd64):**
+          `sha256(Picocrypt-NG)        ${{ env.CHECKSUM_PICOCRYPT_NG_AMD64 }}`
+          `sha256(Picocrypt-NG-cli)    ${{ env.CHECKSUM_PICOCRYPT_NG_CLI_AMD64 }}`
+          `sha256(Picocrypt-NG.deb)    ${{ env.CHECKSUM_DEB_AMD64 }}`
+          **Linux (arm64):**
+          `sha256(Picocrypt-NG-arm64)      ${{ env.CHECKSUM_PICOCRYPT_NG_ARM64 }}`
+          `sha256(Picocrypt-NG-cli-arm64)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI_ARM64 }}`

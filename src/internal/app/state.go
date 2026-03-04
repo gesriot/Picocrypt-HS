@@ -29,7 +29,7 @@ import (
 )
 
 // Version is the application version string.
-const Version = "v2.07"
+const Version = "v2.08"
 
 // PasswordInputMode represents the visibility state of password inputs.
 type PasswordInputMode int

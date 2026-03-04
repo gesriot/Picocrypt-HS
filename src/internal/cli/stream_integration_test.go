@@ -334,6 +334,55 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			t.Errorf("pipe round-trip mismatch\ngot:  %q\nwant: %q", decrypted, inputData)
 		}
 	})
+
+	t.Run("auto-unzip works with auto-generated output path", func(t *testing.T) {
+		inputA := filepath.Join(tmpDir, "auto-unzip-a.txt")
+		inputB := filepath.Join(tmpDir, "auto-unzip-b.txt")
+		if err := os.WriteFile(inputA, []byte("alpha"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(inputB, []byte("bravo"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		volumePath := filepath.Join(tmpDir, "auto-unzip.pcv")
+		cmd := exec.Command(binaryPath, "encrypt",
+			"-i", inputA,
+			"-i", inputB,
+			"-o", volumePath,
+			"-p", testPassword,
+			"-y",
+		)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("multi-file encrypt failed: %v\nOutput: %s", err, output)
+		}
+
+		cmd = exec.Command(binaryPath, "decrypt",
+			"-i", volumePath,
+			"-p", testPassword,
+			"-y",
+			"--auto-unzip",
+		)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("auto-unzip decrypt failed: %v\nOutput: %s", err, output)
+		}
+
+		extractedDir := filepath.Join(tmpDir, "auto-unzip")
+		info, err := os.Stat(extractedDir)
+		if err != nil {
+			t.Fatalf("expected extracted directory %q: %v", extractedDir, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("expected %q to be a directory after auto-unzip", extractedDir)
+		}
+
+		if _, err := os.Stat(filepath.Join(extractedDir, filepath.Base(inputA))); err != nil {
+			t.Fatalf("missing extracted file %q: %v", filepath.Base(inputA), err)
+		}
+		if _, err := os.Stat(filepath.Join(extractedDir, filepath.Base(inputB))); err != nil {
+			t.Fatalf("missing extracted file %q: %v", filepath.Base(inputB), err)
+		}
+	})
 }
 
 func TestStdinStdoutErrorCases(t *testing.T) {

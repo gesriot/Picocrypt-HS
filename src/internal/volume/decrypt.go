@@ -656,11 +656,22 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 		_ = os.Remove(ctx.RecombinedFile)
 	}
 
-	// Auto-unzip if requested and output is a .zip
-	if req.AutoUnzip && strings.HasSuffix(req.OutputFile, ".zip") {
+	// Auto-unzip if requested and output looks like a zip archive.
+	// CLI auto-generated output names may omit .zip, so we also check file signature.
+	if req.AutoUnzip && (strings.HasSuffix(req.OutputFile, ".zip") || isZipArchive(req.OutputFile)) {
+		zipPath := req.OutputFile
+		renamedFrom := ""
+		if !strings.HasSuffix(req.OutputFile, ".zip") {
+			zipPath = req.OutputFile + ".zip"
+			if err := os.Rename(req.OutputFile, zipPath); err != nil {
+				return fmt.Errorf("prepare auto-unzip: %w", err)
+			}
+			renamedFrom = req.OutputFile
+		}
+
 		ctx.SetStatus("Unzipping...")
 		err := fileops.Unpack(fileops.UnpackOptions{
-			ZipPath:   req.OutputFile,
+			ZipPath:   zipPath,
 			SameLevel: req.SameLevel,
 			Progress: func(p float32, info string) {
 				ctx.UpdateProgress(p, info)
@@ -671,14 +682,42 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 			Cancel: ctx.IsCancelled,
 		})
 		if err != nil {
+			if renamedFrom != "" {
+				_ = os.Rename(zipPath, renamedFrom)
+			}
 			return fmt.Errorf("unzip: %w", err)
 		}
 
 		// Remove the zip
-		_ = os.Remove(req.OutputFile)
+		_ = os.Remove(zipPath)
 	}
 
 	return nil
+}
+
+func isZipArchive(path string) bool {
+	f, err := os.Open(path) // #nosec G304 -- path is derived from user-selected output file
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	sig := make([]byte, 4)
+	if _, err := io.ReadFull(f, sig); err != nil {
+		return false
+	}
+
+	if sig[0] != 'P' || sig[1] != 'K' {
+		return false
+	}
+
+	// ZIP signatures:
+	// 0x03 0x04 = local file header
+	// 0x05 0x06 = empty archive end record
+	// 0x07 0x08 = spanned/split archive
+	return (sig[2] == 0x03 && sig[3] == 0x04) ||
+		(sig[2] == 0x05 && sig[3] == 0x06) ||
+		(sig[2] == 0x07 && sig[3] == 0x08)
 }
 
 func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
