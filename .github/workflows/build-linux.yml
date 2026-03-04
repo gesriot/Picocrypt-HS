@@ -61,7 +61,11 @@ jobs:
     - name: Run tests
       run: |
         cd src
-        go test -v -race -timeout 15m ./...
+        if [ "${{ matrix.arch }}" = "amd64" ]; then
+          CGO_ENABLED=1 go test -v -race -timeout 15m ./...
+        else
+          CGO_ENABLED=1 go test -v -timeout 15m ./...
+        fi
 
     - name: Build GUI
       run: |
