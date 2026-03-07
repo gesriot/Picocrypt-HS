@@ -15,6 +15,10 @@ concurrency:
 jobs:
   pr-test-build-macos:
     runs-on: macos-26
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
+      CGO_CFLAGS: "-mmacosx-version-min=15.0"
+      CGO_LDFLAGS: "-mmacosx-version-min=15.0"
     steps:
     - uses: actions/checkout@v6
 
@@ -45,6 +49,10 @@ jobs:
         go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
+
+    - name: Verify macOS GUI deployment target
+      run: |
+        bash .github/scripts/assert-macos-minos.sh src/Picocrypt-NG 15.0
 
     - name: Build CLI-only (no graphics dependencies)
       run: |
