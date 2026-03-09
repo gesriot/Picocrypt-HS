@@ -38,6 +38,19 @@ CGO_ENABLED=1 go build -ldflags="-s -w -H=windowsgui -extldflags=-static" -o Pic
 ./Picocrypt-NG
 ```
 
+## Test
+
+```bash
+# Fast default local suite
+go test ./...
+
+# Golden compatibility checks with production KDF
+go test -run 'TestGoldenDecryption|TestGoldenCompressedDecryption|TestGoldenWrongPassword|TestGoldenV1WrongPassword' ./internal/volume
+
+# Opt-in CLI integration tests
+PICOCRYPT_RUN_CLI_INTEGRATION=1 go test ./internal/cli
+```
+
 ## Notes
 
 - On Linux without hardware OpenGL: `LIBGL_ALWAYS_SOFTWARE=1 ./Picocrypt-NG`

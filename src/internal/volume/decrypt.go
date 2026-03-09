@@ -196,7 +196,7 @@ func decryptReadHeader(ctx *OperationContext, req *DecryptRequest) error {
 func decryptDeriveKeys(ctx *OperationContext, req *DecryptRequest) error {
 	ctx.SetStatus("Deriving key...")
 
-	key, err := crypto.DeriveKey([]byte(req.Password), ctx.Header.Salt, ctx.Header.Flags.Paranoid)
+	key, err := deriveVolumeKey([]byte(req.Password), ctx.Header.Salt, ctx.Header.Flags.Paranoid)
 	if err != nil {
 		return err
 	}
