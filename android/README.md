@@ -73,4 +73,5 @@ The Go mobile package provides:
 - Progress is polled every 500ms during operations
 - Operations run in background threads (Go goroutines + Kotlin coroutines)
 - The Go mobile AAR must be rebuilt whenever Go code changes
-- The Phase 1 GitHub release workflow publishes the debug APK only; release APK assembly is kept as a verification step until signing is added
+- Release signing in GitHub Actions expects these repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
+- The release workflow publishes a signed release APK; PR workflow artifacts remain debug/testing-only

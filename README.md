@@ -59,7 +59,7 @@ sudo apt install -y libc6 libgcc-s1 libgl1 libgtk-3-0 libstdc++6 libx11-6
 ```
 
 ## Android
-The Android build is now a native app built from the `android/` project in this repository rather than a `fyne-cross` package. During the first native Android rollout, GitHub releases publish the debug APK only.
+The Android build is now a native app built from the `android/` project in this repository rather than a `fyne-cross` package. GitHub releases publish a signed release APK, while PR artifacts remain debug/testing-only.
 
 For local Android builds and architecture details, see <a href="android/README.md">android/README.md</a>.
 
