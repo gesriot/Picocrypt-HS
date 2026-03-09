@@ -209,7 +209,7 @@ func encryptWriteHeader(ctx *OperationContext, req *EncryptRequest) error {
 func encryptDeriveKeys(ctx *OperationContext, req *EncryptRequest) error {
 	ctx.SetStatus("Deriving key...")
 
-	key, err := crypto.DeriveKey([]byte(req.Password), ctx.Header.Salt, req.Paranoid)
+	key, err := deriveVolumeKey([]byte(req.Password), ctx.Header.Salt, req.Paranoid)
 	if err != nil {
 		return err
 	}

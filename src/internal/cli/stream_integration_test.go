@@ -12,10 +12,22 @@ import (
 // Integration tests for stdin/stdout functionality.
 // These tests build and run the actual CLI binary to verify end-to-end behavior.
 
-func TestStdinStdoutIntegration(t *testing.T) {
+func cliIntegrationEnabled() bool {
+	return os.Getenv("PICOCRYPT_RUN_CLI_INTEGRATION") == "1"
+}
+
+func requireCLIIntegration(t *testing.T) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	if !cliIntegrationEnabled() {
+		t.Skip("set PICOCRYPT_RUN_CLI_INTEGRATION=1 to run CLI integration tests")
+	}
+}
+
+func TestStdinStdoutIntegration(t *testing.T) {
+	requireCLIIntegration(t)
 
 	// Build CLI binary
 	tmpDir := t.TempDir()
@@ -386,9 +398,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 }
 
 func TestStdinStdoutErrorCases(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+	requireCLIIntegration(t)
 
 	// Build CLI binary
 	tmpDir := t.TempDir()

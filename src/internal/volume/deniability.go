@@ -13,7 +13,6 @@ import (
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 
-	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20"
 )
 
@@ -88,12 +87,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 
 	// Derive key using Argon2 (normal mode parameters)
-	key := argon2.IDKey([]byte(password), salt,
-		crypto.Argon2NormalPasses,
-		crypto.Argon2NormalMemory,
-		crypto.Argon2NormalThreads,
-		crypto.Argon2KeySize,
-	)
+	key := deriveDeniabilityKey([]byte(password), salt)
 	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
@@ -235,12 +229,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	}
 
 	// Derive key using Argon2 (normal mode parameters)
-	key := argon2.IDKey([]byte(password), salt,
-		crypto.Argon2NormalPasses,
-		crypto.Argon2NormalMemory,
-		crypto.Argon2NormalThreads,
-		crypto.Argon2KeySize,
-	)
+	key := deriveDeniabilityKey([]byte(password), salt)
 	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)

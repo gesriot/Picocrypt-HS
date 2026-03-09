@@ -116,6 +116,9 @@ var goldenCompressedTestCases = []struct {
 }
 
 func TestGoldenDecryption(t *testing.T) {
+	restore := useProductionTestKDF()
+	defer restore()
+
 	// Find the testdata directory
 	testdataPath := findTestdata(t)
 
@@ -187,6 +190,9 @@ func TestGoldenDecryption(t *testing.T) {
 
 // TestGoldenCompressedDecryption tests decrypting compressed (zip) golden files
 func TestGoldenCompressedDecryption(t *testing.T) {
+	restore := useProductionTestKDF()
+	defer restore()
+
 	testdataPath := findTestdata(t)
 
 	rsCodecs, err := encoding.NewRSCodecs()
@@ -395,6 +401,9 @@ func TestGoldenDeniabilityDetection(t *testing.T) {
 }
 
 func TestGoldenWrongPassword(t *testing.T) {
+	restore := useProductionTestKDF()
+	defer restore()
+
 	testdataPath := findTestdata(t)
 
 	rsCodecs, err := encoding.NewRSCodecs()
@@ -437,6 +446,9 @@ func TestGoldenWrongPassword(t *testing.T) {
 }
 
 func TestGoldenV1WrongPassword(t *testing.T) {
+	restore := useProductionTestKDF()
+	defer restore()
+
 	testdataPath := findTestdata(t)
 
 	rsCodecs, err := encoding.NewRSCodecs()
