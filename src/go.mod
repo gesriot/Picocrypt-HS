@@ -1,6 +1,6 @@
 module Picocrypt-NG
 
-go 1.24.2
+go 1.25.0
 
 require (
 	fyne.io/fyne/v2 v2.7.3
@@ -9,7 +9,7 @@ require (
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.48.0
-	golang.org/x/sys v0.41.0
+	golang.org/x/sys v0.42.0
 	golang.org/x/term v0.40.0
 )
 
