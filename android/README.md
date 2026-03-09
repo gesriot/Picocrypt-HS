@@ -8,7 +8,7 @@ This directory contains the Android app that integrates with the Go encryption b
 
 1. **Go Mobile**: Install Go mobile bindings
    ```bash
-   go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260217195705-b56b3793a9c4
+   go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260209203831-923679eb55af
    gomobile init
    ```
 
