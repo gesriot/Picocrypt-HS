@@ -2,18 +2,17 @@ package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import io.github.picocrypt_ng.picocrypt_ng.testutils.MainDispatcherRule
 import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
 import io.mockk.mockk
 
@@ -24,29 +23,33 @@ import io.mockk.mockk
  * Full integration testing requires instrumented tests. These unit tests focus
  * on the ViewModel's polling lifecycle and state management.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class OperationViewModelTest {
     
     @get:Rule
     val instantTaskExecutorRule = InstantTaskExecutorRule()
-    
-    private val testDispatcher = StandardTestDispatcher()
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
     private lateinit var mockContext: Context
     private lateinit var viewModel: OperationViewModel
     
     @Before
-    fun setUp() = runTest {
-        Dispatchers.setMain(testDispatcher)
+    fun setUp() {
         mockContext = mockk<Context>(relaxed = true)
         viewModel = OperationViewModel()
-        // Clear any existing operation state
-        OperationManager.clearOperation(shouldCleanupFiles = false)
+        runBlocking {
+            OperationManager.clearOperation(shouldCleanupFiles = false)
+        }
     }
     
     @After
-    fun tearDown() = runTest {
-        Dispatchers.resetMain()
-        // Clean up operation state after each test
-        OperationManager.clearOperation(shouldCleanupFiles = false)
+    fun tearDown() {
+        invokeOnCleared(viewModel)
+        runBlocking {
+            OperationManager.clearOperation(shouldCleanupFiles = false)
+        }
     }
     
     @Test
@@ -71,8 +74,7 @@ class OperationViewModelTest {
         // This will fail validation or require GoBridge, but we test the method call
         viewModel.startEncrypt(mockContext, formData)
         
-        // Give coroutine time to execute
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         // Operation may or may not start depending on validation/GoBridge availability
         // But the method should not throw
@@ -86,8 +88,7 @@ class OperationViewModelTest {
         
         viewModel.startDecrypt(mockContext, formData)
         
-        // Give coroutine time to execute
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         // Method should not throw
     }
@@ -96,8 +97,7 @@ class OperationViewModelTest {
     fun `cancelOperation stops polling and cancels operation`() = runTest {
         viewModel.cancelOperation()
         
-        // Give coroutine time to execute
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         // Method should not throw
     }
@@ -106,8 +106,7 @@ class OperationViewModelTest {
     fun `clearOperation stops polling and clears operation`() = runTest {
         viewModel.clearOperation(mockContext, shouldCleanupFiles = false)
         
-        // Give coroutine time to execute
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         val operationState = viewModel.operationState.first()
         assertNull("Operation should be cleared", operationState)
@@ -122,8 +121,7 @@ class OperationViewModelTest {
         
         viewModel.retryOperation(mockContext, formData)
         
-        // Give coroutine time to execute
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         // Method should not throw
     }
@@ -132,8 +130,7 @@ class OperationViewModelTest {
     fun `retryDecryptWithForce stops polling and retries with force`() = runTest {
         viewModel.retryDecryptWithForce()
         
-        // Give coroutine time to execute
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         // Method should not throw
     }
@@ -143,8 +140,7 @@ class OperationViewModelTest {
         // pausePolling sets isForeground to false and starts background polling
         viewModel.pausePolling()
         
-        // Give time for state change
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         // Method should not throw
         // Note: We can't easily verify isForeground without exposing it,
@@ -155,21 +151,23 @@ class OperationViewModelTest {
     fun `resumePolling switches to foreground mode`() = runTest {
         // First pause
         viewModel.pausePolling()
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         // Then resume
         viewModel.resumePolling()
-        advanceTimeBy(100)
+        advanceUntilIdle()
         
         // Method should not throw
     }
     
     @Test
     fun `onCleared stops all polling`() = runTest {
-        // Test that onCleared doesn't throw
-        // Note: onCleared is protected, so we can't call it directly
-        // This test verifies the ViewModel can be created and used
-        assertNotNull("ViewModel should be created", viewModel)
+        viewModel.pausePolling()
+        advanceUntilIdle()
+
+        invokeOnCleared(viewModel)
+
+        assertNotNull("ViewModel should still exist after onCleared invocation", viewModel)
     }
     
     @Test
@@ -183,5 +181,10 @@ class OperationViewModelTest {
         val managerState = OperationManager.currentOperation.first()
         assertEquals(managerState, operationState)
     }
-}
 
+    private fun invokeOnCleared(viewModel: OperationViewModel) {
+        val method = OperationViewModel::class.java.getDeclaredMethod("onCleared")
+        method.isAccessible = true
+        method.invoke(viewModel)
+    }
+}
