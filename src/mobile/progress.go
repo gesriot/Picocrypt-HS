@@ -94,9 +94,9 @@ func completeOperation(id string, err error) {
 // getProgress retrieves the current progress state for an operation
 func getProgress(id string) (*ProgressState, error) {
 	globalProgressMap.mu.RLock()
+	defer globalProgressMap.mu.RUnlock()
+
 	op, exists := globalProgressMap.ops[id]
-	globalProgressMap.mu.RUnlock()
-	
 	if !exists {
 		return nil, fmt.Errorf("operation %s not found", id)
 	}
