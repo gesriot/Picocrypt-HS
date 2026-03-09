@@ -58,6 +58,11 @@ Download the raw binary <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/re
 sudo apt install -y libc6 libgcc-s1 libgl1 libgtk-3-0 libstdc++6 libx11-6
 ```
 
+## Android
+The Android build is now a native app built from the `android/` project in this repository rather than a `fyne-cross` package. During the first native Android rollout, GitHub releases publish the debug APK only.
+
+For local Android builds and architecture details, see <a href="android/README.md">android/README.md</a>.
+
 ## CLI
 Picocrypt NG includes a command-line interface in this repository; see <a href="CLI.md">CLI.md</a> for usage. It can encrypt and decrypt files, folders, and glob patterns, and supports paranoid mode and Reed-Solomon encoding. You can use it on systems that don't have a GUI or can't run the GUI app.
 
