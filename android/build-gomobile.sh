@@ -90,7 +90,7 @@ echo "Android NDK: ${ANDROID_NDK_HOME:-not set}"
 # Check if gomobile is installed
 if ! command -v gomobile &> /dev/null; then
     echo "Error: gomobile not found in PATH." >&2
-    echo "  Install it first with: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260217195705-b56b3793a9c4" >&2
+    echo "  Install it first with: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260209203831-923679eb55af" >&2
     echo "  Then initialize it with: gomobile init" >&2
     exit 1
 fi
