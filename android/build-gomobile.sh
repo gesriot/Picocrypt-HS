@@ -96,8 +96,46 @@ if ! command -v gomobile &> /dev/null; then
     exit 1
 fi
 
+if ! command -v gobind &> /dev/null; then
+    echo "Error: gobind not found in PATH." >&2
+    echo "  Install it with: go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260209203831-923679eb55af" >&2
+    exit 1
+fi
+
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
+
+REAL_GO="$(command -v go)"
+REAL_GOBIND="$(command -v gobind)"
+WRAPPER_DIR="$(mktemp -d)"
+cleanup() {
+    rm -rf "$WRAPPER_DIR"
+}
+trap cleanup EXIT
+
+cat > "$WRAPPER_DIR/go" <<EOF
+#!/bin/sh
+set -e
+if [ -n "\$GOFLAGS" ]; then
+    export GOFLAGS="\$GOFLAGS -mod=mod"
+else
+    export GOFLAGS="-mod=mod"
+fi
+exec "$REAL_GO" "\$@"
+EOF
+chmod +x "$WRAPPER_DIR/go"
+
+cat > "$WRAPPER_DIR/gobind" <<EOF
+#!/bin/sh
+set -e
+if [ -n "\$GOFLAGS" ]; then
+    export GOFLAGS="\$GOFLAGS -mod=mod"
+else
+    export GOFLAGS="-mod=mod"
+fi
+exec "$REAL_GOBIND" "\$@"
+EOF
+chmod +x "$WRAPPER_DIR/gobind"
 
 # Build AAR
 echo "Building AAR..."
@@ -105,7 +143,7 @@ cd "$GO_SRC_DIR"
 
 # gomobile uses ANDROID_NDK_HOME environment variable (already set above)
 # Always use API level 24 (matches app's minSdk, required for NDK 29+)
-gomobile bind -target android $USE_ANDROID_API -o "$OUTPUT_DIR/picocrypt-mobile.aar" ./mobile
+PATH="$WRAPPER_DIR:$PATH" gomobile bind -target android $USE_ANDROID_API -o "$OUTPUT_DIR/picocrypt-mobile.aar" ./mobile
 
 echo "✓ Build successful!"
 echo "  AAR location: $OUTPUT_DIR/picocrypt-mobile.aar"
