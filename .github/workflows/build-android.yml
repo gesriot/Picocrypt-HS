@@ -75,6 +75,25 @@ jobs:
         echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
         echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
+    - name: Decode Android signing keystore
+      env:
+        ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        : "${ANDROID_KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64 secret}"
+        : "${ANDROID_KEYSTORE_PASSWORD:?Missing ANDROID_KEYSTORE_PASSWORD secret}"
+        : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+        : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+        KEYSTORE_PATH="$RUNNER_TEMP/picocrypt-release.keystore"
+        printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+        chmod 600 "$KEYSTORE_PATH"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+
     - name: Build Go Mobile AAR
       working-directory: android
       run: |
@@ -89,18 +108,14 @@ jobs:
       working-directory: android
       run: ./gradlew test
 
-    - name: Build Debug APK
-      working-directory: android
-      run: ./gradlew assembleDebug
-
-    - name: Build Release APK For Verification
+    - name: Build Signed Release APK
       working-directory: android
       run: ./gradlew assembleRelease
 
     - name: Prepare artifacts
       run: |
         mkdir -p out
-        cp android/app/build/outputs/apk/debug/app-debug.apk out/Picocrypt-NG-android-debug.apk
+        cp android/app/build/outputs/apk/release/app-release.apk out/Picocrypt-NG-android-release.apk
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v7
@@ -113,7 +128,7 @@ jobs:
     - name: Generate checksums
       run: |
         cd out
-        echo "ANDROID_CHECKSUMS<<EOF" >> "$GITHUB_ENV"
+        echo "ANDROID_RELEASE_CHECKSUMS<<EOF" >> "$GITHUB_ENV"
         for apk in *.apk; do
           hash=$(sha256sum "$apk" | cut -d ' ' -f1)
           echo "\`sha256($apk)  $hash\`" >> "$GITHUB_ENV"
@@ -128,5 +143,5 @@ jobs:
         make_latest: true
         append_body: true
         body: |
-          **Android (debug APK):**
-          ${{ env.ANDROID_CHECKSUMS }}
+          **Android (signed release APK):**
+          ${{ env.ANDROID_RELEASE_CHECKSUMS }}

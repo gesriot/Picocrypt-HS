@@ -5,6 +5,22 @@ plugins {
     id("kotlin-parcelize")
 }
 
+val releaseSigningRequested = gradle.startParameter.taskNames.any { task ->
+    val lower = task.lowercase()
+    lower.contains("assemblerelease") ||
+        lower.contains("bundlerelease") ||
+        lower.contains("packagerelease")
+}
+
+val releaseSigningProps = mapOf(
+    "PICOCRYPT_KEYSTORE_PATH" to providers.gradleProperty("PICOCRYPT_KEYSTORE_PATH").orNull,
+    "PICOCRYPT_KEYSTORE_PASSWORD" to providers.gradleProperty("PICOCRYPT_KEYSTORE_PASSWORD").orNull,
+    "PICOCRYPT_KEY_ALIAS" to providers.gradleProperty("PICOCRYPT_KEY_ALIAS").orNull,
+    "PICOCRYPT_KEY_PASSWORD" to providers.gradleProperty("PICOCRYPT_KEY_PASSWORD").orNull,
+)
+
+val releaseSigningConfigured = releaseSigningProps.values.none { it.isNullOrBlank() }
+
 android {
     namespace = "io.github.picocrypt_ng.picocrypt_ng"
     compileSdk = 36
@@ -26,10 +42,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(releaseSigningProps.getValue("PICOCRYPT_KEYSTORE_PATH")!!)
+                storePassword = releaseSigningProps.getValue("PICOCRYPT_KEYSTORE_PASSWORD")
+                keyAlias = releaseSigningProps.getValue("PICOCRYPT_KEY_ALIAS")
+                keyPassword = releaseSigningProps.getValue("PICOCRYPT_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -46,6 +76,13 @@ android {
     buildFeatures {
         compose = true
     }
+}
+
+if (releaseSigningRequested && !releaseSigningConfigured) {
+    throw GradleException(
+        "Missing Android release signing properties. Expected PICOCRYPT_KEYSTORE_PATH, " +
+            "PICOCRYPT_KEYSTORE_PASSWORD, PICOCRYPT_KEY_ALIAS, and PICOCRYPT_KEY_PASSWORD."
+    )
 }
 
 dependencies {
