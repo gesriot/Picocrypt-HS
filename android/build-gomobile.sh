@@ -91,7 +91,8 @@ echo "Android NDK: ${ANDROID_NDK_HOME:-not set}"
 if ! command -v gomobile &> /dev/null; then
     echo "Error: gomobile not found in PATH." >&2
     echo "  Install it first with: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260209203831-923679eb55af" >&2
-    echo "  Then initialize it with: gomobile init" >&2
+    echo "  Install gobind too with: go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260209203831-923679eb55af" >&2
+    echo "  Then create the gomobile toolchain dir with: mkdir -p \"\$(go env GOPATH | cut -d: -f1)/pkg/gomobile\"" >&2
     exit 1
 fi
 
