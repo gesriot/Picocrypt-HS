@@ -150,6 +150,19 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	outputFile := decOutput
+	if outputFile == "" && useStdin {
+		outputFile = "decrypted"
+	}
+	if useStdin && !useStdout && !decYes {
+		if info, err := os.Stat(outputFile); err == nil {
+			if info.IsDir() {
+				return fmt.Errorf("output path is a directory: %s", outputFile)
+			}
+			return fmt.Errorf("output file %s already exists; when reading input from stdin use -y to overwrite", outputFile)
+		}
+	}
+
 	// Handle stdin input
 	inputFile := decInput
 	if useStdin {
@@ -182,7 +195,6 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine output file
-	outputFile := decOutput
 	if useStdout {
 		// Create temp file for stdout output
 		var err error
@@ -207,12 +219,6 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 			if outputFile == decInput {
 				outputFile = decInput + ".decrypted"
 			}
-		}
-	}
-
-	if useStdin && !useStdout && !decYes {
-		if _, err := os.Stat(outputFile); err == nil {
-			return fmt.Errorf("output file %s already exists; when reading input from stdin use -y to overwrite", outputFile)
 		}
 	}
 

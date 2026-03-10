@@ -160,6 +160,22 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	outputFile := encOutput
+	if outputFile == "" && useStdin {
+		outputFile = "encrypted.pcv"
+	}
+	if outputFile != "" && !useStdout && !strings.HasSuffix(outputFile, ".pcv") {
+		outputFile += ".pcv"
+	}
+	if useStdin && !useStdout && !encYes {
+		if info, err := os.Stat(outputFile); err == nil {
+			if info.IsDir() {
+				return fmt.Errorf("output path is a directory: %s", outputFile)
+			}
+			return fmt.Errorf("output file %s already exists; when reading input from stdin use -y to overwrite", outputFile)
+		}
+	}
+
 	// Check input files exist
 	var allFiles []string
 	var onlyFiles []string
@@ -231,7 +247,6 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine output file
-	outputFile := encOutput
 	if useStdout {
 		// Create temp file for stdout output
 		var err error
@@ -252,12 +267,6 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	// Add .pcv extension if missing (not for stdout temp)
 	if !useStdout && !strings.HasSuffix(outputFile, ".pcv") {
 		outputFile += ".pcv"
-	}
-
-	if useStdin && !useStdout && !encYes {
-		if _, err := os.Stat(outputFile); err == nil {
-			return fmt.Errorf("output file %s already exists; when reading input from stdin use -y to overwrite", outputFile)
-		}
 	}
 
 	// Check if output exists (skip for stdout)
