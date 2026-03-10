@@ -79,9 +79,21 @@ func Encrypt(ctx context.Context, req *EncryptRequest) error {
 	return nil
 }
 
+func preprocessInputFiles(req *EncryptRequest) []string {
+	if len(req.InputFiles) > 0 {
+		return req.InputFiles
+	}
+	if req.InputFile != "" {
+		return []string{req.InputFile}
+	}
+	return nil
+}
+
 func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
+	inputFiles := preprocessInputFiles(req)
+
 	// If multiple files, or single file with compression requested, create a zip
-	if len(req.InputFiles) > 1 || (len(req.InputFiles) == 1 && req.Compress) {
+	if len(inputFiles) > 1 || (len(inputFiles) == 1 && req.Compress) {
 		ctx.SetStatus("Compressing files...")
 
 		// Create temp zip ciphers for encrypting the temporary file
@@ -91,7 +103,10 @@ func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 			return err
 		}
 
-		commonRoot, entryNames, err := buildZipEntryNames(req)
+		zipReq := *req
+		zipReq.InputFiles = inputFiles
+
+		commonRoot, entryNames, err := buildZipEntryNames(&zipReq)
 		if err != nil {
 			return err
 		}
@@ -99,7 +114,7 @@ func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 		// Create the zip
 		ctx.TempFile = strings.TrimSuffix(req.OutputFile, ".pcv") + ".tmp"
 		err = fileops.CreateZip(fileops.ZipOptions{
-			Files:      req.InputFiles,
+			Files:      inputFiles,
 			RootDir:    commonRoot,
 			EntryNames: entryNames,
 			OutputPath: ctx.TempFile,
@@ -121,8 +136,8 @@ func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 
 		ctx.InputFile = ctx.TempFile
 		ctx.TempZipInUse = true
-	} else if len(req.InputFiles) == 1 {
-		ctx.InputFile = req.InputFiles[0]
+	} else if len(inputFiles) == 1 {
+		ctx.InputFile = inputFiles[0]
 	} else {
 		ctx.InputFile = req.InputFile
 	}
