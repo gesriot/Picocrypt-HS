@@ -886,6 +886,69 @@ func TestOperationContextUpdateProgressNilReporter(t *testing.T) {
 	}
 }
 
+func TestEncryptWithNilReporter(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "plain.txt")
+	if err := os.WriteFile(inputPath, []byte("plaintext"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	req := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: filepath.Join(tmpDir, "plain.txt.pcv"),
+		Password:   "pw",
+		Reporter:   nil,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), req); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+}
+
+func TestDecryptWithNilReporter(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "plain.txt")
+	encryptedPath := filepath.Join(tmpDir, "plain.txt.pcv")
+	outputPath := filepath.Join(tmpDir, "plain.out")
+
+	if err := os.WriteFile(inputPath, []byte("plaintext"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "pw",
+		Reporter:   &GoldenTestReporter{},
+		RSCodecs:   rsCodecs,
+	}
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	decReq := &DecryptRequest{
+		InputFile:  encryptedPath,
+		OutputFile: outputPath,
+		Password:   "pw",
+		Reporter:   nil,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt failed: %v", err)
+	}
+}
+
 // TestEncryptCancellation tests that encryption can be cancelled
 func TestEncryptCancellation(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
