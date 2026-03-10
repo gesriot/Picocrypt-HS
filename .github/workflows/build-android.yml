@@ -21,46 +21,101 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
-    - name: Setup Go
+    - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: stable
+        go-version: "1.25.0"
         cache-dependency-path: src/go.sum
 
-    - name: Install fyne-cross
+    - name: Install gomobile
       run: |
-        go install github.com/fyne-io/fyne-cross@latest
+        go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260209203831-923679eb55af
+        go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260209203831-923679eb55af
+        mkdir -p "$(go env GOPATH | cut -d: -f1)/pkg/gomobile"
 
-    - name: Copy icon to src
-      run: |
-        cp images/key.png src/icon.png
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      with:
+        api-level: 36
+        ndk-version: "29.0.14206865"
+        build-tools: "36.0.0"
 
-    - name: Build for Android (all architectures)
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: "temurin"
+        java-version: "17"
+
+    - name: Install NDK 29 using sdkmanager
       run: |
-        cd src
-        fyne-cross android -arch=* \
-          -app-id io.github.picocryptng.PicocryptNG \
-          -icon icon.png \
-          -name Picocrypt-NG \
-          -pull \
-          ./cmd/picocrypt
+        yes | sdkmanager --licenses || true
+        sdkmanager "ndk;29.0.14206865"
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          android/.gradle
+        key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Compute Android version metadata
+      run: |
+        VERSION=$(cat VERSION)
+        IFS='.' read -r major minor patch <<< "$VERSION"
+        major=${major:-0}
+        minor=${minor:-0}
+        patch=${patch:-0}
+        VERSION_CODE=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+        echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+
+    - name: Decode Android signing keystore
       env:
-        CGO_ENABLED: 1
+        ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        : "${ANDROID_KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64 secret}"
+        : "${ANDROID_KEYSTORE_PASSWORD:?Missing ANDROID_KEYSTORE_PASSWORD secret}"
+        : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+        : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+        KEYSTORE_PATH="$RUNNER_TEMP/picocrypt-release.keystore"
+        printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+        chmod 600 "$KEYSTORE_PATH"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+
+    - name: Build Go Mobile AAR
+      working-directory: android
+      run: |
+        chmod +x build-gomobile.sh
+        ./build-gomobile.sh
+
+    - name: Make gradlew executable
+      working-directory: android
+      run: chmod +x gradlew
+
+    - name: Run Unit Tests
+      working-directory: android
+      run: ./gradlew test
+
+    - name: Build Signed Release APK
+      working-directory: android
+      run: ./gradlew assembleRelease
 
     - name: Prepare artifacts
       run: |
         mkdir -p out
-        cp src/fyne-cross/dist/android-*/Picocrypt-NG.apk out/ 2>/dev/null || true
-        # If multiple APKs exist, rename them by architecture
-        for dir in src/fyne-cross/dist/android-*; do
-          if [ -d "$dir" ]; then
-            arch=$(basename "$dir" | sed 's/android-//')
-            if [ -f "$dir/Picocrypt-NG.apk" ]; then
-              cp "$dir/Picocrypt-NG.apk" "out/Picocrypt-NG-$arch.apk"
-            fi
-          fi
-        done
-        ls -la out/
+        cp android/app/build/outputs/apk/release/app-release.apk out/Picocrypt-NG-android-release.apk
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v7
@@ -70,28 +125,23 @@ jobs:
         if-no-files-found: error
         compression-level: 9
 
-    - name: Get version tag
-      run: |
-        VERSION=$(cat VERSION)
-        echo "VERSION=$VERSION" >> $GITHUB_ENV
-
     - name: Generate checksums
       run: |
         cd out
-        echo "ANDROID_CHECKSUMS<<EOF" >> $GITHUB_ENV
+        echo "ANDROID_RELEASE_CHECKSUMS<<EOF" >> "$GITHUB_ENV"
         for apk in *.apk; do
           hash=$(sha256sum "$apk" | cut -d ' ' -f1)
-          echo "\`sha256($apk)  $hash\`" >> $GITHUB_ENV
+          echo "\`sha256($apk)  $hash\`" >> "$GITHUB_ENV"
         done
-        echo "EOF" >> $GITHUB_ENV
+        echo "EOF" >> "$GITHUB_ENV"
 
     - name: Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b
       with:
         files: out/*.apk
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true
         body: |
-          **Android:**
-          ${{ env.ANDROID_CHECKSUMS }}
+          **Android (signed release APK):**
+          ${{ env.ANDROID_RELEASE_CHECKSUMS }}

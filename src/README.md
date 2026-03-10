@@ -38,6 +38,10 @@ CGO_ENABLED=1 go build -ldflags="-s -w -H=windowsgui -extldflags=-static" -o Pic
 ./Picocrypt-NG
 ```
 
+## Android
+
+The Android build path now lives in the repository root `android/` project and uses gomobile bindings from `src/mobile/`. See `../android/README.md` for the native Android app build instructions.
+
 ## Test
 
 ```bash
