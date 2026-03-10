@@ -1,6 +1,6 @@
 module Picocrypt-NG
 
-go 1.25.0
+go 1.26.0
 
 require (
 	fyne.io/fyne/v2 v2.7.3
@@ -44,7 +44,6 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
 	golang.org/x/image v0.36.0 // indirect
-	golang.org/x/mobile v0.0.0-20260209203831-923679eb55af // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
