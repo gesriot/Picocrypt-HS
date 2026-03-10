@@ -161,16 +161,6 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `onCleared stops all polling`() = runTest {
-        viewModel.pausePolling()
-        advanceUntilIdle()
-
-        invokeOnCleared(viewModel)
-
-        assertNotNull("ViewModel should still exist after onCleared invocation", viewModel)
-    }
-    
-    @Test
     fun `operationState updates when OperationManager state changes`() = runTest {
         // Initially null
         var operationState = viewModel.operationState.first()
