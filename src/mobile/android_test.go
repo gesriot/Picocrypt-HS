@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"Picocrypt-NG/internal/volume"
 )
 
 func resetProgressMap() {
@@ -112,6 +114,64 @@ func TestStartEncryptFailsWhenOperationContextIsMissing(t *testing.T) {
 	}
 }
 
+func TestStartEncryptValidationFailureCleansUpOperation(t *testing.T) {
+	resetProgressMap()
+
+	id := StartOperation()
+	reqJSON, err := json.Marshal(EncryptRequestJSON{
+		OperationID: id,
+		InputFile:   "",
+		OutputFile:  "out.pcv",
+		Password:    "password",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := StartEncrypt(string(reqJSON)); !strings.Contains(got, "input file is required") {
+		t.Fatalf("StartEncrypt(...) = %q", got)
+	}
+
+	globalProgressMap.mu.RLock()
+	_, opExists := globalProgressMap.ops[id]
+	_, ctxExists := globalProgressMap.ctxs[id]
+	_, cancelExists := globalProgressMap.cancels[id]
+	globalProgressMap.mu.RUnlock()
+
+	if opExists || ctxExists || cancelExists {
+		t.Fatalf("validation failure leaked operation state: op=%v ctx=%v cancel=%v", opExists, ctxExists, cancelExists)
+	}
+}
+
+func TestStartDecryptValidationFailureCleansUpOperation(t *testing.T) {
+	resetProgressMap()
+
+	id := StartOperation()
+	reqJSON, err := json.Marshal(DecryptRequestJSON{
+		OperationID: id,
+		InputFile:   "",
+		OutputFile:  "out",
+		Password:    "password",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := StartDecrypt(string(reqJSON)); !strings.Contains(got, "input file is required") {
+		t.Fatalf("StartDecrypt(...) = %q", got)
+	}
+
+	globalProgressMap.mu.RLock()
+	_, opExists := globalProgressMap.ops[id]
+	_, ctxExists := globalProgressMap.ctxs[id]
+	_, cancelExists := globalProgressMap.cancels[id]
+	globalProgressMap.mu.RUnlock()
+
+	if opExists || ctxExists || cancelExists {
+		t.Fatalf("validation failure leaked operation state: op=%v ctx=%v cancel=%v", opExists, ctxExists, cancelExists)
+	}
+}
+
 func TestStartDecryptFailsWhenOperationContextIsMissing(t *testing.T) {
 	resetProgressMap()
 
@@ -147,6 +207,46 @@ func TestStartDecryptFailsWhenOperationContextIsMissing(t *testing.T) {
 	}
 	if !strings.Contains(state.Error, "context") {
 		t.Fatalf("state.Error = %q, want context-related error", state.Error)
+	}
+}
+
+func TestStartDecryptRecoversPanic(t *testing.T) {
+	resetProgressMap()
+
+	inputPath := filepath.Join(t.TempDir(), "sample.txt.pcv")
+	if err := os.WriteFile(inputPath, []byte("not-a-real-volume"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "sample.txt")
+	id := StartOperation()
+
+	orig := runDecrypt
+	runDecrypt = func(context.Context, *volume.DecryptRequest) error {
+		panic("boom")
+	}
+	defer func() { runDecrypt = orig }()
+
+	reqJSON, err := json.Marshal(DecryptRequestJSON{
+		OperationID: id,
+		InputFile:   inputPath,
+		OutputFile:  outputPath,
+		Password:    "password",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := StartDecrypt(string(reqJSON)); got != "" {
+		t.Fatalf("StartDecrypt(...) returned %q, want empty string", got)
+	}
+
+	state := waitForDone(t, id)
+	if state.Status != "Error" {
+		t.Fatalf("state.Status = %q, want %q", state.Status, "Error")
+	}
+	if !strings.Contains(state.Error, "panic: boom") {
+		t.Fatalf("state.Error = %q, want panic error", state.Error)
 	}
 }
 
