@@ -14,6 +14,22 @@ import (
 	"Picocrypt-NG/internal/util"
 )
 
+func parseUnsignedChunkIndex(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	index, err := strconv.Atoi(s)
+	if err != nil || index < 0 {
+		return 0, false
+	}
+	return index, true
+}
+
 // RecombineOptions configures chunk recombination
 type RecombineOptions struct {
 	InputBase  string // Base path without .N suffix
@@ -35,11 +51,8 @@ func CountChunks(basePath string) (int, int64, error) {
 
 	for _, match := range matches {
 		suffix := strings.TrimPrefix(match, basePath+".")
-		index, err := strconv.Atoi(suffix)
-		if err != nil {
-			continue
-		}
-		if index < 0 {
+		index, ok := parseUnsignedChunkIndex(suffix)
+		if !ok {
 			continue
 		}
 
