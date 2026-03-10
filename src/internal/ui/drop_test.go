@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/app"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2/test"
@@ -29,6 +30,8 @@ func TestFileTypeDetection(t *testing.T) {
 		{"SplitChunk1", "secret.pcv.1", true, true, false},
 		{"SplitChunk99", "secret.pcv.99", true, true, false},
 		{"FakeSplit", "file.pcv.txt", false, false, true},
+		{"FalsePositiveBackup", "backup.pcv.tmp1", false, false, true},
+		{"FalsePositiveVersioned", "notes.pcv.v2", false, false, true},
 		{"DeepPath", "/path/to/secret.pcv", true, false, false},
 		{"DeepSplit", "/path/to/secret.pcv.5", true, true, false},
 		{"NoExtension", "document", false, false, true},
@@ -59,17 +62,7 @@ func TestFileTypeDetection(t *testing.T) {
 // detectSplitVolume checks if a filename is a split volume chunk.
 // This mirrors the logic in handleDecryptDrop.
 func detectSplitVolume(filename string) bool {
-	// Check if ends with a number
-	endsNum := false
-	for _, c := range "0123456789" {
-		if strings.HasSuffix(filename, string(c)) {
-			endsNum = true
-			break
-		}
-	}
-
-	// Must contain .pcv. and end with number
-	return strings.Contains(filename, ".pcv.") && endsNum
+	return fileops.IsSplitChunkPath(filename)
 }
 
 // TestSplitVolumeBasePath tests extraction of base path from split volumes.

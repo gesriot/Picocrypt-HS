@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/volume"
 )
@@ -30,18 +31,12 @@ func DetectOperation(filePath string) (isEncrypt bool, err error) {
 	}
 
 	// Check if it's a .pcv file (decrypt) or split volume chunk
-	baseName := filepath.Base(filePath)
-
-	// Check for split volume chunks (e.g., file.pcv.0, file.pcv.1)
-	if strings.Contains(baseName, ".pcv.") {
-		// Check if it ends with a digit (split chunk)
-		lastChar := baseName[len(baseName)-1]
-		if lastChar >= '0' && lastChar <= '9' {
-			return false, nil // Decrypt
-		}
+	if fileops.IsSplitChunkPath(filePath) {
+		return false, nil // Decrypt
 	}
 
 	// Check for .pcv extension
+	baseName := filepath.Base(filePath)
 	if strings.HasSuffix(strings.ToLower(baseName), ".pcv") {
 		return false, nil // Decrypt
 	}

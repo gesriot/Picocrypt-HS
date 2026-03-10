@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/util"
 	"Picocrypt-NG/internal/volume"
@@ -66,14 +67,7 @@ func (a *App) onDrop(names []string) {
 			a.State.RequiredFreeSpace = stat.Size()
 
 			// Is the file a part of a split volume?
-			endsNum := false
-			for _, c := range "0123456789" {
-				if strings.HasSuffix(names[0], string(c)) {
-					endsNum = true
-					break
-				}
-			}
-			isSplit := strings.Contains(names[0], ".pcv.") && endsNum
+			isSplit := fileops.IsSplitChunkPath(names[0])
 
 			// Decide if encrypting or decrypting
 			if strings.HasSuffix(names[0], ".pcv") || isSplit {

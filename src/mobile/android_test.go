@@ -29,6 +29,8 @@ func TestDetectOperation(t *testing.T) {
 	}{
 		{name: "pcv file decrypts", filename: "sample.txt.pcv", want: false},
 		{name: "split volume decrypts", filename: "archive.zip.pcv.0", want: false},
+		{name: "false positive backup stays encrypt", filename: "backup.pcv.tmp1", want: true},
+		{name: "false positive version stays encrypt", filename: "notes.pcv.v2", want: true},
 		{name: "plain file encrypts", filename: "plain.txt", want: true},
 	}
 
