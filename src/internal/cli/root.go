@@ -96,10 +96,14 @@ func detectCLIMode(args []string) bool {
 		}
 
 		if flag.NoOptDefVal == "" && !hasInlineValue {
-			index++
-			if index >= len(args) {
+			nextIndex := index + 1
+			if nextIndex >= len(args) {
 				return true
 			}
+			if isKnownRootCommand(args[nextIndex]) {
+				return true
+			}
+			index = nextIndex
 		}
 
 		index++

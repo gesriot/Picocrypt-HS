@@ -116,6 +116,19 @@ func init() {
 	_ = encryptCmd.MarkFlagRequired("input")
 }
 
+func defaultEncryptOutput(rawInput string, allFiles []string, useStdin bool) string {
+	if useStdin {
+		return "encrypted.pcv"
+	}
+	if len(allFiles) == 1 {
+		return allFiles[0] + ".pcv"
+	}
+	if len(allFiles) == 0 && rawInput != "" {
+		return rawInput + ".pcv"
+	}
+	return "encrypted.pcv"
+}
+
 func runEncrypt(cmd *cobra.Command, args []string) error {
 	// Validate inputs
 	if len(encInput) == 0 {
@@ -257,11 +270,11 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		outputFile = stdoutTempFile
 	} else if outputFile == "" {
 		// Auto-generate output name
-		if len(encInput) == 1 && !useStdin {
-			outputFile = encInput[0] + ".pcv"
-		} else {
-			outputFile = "encrypted.pcv"
+		rawInput := ""
+		if len(encInput) > 0 {
+			rawInput = encInput[0]
 		}
+		outputFile = defaultEncryptOutput(rawInput, allFiles, useStdin)
 	}
 
 	// Add .pcv extension if missing (not for stdout temp)

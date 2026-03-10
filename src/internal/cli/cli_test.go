@@ -500,6 +500,11 @@ func TestDetectCLIMode(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "missing value root flag before subcommand",
+			args: []string{"--temp-dir", "encrypt", "-i", "a", "-o", "a.pcv", "-p", "pw"},
+			want: true,
+		},
+		{
 			name: "unknown GUI-style arg",
 			args: []string{"--fyne-driver=software"},
 			want: false,
@@ -513,6 +518,30 @@ func TestDetectCLIMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultEncryptOutput(t *testing.T) {
+	t.Run("multiple expanded matches", func(t *testing.T) {
+		pattern := "/tmp/*.txt"
+		allFiles := []string{"/tmp/a.txt", "/tmp/b.txt"}
+
+		got := defaultEncryptOutput(pattern, allFiles, false)
+		if got != "encrypted.pcv" {
+			t.Fatalf("defaultEncryptOutput(%q, %q, false) = %q, want %q",
+				pattern, allFiles, got, "encrypted.pcv")
+		}
+	})
+
+	t.Run("single expanded match", func(t *testing.T) {
+		pattern := "/tmp/*.txt"
+		allFiles := []string{"/tmp/a.txt"}
+
+		got := defaultEncryptOutput(pattern, allFiles, false)
+		if got != "/tmp/a.txt.pcv" {
+			t.Fatalf("defaultEncryptOutput(%q, %q, false) = %q, want %q",
+				pattern, allFiles, got, "/tmp/a.txt.pcv")
+		}
+	})
 }
 
 func TestEncryptStdinValidation(t *testing.T) {
