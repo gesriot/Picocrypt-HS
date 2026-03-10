@@ -19,7 +19,7 @@ func SplitChunkBase(path string) (string, bool) {
 		return "", false
 	}
 
-	idx := strings.LastIndex(path, ".pcv.")
+	idx := strings.LastIndex(strings.ToLower(path), ".pcv.")
 	if idx < 0 {
 		return "", false
 	}
