@@ -1040,6 +1040,65 @@ func createTestZip(zipPath, sourceDir, baseName string) error {
 	})
 }
 
+func TestRoundTripAutoUnzipMultipleFilesFromDifferentDirs(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	fileA := filepath.Join(tmpDir, "alpha", "one.txt")
+	fileB := filepath.Join(tmpDir, "beta", "two.txt")
+
+	if err := os.MkdirAll(filepath.Dir(fileA), 0755); err != nil {
+		t.Fatalf("Failed to create dir for fileA: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(fileB), 0755); err != nil {
+		t.Fatalf("Failed to create dir for fileB: %v", err)
+	}
+	if err := os.WriteFile(fileA, []byte("one"), 0644); err != nil {
+		t.Fatalf("Failed to write fileA: %v", err)
+	}
+	if err := os.WriteFile(fileB, []byte("two"), 0644); err != nil {
+		t.Fatalf("Failed to write fileB: %v", err)
+	}
+
+	reporter := &GoldenTestReporter{}
+	encryptedPath := filepath.Join(tmpDir, "multi.pcv")
+	outputPath := filepath.Join(tmpDir, "multi")
+
+	encReq := &EncryptRequest{
+		InputFiles: []string{fileA, fileB},
+		OnlyFiles:  []string{fileA, fileB},
+		OutputFile: encryptedPath,
+		Password:   "pw",
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	decReq := &DecryptRequest{
+		InputFile:  encryptedPath,
+		OutputFile: outputPath,
+		Password:   "pw",
+		AutoUnzip:  true,
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt failed: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmpDir, "multi", "alpha", "one.txt")); err != nil {
+		t.Fatalf("Missing extracted fileA: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "multi", "beta", "two.txt")); err != nil {
+		t.Fatalf("Missing extracted fileB: %v", err)
+	}
+}
+
 // TestRoundTripMultiFile tests encrypting multiple files (zipped internally)
 func TestRoundTripMultiFile(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()

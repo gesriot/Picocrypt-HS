@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -92,23 +91,17 @@ func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 			return err
 		}
 
-		// Determine root directory (matches original lines 1227-1233)
-		// If folders were dropped, use parent of folder to preserve folder name in zip
-		// If only files were dropped, use parent of first file
-		var rootDir string
-		if len(req.OnlyFolders) > 0 {
-			rootDir = filepath.Dir(req.OnlyFolders[0])
-		} else if len(req.OnlyFiles) > 0 {
-			rootDir = filepath.Dir(req.OnlyFiles[0])
-		} else if len(req.InputFiles) > 0 {
-			rootDir = filepath.Dir(req.InputFiles[0])
+		commonRoot, entryNames, err := buildZipEntryNames(req)
+		if err != nil {
+			return err
 		}
 
 		// Create the zip
 		ctx.TempFile = strings.TrimSuffix(req.OutputFile, ".pcv") + ".tmp"
 		err = fileops.CreateZip(fileops.ZipOptions{
 			Files:      req.InputFiles,
-			RootDir:    rootDir,
+			RootDir:    commonRoot,
+			EntryNames: entryNames,
 			OutputPath: ctx.TempFile,
 			Compress:   req.Compress,
 			Cipher:     ctx.TempCiphers,
