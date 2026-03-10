@@ -12,7 +12,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,8 +30,12 @@ func shouldDeleteSplitArtifact(basePath, candidate string) bool {
 		return false
 	}
 
-	_, err := strconv.Atoi(suffix)
-	return err == nil
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // SplitUnit represents the unit of measurement for chunk sizes when splitting files.

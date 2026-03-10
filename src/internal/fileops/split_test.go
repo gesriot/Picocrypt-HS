@@ -148,6 +148,12 @@ func TestSplitDoesNotDeleteSidecarFiles(t *testing.T) {
 	if err := os.WriteFile(inputPath+".1.incomplete", []byte("stale"), 0644); err != nil {
 		t.Fatalf("Create stale incomplete chunk: %v", err)
 	}
+	if err := os.WriteFile(inputPath+".-1", []byte("signed"), 0644); err != nil {
+		t.Fatalf("Create signed sidecar: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".+1.incomplete", []byte("signed incomplete"), 0644); err != nil {
+		t.Fatalf("Create signed incomplete sidecar: %v", err)
+	}
 
 	_, err := Split(SplitOptions{
 		InputPath: inputPath,
@@ -163,6 +169,12 @@ func TestSplitDoesNotDeleteSidecarFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(inputPath + ".backup"); err != nil {
 		t.Fatalf(".backup sidecar should remain: %v", err)
+	}
+	if _, err := os.Stat(inputPath + ".-1"); err != nil {
+		t.Fatalf(".-1 sidecar should remain: %v", err)
+	}
+	if _, err := os.Stat(inputPath + ".+1.incomplete"); err != nil {
+		t.Fatalf(".+1.incomplete sidecar should remain: %v", err)
 	}
 }
 
