@@ -71,6 +71,10 @@ type SplitOptions struct {
 //
 // To reassemble, use Recombine() or concatenate files in order: cat file.pcv.* > file.pcv
 func Split(opts SplitOptions) ([]string, error) {
+	if opts.ChunkSize <= 0 {
+		return nil, errors.New("chunk size must be greater than zero")
+	}
+
 	stat, err := os.Stat(opts.InputPath)
 	if err != nil {
 		return nil, fmt.Errorf("stat input: %w", err)
