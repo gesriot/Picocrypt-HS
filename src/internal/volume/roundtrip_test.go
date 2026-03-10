@@ -1887,6 +1887,60 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 	t.Log("Round-trip compressed single file: SUCCESS")
 }
 
+func TestRoundTripCompressedSingleFileViaInputFileField(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	filePath := filepath.Join(tmpDir, "compressible_inputfile.txt")
+	content := []byte(strings.Repeat("This compresses well. ", 100))
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "compressible_inputfile.txt.zip.pcv")
+	decryptedPath := filepath.Join(tmpDir, "compressible_inputfile.txt.zip")
+
+	reporter := &GoldenTestReporter{}
+
+	encReq := &EncryptRequest{
+		InputFile:  filePath,
+		OutputFile: encryptedPath,
+		Password:   "compress_inputfile_password",
+		Compress:   true,
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (compressed inputfile) failed: %v", err)
+	}
+
+	_ = os.Remove(filePath)
+
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "compress_inputfile_password",
+		AutoUnzip:    true,
+		SameLevel:    true,
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (compressed inputfile) failed: %v", err)
+	}
+
+	if _, err := os.Stat(filePath); err != nil {
+		t.Fatalf("Expected restored file at %s: %v", filePath, err)
+	}
+}
+
 // TestV2HeaderTamperDetection verifies that modifying header bytes
 // causes v2 volumes to fail authentication (header MAC protection).
 func TestV2HeaderTamperDetection(t *testing.T) {
