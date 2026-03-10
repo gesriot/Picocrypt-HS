@@ -41,24 +41,35 @@ type RecombineOptions struct {
 
 // CountChunks returns the number of split chunks for a given base path
 func CountChunks(basePath string) (int, int64, error) {
-	matches, err := filepath.Glob(basePath + ".*")
+	dir := filepath.Dir(basePath)
+	if dir == "" {
+		dir = "."
+	}
+	prefix := filepath.Base(basePath) + "."
+
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0, 0, fmt.Errorf("glob chunks: %w", err)
+		return 0, 0, fmt.Errorf("read chunk dir: %w", err)
 	}
 
-	indexes := make([]int, 0, len(matches))
+	indexes := make([]int, 0, len(entries))
 	var totalSize int64
 
-	for _, match := range matches {
-		suffix := strings.TrimPrefix(match, basePath+".")
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+
+		suffix := strings.TrimPrefix(name, prefix)
 		index, ok := parseUnsignedChunkIndex(suffix)
 		if !ok {
 			continue
 		}
 
-		stat, err := os.Stat(match)
+		stat, err := entry.Info()
 		if err != nil {
-			return 0, 0, fmt.Errorf("stat chunk %s: %w", match, err)
+			return 0, 0, fmt.Errorf("stat chunk %s: %w", filepath.Join(dir, name), err)
 		}
 
 		indexes = append(indexes, index)
