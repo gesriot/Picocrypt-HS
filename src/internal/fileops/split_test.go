@@ -454,6 +454,35 @@ func TestRecombineRejectsSymlinkOutput(t *testing.T) {
 	}
 }
 
+func TestRecombineIgnoresSignedChunkLikeSuffixes(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "test.pcv")
+
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+		t.Fatalf("Create chunk 0: %v", err)
+	}
+	if err := os.WriteFile(basePath+".+1", []byte("plus1"), 0644); err != nil {
+		t.Fatalf("Create signed sidecar: %v", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+	err := Recombine(RecombineOptions{
+		InputBase:  basePath,
+		OutputPath: outputPath,
+	})
+	if err != nil {
+		t.Fatalf("Recombine should ignore signed suffix sidecar: %v", err)
+	}
+
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Read output: %v", err)
+	}
+	if string(content) != "chunk0" {
+		t.Fatalf("output = %q, want %q", string(content), "chunk0")
+	}
+}
+
 func TestSplitRejectsNonPositiveChunkSize(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "invalid_split.pcv")
