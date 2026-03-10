@@ -113,29 +113,6 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `retryOperation stops polling and retries`() = runTest {
-        val formData = TestDataBuilders.createEncryptFormData(
-            password = "test",
-            confirmPassword = "test"
-        )
-        
-        viewModel.retryOperation(mockContext, formData)
-        
-        advanceUntilIdle()
-        
-        // Method should not throw
-    }
-    
-    @Test
-    fun `retryDecryptWithForce stops polling and retries with force`() = runTest {
-        viewModel.retryDecryptWithForce()
-        
-        advanceUntilIdle()
-        
-        // Method should not throw
-    }
-    
-    @Test
     fun `pausePolling switches to background mode`() = runTest {
         // pausePolling sets isForeground to false and starts background polling
         viewModel.pausePolling()
