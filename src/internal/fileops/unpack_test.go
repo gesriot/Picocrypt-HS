@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -191,6 +192,106 @@ func TestUnpackCancellation(t *testing.T) {
 	}
 
 	t.Logf("Unpack correctly cancelled: %v", err)
+}
+
+func TestUnpackRejectsPreexistingSymlinkDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	outsideDir := filepath.Join(tmpDir, "outside")
+	if err := os.MkdirAll(outsideDir, 0700); err != nil {
+		t.Fatalf("Create outside dir: %v", err)
+	}
+
+	extractDir := filepath.Join(tmpDir, "extract")
+	if err := os.MkdirAll(extractDir, 0700); err != nil {
+		t.Fatalf("Create extract dir: %v", err)
+	}
+
+	linkPath := filepath.Join(extractDir, "escape")
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "payload.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Create zip file: %v", err)
+	}
+
+	w := zip.NewWriter(f)
+	fw, err := w.Create("escape/payload.txt")
+	if err != nil {
+		t.Fatalf("Create entry: %v", err)
+	}
+	if _, err := fw.Write([]byte("payload")); err != nil {
+		t.Fatalf("Write entry: %v", err)
+	}
+	_ = w.Close()
+	_ = f.Close()
+
+	err = Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+	})
+
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("Expected symlink rejection, got %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(outsideDir, "payload.txt")); !os.IsNotExist(err) {
+		t.Fatalf("Payload escaped extraction root")
+	}
+}
+
+func TestUnpackRejectsSymlinkLeaf(t *testing.T) {
+	tmpDir := t.TempDir()
+	outsideFile := filepath.Join(tmpDir, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0600); err != nil {
+		t.Fatalf("Create outside file: %v", err)
+	}
+
+	extractDir := filepath.Join(tmpDir, "extract")
+	if err := os.MkdirAll(extractDir, 0700); err != nil {
+		t.Fatalf("Create extract dir: %v", err)
+	}
+
+	leafPath := filepath.Join(extractDir, "leaf.txt")
+	if err := os.Symlink(outsideFile, leafPath); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "leaf.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Create zip file: %v", err)
+	}
+
+	w := zip.NewWriter(f)
+	fw, err := w.Create("leaf.txt")
+	if err != nil {
+		t.Fatalf("Create entry: %v", err)
+	}
+	if _, err := fw.Write([]byte("replacement")); err != nil {
+		t.Fatalf("Write entry: %v", err)
+	}
+	_ = w.Close()
+	_ = f.Close()
+
+	err = Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+	})
+
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("Expected symlink rejection, got %v", err)
+	}
+
+	got, err := os.ReadFile(outsideFile)
+	if err != nil {
+		t.Fatalf("Read outside file: %v", err)
+	}
+	if string(got) != "outside" {
+		t.Fatalf("Outside file was modified: %q", got)
+	}
 }
 
 // createMaliciousZip creates a zip file with a path traversal attempt
