@@ -483,6 +483,26 @@ func TestRecombineIgnoresSignedChunkLikeSuffixes(t *testing.T) {
 	}
 }
 
+func TestCountChunksHandlesLiteralGlobCharacters(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "file[1].pcv")
+
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+		t.Fatalf("Create chunk: %v", err)
+	}
+
+	count, total, err := CountChunks(basePath)
+	if err != nil {
+		t.Fatalf("CountChunks returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountChunks count = %d; want 1", count)
+	}
+	if total != int64(len("chunk0")) {
+		t.Fatalf("CountChunks total = %d; want %d", total, len("chunk0"))
+	}
+}
+
 func TestSplitRejectsNonPositiveChunkSize(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "invalid_split.pcv")
