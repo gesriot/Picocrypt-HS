@@ -93,6 +93,62 @@ func prepareExtractionPath(extractDir, normalizedName string, isDir bool) (strin
 	return outPath, nil
 }
 
+func pathWalkStart(path string) (string, []string) {
+	clean := filepath.Clean(path)
+	volume := filepath.VolumeName(clean)
+	rest := strings.TrimPrefix(clean, volume)
+
+	start := volume
+	if strings.HasPrefix(rest, string(filepath.Separator)) {
+		start += string(filepath.Separator)
+		rest = strings.TrimPrefix(rest, string(filepath.Separator))
+	}
+	if start == "" {
+		start = "."
+	}
+	if rest == "" || rest == "." {
+		return start, nil
+	}
+
+	return start, strings.Split(rest, string(filepath.Separator))
+}
+
+func prepareExtractionRoot(extractDir string, create bool) (string, error) {
+	absDir, err := filepath.Abs(extractDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve extraction directory %s: %w", extractDir, err)
+	}
+
+	current, parts := pathWalkStart(absDir)
+	for i, part := range parts {
+		next := filepath.Join(current, part)
+		isLast := i == len(parts)-1
+
+		info, err := os.Lstat(next)
+		switch {
+		case os.IsNotExist(err):
+			if !create {
+				return "", fmt.Errorf("extraction directory does not exist: %s", absDir)
+			}
+			if err := os.Mkdir(next, 0700); err != nil {
+				return "", fmt.Errorf("create extraction directory %s: %w", next, err)
+			}
+		case err != nil:
+			return "", fmt.Errorf("stat extraction directory %s: %w", next, err)
+		case info.Mode()&os.ModeSymlink != 0:
+			return "", fmt.Errorf("cannot extract to %s: path contains symlink %s", absDir, next)
+		case !info.IsDir() && isLast:
+			return "", fmt.Errorf("cannot extract to %s: path exists as a file (not a directory). Enable 'Same level' option or move/rename the existing file", absDir)
+		case !info.IsDir():
+			return "", fmt.Errorf("cannot extract to %s: parent path is not a directory: %s", absDir, next)
+		}
+
+		current = next
+	}
+
+	return absDir, nil
+}
+
 // Unpack extracts a zip archive to the specified directory.
 func Unpack(opts UnpackOptions) (retErr error) {
 	reader, err := zip.OpenReader(opts.ZipPath)
@@ -131,24 +187,9 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		}
 	}
 
-	// Create the extraction directory if SameLevel is false
-	// (when SameLevel is true, extractDir is the parent dir which should already exist)
-	if !opts.SameLevel {
-		// Check if extractDir exists as a file or symlink (not a real directory)
-		if info, err := os.Lstat(extractDir); err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("cannot extract to %s: path exists as a symlink", extractDir)
-			}
-			if !info.IsDir() {
-				return fmt.Errorf("cannot extract to %s: path exists as a file (not a directory). Enable 'Same level' option or move/rename the existing file", extractDir)
-			}
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("stat extraction directory %s: %w", extractDir, err)
-		}
-
-		if err := os.MkdirAll(extractDir, 0700); err != nil {
-			return fmt.Errorf("create extraction directory %s: %w", extractDir, err)
-		}
+	extractDir, err = prepareExtractionRoot(extractDir, !opts.SameLevel)
+	if err != nil {
+		return err
 	}
 
 	// First pass: create all directories and cache normalized paths

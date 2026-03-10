@@ -294,6 +294,50 @@ func TestUnpackRejectsSymlinkLeaf(t *testing.T) {
 	}
 }
 
+func TestUnpackRejectsSymlinkedExtractionRootAncestor(t *testing.T) {
+	tmpDir := t.TempDir()
+	outsideRoot := filepath.Join(tmpDir, "outside-root")
+	if err := os.MkdirAll(outsideRoot, 0700); err != nil {
+		t.Fatalf("Create outside root: %v", err)
+	}
+
+	linkPath := filepath.Join(tmpDir, "link")
+	if err := os.Symlink(outsideRoot, linkPath); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	extractDir := filepath.Join(linkPath, "extract")
+	zipPath := filepath.Join(tmpDir, "root-ancestor.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Create zip file: %v", err)
+	}
+
+	w := zip.NewWriter(f)
+	fw, err := w.Create("payload.txt")
+	if err != nil {
+		t.Fatalf("Create entry: %v", err)
+	}
+	if _, err := fw.Write([]byte("payload")); err != nil {
+		t.Fatalf("Write entry: %v", err)
+	}
+	_ = w.Close()
+	_ = f.Close()
+
+	err = Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+	})
+
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("Expected symlink rejection, got %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(outsideRoot, "extract", "payload.txt")); !os.IsNotExist(err) {
+		t.Fatalf("Payload escaped extraction root through symlinked ancestor")
+	}
+}
+
 // createMaliciousZip creates a zip file with a path traversal attempt
 func createMaliciousZip(t *testing.T, path string) {
 	t.Helper()
