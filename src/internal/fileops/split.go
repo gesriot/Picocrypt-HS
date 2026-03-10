@@ -12,10 +12,28 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"Picocrypt-NG/internal/util"
 )
+
+func shouldDeleteSplitArtifact(basePath, candidate string) bool {
+	prefix := basePath + "."
+	if !strings.HasPrefix(candidate, prefix) {
+		return false
+	}
+
+	suffix := strings.TrimPrefix(candidate, prefix)
+	suffix = strings.TrimSuffix(suffix, ".incomplete")
+	if suffix == "" {
+		return false
+	}
+
+	_, err := strconv.Atoi(suffix)
+	return err == nil
+}
 
 // SplitUnit represents the unit of measurement for chunk sizes when splitting files.
 type SplitUnit int
@@ -83,7 +101,9 @@ func Split(opts SplitOptions) ([]string, error) {
 	// Delete existing chunks first
 	existingChunks, _ := filepath.Glob(opts.InputPath + ".*")
 	for _, chunk := range existingChunks {
-		_ = os.Remove(chunk)
+		if shouldDeleteSplitArtifact(opts.InputPath, chunk) {
+			_ = os.Remove(chunk)
+		}
 	}
 
 	var chunks []string

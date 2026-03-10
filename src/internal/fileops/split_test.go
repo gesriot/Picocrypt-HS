@@ -129,6 +129,43 @@ func TestSplitUnits(t *testing.T) {
 	}
 }
 
+func TestSplitDoesNotDeleteSidecarFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "archive.pcv")
+
+	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("A"), 32*1024), 0644); err != nil {
+		t.Fatalf("Create input file: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".sig", []byte("sig"), 0644); err != nil {
+		t.Fatalf("Create signature sidecar: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".backup", []byte("backup"), 0644); err != nil {
+		t.Fatalf("Create backup sidecar: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".0", []byte("old chunk"), 0644); err != nil {
+		t.Fatalf("Create stale chunk: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".1.incomplete", []byte("stale"), 0644); err != nil {
+		t.Fatalf("Create stale incomplete chunk: %v", err)
+	}
+
+	_, err := Split(SplitOptions{
+		InputPath: inputPath,
+		ChunkSize: 8,
+		Unit:      SplitUnitKiB,
+	})
+	if err != nil {
+		t.Fatalf("Split failed: %v", err)
+	}
+
+	if _, err := os.Stat(inputPath + ".sig"); err != nil {
+		t.Fatalf(".sig sidecar should remain: %v", err)
+	}
+	if _, err := os.Stat(inputPath + ".backup"); err != nil {
+		t.Fatalf(".backup sidecar should remain: %v", err)
+	}
+}
+
 // TestSplitCancellation tests that split can be cancelled.
 func TestSplitCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
