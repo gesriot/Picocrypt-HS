@@ -317,7 +317,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	}
 
 	// Encrypt loop
-	ctx.Reporter.SetCanCancel(true)
+	ctx.SetCanCancel(true)
 	startTime := time.Now()
 	var done int64
 	var counter int64

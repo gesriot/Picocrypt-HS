@@ -358,7 +358,7 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 	}
 
 	// Verification loop - read ciphertext and update MAC without decrypting
-	ctx.Reporter.SetCanCancel(true)
+	ctx.SetCanCancel(true)
 	startTime := time.Now()
 	var done int64
 	var counter int64
@@ -504,7 +504,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	defer func() { _ = fout.Close() }()
 
 	// Decrypt loop
-	ctx.Reporter.SetCanCancel(true)
+	ctx.SetCanCancel(true)
 	startTime := time.Now()
 	var done int64
 	var counter int64
