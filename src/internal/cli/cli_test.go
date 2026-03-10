@@ -495,6 +495,11 @@ func TestDetectCLIMode(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "invalid root flag before subcommand",
+			args: []string{"--bogus", "encrypt", "-i", "a", "-o", "a.pcv"},
+			want: true,
+		},
+		{
 			name: "unknown GUI-style arg",
 			args: []string{"--fyne-driver=software"},
 			want: false,

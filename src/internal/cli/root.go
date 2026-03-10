@@ -92,7 +92,7 @@ func detectCLIMode(args []string) bool {
 
 		flag := lookupRootPersistentFlag(flagToken)
 		if flag == nil {
-			return false
+			return hasKnownRootCommand(args[index+1:])
 		}
 
 		if flag.NoOptDefVal == "" && !hasInlineValue {
@@ -109,7 +109,31 @@ func detectCLIMode(args []string) bool {
 		return false
 	}
 
-	token := args[index]
+	return isKnownRootCommand(args[index])
+}
+
+func lookupRootPersistentFlag(token string) *pflag.Flag {
+	switch {
+	case strings.HasPrefix(token, "--"):
+		return rootCmd.PersistentFlags().Lookup(strings.TrimPrefix(token, "--"))
+	case strings.HasPrefix(token, "-") && len(token) == 2:
+		return rootCmd.PersistentFlags().ShorthandLookup(strings.TrimPrefix(token, "-"))
+	default:
+		return nil
+	}
+}
+
+func hasKnownRootCommand(args []string) bool {
+	for _, arg := range args {
+		if isKnownRootCommand(arg) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isKnownRootCommand(token string) bool {
 	if token == "help" || token == "version" {
 		return true
 	}
@@ -126,17 +150,6 @@ func detectCLIMode(args []string) bool {
 	}
 
 	return false
-}
-
-func lookupRootPersistentFlag(token string) *pflag.Flag {
-	switch {
-	case strings.HasPrefix(token, "--"):
-		return rootCmd.PersistentFlags().Lookup(strings.TrimPrefix(token, "--"))
-	case strings.HasPrefix(token, "-") && len(token) == 2:
-		return rootCmd.PersistentFlags().ShorthandLookup(strings.TrimPrefix(token, "-"))
-	default:
-		return nil
-	}
 }
 
 func init() {
