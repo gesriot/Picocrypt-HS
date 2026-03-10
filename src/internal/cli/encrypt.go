@@ -254,6 +254,12 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		outputFile += ".pcv"
 	}
 
+	if useStdin && !useStdout && !encYes {
+		if _, err := os.Stat(outputFile); err == nil {
+			return fmt.Errorf("output file %s already exists; when reading input from stdin use -y to overwrite", outputFile)
+		}
+	}
+
 	// Check if output exists (skip for stdout)
 	if !useStdout {
 		if info, err := os.Stat(outputFile); err == nil {
