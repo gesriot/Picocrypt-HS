@@ -765,6 +765,76 @@ func TestRoundTripSplit(t *testing.T) {
 	t.Log("Round-trip split/recombine: SUCCESS")
 }
 
+// TestRoundTripDecryptFromFirstChunkWithRecombine verifies the documented API
+// path where InputFile points at the first chunk rather than the base .pcv path.
+func TestRoundTripDecryptFromFirstChunkWithRecombine(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := make([]byte, 1024*64)
+	for i := range plaintext {
+		plaintext[i] = byte(i % 251)
+	}
+	inputPath := filepath.Join(tmpDir, "split_first_chunk.bin")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "split_first_chunk.bin.pcv")
+	decryptedPath := filepath.Join(tmpDir, "split_first_chunk_decrypted.bin")
+	reporter := &GoldenTestReporter{}
+
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "split_password",
+		Split:      true,
+		ChunkSize:  8,
+		ChunkUnit:  0,
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (split) failed: %v", err)
+	}
+
+	firstChunk := encryptedPath + ".0"
+	if _, err := os.Stat(firstChunk); err != nil {
+		t.Fatalf("Expected first chunk to exist: %v", err)
+	}
+
+	decReq := &DecryptRequest{
+		InputFile:    firstChunk,
+		OutputFile:   decryptedPath,
+		Password:     "split_password",
+		Recombine:    true,
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (first chunk + recombine) failed: %v", err)
+	}
+
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+
+	if len(decrypted) != len(plaintext) {
+		t.Fatalf("Length mismatch. Expected %d, got %d", len(plaintext), len(decrypted))
+	}
+	for i := range plaintext {
+		if decrypted[i] != plaintext[i] {
+			t.Fatalf("Content mismatch at byte %d", i)
+		}
+	}
+}
+
 // TestWrongPasswordFails verifies that wrong password fails
 func TestWrongPasswordFails(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
