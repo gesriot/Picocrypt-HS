@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"Picocrypt-NG/internal/util"
@@ -21,23 +25,45 @@ type RecombineOptions struct {
 
 // CountChunks returns the number of split chunks for a given base path
 func CountChunks(basePath string) (int, int64, error) {
-	count := 0
+	matches, err := filepath.Glob(basePath + ".*")
+	if err != nil {
+		return 0, 0, fmt.Errorf("glob chunks: %w", err)
+	}
+
+	indexes := make([]int, 0, len(matches))
 	var totalSize int64
 
-	for {
-		stat, err := os.Stat(fmt.Sprintf("%s.%d", basePath, count))
+	for _, match := range matches {
+		suffix := strings.TrimPrefix(match, basePath+".")
+		index, err := strconv.Atoi(suffix)
 		if err != nil {
-			break
+			continue
 		}
-		count++
+		if index < 0 {
+			continue
+		}
+
+		stat, err := os.Stat(match)
+		if err != nil {
+			return 0, 0, fmt.Errorf("stat chunk %s: %w", match, err)
+		}
+
+		indexes = append(indexes, index)
 		totalSize += stat.Size()
 	}
 
-	if count == 0 {
+	if len(indexes) == 0 {
 		return 0, 0, errors.New("no chunks found")
 	}
 
-	return count, totalSize, nil
+	sort.Ints(indexes)
+	for expected, actual := range indexes {
+		if actual != expected {
+			return 0, 0, fmt.Errorf("missing chunk %d", expected)
+		}
+	}
+
+	return len(indexes), totalSize, nil
 }
 
 // Recombine merges split chunks back into a single file.
@@ -53,7 +79,7 @@ func Recombine(opts RecombineOptions) error {
 		return fmt.Errorf("output file already exists: %s", opts.OutputPath)
 	}
 
-	fout, err := CreateSecure(opts.OutputPath)
+	fout, err := CreateSecureNoSymlink(opts.OutputPath)
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}

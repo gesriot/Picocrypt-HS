@@ -402,8 +402,8 @@ func TestRecombineProgress(t *testing.T) {
 	t.Logf("Progress called %d times, Status called %d times", progressCalls, statusCalls)
 }
 
-// TestRecombineMissingChunk tests error handling when a chunk is missing.
-func TestRecombineMissingChunk(t *testing.T) {
+// TestRecombineRejectsMissingMiddleChunk tests error handling when a chunk is missing.
+func TestRecombineRejectsMissingMiddleChunk(t *testing.T) {
 	tmpDir := t.TempDir()
 	basePath := filepath.Join(tmpDir, "test.pcv")
 
@@ -422,9 +422,52 @@ func TestRecombineMissingChunk(t *testing.T) {
 		OutputPath: outputPath,
 	})
 
-	// Should succeed with only 1 chunk (chunks 0, stops at missing 1)
-	if err != nil {
-		t.Logf("Recombine returned error as expected or found only one chunk: %v", err)
+	if err == nil {
+		t.Fatal("expected missing chunk error")
+	}
+}
+
+func TestRecombineRejectsSymlinkOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "test.pcv")
+
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+		t.Fatalf("Create chunk: %v", err)
+	}
+
+	outsideDir := filepath.Join(tmpDir, "outside")
+	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+		t.Fatalf("Create outside dir: %v", err)
+	}
+	targetPath := filepath.Join(outsideDir, "owned.pcv")
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+	if err := os.Symlink(targetPath, outputPath); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	err := Recombine(RecombineOptions{
+		InputBase:  basePath,
+		OutputPath: outputPath,
+	})
+	if err == nil {
+		t.Fatal("expected symlink rejection")
+	}
+}
+
+func TestSplitRejectsNonPositiveChunkSize(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "invalid_split.pcv")
+	if err := os.WriteFile(inputPath, []byte("content"), 0644); err != nil {
+		t.Fatalf("Create input: %v", err)
+	}
+
+	_, err := Split(SplitOptions{
+		InputPath: inputPath,
+		ChunkSize: 0,
+		Unit:      SplitUnitKiB,
+	})
+	if err == nil {
+		t.Fatal("expected invalid chunk size error")
 	}
 }
 
