@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -20,6 +21,17 @@ func isTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
+func readPasswordLine(reader *bufio.Reader) (string, error) {
+	pw, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+
+	pw = strings.TrimSuffix(pw, "\n")
+	pw = strings.TrimSuffix(pw, "\r")
+	return pw, nil
+}
+
 // readPasswordSecure reads a password from stdin without echo.
 // Falls back to buffered read if stdin is not a terminal.
 func readPasswordSecure(prompt string) (string, error) {
@@ -28,12 +40,10 @@ func readPasswordSecure(prompt string) (string, error) {
 	if !isTerminal() {
 		// stdin is piped; read normally
 		reader := bufio.NewReader(os.Stdin)
-		pw, err := reader.ReadString('\n')
+		pw, err := readPasswordLine(reader)
 		if err != nil {
 			return "", fmt.Errorf("reading password: %w", err)
 		}
-		pw = strings.TrimSuffix(pw, "\n")
-		pw = strings.TrimSuffix(pw, "\r")
 		return pw, nil
 	}
 
@@ -75,11 +85,9 @@ func ReadPasswordInteractive(confirm, allowEmpty bool) (string, error) {
 // ReadPasswordFromStdin reads password from stdin (for piped input with -P flag).
 func ReadPasswordFromStdin() (string, error) {
 	reader := bufio.NewReader(os.Stdin)
-	pw, err := reader.ReadString('\n')
+	pw, err := readPasswordLine(reader)
 	if err != nil {
 		return "", fmt.Errorf("reading password from stdin: %w", err)
 	}
-	pw = strings.TrimSuffix(pw, "\n")
-	pw = strings.TrimSuffix(pw, "\r")
 	return pw, nil
 }

@@ -105,9 +105,14 @@ func decryptPreprocess(ctx *OperationContext, req *DecryptRequest) error {
 	if req.Recombine {
 		ctx.SetStatus("Recombining chunks...")
 
-		outputPath := strings.TrimSuffix(inputFile, ".pcv") + ".pcv"
+		inputBase := inputFile
+		if base, ok := fileops.SplitChunkBase(inputFile); ok {
+			inputBase = base
+		}
+
+		outputPath := inputBase
 		err := fileops.Recombine(fileops.RecombineOptions{
-			InputBase:  inputFile,
+			InputBase:  inputBase,
 			OutputPath: outputPath,
 			Progress: func(p float32, info string) {
 				ctx.UpdateProgress(p, info)
@@ -358,7 +363,7 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 	}
 
 	// Verification loop - read ciphertext and update MAC without decrypting
-	ctx.Reporter.SetCanCancel(true)
+	ctx.SetCanCancel(true)
 	startTime := time.Now()
 	var done int64
 	var counter int64
@@ -504,7 +509,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	defer func() { _ = fout.Close() }()
 
 	// Decrypt loop
-	ctx.Reporter.SetCanCancel(true)
+	ctx.SetCanCancel(true)
 	startTime := time.Now()
 	var done int64
 	var counter int64

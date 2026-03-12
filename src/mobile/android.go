@@ -10,9 +10,13 @@ import (
 	"time"
 
 	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/volume"
 )
+
+var runEncrypt = volume.Encrypt
+var runDecrypt = volume.Decrypt
 
 // StartOperation creates a new operation and returns its ID.
 // This should be called before StartEncrypt or StartDecrypt.
@@ -30,18 +34,12 @@ func DetectOperation(filePath string) (isEncrypt bool, err error) {
 	}
 
 	// Check if it's a .pcv file (decrypt) or split volume chunk
-	baseName := filepath.Base(filePath)
-
-	// Check for split volume chunks (e.g., file.pcv.0, file.pcv.1)
-	if strings.Contains(baseName, ".pcv.") {
-		// Check if it ends with a digit (split chunk)
-		lastChar := baseName[len(baseName)-1]
-		if lastChar >= '0' && lastChar <= '9' {
-			return false, nil // Decrypt
-		}
+	if fileops.IsSplitChunkPath(filePath) {
+		return false, nil // Decrypt
 	}
 
 	// Check for .pcv extension
+	baseName := filepath.Base(filePath)
 	if strings.HasSuffix(strings.ToLower(baseName), ".pcv") {
 		return false, nil // Decrypt
 	}
@@ -102,19 +100,13 @@ func StartEncrypt(requestJSON string) string {
 
 	// Validate inputs
 	if req.InputFile == "" {
-		err := fmt.Errorf("input file is required")
-		completeOperation(req.OperationID, err)
-		return err.Error()
+		return failOperation(req.OperationID, fmt.Errorf("input file is required"))
 	}
 	if req.OutputFile == "" {
-		err := fmt.Errorf("output file is required")
-		completeOperation(req.OperationID, err)
-		return err.Error()
+		return failOperation(req.OperationID, fmt.Errorf("output file is required"))
 	}
 	if req.Password == "" && len(req.Keyfiles) == 0 {
-		err := fmt.Errorf("password or keyfiles required")
-		completeOperation(req.OperationID, err)
-		return err.Error()
+		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
 	}
 
 	// Start the operation in a goroutine
@@ -169,7 +161,7 @@ func StartEncrypt(requestJSON string) string {
 		}
 
 		// Perform encryption
-		err = volume.Encrypt(opCtx, encryptReq)
+		err = runEncrypt(opCtx, encryptReq)
 		if err != nil {
 			completeOperation(req.OperationID, err)
 			return
@@ -203,19 +195,13 @@ func StartDecrypt(requestJSON string) string {
 
 	// Validate inputs
 	if req.InputFile == "" {
-		err := fmt.Errorf("input file is required")
-		completeOperation(req.OperationID, err)
-		return err.Error()
+		return failOperation(req.OperationID, fmt.Errorf("input file is required"))
 	}
 	if req.OutputFile == "" {
-		err := fmt.Errorf("output file is required")
-		completeOperation(req.OperationID, err)
-		return err.Error()
+		return failOperation(req.OperationID, fmt.Errorf("output file is required"))
 	}
 	if req.Password == "" && len(req.Keyfiles) == 0 {
-		err := fmt.Errorf("password or keyfiles required")
-		completeOperation(req.OperationID, err)
-		return err.Error()
+		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
 	}
 
 	// Start the operation in a goroutine
@@ -226,6 +212,12 @@ func StartDecrypt(requestJSON string) string {
 			// and user returns after operation completes
 			time.Sleep(60 * time.Second)
 			cleanupOperation(req.OperationID)
+		}()
+
+		defer func() {
+			if r := recover(); r != nil {
+				completeOperation(req.OperationID, fmt.Errorf("panic: %v", r))
+			}
 		}()
 
 		// Initialize Reed-Solomon codecs (needed for header reading)
@@ -262,7 +254,7 @@ func StartDecrypt(requestJSON string) string {
 		}
 
 		// Perform decryption
-		err = volume.Decrypt(opCtx, decryptReq)
+		err = runDecrypt(opCtx, decryptReq)
 		if err != nil {
 			completeOperation(req.OperationID, err)
 			return
@@ -272,6 +264,12 @@ func StartDecrypt(requestJSON string) string {
 	}()
 
 	return "" // Success - operation started
+}
+
+func failOperation(id string, err error) string {
+	completeOperation(id, err)
+	cleanupOperation(id)
+	return err.Error()
 }
 
 // ProgressResult contains the progress information for an operation.

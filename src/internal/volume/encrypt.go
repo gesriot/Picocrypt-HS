@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -80,9 +79,21 @@ func Encrypt(ctx context.Context, req *EncryptRequest) error {
 	return nil
 }
 
+func preprocessInputFiles(req *EncryptRequest) []string {
+	if len(req.InputFiles) > 0 {
+		return req.InputFiles
+	}
+	if req.InputFile != "" {
+		return []string{req.InputFile}
+	}
+	return nil
+}
+
 func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
+	inputFiles := preprocessInputFiles(req)
+
 	// If multiple files, or single file with compression requested, create a zip
-	if len(req.InputFiles) > 1 || (len(req.InputFiles) == 1 && req.Compress) {
+	if len(inputFiles) > 1 || (len(inputFiles) == 1 && req.Compress) {
 		ctx.SetStatus("Compressing files...")
 
 		// Create temp zip ciphers for encrypting the temporary file
@@ -92,23 +103,20 @@ func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 			return err
 		}
 
-		// Determine root directory (matches original lines 1227-1233)
-		// If folders were dropped, use parent of folder to preserve folder name in zip
-		// If only files were dropped, use parent of first file
-		var rootDir string
-		if len(req.OnlyFolders) > 0 {
-			rootDir = filepath.Dir(req.OnlyFolders[0])
-		} else if len(req.OnlyFiles) > 0 {
-			rootDir = filepath.Dir(req.OnlyFiles[0])
-		} else if len(req.InputFiles) > 0 {
-			rootDir = filepath.Dir(req.InputFiles[0])
+		zipReq := *req
+		zipReq.InputFiles = inputFiles
+
+		commonRoot, entryNames, err := buildZipEntryNames(&zipReq)
+		if err != nil {
+			return err
 		}
 
 		// Create the zip
 		ctx.TempFile = strings.TrimSuffix(req.OutputFile, ".pcv") + ".tmp"
 		err = fileops.CreateZip(fileops.ZipOptions{
-			Files:      req.InputFiles,
-			RootDir:    rootDir,
+			Files:      inputFiles,
+			RootDir:    commonRoot,
+			EntryNames: entryNames,
 			OutputPath: ctx.TempFile,
 			Compress:   req.Compress,
 			Cipher:     ctx.TempCiphers,
@@ -128,8 +136,8 @@ func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 
 		ctx.InputFile = ctx.TempFile
 		ctx.TempZipInUse = true
-	} else if len(req.InputFiles) == 1 {
-		ctx.InputFile = req.InputFiles[0]
+	} else if len(inputFiles) == 1 {
+		ctx.InputFile = inputFiles[0]
 	} else {
 		ctx.InputFile = req.InputFile
 	}
@@ -324,7 +332,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	}
 
 	// Encrypt loop
-	ctx.Reporter.SetCanCancel(true)
+	ctx.SetCanCancel(true)
 	startTime := time.Now()
 	var done int64
 	var counter int64

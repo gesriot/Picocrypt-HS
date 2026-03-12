@@ -111,6 +111,26 @@ func TestOnClickStartValidation(t *testing.T) {
 	})
 }
 
+func TestUpdateOutputFileForCompressClearsDialogConfirmation(t *testing.T) {
+	test.NewApp()
+	defer test.NewApp()
+
+	a := createTestApp(t)
+	a.State.Mode = "encrypt"
+	a.State.InputFile = filepath.Join(t.TempDir(), "report.txt")
+	a.State.OutputFile = filepath.Join(t.TempDir(), "report.txt.pcv")
+	a.State.OutputChosenViaSaveDialog = true
+
+	a.updateOutputFileForCompress(true)
+
+	if a.State.OutputChosenViaSaveDialog {
+		t.Fatal("programmatic output path changes should clear dialog confirmation state")
+	}
+	if got := a.State.OutputFile; got != filepath.Join(filepath.Dir(a.State.OutputFile), "report.txt.zip.pcv") {
+		t.Fatalf("OutputFile = %q", got)
+	}
+}
+
 // TestSplitUnitConversion tests the split unit selection logic in doEncrypt.
 func TestSplitUnitConversion(t *testing.T) {
 	testCases := []struct {

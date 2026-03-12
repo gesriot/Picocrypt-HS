@@ -15,6 +15,10 @@ import (
 	"fyne.io/fyne/v2"
 )
 
+func showOverwriteModalForOutput(outputExists, recursively, chosenViaDialog bool) bool {
+	return outputExists && !recursively && !chosenViaDialog
+}
+
 // onClickStart handles the Start button click.
 func (a *App) onClickStart() {
 	// Validate
@@ -32,7 +36,8 @@ func (a *App) onClickStart() {
 	}
 
 	// Check if output exists (skip check for recursive mode - each file has different output)
-	if _, err := os.Stat(a.State.OutputFile); err == nil && !a.State.Recursively {
+	_, outputExists := os.Stat(a.State.OutputFile)
+	if showOverwriteModalForOutput(outputExists == nil, a.State.Recursively, a.State.OutputChosenViaSaveDialog) {
 		a.showOverwriteModal()
 		return
 	}
@@ -42,6 +47,7 @@ func (a *App) onClickStart() {
 
 // startWork begins the encryption/decryption operation.
 func (a *App) startWork() {
+	a.State.OutputChosenViaSaveDialog = false
 	a.State.ShowProgress = true
 	a.State.FastDecode = true
 	a.State.CanCancel = true

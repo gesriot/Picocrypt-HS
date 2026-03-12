@@ -765,6 +765,76 @@ func TestRoundTripSplit(t *testing.T) {
 	t.Log("Round-trip split/recombine: SUCCESS")
 }
 
+// TestRoundTripDecryptFromFirstChunkWithRecombine verifies the documented API
+// path where InputFile points at the first chunk rather than the base .pcv path.
+func TestRoundTripDecryptFromFirstChunkWithRecombine(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	plaintext := make([]byte, 1024*64)
+	for i := range plaintext {
+		plaintext[i] = byte(i % 251)
+	}
+	inputPath := filepath.Join(tmpDir, "split_first_chunk.bin")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "split_first_chunk.bin.pcv")
+	decryptedPath := filepath.Join(tmpDir, "split_first_chunk_decrypted.bin")
+	reporter := &GoldenTestReporter{}
+
+	encReq := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: encryptedPath,
+		Password:   "split_password",
+		Split:      true,
+		ChunkSize:  8,
+		ChunkUnit:  0,
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (split) failed: %v", err)
+	}
+
+	firstChunk := encryptedPath + ".0"
+	if _, err := os.Stat(firstChunk); err != nil {
+		t.Fatalf("Expected first chunk to exist: %v", err)
+	}
+
+	decReq := &DecryptRequest{
+		InputFile:    firstChunk,
+		OutputFile:   decryptedPath,
+		Password:     "split_password",
+		Recombine:    true,
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (first chunk + recombine) failed: %v", err)
+	}
+
+	decrypted, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+
+	if len(decrypted) != len(plaintext) {
+		t.Fatalf("Length mismatch. Expected %d, got %d", len(plaintext), len(decrypted))
+	}
+	for i := range plaintext {
+		if decrypted[i] != plaintext[i] {
+			t.Fatalf("Content mismatch at byte %d", i)
+		}
+	}
+}
+
 // TestWrongPasswordFails verifies that wrong password fails
 func TestWrongPasswordFails(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
@@ -1038,6 +1108,65 @@ func createTestZip(zipPath, sourceDir, baseName string) error {
 		_, err = io.Copy(writer, file)
 		return err
 	})
+}
+
+func TestRoundTripAutoUnzipMultipleFilesFromDifferentDirs(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	fileA := filepath.Join(tmpDir, "alpha", "one.txt")
+	fileB := filepath.Join(tmpDir, "beta", "two.txt")
+
+	if err := os.MkdirAll(filepath.Dir(fileA), 0755); err != nil {
+		t.Fatalf("Failed to create dir for fileA: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(fileB), 0755); err != nil {
+		t.Fatalf("Failed to create dir for fileB: %v", err)
+	}
+	if err := os.WriteFile(fileA, []byte("one"), 0644); err != nil {
+		t.Fatalf("Failed to write fileA: %v", err)
+	}
+	if err := os.WriteFile(fileB, []byte("two"), 0644); err != nil {
+		t.Fatalf("Failed to write fileB: %v", err)
+	}
+
+	reporter := &GoldenTestReporter{}
+	encryptedPath := filepath.Join(tmpDir, "multi.pcv")
+	outputPath := filepath.Join(tmpDir, "multi")
+
+	encReq := &EncryptRequest{
+		InputFiles: []string{fileA, fileB},
+		OnlyFiles:  []string{fileA, fileB},
+		OutputFile: encryptedPath,
+		Password:   "pw",
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	decReq := &DecryptRequest{
+		InputFile:  encryptedPath,
+		OutputFile: outputPath,
+		Password:   "pw",
+		AutoUnzip:  true,
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt failed: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmpDir, "multi", "alpha", "one.txt")); err != nil {
+		t.Fatalf("Missing extracted fileA: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "multi", "beta", "two.txt")); err != nil {
+		t.Fatalf("Missing extracted fileB: %v", err)
+	}
 }
 
 // TestRoundTripMultiFile tests encrypting multiple files (zipped internally)
@@ -1756,6 +1885,60 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 	t.Logf("Original size: %d bytes, Encrypted size: %d bytes", len(fileContent), encryptedInfo.Size())
 
 	t.Log("Round-trip compressed single file: SUCCESS")
+}
+
+func TestRoundTripCompressedSingleFileViaInputFileField(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	filePath := filepath.Join(tmpDir, "compressible_inputfile.txt")
+	content := []byte(strings.Repeat("This compresses well. ", 100))
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "compressible_inputfile.txt.zip.pcv")
+	decryptedPath := filepath.Join(tmpDir, "compressible_inputfile.txt.zip")
+
+	reporter := &GoldenTestReporter{}
+
+	encReq := &EncryptRequest{
+		InputFile:  filePath,
+		OutputFile: encryptedPath,
+		Password:   "compress_inputfile_password",
+		Compress:   true,
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt (compressed inputfile) failed: %v", err)
+	}
+
+	_ = os.Remove(filePath)
+
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "compress_inputfile_password",
+		AutoUnzip:    true,
+		SameLevel:    true,
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt (compressed inputfile) failed: %v", err)
+	}
+
+	if _, err := os.Stat(filePath); err != nil {
+		t.Fatalf("Expected restored file at %s: %v", filePath, err)
+	}
 }
 
 // TestV2HeaderTamperDetection verifies that modifying header bytes

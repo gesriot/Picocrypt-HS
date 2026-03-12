@@ -469,3 +469,22 @@ func TestCreateZipWithSubdirectory(t *testing.T) {
 
 	t.Log("Subdirectory structure preserved in zip")
 }
+
+func TestCreateZipRejectsNonLocalEntryName(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "file.txt")
+	if err := os.WriteFile(inputPath, []byte("content"), 0644); err != nil {
+		t.Fatalf("Create file: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "bad.zip")
+	err := CreateZip(ZipOptions{
+		Files:      []string{inputPath},
+		RootDir:    tmpDir,
+		EntryNames: map[string]string{inputPath: "../escape.txt"},
+		OutputPath: zipPath,
+	})
+	if err == nil {
+		t.Fatal("Expected non-local entry name error")
+	}
+}

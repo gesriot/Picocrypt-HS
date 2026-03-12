@@ -198,6 +198,14 @@ func (ctx *OperationContext) SetStatus(status string) {
 	}
 }
 
+// SetCanCancel updates cancel availability on the reporter if available.
+func (ctx *OperationContext) SetCanCancel(can bool) {
+	if ctx.Reporter != nil {
+		ctx.Reporter.SetCanCancel(can)
+		ctx.Reporter.Update()
+	}
+}
+
 // IsCancelled checks if the operation has been cancelled.
 // Returns true if either the context is done or the reporter indicates cancellation.
 func (opCtx *OperationContext) IsCancelled() bool {

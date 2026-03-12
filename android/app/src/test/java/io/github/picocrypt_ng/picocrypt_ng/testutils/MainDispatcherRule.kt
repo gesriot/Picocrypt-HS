@@ -11,13 +11,19 @@ import org.junit.runner.Description
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainDispatcherRule(
-    val testDispatcher: TestDispatcher = StandardTestDispatcher(),
+    private val dispatcherFactory: () -> TestDispatcher = { StandardTestDispatcher() },
 ) : TestWatcher() {
+    private var _testDispatcher: TestDispatcher? = null
+    val testDispatcher: TestDispatcher
+        get() = _testDispatcher ?: error("MainDispatcherRule has not started yet")
+
     override fun starting(description: Description) {
+        _testDispatcher = dispatcherFactory()
         Dispatchers.setMain(testDispatcher)
     }
 
     override fun finished(description: Description) {
         Dispatchers.resetMain()
+        _testDispatcher = null
     }
 }

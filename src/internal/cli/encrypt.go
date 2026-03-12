@@ -116,6 +116,19 @@ func init() {
 	_ = encryptCmd.MarkFlagRequired("input")
 }
 
+func defaultEncryptOutput(rawInput string, allFiles []string, useStdin bool) string {
+	if useStdin {
+		return "encrypted.pcv"
+	}
+	if len(allFiles) == 1 {
+		return allFiles[0] + ".pcv"
+	}
+	if len(allFiles) == 0 && rawInput != "" {
+		return rawInput + ".pcv"
+	}
+	return "encrypted.pcv"
+}
+
 func runEncrypt(cmd *cobra.Command, args []string) error {
 	// Validate inputs
 	if len(encInput) == 0 {
@@ -159,6 +172,22 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 			_ = os.Remove(stdoutTempFile)
 		}
 	}()
+
+	outputFile := encOutput
+	if outputFile == "" && useStdin {
+		outputFile = "encrypted.pcv"
+	}
+	if outputFile != "" && !useStdout && !strings.HasSuffix(outputFile, ".pcv") {
+		outputFile += ".pcv"
+	}
+	if useStdin && !useStdout && !encYes {
+		if info, err := os.Stat(outputFile); err == nil {
+			if info.IsDir() {
+				return fmt.Errorf("output path is a directory: %s", outputFile)
+			}
+			return fmt.Errorf("output file %s already exists; when reading input from stdin use -y to overwrite", outputFile)
+		}
+	}
 
 	// Check input files exist
 	var allFiles []string
@@ -231,7 +260,6 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine output file
-	outputFile := encOutput
 	if useStdout {
 		// Create temp file for stdout output
 		var err error
@@ -242,11 +270,11 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		outputFile = stdoutTempFile
 	} else if outputFile == "" {
 		// Auto-generate output name
-		if len(encInput) == 1 && !useStdin {
-			outputFile = encInput[0] + ".pcv"
-		} else {
-			outputFile = "encrypted.pcv"
+		rawInput := ""
+		if len(encInput) > 0 {
+			rawInput = encInput[0]
 		}
+		outputFile = defaultEncryptOutput(rawInput, allFiles, useStdin)
 	}
 
 	// Add .pcv extension if missing (not for stdout temp)

@@ -145,14 +145,35 @@ func (t *TempZipCiphers) Close() {
 
 // ZipOptions configures zip file creation
 type ZipOptions struct {
-	Files      []string        // Files to include
-	RootDir    string          // Root directory for relative paths
+	Files      []string // Files to include
+	RootDir    string   // Root directory for relative paths
+	EntryNames map[string]string
 	OutputPath string          // Output .tmp file path
 	Compress   bool            // Use Deflate compression
 	Cipher     *TempZipCiphers // Optional encryption for temp file
 	Progress   ProgressFunc
 	Status     StatusFunc
 	Cancel     CancelFunc
+}
+
+func entryNameForPath(opts ZipOptions, path string) (string, error) {
+	if name, ok := opts.EntryNames[path]; ok {
+		clean := filepath.Clean(filepath.FromSlash(name))
+		if !filepath.IsLocal(clean) {
+			return "", fmt.Errorf("zip entry %q is not local", name)
+		}
+		return filepath.ToSlash(clean), nil
+	}
+
+	rel, err := filepath.Rel(opts.RootDir, path)
+	if err != nil {
+		return "", err
+	}
+	rel = filepath.Clean(rel)
+	if !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("zip entry %q is not local", rel)
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 // CreateZip creates a zip archive from the given files.
@@ -212,12 +233,12 @@ func CreateZip(opts ZipOptions) error {
 			return fmt.Errorf("create header for %s: %w", path, err)
 		}
 
-		// Set relative path
-		rel, err := filepath.Rel(opts.RootDir, path)
+		name, err := entryNameForPath(opts, path)
 		if err != nil {
+			cleanup()
 			return err
 		}
-		header.Name = filepath.ToSlash(rel)
+		header.Name = name
 
 		if opts.Compress {
 			header.Method = zip.Deflate
