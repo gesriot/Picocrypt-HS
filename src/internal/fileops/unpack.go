@@ -113,13 +113,7 @@ func pathWalkStart(path string) (string, []string) {
 	return start, strings.Split(rest, string(filepath.Separator))
 }
 
-func prepareExtractionRoot(extractDir string, create bool) (string, error) {
-	absDir, err := filepath.Abs(extractDir)
-	if err != nil {
-		return "", fmt.Errorf("resolve extraction directory %s: %w", extractDir, err)
-	}
-
-	current, parts := pathWalkStart(absDir)
+func walkExtractionRoot(current string, parts []string, create bool, allowLeadingSymlink bool) (string, error) {
 	for i, part := range parts {
 		next := filepath.Join(current, part)
 		isLast := i == len(parts)-1
@@ -128,7 +122,7 @@ func prepareExtractionRoot(extractDir string, create bool) (string, error) {
 		switch {
 		case os.IsNotExist(err):
 			if !create {
-				return "", fmt.Errorf("extraction directory does not exist: %s", absDir)
+				return "", fmt.Errorf("extraction directory does not exist: %s", filepath.Join(current, filepath.Join(parts[i:]...)))
 			}
 			if err := os.Mkdir(next, 0700); err != nil {
 				return "", fmt.Errorf("create extraction directory %s: %w", next, err)
@@ -136,17 +130,62 @@ func prepareExtractionRoot(extractDir string, create bool) (string, error) {
 		case err != nil:
 			return "", fmt.Errorf("stat extraction directory %s: %w", next, err)
 		case info.Mode()&os.ModeSymlink != 0:
-			return "", fmt.Errorf("cannot extract to %s: path contains symlink %s", absDir, next)
+			if !allowLeadingSymlink || i != 0 {
+				return "", fmt.Errorf("cannot extract to %s: path contains symlink %s", filepath.Join(current, filepath.Join(parts[i:]...)), next)
+			}
+
+			resolved, err := filepath.EvalSymlinks(next)
+			if err != nil {
+				return "", fmt.Errorf("resolve symlinked extraction directory %s: %w", next, err)
+			}
+
+			resolvedInfo, err := os.Stat(resolved)
+			if err != nil {
+				return "", fmt.Errorf("stat resolved extraction directory %s: %w", resolved, err)
+			}
+			if !resolvedInfo.IsDir() {
+				return "", fmt.Errorf("cannot extract to %s: path resolves to a non-directory: %s", resolved, next)
+			}
+
+			current = resolved
+			continue
 		case !info.IsDir() && isLast:
-			return "", fmt.Errorf("cannot extract to %s: path exists as a file (not a directory). Enable 'Same level' option or move/rename the existing file", absDir)
+			return "", fmt.Errorf("cannot extract to %s: path exists as a file (not a directory). Enable 'Same level' option or move/rename the existing file", filepath.Join(current, filepath.Join(parts[i:]...)))
 		case !info.IsDir():
-			return "", fmt.Errorf("cannot extract to %s: parent path is not a directory: %s", absDir, next)
+			return "", fmt.Errorf("cannot extract to %s: parent path is not a directory: %s", filepath.Join(current, filepath.Join(parts[i:]...)), next)
 		}
 
 		current = next
 	}
 
-	return absDir, nil
+	return current, nil
+}
+
+func allowLeadingExtractionRootSymlink(absDir, tempDir string) bool {
+	cleanPath := filepath.Clean(absDir)
+	cleanTemp := filepath.Clean(tempDir)
+	if cleanTemp == "" {
+		return false
+	}
+	if cleanPath == cleanTemp {
+		return true
+	}
+	return strings.HasPrefix(cleanPath, cleanTemp+string(filepath.Separator))
+}
+
+func prepareExtractionRoot(extractDir string, create bool) (string, error) {
+	absDir, err := filepath.Abs(extractDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve extraction directory %s: %w", extractDir, err)
+	}
+
+	current, parts := pathWalkStart(absDir)
+	resolved, err := walkExtractionRoot(current, parts, create, allowLeadingExtractionRootSymlink(absDir, os.TempDir()))
+	if err != nil {
+		return "", err
+	}
+
+	return resolved, nil
 }
 
 // Unpack extracts a zip archive to the specified directory.
