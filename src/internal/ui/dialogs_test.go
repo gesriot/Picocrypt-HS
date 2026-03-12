@@ -1,10 +1,13 @@
 package ui
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestNormalizeSelectedOutputPathPreservesDots(t *testing.T) {
 	got := normalizeSelectedOutputPath("/tmp/report.v2.backup", "encrypt", "input.txt", false, false)
-	want := "/tmp/report.v2.txt.pcv"
+	want := filepath.Join(string(filepath.Separator), "tmp", "report.v2.txt.pcv")
 	if got != want {
 		t.Fatalf("normalizeSelectedOutputPath(...) = %q, want %q", got, want)
 	}
