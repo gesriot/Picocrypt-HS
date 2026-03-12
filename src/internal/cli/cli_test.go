@@ -495,6 +495,11 @@ func TestDetectCLIMode(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "bare version token is not a command",
+			args: []string{"version"},
+			want: false,
+		},
+		{
 			name: "invalid root flag before subcommand",
 			args: []string{"--bogus", "encrypt", "-i", "a", "-o", "a.pcv"},
 			want: true,
