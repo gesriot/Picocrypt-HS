@@ -138,7 +138,7 @@ func hasKnownRootCommand(args []string) bool {
 }
 
 func isKnownRootCommand(token string) bool {
-	if token == "help" || token == "version" {
+	if token == "help" {
 		return true
 	}
 
