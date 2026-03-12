@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // Version is set by main.go
@@ -35,14 +37,7 @@ func Execute(version string) bool {
 	Version = version
 	rootCmd.Version = version
 
-	// Check if we're in CLI mode (have subcommands)
-	if len(os.Args) < 2 {
-		return false
-	}
-
-	// Check if first arg is a known subcommand
-	cmd := os.Args[1]
-	if cmd != "encrypt" && cmd != "decrypt" && cmd != "help" && cmd != "--help" && cmd != "-h" && cmd != "version" && cmd != "--version" && cmd != "-v" {
+	if !detectCLIMode(os.Args[1:]) {
 		return false
 	}
 
@@ -64,6 +59,101 @@ func Execute(version string) bool {
 		os.Exit(1)
 	}
 	return true
+}
+
+func detectCLIMode(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" || arg == "-v" || arg == "--version" {
+			return true
+		}
+	}
+
+	index := 0
+	for index < len(args) {
+		arg := args[index]
+		if arg == "--" {
+			index++
+			break
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			break
+		}
+
+		flagToken := arg
+		hasInlineValue := false
+		if before, _, ok := strings.Cut(arg, "="); ok {
+			flagToken = before
+			hasInlineValue = true
+		}
+
+		flag := lookupRootPersistentFlag(flagToken)
+		if flag == nil {
+			return hasKnownRootCommand(args[index+1:])
+		}
+
+		if flag.NoOptDefVal == "" && !hasInlineValue {
+			nextIndex := index + 1
+			if nextIndex >= len(args) {
+				return true
+			}
+			if isKnownRootCommand(args[nextIndex]) {
+				return true
+			}
+			index = nextIndex
+		}
+
+		index++
+	}
+
+	if index >= len(args) {
+		return false
+	}
+
+	return isKnownRootCommand(args[index])
+}
+
+func lookupRootPersistentFlag(token string) *pflag.Flag {
+	switch {
+	case strings.HasPrefix(token, "--"):
+		return rootCmd.PersistentFlags().Lookup(strings.TrimPrefix(token, "--"))
+	case strings.HasPrefix(token, "-") && len(token) == 2:
+		return rootCmd.PersistentFlags().ShorthandLookup(strings.TrimPrefix(token, "-"))
+	default:
+		return nil
+	}
+}
+
+func hasKnownRootCommand(args []string) bool {
+	for _, arg := range args {
+		if isKnownRootCommand(arg) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isKnownRootCommand(token string) bool {
+	if token == "help" {
+		return true
+	}
+
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == token {
+			return true
+		}
+		for _, alias := range cmd.Aliases {
+			if alias == token {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func init() {

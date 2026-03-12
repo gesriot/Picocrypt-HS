@@ -60,13 +60,14 @@ type State struct {
 	ShowProgress  bool
 
 	// Input/Output files
-	InputFile    string
-	InputFileOld string // For recombine cleanup
-	OutputFile   string
-	OnlyFiles    []string
-	OnlyFolders  []string
-	AllFiles     []string
-	InputLabel   string
+	InputFile                 string
+	InputFileOld              string // For recombine cleanup
+	OutputFile                string
+	OutputChosenViaSaveDialog bool
+	OnlyFiles                 []string
+	OnlyFolders               []string
+	AllFiles                  []string
+	InputLabel                string
 
 	// Credentials
 	Password           string
@@ -219,6 +220,7 @@ func (s *State) resetUILocked() {
 	s.InputFile = ""
 	s.InputFileOld = ""
 	s.OutputFile = ""
+	s.OutputChosenViaSaveDialog = false
 	s.OnlyFiles = nil
 	s.OnlyFolders = nil
 	s.AllFiles = nil

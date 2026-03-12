@@ -468,6 +468,87 @@ func TestVersionFlag(t *testing.T) {
 	}
 }
 
+func TestDetectCLIMode(t *testing.T) {
+	testCases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{
+			name: "encrypt subcommand",
+			args: []string{"encrypt", "-i", "a", "-o", "a.pcv"},
+			want: true,
+		},
+		{
+			name: "persistent flag before subcommand",
+			args: []string{"--temp-dir", "/tmp", "encrypt", "-i", "a", "-o", "a.pcv"},
+			want: true,
+		},
+		{
+			name: "persistent flag equals form before subcommand",
+			args: []string{"--temp-dir=/tmp", "decrypt", "-i", "a.pcv"},
+			want: true,
+		},
+		{
+			name: "root version flag",
+			args: []string{"--version"},
+			want: true,
+		},
+		{
+			name: "bare version token is not a command",
+			args: []string{"version"},
+			want: false,
+		},
+		{
+			name: "invalid root flag before subcommand",
+			args: []string{"--bogus", "encrypt", "-i", "a", "-o", "a.pcv"},
+			want: true,
+		},
+		{
+			name: "missing value root flag before subcommand",
+			args: []string{"--temp-dir", "encrypt", "-i", "a", "-o", "a.pcv", "-p", "pw"},
+			want: true,
+		},
+		{
+			name: "unknown GUI-style arg",
+			args: []string{"--fyne-driver=software"},
+			want: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := detectCLIMode(tc.args); got != tc.want {
+				t.Fatalf("detectCLIMode(%q) = %v, want %v", tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultEncryptOutput(t *testing.T) {
+	t.Run("multiple expanded matches", func(t *testing.T) {
+		pattern := "/tmp/*.txt"
+		allFiles := []string{"/tmp/a.txt", "/tmp/b.txt"}
+
+		got := defaultEncryptOutput(pattern, allFiles, false)
+		if got != "encrypted.pcv" {
+			t.Fatalf("defaultEncryptOutput(%q, %q, false) = %q, want %q",
+				pattern, allFiles, got, "encrypted.pcv")
+		}
+	})
+
+	t.Run("single expanded match", func(t *testing.T) {
+		pattern := "/tmp/*.txt"
+		allFiles := []string{"/tmp/a.txt"}
+
+		got := defaultEncryptOutput(pattern, allFiles, false)
+		if got != "/tmp/a.txt.pcv" {
+			t.Fatalf("defaultEncryptOutput(%q, %q, false) = %q, want %q",
+				pattern, allFiles, got, "/tmp/a.txt.pcv")
+		}
+	})
+}
+
 func TestEncryptStdinValidation(t *testing.T) {
 	t.Run("stdin with password stdin conflict", func(t *testing.T) {
 		encInput = []string{"-"}

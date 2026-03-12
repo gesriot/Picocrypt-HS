@@ -129,6 +129,55 @@ func TestSplitUnits(t *testing.T) {
 	}
 }
 
+func TestSplitDoesNotDeleteSidecarFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "archive.pcv")
+
+	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("A"), 32*1024), 0644); err != nil {
+		t.Fatalf("Create input file: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".sig", []byte("sig"), 0644); err != nil {
+		t.Fatalf("Create signature sidecar: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".backup", []byte("backup"), 0644); err != nil {
+		t.Fatalf("Create backup sidecar: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".0", []byte("old chunk"), 0644); err != nil {
+		t.Fatalf("Create stale chunk: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".1.incomplete", []byte("stale"), 0644); err != nil {
+		t.Fatalf("Create stale incomplete chunk: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".-1", []byte("signed"), 0644); err != nil {
+		t.Fatalf("Create signed sidecar: %v", err)
+	}
+	if err := os.WriteFile(inputPath+".+1.incomplete", []byte("signed incomplete"), 0644); err != nil {
+		t.Fatalf("Create signed incomplete sidecar: %v", err)
+	}
+
+	_, err := Split(SplitOptions{
+		InputPath: inputPath,
+		ChunkSize: 8,
+		Unit:      SplitUnitKiB,
+	})
+	if err != nil {
+		t.Fatalf("Split failed: %v", err)
+	}
+
+	if _, err := os.Stat(inputPath + ".sig"); err != nil {
+		t.Fatalf(".sig sidecar should remain: %v", err)
+	}
+	if _, err := os.Stat(inputPath + ".backup"); err != nil {
+		t.Fatalf(".backup sidecar should remain: %v", err)
+	}
+	if _, err := os.Stat(inputPath + ".-1"); err != nil {
+		t.Fatalf(".-1 sidecar should remain: %v", err)
+	}
+	if _, err := os.Stat(inputPath + ".+1.incomplete"); err != nil {
+		t.Fatalf(".+1.incomplete sidecar should remain: %v", err)
+	}
+}
+
 // TestSplitCancellation tests that split can be cancelled.
 func TestSplitCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -353,8 +402,8 @@ func TestRecombineProgress(t *testing.T) {
 	t.Logf("Progress called %d times, Status called %d times", progressCalls, statusCalls)
 }
 
-// TestRecombineMissingChunk tests error handling when a chunk is missing.
-func TestRecombineMissingChunk(t *testing.T) {
+// TestRecombineRejectsMissingMiddleChunk tests error handling when a chunk is missing.
+func TestRecombineRejectsMissingMiddleChunk(t *testing.T) {
 	tmpDir := t.TempDir()
 	basePath := filepath.Join(tmpDir, "test.pcv")
 
@@ -373,9 +422,101 @@ func TestRecombineMissingChunk(t *testing.T) {
 		OutputPath: outputPath,
 	})
 
-	// Should succeed with only 1 chunk (chunks 0, stops at missing 1)
+	if err == nil {
+		t.Fatal("expected missing chunk error")
+	}
+}
+
+func TestRecombineRejectsSymlinkOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "test.pcv")
+
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+		t.Fatalf("Create chunk: %v", err)
+	}
+
+	outsideDir := filepath.Join(tmpDir, "outside")
+	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+		t.Fatalf("Create outside dir: %v", err)
+	}
+	targetPath := filepath.Join(outsideDir, "owned.pcv")
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+	if err := os.Symlink(targetPath, outputPath); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	err := Recombine(RecombineOptions{
+		InputBase:  basePath,
+		OutputPath: outputPath,
+	})
+	if err == nil {
+		t.Fatal("expected symlink rejection")
+	}
+}
+
+func TestRecombineIgnoresSignedChunkLikeSuffixes(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "test.pcv")
+
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+		t.Fatalf("Create chunk 0: %v", err)
+	}
+	if err := os.WriteFile(basePath+".+1", []byte("plus1"), 0644); err != nil {
+		t.Fatalf("Create signed sidecar: %v", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "output.pcv")
+	err := Recombine(RecombineOptions{
+		InputBase:  basePath,
+		OutputPath: outputPath,
+	})
 	if err != nil {
-		t.Logf("Recombine returned error as expected or found only one chunk: %v", err)
+		t.Fatalf("Recombine should ignore signed suffix sidecar: %v", err)
+	}
+
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Read output: %v", err)
+	}
+	if string(content) != "chunk0" {
+		t.Fatalf("output = %q, want %q", string(content), "chunk0")
+	}
+}
+
+func TestCountChunksHandlesLiteralGlobCharacters(t *testing.T) {
+	tmpDir := t.TempDir()
+	basePath := filepath.Join(tmpDir, "file[1].pcv")
+
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+		t.Fatalf("Create chunk: %v", err)
+	}
+
+	count, total, err := CountChunks(basePath)
+	if err != nil {
+		t.Fatalf("CountChunks returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountChunks count = %d; want 1", count)
+	}
+	if total != int64(len("chunk0")) {
+		t.Fatalf("CountChunks total = %d; want %d", total, len("chunk0"))
+	}
+}
+
+func TestSplitRejectsNonPositiveChunkSize(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "invalid_split.pcv")
+	if err := os.WriteFile(inputPath, []byte("content"), 0644); err != nil {
+		t.Fatalf("Create input: %v", err)
+	}
+
+	_, err := Split(SplitOptions{
+		InputPath: inputPath,
+		ChunkSize: 0,
+		Unit:      SplitUnitKiB,
+	})
+	if err == nil {
+		t.Fatal("expected invalid chunk size error")
 	}
 }
 

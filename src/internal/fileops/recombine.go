@@ -5,10 +5,30 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"Picocrypt-NG/internal/util"
 )
+
+func parseUnsignedChunkIndex(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	index, err := strconv.Atoi(s)
+	if err != nil || index < 0 {
+		return 0, false
+	}
+	return index, true
+}
 
 // RecombineOptions configures chunk recombination
 type RecombineOptions struct {
@@ -21,23 +41,53 @@ type RecombineOptions struct {
 
 // CountChunks returns the number of split chunks for a given base path
 func CountChunks(basePath string) (int, int64, error) {
-	count := 0
+	dir := filepath.Dir(basePath)
+	if dir == "" {
+		dir = "."
+	}
+	prefix := filepath.Base(basePath) + "."
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read chunk dir: %w", err)
+	}
+
+	indexes := make([]int, 0, len(entries))
 	var totalSize int64
 
-	for {
-		stat, err := os.Stat(fmt.Sprintf("%s.%d", basePath, count))
-		if err != nil {
-			break
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, prefix) {
+			continue
 		}
-		count++
+
+		suffix := strings.TrimPrefix(name, prefix)
+		index, ok := parseUnsignedChunkIndex(suffix)
+		if !ok {
+			continue
+		}
+
+		stat, err := entry.Info()
+		if err != nil {
+			return 0, 0, fmt.Errorf("stat chunk %s: %w", filepath.Join(dir, name), err)
+		}
+
+		indexes = append(indexes, index)
 		totalSize += stat.Size()
 	}
 
-	if count == 0 {
+	if len(indexes) == 0 {
 		return 0, 0, errors.New("no chunks found")
 	}
 
-	return count, totalSize, nil
+	sort.Ints(indexes)
+	for expected, actual := range indexes {
+		if actual != expected {
+			return 0, 0, fmt.Errorf("missing chunk %d", expected)
+		}
+	}
+
+	return len(indexes), totalSize, nil
 }
 
 // Recombine merges split chunks back into a single file.
@@ -53,7 +103,7 @@ func Recombine(opts RecombineOptions) error {
 		return fmt.Errorf("output file already exists: %s", opts.OutputPath)
 	}
 
-	fout, err := CreateSecure(opts.OutputPath)
+	fout, err := CreateSecureNoSymlink(opts.OutputPath)
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}

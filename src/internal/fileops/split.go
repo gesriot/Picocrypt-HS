@@ -12,10 +12,31 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"Picocrypt-NG/internal/util"
 )
+
+func shouldDeleteSplitArtifact(basePath, candidate string) bool {
+	prefix := basePath + "."
+	if !strings.HasPrefix(candidate, prefix) {
+		return false
+	}
+
+	suffix := strings.TrimPrefix(candidate, prefix)
+	suffix = strings.TrimSuffix(suffix, ".incomplete")
+	if suffix == "" {
+		return false
+	}
+
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
 
 // SplitUnit represents the unit of measurement for chunk sizes when splitting files.
 type SplitUnit int
@@ -50,6 +71,10 @@ type SplitOptions struct {
 //
 // To reassemble, use Recombine() or concatenate files in order: cat file.pcv.* > file.pcv
 func Split(opts SplitOptions) ([]string, error) {
+	if opts.ChunkSize <= 0 {
+		return nil, errors.New("chunk size must be greater than zero")
+	}
+
 	stat, err := os.Stat(opts.InputPath)
 	if err != nil {
 		return nil, fmt.Errorf("stat input: %w", err)
@@ -83,7 +108,9 @@ func Split(opts SplitOptions) ([]string, error) {
 	// Delete existing chunks first
 	existingChunks, _ := filepath.Glob(opts.InputPath + ".*")
 	for _, chunk := range existingChunks {
-		_ = os.Remove(chunk)
+		if shouldDeleteSplitArtifact(opts.InputPath, chunk) {
+			_ = os.Remove(chunk)
+		}
 	}
 
 	var chunks []string

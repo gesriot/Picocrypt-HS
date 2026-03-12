@@ -103,6 +103,29 @@ func TestStdinStdoutIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("stdin encrypt existing output requires --yes", func(t *testing.T) {
+		inputData := []byte("stdin overwrite check")
+		outputFile := filepath.Join(tmpDir, "stdin-overwrite-encrypt.pcv")
+		if err := os.WriteFile(outputFile, []byte("existing"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := exec.Command(binaryPath, "encrypt",
+			"-i", "-",
+			"-o", outputFile,
+			"-p", testPassword,
+		)
+		cmd.Stdin = bytes.NewReader(inputData)
+
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatal("expected overwrite error for stdin encrypt without -y")
+		}
+		if !bytes.Contains(output, []byte("use -y to overwrite")) {
+			t.Fatalf("expected explicit -y guidance, got: %s", output)
+		}
+	})
+
 	t.Run("file encrypt to stdout", func(t *testing.T) {
 		inputData := []byte("secret data for stdout encryption test")
 		inputFile := filepath.Join(tmpDir, "stdout-input.txt")
@@ -241,6 +264,34 @@ func TestStdinStdoutIntegration(t *testing.T) {
 		}
 		if !bytes.Equal(decrypted, inputData) {
 			t.Errorf("decrypted content mismatch\ngot:  %q\nwant: %q", decrypted, inputData)
+		}
+	})
+
+	t.Run("stdin decrypt existing output requires --yes", func(t *testing.T) {
+		inputData := []byte("stdin decrypt overwrite check")
+		encryptedFile := filepath.Join(tmpDir, "stdin-overwrite-decrypt.pcv")
+		if err := os.WriteFile(encryptedFile, inputData, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		existingOutput := filepath.Join(tmpDir, "stdin-overwrite-output")
+		if err := os.WriteFile(existingOutput, []byte("existing"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := exec.Command(binaryPath, "decrypt",
+			"-i", "-",
+			"-o", existingOutput,
+			"-p", testPassword,
+		)
+		cmd.Stdin = bytes.NewReader(inputData)
+
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatal("expected overwrite error for stdin decrypt without -y")
+		}
+		if !bytes.Contains(output, []byte("use -y to overwrite")) {
+			t.Fatalf("expected explicit -y guidance, got: %s", output)
 		}
 	})
 

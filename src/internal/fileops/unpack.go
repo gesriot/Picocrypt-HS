@@ -52,6 +52,142 @@ func isValidExtractionPath(outPath, extractDir string) bool {
 	return !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
 }
 
+func prepareExtractionPath(extractDir, normalizedName string, isDir bool) (string, error) {
+	relPath := filepath.Clean(normalizedName)
+	if !filepath.IsLocal(relPath) {
+		return "", errors.New("potentially malicious zip item path")
+	}
+
+	outPath := filepath.Join(extractDir, relPath)
+	if !isValidExtractionPath(outPath, extractDir) {
+		return "", errors.New("potentially malicious zip item path")
+	}
+
+	current := filepath.Clean(extractDir)
+	parts := strings.Split(relPath, string(filepath.Separator))
+	for i, part := range parts {
+		next := filepath.Join(current, part)
+		isLast := i == len(parts)-1
+
+		info, err := os.Lstat(next)
+		switch {
+		case os.IsNotExist(err):
+			if !isLast || isDir {
+				if err := os.Mkdir(next, 0700); err != nil {
+					return "", fmt.Errorf("create directory %s: %w", next, err)
+				}
+			}
+		case err != nil:
+			return "", err
+		case info.Mode()&os.ModeSymlink != 0:
+			return "", fmt.Errorf("refusing to follow symlink during extraction: %s", next)
+		case !info.IsDir() && (!isLast || isDir):
+			return "", fmt.Errorf("path exists as file: %s", next)
+		case isLast && !isDir && info.IsDir():
+			return "", fmt.Errorf("path exists as directory: %s", next)
+		}
+
+		current = next
+	}
+
+	return outPath, nil
+}
+
+func pathWalkStart(path string) (string, []string) {
+	clean := filepath.Clean(path)
+	volume := filepath.VolumeName(clean)
+	rest := strings.TrimPrefix(clean, volume)
+
+	start := volume
+	if strings.HasPrefix(rest, string(filepath.Separator)) {
+		start += string(filepath.Separator)
+		rest = strings.TrimPrefix(rest, string(filepath.Separator))
+	}
+	if start == "" {
+		start = "."
+	}
+	if rest == "" || rest == "." {
+		return start, nil
+	}
+
+	return start, strings.Split(rest, string(filepath.Separator))
+}
+
+func walkExtractionRoot(current string, parts []string, create bool, allowLeadingSymlink bool) (string, error) {
+	for i, part := range parts {
+		next := filepath.Join(current, part)
+		isLast := i == len(parts)-1
+
+		info, err := os.Lstat(next)
+		switch {
+		case os.IsNotExist(err):
+			if !create {
+				return "", fmt.Errorf("extraction directory does not exist: %s", filepath.Join(current, filepath.Join(parts[i:]...)))
+			}
+			if err := os.Mkdir(next, 0700); err != nil {
+				return "", fmt.Errorf("create extraction directory %s: %w", next, err)
+			}
+		case err != nil:
+			return "", fmt.Errorf("stat extraction directory %s: %w", next, err)
+		case info.Mode()&os.ModeSymlink != 0:
+			if !allowLeadingSymlink || i != 0 {
+				return "", fmt.Errorf("cannot extract to %s: path contains symlink %s", filepath.Join(current, filepath.Join(parts[i:]...)), next)
+			}
+
+			resolved, err := filepath.EvalSymlinks(next)
+			if err != nil {
+				return "", fmt.Errorf("resolve symlinked extraction directory %s: %w", next, err)
+			}
+
+			resolvedInfo, err := os.Stat(resolved)
+			if err != nil {
+				return "", fmt.Errorf("stat resolved extraction directory %s: %w", resolved, err)
+			}
+			if !resolvedInfo.IsDir() {
+				return "", fmt.Errorf("cannot extract to %s: path resolves to a non-directory: %s", resolved, next)
+			}
+
+			current = resolved
+			continue
+		case !info.IsDir() && isLast:
+			return "", fmt.Errorf("cannot extract to %s: path exists as a file (not a directory). Enable 'Same level' option or move/rename the existing file", filepath.Join(current, filepath.Join(parts[i:]...)))
+		case !info.IsDir():
+			return "", fmt.Errorf("cannot extract to %s: parent path is not a directory: %s", filepath.Join(current, filepath.Join(parts[i:]...)), next)
+		}
+
+		current = next
+	}
+
+	return current, nil
+}
+
+func allowLeadingExtractionRootSymlink(absDir, tempDir string) bool {
+	cleanPath := filepath.Clean(absDir)
+	cleanTemp := filepath.Clean(tempDir)
+	if cleanTemp == "" {
+		return false
+	}
+	if cleanPath == cleanTemp {
+		return true
+	}
+	return strings.HasPrefix(cleanPath, cleanTemp+string(filepath.Separator))
+}
+
+func prepareExtractionRoot(extractDir string, create bool) (string, error) {
+	absDir, err := filepath.Abs(extractDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve extraction directory %s: %w", extractDir, err)
+	}
+
+	current, parts := pathWalkStart(absDir)
+	resolved, err := walkExtractionRoot(current, parts, create, allowLeadingExtractionRootSymlink(absDir, os.TempDir()))
+	if err != nil {
+		return "", err
+	}
+
+	return resolved, nil
+}
+
 // Unpack extracts a zip archive to the specified directory.
 func Unpack(opts UnpackOptions) (retErr error) {
 	reader, err := zip.OpenReader(opts.ZipPath)
@@ -90,17 +226,9 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		}
 	}
 
-	// Create the extraction directory if SameLevel is false
-	// (when SameLevel is true, extractDir is the parent dir which should already exist)
-	if !opts.SameLevel {
-		// Check if extractDir exists as a file (not a directory)
-		if info, err := os.Stat(extractDir); err == nil && !info.IsDir() {
-			return fmt.Errorf("cannot extract to %s: path exists as a file (not a directory). Enable 'Same level' option or move/rename the existing file", extractDir)
-		}
-
-		if err := os.MkdirAll(extractDir, 0700); err != nil {
-			return fmt.Errorf("create extraction directory %s: %w", extractDir, err)
-		}
+	extractDir, err = prepareExtractionRoot(extractDir, !opts.SameLevel)
+	if err != nil {
+		return err
 	}
 
 	// First pass: create all directories and cache normalized paths
@@ -109,19 +237,15 @@ func Unpack(opts UnpackOptions) (retErr error) {
 	for _, f := range reader.File {
 		// Normalize and validate path to prevent zip slip attacks
 		normalizedName := normalizeZipPath(f.Name)
-		outPath := filepath.Join(extractDir, normalizedName)
-		if !isValidExtractionPath(outPath, extractDir) {
-			return errors.New("potentially malicious zip item path")
+		outPath, err := prepareExtractionPath(extractDir, normalizedName, f.FileInfo().IsDir())
+		if err != nil {
+			return err
 		}
 
 		// Cache the output path for second pass
 		normalizedPaths[f] = outPath
 
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(outPath, 0700); err != nil {
-				return fmt.Errorf("create directory %s: %w", outPath, err)
-			}
-		}
+		// Directory entries are created by prepareExtractionPath().
 	}
 
 	// Second pass: extract files
@@ -144,17 +268,12 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		// Retrieve pre-validated output path from cache
 		outPath := normalizedPaths[f]
 
-		// Create parent directories
-		if err := os.MkdirAll(filepath.Dir(outPath), 0700); err != nil {
-			return fmt.Errorf("create parent dir for %s: %w", outPath, err)
-		}
-
 		fileInArchive, err := f.Open()
 		if err != nil {
 			return fmt.Errorf("open %s in archive: %w", f.Name, err)
 		}
 
-		dstFile, err := CreateSecure(outPath)
+		dstFile, err := CreateSecureNoSymlink(outPath)
 		if err != nil {
 			_ = fileInArchive.Close()
 			return fmt.Errorf("create %s: %w", outPath, err)

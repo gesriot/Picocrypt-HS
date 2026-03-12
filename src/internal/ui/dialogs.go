@@ -3,7 +3,6 @@ package ui
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -138,39 +137,42 @@ func (a *App) showOverwriteModal() {
 	a.overwriteModal.Show()
 }
 
+func normalizeSelectedOutputPath(filePath, mode, inputFile string, multiInput, compress bool) string {
+	base := filepath.Base(filePath)
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	file := filepath.Join(filepath.Dir(filePath), base)
+
+	if mode == "encrypt" {
+		if multiInput || compress {
+			return file + ".zip.pcv"
+		}
+		return file + filepath.Ext(inputFile) + ".pcv"
+	}
+
+	if strings.HasSuffix(inputFile, ".zip.pcv") {
+		return file + ".zip"
+	}
+	tmp := strings.TrimSuffix(filepath.Base(inputFile), ".pcv")
+	return file + filepath.Ext(tmp)
+}
+
 // changeOutputFile opens a dialog to change the output file path.
 func (a *App) changeOutputFile() {
 	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil || writer == nil {
 			return
 		}
-		// Close immediately - we only need the path, not to write
-		// Fyne's file save dialog creates a 0-byte file, so we must remove it
+
 		filePath := writer.URI().Path()
 		_ = writer.Close()
-		_ = os.Remove(filePath)
-
-		file := filePath
-		// Strip any extension user might have added
-		file = filepath.Join(filepath.Dir(file), strings.Split(filepath.Base(file), ".")[0])
-
-		// Add correct extensions
-		if a.State.Mode == "encrypt" {
-			if len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 || a.State.Compress {
-				file += ".zip.pcv"
-			} else {
-				file += filepath.Ext(a.State.InputFile) + ".pcv"
-			}
-		} else {
-			if strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
-				file += ".zip"
-			} else {
-				tmp := strings.TrimSuffix(filepath.Base(a.State.InputFile), ".pcv")
-				file += filepath.Ext(tmp)
-			}
-		}
-
-		a.State.OutputFile = file
+		a.State.OutputFile = normalizeSelectedOutputPath(
+			filePath,
+			a.State.Mode,
+			a.State.InputFile,
+			len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0,
+			a.State.Compress,
+		)
+		a.State.OutputChosenViaSaveDialog = true
 		a.State.MainStatus = "Ready"
 		a.State.MainStatusColor = util.WHITE
 		a.updateUIState()
