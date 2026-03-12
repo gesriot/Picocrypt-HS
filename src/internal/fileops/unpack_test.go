@@ -397,8 +397,12 @@ func TestWalkExtractionRootAllowsTrustedLeadingSymlink(t *testing.T) {
 	}
 
 	want := filepath.Join(realRoot, "extract")
-	if got != want {
-		t.Fatalf("Expected resolved extraction root %q, got %q", want, got)
+	resolvedWant, err := filepath.EvalSymlinks(want)
+	if err != nil {
+		t.Fatalf("Resolve expected extraction root: %v", err)
+	}
+	if got != resolvedWant {
+		t.Fatalf("Expected resolved extraction root %q, got %q", resolvedWant, got)
 	}
 
 	info, err := os.Stat(want)
