@@ -3,7 +3,6 @@ package fileops
 import (
 	"path/filepath"
 	"regexp"
-	"strings"
 )
 
 var splitChunkRE = regexp.MustCompile(`(?i)\.pcv\.[0-9]+$`)
@@ -19,9 +18,9 @@ func SplitChunkBase(path string) (string, bool) {
 		return "", false
 	}
 
-	idx := strings.LastIndex(strings.ToLower(path), ".pcv.")
-	if idx < 0 {
+	idx := splitChunkRE.FindStringIndex(path)
+	if idx == nil {
 		return "", false
 	}
-	return path[:idx+4], true
+	return path[:idx[0]+4], true
 }
