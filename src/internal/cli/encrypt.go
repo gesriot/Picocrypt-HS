@@ -260,6 +260,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine output file
+	outputPreExisted := false
 	if useStdout {
 		// Create temp file for stdout output
 		var err error
@@ -288,6 +289,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 			if info.IsDir() {
 				return fmt.Errorf("output path is a directory: %s", outputFile)
 			}
+			outputPreExisted = true
 			if !encYes {
 				fmt.Fprintf(os.Stderr, "Output file %s already exists. Overwrite? [y/N]: ", outputFile)
 				reader := bufio.NewReader(os.Stdin)
@@ -310,6 +312,9 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		password, err = ReadPasswordFromStdin()
 		if err != nil {
 			return err
+		}
+		if password == "" && len(encKeyfiles) == 0 {
+			return fmt.Errorf("password input: %w", ErrPasswordEmpty)
 		}
 	} else if password == "" {
 		// Prompt for password interactively
@@ -417,11 +422,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		reporter.PrintError("%v", err)
-		// Clean up partial output on error (temp files cleaned by defer)
-		if !useStdout {
-			_ = os.Remove(outputFile)
-			_ = os.Remove(outputFile + ".incomplete")
-		}
+		cleanupEncryptError(outputFile, useStdout, outputPreExisted)
 		return err
 	}
 
@@ -435,4 +436,14 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	reporter.PrintSuccess("Encryption completed successfully: %s", outputFile)
 	return nil
+}
+
+func cleanupEncryptError(outputFile string, useStdout, outputPreExisted bool) {
+	if useStdout {
+		return
+	}
+	if !outputPreExisted {
+		_ = os.Remove(outputFile)
+	}
+	_ = os.Remove(outputFile + ".incomplete")
 }
