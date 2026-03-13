@@ -1,6 +1,7 @@
 package io.github.picocrypt_ng.picocrypt_ng.testutils
 
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
@@ -25,5 +26,4 @@ object ComposeTestHelpers {
         assertTextEquals(text)
     }
 }
-
 

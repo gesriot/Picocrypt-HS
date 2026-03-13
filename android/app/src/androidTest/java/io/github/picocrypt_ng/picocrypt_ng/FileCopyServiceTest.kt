@@ -25,13 +25,17 @@ class FileCopyServiceTest {
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         // Clean up any existing test files
-        FileCopyService.cleanupAllFiles(context)
+        runTest {
+            FileCopyService.cleanupAllFiles(context)
+        }
     }
     
     @After
     fun tearDown() {
         // Clean up test files after each test
-        FileCopyService.cleanupAllFiles(context)
+        runTest {
+            FileCopyService.cleanupAllFiles(context)
+        }
     }
     
     @Test
@@ -256,5 +260,4 @@ class FileCopyServiceTest {
         assertFalse("Should return false for non-existent file", result)
     }
 }
-
 

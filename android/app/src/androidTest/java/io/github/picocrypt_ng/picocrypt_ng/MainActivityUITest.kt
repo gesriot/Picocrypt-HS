@@ -4,7 +4,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,12 +16,6 @@ class MainActivityUITest {
     
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
-    
-    @get:Rule
-    val permissionRule: GrantPermissionRule = GrantPermissionRule.grant(
-        android.Manifest.permission.READ_EXTERNAL_STORAGE,
-        android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-    )
     
     @Test
     fun `MainActivity displays on launch`() {
@@ -84,5 +77,4 @@ class MainActivityUITest {
         composeTestRule.onRoot().assertIsDisplayed()
     }
 }
-
 
