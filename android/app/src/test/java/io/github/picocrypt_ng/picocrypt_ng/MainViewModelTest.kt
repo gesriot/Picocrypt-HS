@@ -167,6 +167,17 @@ class MainViewModelTest {
         assertEquals(0, formState.passwordInput.size)
         assertTrue("Confirm password should be updated", formState.confirmPasswordInput.contentEquals(confirmPassword))
     }
+
+    @Test
+    fun `updatePasswords does not restore passwords through SavedStateHandle`() = runTest {
+        viewModel.updatePasswords("secretpassword".toCharArray(), "secretpassword".toCharArray())
+
+        val restoredViewModel = MainViewModel(mockApplication, savedStateHandle)
+        val restoredFormState = restoredViewModel.formState.first()
+
+        assertEquals(0, restoredFormState.passwordInput.size)
+        assertEquals(0, restoredFormState.confirmPasswordInput.size)
+    }
     
     @Test
     fun `clearSensitiveData clears passwords`() = runTest {
@@ -287,4 +298,3 @@ class MainViewModelTest {
         assertNull("Error message should be null initially", errorMessage)
     }
 }
-
