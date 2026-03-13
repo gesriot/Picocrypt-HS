@@ -22,7 +22,7 @@ const (
 
 // ChooseTempDir selects an appropriate temp directory for buffering.
 // For known-size files: system temp > output dir > cwd > ~/.cache/picocrypt
-// For stdin (size=0): output dir > cwd > cache > system temp (avoids tmpfs)
+// For stdin (size=0): system temp > cache
 // estimatedSize is the expected file size (0 for unknown stdin).
 // outputPath is used to determine the output directory as a fallback.
 func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
@@ -48,7 +48,7 @@ func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
 		return "", fmt.Errorf("--temp-dir %s: not writable", TempDirOverride)
 	}
 
-	// For stdin: prefer disk-backed dirs over system temp (may be tmpfs)
+	// For stdin: prefer user-scoped temp/cache locations only.
 	var candidates []string
 	if isStdin {
 		candidates = buildCandidatesForStdin(outputPath)
@@ -102,28 +102,15 @@ func buildCandidates(outputPath string) []string {
 	return candidates
 }
 
-// buildCandidatesForStdin returns candidates with system temp last.
-// For stdin (unknown size), prefer disk-backed dirs over potentially RAM-backed /tmp.
+// buildCandidatesForStdin returns user-scoped candidates for stdin buffering.
+// Avoid output dir/CWD because stdin plaintext should not be buffered there.
 func buildCandidatesForStdin(outputPath string) []string {
-	var candidates []string
+	_ = outputPath
+	candidates := []string{os.TempDir()}
 
-	// Output directory first (same disk as final destination)
-	if outputPath != "" && outputPath != "-" {
-		candidates = append(candidates, filepath.Dir(outputPath))
-	}
-
-	// Current working directory
-	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, cwd)
-	}
-
-	// User cache directory
 	if cacheDir, err := userCacheDir(); err == nil {
 		candidates = append(candidates, cacheDir)
 	}
-
-	// System temp last (may be tmpfs with limited RAM)
-	candidates = append(candidates, os.TempDir())
 
 	return candidates
 }
