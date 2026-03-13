@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -194,30 +195,49 @@ func TestBuildCandidatesForStdin(t *testing.T) {
 		t.Errorf("expected at least 2 candidates, got %d", len(candidates))
 	}
 
-	// First should be output dir (NOT system temp)
-	expectedDir := filepath.Dir(testPath)
-	if candidates[0] != expectedDir {
-		t.Errorf("first candidate should be output dir %s, got %s", expectedDir, candidates[0])
+	// First should be system temp
+	if candidates[0] != os.TempDir() {
+		t.Errorf("first candidate should be os.TempDir(), got %s", candidates[0])
 	}
 
-	// System temp should be last
-	last := candidates[len(candidates)-1]
-	if last != os.TempDir() {
-		t.Errorf("last candidate should be os.TempDir(), got %s", last)
+	cacheDir, err := userCacheDir()
+	if err != nil {
+		t.Fatalf("userCacheDir() error = %v", err)
+	}
+	if candidates[1] != cacheDir {
+		t.Errorf("second candidate should be user cache dir %s, got %s", cacheDir, candidates[1])
+	}
+
+	disallowed := map[string]bool{
+		filepath.Dir(testPath): true,
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		disallowed[cwd] = true
+	}
+	for _, candidate := range candidates {
+		if disallowed[candidate] {
+			t.Errorf("stdin candidates should not include output dir or cwd, got %s", candidate)
+		}
 	}
 }
 
 func TestBuildCandidatesForStdin_NoOutput(t *testing.T) {
 	candidates := buildCandidatesForStdin("")
 
-	if len(candidates) < 1 {
-		t.Error("expected at least 1 candidate")
+	if len(candidates) < 2 {
+		t.Errorf("expected at least 2 candidates, got %d", len(candidates))
 	}
 
-	// System temp should still be last
-	last := candidates[len(candidates)-1]
-	if last != os.TempDir() {
-		t.Errorf("last candidate should be os.TempDir(), got %s", last)
+	if candidates[0] != os.TempDir() {
+		t.Errorf("first candidate should be os.TempDir(), got %s", candidates[0])
+	}
+
+	cacheDir, err := userCacheDir()
+	if err != nil {
+		t.Fatalf("userCacheDir() error = %v", err)
+	}
+	if candidates[1] != cacheDir {
+		t.Errorf("second candidate should be user cache dir %s, got %s", cacheDir, candidates[1])
 	}
 }
 
@@ -231,14 +251,12 @@ func TestBuildCandidatesForStdin_StdoutOutput(t *testing.T) {
 		}
 	}
 
-	// System temp should be last
-	last := candidates[len(candidates)-1]
-	if last != os.TempDir() {
-		t.Errorf("last candidate should be os.TempDir(), got %s", last)
+	if candidates[0] != os.TempDir() {
+		t.Errorf("first candidate should be os.TempDir(), got %s", candidates[0])
 	}
 }
 
-func TestChooseTempDir_StdinPrefersOutputDir(t *testing.T) {
+func TestChooseTempDir_StdinPrefersSystemTemp(t *testing.T) {
 	TempDirOverride = ""
 
 	// Create a writable temp dir to simulate output location
@@ -251,9 +269,36 @@ func TestChooseTempDir_StdinPrefersOutputDir(t *testing.T) {
 		t.Fatalf("ChooseTempDir() error = %v", err)
 	}
 
-	// Should prefer output dir over system temp for stdin
-	if dir != tmpDir {
-		t.Logf("Note: stdin mode selected %s (output dir was %s)", dir, tmpDir)
+	// Should prefer system temp for stdin when available
+	if dir != os.TempDir() {
+		t.Errorf("stdin mode should prefer system temp %s, got %s", os.TempDir(), dir)
+	}
+}
+
+func TestChooseTempDir_StdinFallsBackToUserCache(t *testing.T) {
+	TempDirOverride = ""
+
+	missingTemp := filepath.Join(t.TempDir(), "missing-temp")
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("TMP", missingTemp)
+		t.Setenv("TEMP", missingTemp)
+	default:
+		t.Setenv("TMPDIR", missingTemp)
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "output.pcv")
+	dir, err := ChooseTempDir(0, outputPath)
+	if err != nil {
+		t.Fatalf("ChooseTempDir() error = %v", err)
+	}
+
+	cacheDir, err := userCacheDir()
+	if err != nil {
+		t.Fatalf("userCacheDir() error = %v", err)
+	}
+	if dir != cacheDir {
+		t.Errorf("stdin mode should fall back to user cache %s, got %s", cacheDir, dir)
 	}
 }
 
