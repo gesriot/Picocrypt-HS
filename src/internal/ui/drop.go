@@ -148,6 +148,16 @@ func (a *App) onDrop(names []string) {
 	}()
 }
 
+func (a *App) applyDropError(status string, closeKeyfileModal bool) {
+	if closeKeyfileModal && a.keyfileModal != nil {
+		a.keyfileModal.Hide()
+	}
+	a.resetUI()
+	a.State.MainStatus = status
+	a.State.MainStatusColor = util.RED
+	a.refreshUI()
+}
+
 // handleDecryptDrop handles a .pcv file being dropped for decryption.
 func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	a.State.Mode = "decrypt"
@@ -194,11 +204,8 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		fin, err = os.Open(name)
 	}
 	if err != nil {
-		a.State.MainStatus = "Read access denied"
-		a.State.MainStatusColor = util.RED
 		fyne.Do(func() {
-			a.resetUI()
-			a.refreshUI()
+			a.applyDropError("Read access denied", false)
 		})
 		return
 	}
@@ -370,14 +377,8 @@ func (a *App) handleKeyfileDrop(paths []string) bool {
 		stat, err := os.Stat(path)
 		if err != nil {
 			a.State.ShowKeyfile = false
-			a.State.MainStatus = "Keyfile read access denied"
-			a.State.MainStatusColor = util.RED
 			fyne.Do(func() {
-				if a.keyfileModal != nil {
-					a.keyfileModal.Hide()
-				}
-				a.resetUI()
-				a.refreshUI()
+				a.applyDropError("Keyfile read access denied", true)
 			})
 			return true
 		}

@@ -11,6 +11,7 @@ import (
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
 )
 
@@ -237,6 +238,43 @@ func TestDropStateTransitions(t *testing.T) {
 			t.Errorf("StartLabel = %q; want 'Zip and Encrypt'", state.StartLabel)
 		}
 	})
+}
+
+func TestApplyDropErrorPreservesStatusAfterReset(t *testing.T) {
+	test.NewApp()
+
+	testCases := []struct {
+		name              string
+		status            string
+		closeKeyfileModal bool
+	}{
+		{name: "DecryptDrop", status: "Read access denied", closeKeyfileModal: false},
+		{name: "KeyfileDrop", status: "Keyfile read access denied", closeKeyfileModal: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &App{
+				State:             app.NewState(),
+				advancedContainer: container.NewVBox(),
+			}
+			a.State.StartLabel = "Decrypt"
+			a.State.MainStatus = "Old status"
+			a.State.MainStatusColor = util.GREEN
+
+			a.applyDropError(tc.status, tc.closeKeyfileModal)
+
+			if a.State.StartLabel != "Start" {
+				t.Fatalf("expected resetUI() to run, StartLabel = %q", a.State.StartLabel)
+			}
+			if a.State.MainStatus != tc.status {
+				t.Fatalf("MainStatus = %q, want %q", a.State.MainStatus, tc.status)
+			}
+			if a.State.MainStatusColor != util.RED {
+				t.Fatalf("MainStatusColor = %#v, want %#v", a.State.MainStatusColor, util.RED)
+			}
+		})
+	}
 }
 
 // TestKeyfileDropHandling tests keyfile drop in keyfile modal.
