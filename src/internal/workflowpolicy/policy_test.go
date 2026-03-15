@@ -63,3 +63,11 @@ func TestSnapcraftActionPinnedToFullSHA(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/build-snapcraft.yml")
 	mustMatch(t, content, `snapcore/action-build@[0-9a-f]{40}`)
 }
+
+func TestAndroidWorkflowHasPinnedEmulatorLane(t *testing.T) {
+	content := mustReadWorkflow(t, ".github/workflows/pr-test-build-android.yml")
+	mustMatch(t, content, `ReactiveCircus/android-emulator-runner@[0-9a-f]{40}`)
+	mustContain(t, content, "connectedDebugAndroidTest")
+	mustContain(t, content, "PasswordCardTest")
+	mustContain(t, content, "ProgressCardTest")
+}

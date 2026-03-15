@@ -89,6 +89,23 @@ jobs:
       working-directory: android
       run: ./gradlew assembleDebug
 
+    - name: Enable KVM
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+
+    - name: Run focused instrumented tests
+      uses: ReactiveCircus/android-emulator-runner@e93c997dcab69054e999e3924af3d21c4a736e13
+      with:
+        api-level: 36
+        arch: x86_64
+        profile: pixel_6
+        script: |
+          cd android
+          ./gradlew connectedDebugAndroidTest \
+            -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest
+
     - name: Prepare artifacts
       run: |
         mkdir -p out

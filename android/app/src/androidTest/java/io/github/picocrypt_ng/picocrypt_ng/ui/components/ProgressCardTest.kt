@@ -75,6 +75,38 @@ class ProgressCardTest {
             restoreOperationState(originalState)
         }
     }
+
+    @Test
+    fun `ProgressCard shows force decrypt dialog for corruption errors`() {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        val mainViewModel = MainViewModel(application, savedStateHandle)
+        val operationViewModel = OperationViewModel()
+        val originalState = swapOperationState(
+            TestDataBuilders.createOperationState(
+                type = OperationType.DECRYPT,
+                done = true,
+                error = AppError.OperationError.DataCorruption("Ciphertext corrupted"),
+                formData = TestDataBuilders.createDecryptFormData()
+            )
+        )
+
+        try {
+            composeTestRule.setContent {
+                ProgressCard(
+                    mainViewModel = mainViewModel,
+                    operationViewModel = operationViewModel
+                )
+            }
+
+            composeTestRule.onNodeWithText(application.getString(R.string.force_decrypt)).assertIsDisplayed()
+            composeTestRule.onNodeWithText(application.getString(R.string.cancel)).assertIsDisplayed()
+            composeTestRule.onNodeWithText(application.getString(R.string.data_corruption_detected)).assertIsDisplayed()
+            composeTestRule.onNodeWithText("Ciphertext corrupted").assertIsDisplayed()
+        } finally {
+            restoreOperationState(originalState)
+        }
+    }
 }
 
 private fun swapOperationState(state: OperationState?): MutableStateFlow<OperationState?> {
