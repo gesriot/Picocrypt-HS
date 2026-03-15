@@ -103,7 +103,6 @@ jobs:
       with:
         api-level: 36
         arch: x86_64
-        profile: pixel_6
         script: |
           cd android
           ./gradlew connectedDebugAndroidTest \
