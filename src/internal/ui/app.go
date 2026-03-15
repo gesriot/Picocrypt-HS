@@ -241,17 +241,23 @@ func (a *App) Run(startupPaths []string) {
 		})
 	}
 
-	if len(startupPaths) > 0 {
-		paths := append([]string(nil), startupPaths...)
-		a.fyneApp.Lifecycle().SetOnStarted(func() {
-			fyne.Do(func() {
-				a.applyStartupPaths(paths)
-			})
-		})
-	}
+	a.scheduleStartupPaths(startupPaths)
 
 	a.Window.SetContent(content)
 	a.Window.ShowAndRun()
+}
+
+func (a *App) scheduleStartupPaths(startupPaths []string) {
+	if len(startupPaths) == 0 {
+		return
+	}
+
+	paths := append([]string(nil), startupPaths...)
+	a.fyneApp.Lifecycle().SetOnStarted(func() {
+		fyne.Do(func() {
+			a.applyStartupPaths(paths)
+		})
+	})
 }
 
 // showFileDialogWithResize temporarily resizes the window to accommodate file dialogs.

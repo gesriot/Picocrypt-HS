@@ -29,6 +29,8 @@ type scannedFile struct {
 	size int64
 }
 
+var startupPathStat = os.Stat
+
 func isIgnoredStartupArg(path string) bool {
 	return path == "" || strings.HasPrefix(path, "-psn_")
 }
@@ -60,7 +62,7 @@ func collectStartupPaths(paths []string, statFn func(string) (os.FileInfo, error
 
 // applyStartupPaths reuses drag-and-drop handling for files passed at GUI startup.
 func (a *App) applyStartupPaths(paths []string) {
-	validPaths, err := collectStartupPaths(paths, os.Stat)
+	validPaths, err := collectStartupPaths(paths, startupPathStat)
 	if len(validPaths) == 0 {
 		if err != nil {
 			a.State.MainStatus = startupPathAccessStatus

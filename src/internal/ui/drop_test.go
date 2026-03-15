@@ -3,6 +3,7 @@ package ui
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -407,6 +408,31 @@ func TestApplyStartupPathsAllowsHyphenPrefixedFilename(t *testing.T) {
 	}
 }
 
+func TestApplyStartupPathsReportsAccessError(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	originalStat := startupPathStat
+	startupPathStat = func(path string) (os.FileInfo, error) {
+		return nil, os.ErrPermission
+	}
+	defer func() {
+		startupPathStat = originalStat
+	}()
+
+	fyne.DoAndWait(func() {
+		a.applyStartupPaths([]string{"blocked.txt"})
+	})
+
+	if a.State.MainStatus != startupPathAccessStatus {
+		t.Fatalf("MainStatus = %q; want %q", a.State.MainStatus, startupPathAccessStatus)
+	}
+	if a.State.MainStatusColor != util.RED {
+		t.Fatalf("MainStatusColor = %#v; want %#v", a.State.MainStatusColor, util.RED)
+	}
+}
+
 func TestCollectStartupPathsAllowsHyphenPrefixedFilename(t *testing.T) {
 	validPaths, err := collectStartupPaths([]string{"-secret.txt"}, func(path string) (os.FileInfo, error) {
 		return nil, nil
@@ -468,6 +494,38 @@ func TestAppendScannedFilesUpdatesState(t *testing.T) {
 	}
 	if !strings.Contains(a.State.InputLabel, "35") && !strings.Contains(a.State.InputLabel, "B") {
 		t.Fatalf("InputLabel = %q; want size summary", a.State.InputLabel)
+	}
+}
+
+func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	inputFile := filepath.Join(t.TempDir(), "startup.txt")
+	if err := os.WriteFile(inputFile, []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	fake := newLifecycleCaptureApp(fyne.CurrentApp())
+	a.fyneApp = fake
+
+	a.scheduleStartupPaths([]string{inputFile})
+
+	state := snapshotDropState(t, a)
+	if state.InputFile != "" {
+		t.Fatalf("InputFile = %q before start hook; want empty", state.InputFile)
+	}
+	if fake.started == nil {
+		t.Fatal("expected startup hook to be registered")
+	}
+
+	fake.started()
+	waitForDropProcessing(t, a)
+	state = snapshotDropState(t, a)
+
+	if state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q after start hook; want %q", state.InputFile, inputFile)
 	}
 }
 
@@ -861,3 +919,38 @@ func snapshotDropState(t *testing.T, a *App) dropStateSnapshot {
 	})
 	return state
 }
+
+type lifecycleCaptureApp struct {
+	driver   fyne.Driver
+	started  func()
+	stopped  func()
+	bg       func()
+	fg       func()
+}
+
+func newLifecycleCaptureApp(base fyne.App) *lifecycleCaptureApp {
+	return &lifecycleCaptureApp{driver: base.Driver()}
+}
+
+func (a *lifecycleCaptureApp) NewWindow(title string) fyne.Window { return fyne.CurrentApp().NewWindow(title) }
+func (a *lifecycleCaptureApp) OpenURL(*url.URL) error             { return nil }
+func (a *lifecycleCaptureApp) Icon() fyne.Resource                { return nil }
+func (a *lifecycleCaptureApp) SetIcon(fyne.Resource)              {}
+func (a *lifecycleCaptureApp) Run()                               {}
+func (a *lifecycleCaptureApp) Quit()                              {}
+func (a *lifecycleCaptureApp) Driver() fyne.Driver                { return a.driver }
+func (a *lifecycleCaptureApp) UniqueID() string                   { return "lifecycle-capture-app" }
+func (a *lifecycleCaptureApp) SendNotification(*fyne.Notification) {}
+func (a *lifecycleCaptureApp) Settings() fyne.Settings            { return fyne.CurrentApp().Settings() }
+func (a *lifecycleCaptureApp) Preferences() fyne.Preferences      { return fyne.CurrentApp().Preferences() }
+func (a *lifecycleCaptureApp) Storage() fyne.Storage              { return fyne.CurrentApp().Storage() }
+func (a *lifecycleCaptureApp) Lifecycle() fyne.Lifecycle          { return a }
+func (a *lifecycleCaptureApp) Metadata() fyne.AppMetadata         { return fyne.AppMetadata{} }
+func (a *lifecycleCaptureApp) CloudProvider() fyne.CloudProvider  { return nil }
+func (a *lifecycleCaptureApp) SetCloudProvider(fyne.CloudProvider) {}
+func (a *lifecycleCaptureApp) Clipboard() fyne.Clipboard          { return fyne.CurrentApp().Clipboard() }
+
+func (a *lifecycleCaptureApp) SetOnEnteredForeground(fn func()) { a.fg = fn }
+func (a *lifecycleCaptureApp) SetOnExitedForeground(fn func())  { a.bg = fn }
+func (a *lifecycleCaptureApp) SetOnStarted(fn func())           { a.started = fn }
+func (a *lifecycleCaptureApp) SetOnStopped(fn func())           { a.stopped = fn }

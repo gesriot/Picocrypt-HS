@@ -217,6 +217,54 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	}
 }
 
+func TestCreateReporterCallbacksUpdateStateAndCancelButton(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	fyne.DoAndWait(func() {
+		a.showProgressModal()
+	})
+
+	reporter := a.CreateReporter()
+
+	done := make(chan struct{})
+	go func() {
+		reporter.SetStatus("Encrypting...")
+		reporter.SetProgress(0.5, "50%")
+		reporter.SetCanCancel(false)
+		reporter.SetCanCancel(true)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reporter callbacks did not complete")
+	}
+
+	fyne.DoAndWait(func() {})
+
+	if a.State.PopupStatus != "Encrypting..." {
+		t.Fatalf("PopupStatus = %q; want %q", a.State.PopupStatus, "Encrypting...")
+	}
+	if a.State.Progress != 0.5 {
+		t.Fatalf("Progress = %v; want 0.5", a.State.Progress)
+	}
+	if a.State.ProgressInfo != "50%" {
+		t.Fatalf("ProgressInfo = %q; want %q", a.State.ProgressInfo, "50%")
+	}
+	if !a.State.CanCancel {
+		t.Fatal("CanCancel should be true after final callback")
+	}
+	if a.cancelButton == nil {
+		t.Fatal("cancelButton should exist after showProgressModal")
+	}
+	if a.cancelButton.Disabled() {
+		t.Fatal("cancelButton should be enabled")
+	}
+}
+
 // TestSplitUnitConversion tests the split unit selection logic in doEncrypt.
 func TestSplitUnitConversion(t *testing.T) {
 	testCases := []struct {
