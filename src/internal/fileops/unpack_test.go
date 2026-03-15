@@ -2,10 +2,13 @@ package fileops
 
 import (
 	"archive/zip"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"Picocrypt-NG/internal/util"
 )
 
 // TestUnpackPathTraversalPrevention verifies that zip files with "../" in
@@ -137,6 +140,9 @@ func TestHasUnsafeWindowsTrimTraversalComponent(t *testing.T) {
 		{name: "Parent with trailing dot and space", path: ".. ./evil.txt", want: true},
 		{name: "Nested parent with trailing space", path: "safe/.. /evil.txt", want: true},
 		{name: "Backslash separator variant", path: `safe\.. \evil.txt`, want: true},
+		{name: "Single dot with trailing space", path: ". /evil.txt", want: true},
+		{name: "Triple dot segment", path: ".../evil.txt", want: true},
+		{name: "Triple dot with trailing space", path: "... /evil.txt", want: true},
 	}
 
 	for _, tc := range testCases {
@@ -146,6 +152,87 @@ func TestHasUnsafeWindowsTrimTraversalComponent(t *testing.T) {
 				t.Fatalf("hasUnsafeWindowsTrimTraversalComponent(%q) = %v, want %v", tc.path, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestUnpackRejectsWindowsTrimDotLikeVariants(t *testing.T) {
+	maliciousPaths := []string{
+		". /evil.txt",
+		".../evil.txt",
+		"... /evil.txt",
+	}
+
+	for _, malPath := range maliciousPaths {
+		t.Run(malPath, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			zipPath := filepath.Join(tmpDir, "dotlike.zip")
+
+			f, err := os.Create(zipPath)
+			if err != nil {
+				t.Fatalf("Create zip file: %v", err)
+			}
+
+			w := zip.NewWriter(f)
+			fw, err := w.Create(malPath)
+			if err != nil {
+				t.Fatalf("Create entry %q: %v", malPath, err)
+			}
+			if _, err := fw.Write([]byte("test")); err != nil {
+				t.Fatalf("Write entry: %v", err)
+			}
+			_ = w.Close()
+			_ = f.Close()
+
+			err = Unpack(UnpackOptions{
+				ZipPath:    zipPath,
+				ExtractDir: filepath.Join(tmpDir, "out"),
+			})
+
+			if err == nil || !strings.Contains(err.Error(), "potentially malicious zip item path") {
+				t.Fatalf("malicious path %q produced err %v", malPath, err)
+			}
+		})
+	}
+}
+
+func TestUnpackAllowsHighlyCompressedFileBelowFloor(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "small.zip")
+	data := bytes.Repeat([]byte("A"), util.MiB/2)
+	createDeflatedZipWithContent(t, zipPath, "small.txt", data)
+
+	extractDir := filepath.Join(tmpDir, "out")
+	if err := Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+	}); err != nil {
+		t.Fatalf("Unpack failed below floor: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(extractDir, "small.txt"))
+	if err != nil {
+		t.Fatalf("Read unpacked file: %v", err)
+	}
+	if !bytes.Equal(content, data) {
+		t.Fatal("unpacked content mismatch")
+	}
+}
+
+func TestUnpackRejectsHighlyCompressedFileAboveFloor(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "bomb.zip")
+	data := bytes.Repeat([]byte("A"), 2*util.MiB)
+	createDeflatedZipWithContent(t, zipPath, "bomb.txt", data)
+
+	err := Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: filepath.Join(tmpDir, "out"),
+	})
+	if err == nil {
+		t.Fatal("expected decompression limit error")
+	}
+	if !strings.Contains(err.Error(), "decompression limit exceeded") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -203,6 +290,30 @@ func TestUnpackNormalPaths(t *testing.T) {
 	}
 
 	t.Log("Normal paths unpacked successfully")
+}
+
+func createDeflatedZipWithContent(t *testing.T, zipPath, name string, data []byte) {
+	t.Helper()
+
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Create zip file: %v", err)
+	}
+
+	w := zip.NewWriter(f)
+	fw, err := w.Create(name)
+	if err != nil {
+		t.Fatalf("Create entry %q: %v", name, err)
+	}
+	if _, err := fw.Write(data); err != nil {
+		t.Fatalf("Write entry: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close zip writer: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close zip file: %v", err)
+	}
 }
 
 func TestUnpackAllowsSystemTempDirSymlinkPrefix(t *testing.T) {
