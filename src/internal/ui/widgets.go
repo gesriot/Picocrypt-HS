@@ -326,55 +326,6 @@ func (b *TooltipButton) MouseOut() {
 	}
 }
 
-// TooltipCheckbox is a checkbox with a tooltip that shows on hover.
-type TooltipCheckbox struct {
-	widget.Check
-	tooltip string
-	popup   *widget.PopUp
-}
-
-var _ desktop.Hoverable = (*TooltipCheckbox)(nil)
-
-// NewTooltipCheckbox creates a new checkbox with a tooltip.
-func NewTooltipCheckbox(label string, tooltip string, changed func(bool)) *TooltipCheckbox {
-	c := &TooltipCheckbox{tooltip: tooltip}
-	c.Text = label
-	c.OnChanged = changed
-	c.ExtendBaseWidget(c)
-	return c
-}
-
-// MouseIn is called when the mouse enters the checkbox - shows tooltip.
-func (c *TooltipCheckbox) MouseIn(e *desktop.MouseEvent) {
-	if c.tooltip == "" || c.Disabled() {
-		return
-	}
-	cv := fyne.CurrentApp().Driver().CanvasForObject(c)
-	if cv == nil {
-		return
-	}
-	// Use canvas.Text for simple single-line tooltip
-	text := canvas.NewText(c.tooltip, theme.Color(theme.ColorNameForeground))
-	text.TextSize = theme.CaptionTextSize()
-	// Add padding around the text
-	bg := canvas.NewRectangle(theme.Color(theme.ColorNameOverlayBackground))
-	content := container.NewStack(bg, container.NewPadded(text))
-	c.popup = widget.NewPopUp(content, cv)
-	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(c)
-	c.popup.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+c.Size().Height+2))
-}
-
-// MouseMoved is called when the mouse moves within the checkbox.
-func (c *TooltipCheckbox) MouseMoved(e *desktop.MouseEvent) {}
-
-// MouseOut is called when the mouse leaves the checkbox - hides tooltip.
-func (c *TooltipCheckbox) MouseOut() {
-	if c.popup != nil {
-		c.popup.Hide()
-		c.popup = nil
-	}
-}
-
 // ColoredLabel is a label with custom text color.
 type ColoredLabel struct {
 	widget.BaseWidget
