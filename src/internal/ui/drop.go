@@ -18,6 +18,75 @@ import (
 	"fyne.io/fyne/v2"
 )
 
+const (
+	dropScanBatchSize       = 128
+	dropScanFlushInterval   = 50 * time.Millisecond
+	startupPathAccessStatus = "Failed to access startup path"
+)
+
+type scannedFile struct {
+	path string
+	size int64
+}
+
+func isIgnoredStartupArg(path string) bool {
+	return path == "" || strings.HasPrefix(path, "-psn_")
+}
+
+func collectStartupPaths(paths []string, statFn func(string) (os.FileInfo, error)) ([]string, error) {
+	validPaths := make([]string, 0, len(paths))
+	var firstErr error
+
+	for _, path := range paths {
+		if isIgnoredStartupArg(path) {
+			continue
+		}
+
+		if _, err := statFn(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			if firstErr == nil {
+				firstErr = fmt.Errorf("startup path %q: %w", path, err)
+			}
+			continue
+		}
+
+		validPaths = append(validPaths, path)
+	}
+
+	return validPaths, firstErr
+}
+
+// applyStartupPaths reuses drag-and-drop handling for files passed at GUI startup.
+func (a *App) applyStartupPaths(paths []string) {
+	validPaths, err := collectStartupPaths(paths, os.Stat)
+	if len(validPaths) == 0 {
+		if err != nil {
+			a.State.MainStatus = startupPathAccessStatus
+			a.State.MainStatusColor = util.RED
+			a.refreshUI()
+		}
+		return
+	}
+
+	a.onDrop(validPaths)
+}
+
+func (a *App) appendScannedFiles(files []scannedFile) {
+	if len(files) == 0 {
+		return
+	}
+
+	for _, file := range files {
+		a.State.AllFiles = append(a.State.AllFiles, file.path)
+		a.State.CompressTotal += file.size
+		a.State.RequiredFreeSpace += file.size
+	}
+	a.State.InputLabel = fmt.Sprintf("Scanning files... (%s)", util.Sizeify(a.State.CompressTotal))
+	a.refreshUI()
+}
+
 // onDrop handles files and folders dropped onto the window (matches original exactly).
 func (a *App) onDrop(names []string) {
 	// If keyfile modal is open, handle as keyfiles
@@ -28,11 +97,11 @@ func (a *App) onDrop(names []string) {
 
 	// Prevent race condition: ignore new drops while scanning or working
 	// This prevents multiple goroutines from simultaneously modifying AllFiles
-	if a.State.Scanning || a.State.Working {
+	if a.State.IsScanning() || a.State.Working {
 		return
 	}
 
-	a.State.Scanning = true
+	a.State.SetScanning(true)
 	a.State.CompressDone = 0
 	a.State.CompressTotal = 0
 	// Reset UI synchronously - onDrop runs on UI thread, so fyne.Do() is not needed
@@ -46,7 +115,7 @@ func (a *App) onDrop(names []string) {
 		if err != nil {
 			a.State.MainStatus = "Failed to stat dropped item"
 			a.State.MainStatusColor = util.RED
-			a.State.Scanning = false
+			a.State.SetScanning(false)
 			fyne.Do(func() {
 				a.refreshUI()
 			})
@@ -73,7 +142,7 @@ func (a *App) onDrop(names []string) {
 			if strings.HasSuffix(names[0], ".pcv") || isSplit {
 				a.handleDecryptDrop(names[0], isSplit)
 				// For decrypt, no folder scanning needed
-				a.State.Scanning = false
+				a.State.SetScanning(false)
 				fyne.Do(func() {
 					a.refreshUI()
 					a.refreshAdvanced()
@@ -102,13 +171,37 @@ func (a *App) onDrop(names []string) {
 		a.handleMultipleDrop(names)
 	}
 
+	if len(a.State.OnlyFolders) == 0 {
+		a.State.InputLabel = fmt.Sprintf("%s (%s)", a.State.InputLabel, util.Sizeify(a.State.CompressTotal))
+		a.State.SetScanning(false)
+		a.refreshUI()
+		a.refreshAdvanced()
+		return
+	}
+
 	// Recursively add all files in 'onlyFolders' to 'allFiles' (matches original lines 1133-1173)
 	go func() {
 		oldInputLabel := a.State.InputLabel
+		pendingFiles := make([]scannedFile, 0, dropScanBatchSize)
+		lastFlush := time.Now()
+
+		flushPendingFiles := func() {
+			if len(pendingFiles) == 0 {
+				return
+			}
+
+			batch := append([]scannedFile(nil), pendingFiles...)
+			pendingFiles = pendingFiles[:0]
+			fyne.DoAndWait(func() {
+				a.appendScannedFiles(batch)
+			})
+			lastFlush = time.Now()
+		}
+
 		for _, name := range a.State.OnlyFolders {
 			if filepath.Walk(name, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
-					fyne.Do(func() {
+					fyne.DoAndWait(func() {
 						a.resetUI()
 						a.State.MainStatus = "Failed to walk through dropped items"
 						a.State.MainStatusColor = util.RED
@@ -119,18 +212,14 @@ func (a *App) onDrop(names []string) {
 				// If 'path' is a valid regular file, add to 'allFiles'
 				// Use info.Mode().IsRegular() to skip symlinks, devices, pipes, sockets
 				if info.Mode().IsRegular() {
-					fileSize := info.Size()
-					fyne.Do(func() {
-						a.State.AllFiles = append(a.State.AllFiles, path)
-						a.State.CompressTotal += fileSize
-						a.State.RequiredFreeSpace += fileSize
-						a.State.InputLabel = fmt.Sprintf("Scanning files... (%s)", util.Sizeify(a.State.CompressTotal))
-						a.refreshUI()
-					})
+					pendingFiles = append(pendingFiles, scannedFile{path: path, size: info.Size()})
+					if len(pendingFiles) >= dropScanBatchSize || time.Since(lastFlush) >= dropScanFlushInterval {
+						flushPendingFiles()
+					}
 				}
 				return nil
 			}) != nil {
-				fyne.Do(func() {
+				fyne.DoAndWait(func() {
 					a.resetUI()
 					a.State.MainStatus = "Failed to walk through dropped items"
 					a.State.MainStatusColor = util.RED
@@ -139,9 +228,12 @@ func (a *App) onDrop(names []string) {
 				return
 			}
 		}
-		fyne.Do(func() {
+
+		flushPendingFiles()
+
+		fyne.DoAndWait(func() {
 			a.State.InputLabel = fmt.Sprintf("%s (%s)", oldInputLabel, util.Sizeify(a.State.CompressTotal))
-			a.State.Scanning = false
+			a.State.SetScanning(false)
 			a.refreshUI()
 			a.refreshAdvanced()
 		})

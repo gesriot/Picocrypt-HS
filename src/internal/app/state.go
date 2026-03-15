@@ -312,6 +312,20 @@ func (s *State) IsDecrypting() bool {
 	return s.Mode == "decrypt"
 }
 
+// IsScanning returns true if file scanning is in progress.
+func (s *State) IsScanning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Scanning
+}
+
+// SetScanning updates whether file scanning is in progress.
+func (s *State) SetScanning(scanning bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Scanning = scanning
+}
+
 // CanStart returns true if the operation can be started.
 func (s *State) CanStart() bool {
 	s.mu.RLock()
