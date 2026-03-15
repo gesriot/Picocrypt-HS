@@ -2,9 +2,11 @@
 package ui
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
@@ -284,9 +286,41 @@ func (a *App) CleanupMobileTempFiles() {
 	_ = os.RemoveAll(tempDir)
 }
 
+func validateMobileTempFilename(name string) error {
+	if name == "" {
+		return fmt.Errorf("unsafe file name")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("unsafe file name")
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("unsafe file name")
+	}
+	if filepath.IsAbs(name) {
+		return fmt.Errorf("unsafe file name")
+	}
+	if len(name) >= 2 && name[1] == ':' {
+		return fmt.Errorf("unsafe file name")
+	}
+	if filepath.Base(name) != name {
+		return fmt.Errorf("unsafe file name")
+	}
+
+	trimmed := strings.TrimRight(name, " .")
+	if trimmed == "" || trimmed != name || trimmed == "." || trimmed == ".." {
+		return fmt.Errorf("unsafe file name")
+	}
+
+	return nil
+}
+
 // copyURIToTemp copies a file from a content:// URI to a local temp file
 // Returns the path to the local file
 func (a *App) copyURIToTemp(reader io.Reader, filename string) (string, error) {
+	if err := validateMobileTempFilename(filename); err != nil {
+		return "", err
+	}
+
 	// Create temp directory for mobile file copies
 	tempDir := a.getMobileTempDir()
 	if err := os.MkdirAll(tempDir, 0700); err != nil {
