@@ -19,6 +19,22 @@ func showOverwriteModalForOutput(outputExists, recursively, chosenViaDialog bool
 	return outputExists && !recursively && !chosenViaDialog
 }
 
+type recursiveSettings struct {
+	password       string
+	keyfile        bool
+	keyfiles       []string
+	keyfileOrdered bool
+	keyfileLabel   string
+	comments       string
+	paranoid       bool
+	reedSolomon    bool
+	deniability    bool
+	split          bool
+	splitSize      string
+	splitSelected  int32
+	delete         bool
+}
+
 // onClickStart handles the Start button click.
 func (a *App) onClickStart() {
 	// Validate
@@ -60,13 +76,13 @@ func (a *App) startWork() {
 		// Normal mode: process single file/folder(s)
 		go func() {
 			a.doWork()
-			a.State.Working = false
-			a.State.ShowProgress = false
 			// Clean up mobile temp files after operation completes
 			if isMobile() {
 				a.CleanupMobileTempFiles()
 			}
 			fyne.Do(func() {
+				a.State.Working = false
+				a.State.ShowProgress = false
 				if a.progressModal != nil {
 					a.progressModal.Hide()
 				}
@@ -84,7 +100,9 @@ func (a *App) startWork() {
 // doWork performs the encryption or decryption operation.
 // Returns true if the operation completed successfully.
 func (a *App) doWork() bool {
-	a.State.Working = true
+	fyne.DoAndWait(func() {
+		a.State.Working = true
+	})
 	reporter := a.CreateReporter()
 
 	if a.State.Mode == "encrypt" {
@@ -110,20 +128,21 @@ func (a *App) startRecursiveWork() {
 	}
 
 	// Store all settings before they get cleared by onDrop/resetUI
-	savedPassword := a.State.Password
-	savedKeyfile := a.State.Keyfile
-	savedKeyfiles := make([]string, len(a.State.Keyfiles))
-	copy(savedKeyfiles, a.State.Keyfiles)
-	savedKeyfileOrdered := a.State.KeyfileOrdered
-	savedKeyfileLabel := a.State.KeyfileLabel
-	savedComments := a.State.Comments
-	savedParanoid := a.State.Paranoid
-	savedReedSolomon := a.State.ReedSolomon
-	savedDeniability := a.State.Deniability
-	savedSplit := a.State.Split
-	savedSplitSize := a.State.SplitSize
-	savedSplitSelected := a.State.SplitSelected
-	savedDelete := a.State.Delete
+	saved := recursiveSettings{
+		password:       a.State.Password,
+		keyfile:        a.State.Keyfile,
+		keyfiles:       append([]string(nil), a.State.Keyfiles...),
+		keyfileOrdered: a.State.KeyfileOrdered,
+		keyfileLabel:   a.State.KeyfileLabel,
+		comments:       a.State.Comments,
+		paranoid:       a.State.Paranoid,
+		reedSolomon:    a.State.ReedSolomon,
+		deniability:    a.State.Deniability,
+		split:          a.State.Split,
+		splitSize:      a.State.SplitSize,
+		splitSelected:  a.State.SplitSelected,
+		delete:         a.State.Delete,
+	}
 
 	files := make([]string, len(a.State.AllFiles))
 	copy(files, a.State.AllFiles)
@@ -133,30 +152,7 @@ func (a *App) startRecursiveWork() {
 		var successCount int
 
 		for i, file := range files {
-			a.State.PopupStatus = fmt.Sprintf("Processing file %d/%d...", i+1, len(files))
-			// Use binding - automatically updates bound widget
-			_ = a.boundStatus.Set(a.State.PopupStatus)
-
-			a.onDrop([]string{file})
-
-			// Restore all saved settings
-			a.State.Password = savedPassword
-			a.State.CPassword = savedPassword
-			a.State.Keyfile = savedKeyfile
-			a.State.Keyfiles = make([]string, len(savedKeyfiles))
-			copy(a.State.Keyfiles, savedKeyfiles)
-			a.State.KeyfileOrdered = savedKeyfileOrdered
-			a.State.KeyfileLabel = savedKeyfileLabel
-			a.State.Comments = savedComments
-			a.State.Paranoid = savedParanoid
-			a.State.ReedSolomon = savedReedSolomon
-			if a.State.Mode != "decrypt" {
-				a.State.Deniability = savedDeniability
-			}
-			a.State.Split = savedSplit
-			a.State.SplitSize = savedSplitSize
-			a.State.SplitSelected = savedSplitSelected
-			a.State.Delete = savedDelete
+			a.applyRecursiveSelection(file, saved, i+1, len(files))
 
 			if a.doWork() {
 				successCount++
@@ -166,16 +162,18 @@ func (a *App) startRecursiveWork() {
 
 			// Reset Working flag so next iteration's onDrop() isn't blocked
 			// (onDrop has a guard to prevent race conditions during scanning/working)
-			a.State.Working = false
+			fyne.DoAndWait(func() {
+				a.State.Working = false
+			})
 
 			if a.cancelled.Load() {
-				a.State.Working = false
-				a.State.ShowProgress = false
 				// Clean up mobile temp files after cancellation
 				if isMobile() {
 					a.CleanupMobileTempFiles()
 				}
-				fyne.Do(func() {
+				fyne.DoAndWait(func() {
+					a.State.Working = false
+					a.State.ShowProgress = false
 					if a.progressModal != nil {
 						a.progressModal.Hide()
 					}
@@ -186,25 +184,24 @@ func (a *App) startRecursiveWork() {
 			}
 		}
 
-		a.State.Working = false
-		a.State.ShowProgress = false
 		// Clean up mobile temp files after recursive operation completes
 		if isMobile() {
 			a.CleanupMobileTempFiles()
 		}
 
-		if failedCount == 0 {
-			a.State.MainStatus = fmt.Sprintf("Completed (%d files)", successCount)
-			a.State.MainStatusColor = util.GREEN
-		} else if successCount == 0 {
-			a.State.MainStatus = fmt.Sprintf("Failed (all %d files)", failedCount)
-			a.State.MainStatusColor = util.RED
-		} else {
-			a.State.MainStatus = fmt.Sprintf("Completed (%d ok, %d failed)", successCount, failedCount)
-			a.State.MainStatusColor = util.YELLOW
-		}
-
-		fyne.Do(func() {
+		fyne.DoAndWait(func() {
+			a.State.Working = false
+			a.State.ShowProgress = false
+			if failedCount == 0 {
+				a.State.MainStatus = fmt.Sprintf("Completed (%d files)", successCount)
+				a.State.MainStatusColor = util.GREEN
+			} else if successCount == 0 {
+				a.State.MainStatus = fmt.Sprintf("Failed (all %d files)", failedCount)
+				a.State.MainStatusColor = util.RED
+			} else {
+				a.State.MainStatus = fmt.Sprintf("Completed (%d ok, %d failed)", successCount, failedCount)
+				a.State.MainStatusColor = util.YELLOW
+			}
 			if a.progressModal != nil {
 				a.progressModal.Hide()
 			}
@@ -212,6 +209,33 @@ func (a *App) startRecursiveWork() {
 			a.updateUIState()
 		})
 	}()
+}
+
+func (a *App) applyRecursiveSelection(file string, saved recursiveSettings, index, total int) {
+	status := fmt.Sprintf("Processing file %d/%d...", index, total)
+
+	fyne.DoAndWait(func() {
+		a.onDrop([]string{file})
+
+		a.State.Password = saved.password
+		a.State.CPassword = saved.password
+		a.State.Keyfile = saved.keyfile
+		a.State.Keyfiles = append([]string(nil), saved.keyfiles...)
+		a.State.KeyfileOrdered = saved.keyfileOrdered
+		a.State.KeyfileLabel = saved.keyfileLabel
+		a.State.Comments = saved.comments
+		a.State.Paranoid = saved.paranoid
+		a.State.ReedSolomon = saved.reedSolomon
+		if a.State.Mode != "decrypt" {
+			a.State.Deniability = saved.deniability
+		}
+		a.State.Split = saved.split
+		a.State.SplitSize = saved.splitSize
+		a.State.SplitSelected = saved.splitSelected
+		a.State.Delete = saved.delete
+		a.State.SetPopupStatus(status)
+		_ = a.boundStatus.Set(status)
+	})
 }
 
 // doEncrypt performs encryption using the volume package.
@@ -414,20 +438,20 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 func (a *App) CreateReporter() *app.UIReporter {
 	return app.NewUIReporter(
 		func(text string) {
-			a.State.PopupStatus = text
-			// Use binding - automatically thread-safe and updates bound widgets
+			fyne.Do(func() {
+				a.State.SetPopupStatus(text)
+			})
 			_ = a.boundStatus.Set(text)
 		},
 		func(fraction float32, info string) {
-			a.State.Progress = fraction
-			a.State.ProgressInfo = info
-			// Use binding - automatically thread-safe and updates bound widget
-			// Note: info (percentage string) not displayed separately - progress bar shows percentage
+			fyne.Do(func() {
+				a.State.SetProgress(fraction, info)
+			})
 			_ = a.boundProgress.Set(float64(fraction))
 		},
 		func(can bool) {
-			a.State.CanCancel = can
 			fyne.Do(func() {
+				a.State.SetCanCancel(can)
 				if a.cancelButton != nil {
 					if can {
 						a.cancelButton.Enable()
@@ -443,7 +467,7 @@ func (a *App) CreateReporter() *app.UIReporter {
 			})
 		},
 		func() bool {
-			return !a.State.Working
+			return a.cancelled.Load()
 		},
 	)
 }
