@@ -95,6 +95,9 @@ jobs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
 
+    - name: Reset cmdline-tools for emulator runner
+      run: sudo rm -rf "$ANDROID_HOME/cmdline-tools"
+
     - name: Run focused instrumented tests
       uses: ReactiveCircus/android-emulator-runner@e93c997dcab69054e999e3924af3d21c4a736e13
       with:
