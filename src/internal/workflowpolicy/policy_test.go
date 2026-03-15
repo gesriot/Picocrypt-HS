@@ -70,4 +70,5 @@ func TestAndroidWorkflowHasPinnedEmulatorLane(t *testing.T) {
 	mustContain(t, content, "connectedDebugAndroidTest")
 	mustContain(t, content, "PasswordCardTest")
 	mustContain(t, content, "ProgressCardTest")
+	mustNotContain(t, content, "connectedDebugAndroidTest \\")
 }
