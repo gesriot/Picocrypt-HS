@@ -83,6 +83,72 @@ func TestUnpackPathTraversalVariants(t *testing.T) {
 	}
 }
 
+func TestUnpackRejectsWindowsTrimTraversalVariants(t *testing.T) {
+	maliciousPaths := []string{
+		".. /evil.txt",
+		".. ./evil.txt",
+		"safe/.. /evil.txt",
+		`safe\.. \evil.txt`,
+	}
+
+	for _, malPath := range maliciousPaths {
+		t.Run(malPath, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			zipPath := filepath.Join(tmpDir, "test.zip")
+
+			f, err := os.Create(zipPath)
+			if err != nil {
+				t.Fatalf("Create zip file: %v", err)
+			}
+
+			w := zip.NewWriter(f)
+			fw, err := w.Create(malPath)
+			if err != nil {
+				t.Fatalf("Create entry %q: %v", malPath, err)
+			}
+			if _, err := fw.Write([]byte("test")); err != nil {
+				t.Fatalf("Write entry: %v", err)
+			}
+			_ = w.Close()
+			_ = f.Close()
+
+			err = Unpack(UnpackOptions{
+				ZipPath:    zipPath,
+				ExtractDir: filepath.Join(tmpDir, "out"),
+			})
+
+			if err == nil || err.Error() != "potentially malicious zip item path" {
+				t.Fatalf("malicious path %q produced err %v", malPath, err)
+			}
+		})
+	}
+}
+
+func TestHasUnsafeWindowsTrimTraversalComponent(t *testing.T) {
+	testCases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "Normal file", path: "safe/file.txt", want: false},
+		{name: "Double dots in filename allowed", path: "safe/file..txt", want: false},
+		{name: "Parent with trailing space", path: ".. /evil.txt", want: true},
+		{name: "Parent with trailing dot", path: "../evil.txt", want: true},
+		{name: "Parent with trailing dot and space", path: ".. ./evil.txt", want: true},
+		{name: "Nested parent with trailing space", path: "safe/.. /evil.txt", want: true},
+		{name: "Backslash separator variant", path: `safe\.. \evil.txt`, want: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := hasUnsafeWindowsTrimTraversalComponent(tc.path)
+			if got != tc.want {
+				t.Fatalf("hasUnsafeWindowsTrimTraversalComponent(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestUnpackNormalPaths verifies that normal paths work correctly
 func TestUnpackNormalPaths(t *testing.T) {
 	normalPaths := []string{
