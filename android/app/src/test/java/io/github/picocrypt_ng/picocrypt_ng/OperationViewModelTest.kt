@@ -46,7 +46,6 @@ class OperationViewModelTest {
     
     @After
     fun tearDown() {
-        invokeOnCleared(viewModel)
         runBlocking {
             OperationManager.clearOperation(shouldCleanupFiles = false)
         }
@@ -147,11 +146,5 @@ class OperationViewModelTest {
         // but we verify the StateFlow is connected
         val managerState = OperationManager.currentOperation.first()
         assertEquals(managerState, operationState)
-    }
-
-    private fun invokeOnCleared(viewModel: OperationViewModel) {
-        val method = OperationViewModel::class.java.getDeclaredMethod("onCleared")
-        method.isAccessible = true
-        method.invoke(viewModel)
     }
 }

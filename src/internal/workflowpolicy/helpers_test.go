@@ -37,7 +37,7 @@ func mustReadWorkflow(t *testing.T, relPath string) string {
 	if err != nil {
 		t.Fatalf("read workflow %s: %v", relPath, err)
 	}
-	return string(content)
+	return strings.ReplaceAll(string(content), "\r\n", "\n")
 }
 
 func mustContain(t *testing.T, content, substring string) {
