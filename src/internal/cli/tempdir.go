@@ -22,7 +22,7 @@ const (
 
 // ChooseTempDir selects an appropriate temp directory for buffering.
 // For known-size files: system temp > output dir > cwd > ~/.cache/picocrypt
-// For stdin (size=0): system temp > cache
+// For stdin (size=0): user cache > system temp
 // estimatedSize is the expected file size (0 for unknown stdin).
 // outputPath is used to determine the output directory as a fallback.
 func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
@@ -103,16 +103,15 @@ func buildCandidates(outputPath string) []string {
 }
 
 // buildCandidatesForStdin returns user-scoped candidates for stdin buffering.
-// Avoid output dir/CWD because stdin plaintext should not be buffered there.
+// Prefer the user cache before system temp so stdin plaintext avoids shared temp
+// locations when possible. Output dir/CWD are intentionally excluded.
 func buildCandidatesForStdin(outputPath string) []string {
 	_ = outputPath
-	candidates := []string{os.TempDir()}
-
 	if cacheDir, err := userCacheDir(); err == nil {
-		candidates = append(candidates, cacheDir)
+		return []string{cacheDir, os.TempDir()}
 	}
 
-	return candidates
+	return []string{os.TempDir()}
 }
 
 // userCacheDir returns platform-specific cache dir, creating it if needed.
