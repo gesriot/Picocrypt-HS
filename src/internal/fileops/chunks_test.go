@@ -30,6 +30,7 @@ func TestSplitChunkBase(t *testing.T) {
 	}{
 		{path: "/tmp/archive.zip.pcv.0", want: "/tmp/archive.zip.pcv", ok: true},
 		{path: "/tmp/ARCHIVE.ZIP.PCV.0", want: "/tmp/ARCHIVE.ZIP.PCV", ok: true},
+		{path: "/tmp/dir.pcv.0/file.pcv.1", want: "/tmp/dir.pcv.0/file.pcv", ok: true},
 		{path: "/tmp/backup.pcv.tmp1", want: "", ok: false},
 	}
 

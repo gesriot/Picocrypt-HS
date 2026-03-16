@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	dropScanBatchSize       = 128
-	dropScanFlushInterval   = 50 * time.Millisecond
-	startupPathAccessStatus = "Failed to access startup path"
+	dropScanBatchSize              = 128
+	dropScanFlushInterval          = 50 * time.Millisecond
+	startupPathAccessStatus        = "Failed to access startup path"
+	startupPathPartialAccessStatus = "Some startup paths could not be accessed"
 )
 
 type scannedFile struct {
@@ -74,10 +75,18 @@ func (a *App) applyStartupPaths(paths []string) {
 
 	a.onDrop(validPaths)
 	if err != nil {
-		a.State.MainStatus = startupPathAccessStatus
+		a.State.MainStatus = startupPathPartialAccessStatus
 		a.State.MainStatusColor = util.YELLOW
 		a.refreshUI()
 	}
+}
+
+func (a *App) applyFolderWalkError() {
+	a.State.SetScanning(false)
+	a.resetUI()
+	a.State.MainStatus = "Failed to walk through dropped items"
+	a.State.MainStatusColor = util.RED
+	a.refreshUI()
 }
 
 func (a *App) appendScannedFiles(files []scannedFile) {
@@ -207,14 +216,10 @@ func (a *App) onDrop(names []string) {
 
 		for _, name := range a.State.OnlyFolders {
 			if filepath.Walk(name, func(path string, info os.FileInfo, err error) error {
-					if err != nil {
-						fyne.DoAndWait(func() {
-							a.State.SetScanning(false)
-							a.resetUI()
-							a.State.MainStatus = "Failed to walk through dropped items"
-							a.State.MainStatusColor = util.RED
-							a.refreshUI()
-						})
+				if err != nil {
+					fyne.DoAndWait(func() {
+						a.applyFolderWalkError()
+					})
 					return err
 				}
 				// If 'path' is a valid regular file, add to 'allFiles'
@@ -226,14 +231,10 @@ func (a *App) onDrop(names []string) {
 					}
 				}
 				return nil
-				}) != nil {
-					fyne.DoAndWait(func() {
-						a.State.SetScanning(false)
-						a.resetUI()
-						a.State.MainStatus = "Failed to walk through dropped items"
-						a.State.MainStatusColor = util.RED
-						a.refreshUI()
-					})
+			}) != nil {
+				fyne.DoAndWait(func() {
+					a.applyFolderWalkError()
+				})
 				return
 			}
 		}

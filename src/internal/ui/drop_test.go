@@ -466,8 +466,8 @@ func TestApplyStartupPathsPreservesPartialAccessWarning(t *testing.T) {
 	if state.InputFile != inputFile {
 		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
 	}
-	if state.MainStatus != startupPathAccessStatus {
-		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathAccessStatus)
+	if state.MainStatus != startupPathPartialAccessStatus {
+		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathPartialAccessStatus)
 	}
 }
 

@@ -447,7 +447,7 @@ func (a *App) refreshAdvanced() {
 // This mirrors the exact logic from the original giu implementation.
 func (a *App) updateUIState() {
 	hasFiles := len(a.State.AllFiles) > 0 || len(a.State.OnlyFiles) > 0 || len(a.State.OnlyFolders) > 0
-	isScanning := a.State.Scanning
+	isScanning := a.State.IsScanning()
 
 	// Main content disabled - matches giu: (len(allFiles) == 0 && len(onlyFiles) == 0) || scanning
 	// Note: we also check onlyFolders for consistency
