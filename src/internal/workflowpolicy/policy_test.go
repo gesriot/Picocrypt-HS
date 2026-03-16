@@ -86,6 +86,21 @@ func TestAndroidPRWorkflowStaysFastAndCompileFocused(t *testing.T) {
 	mustNotContain(t, content, "connectedDebugAndroidTest")
 }
 
+func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
+	content := mustReadWorkflow(t, ".github/workflows/build-android.yml")
+
+	buildSection := mustExtractSection(t, content, `(?s)\n  build:\n(.*?)\n  release:\n`)
+	mustContain(t, buildSection, "Build Go Mobile AAR")
+	mustContain(t, buildSection, "./gradlew test")
+	mustNotContain(t, buildSection, "ANDROID_KEYSTORE_BASE64")
+	mustNotContain(t, buildSection, "Build Signed Release APK")
+
+	releaseSection := mustExtractSection(t, content, `(?s)\n  release:\n(.*)$`)
+	mustContain(t, releaseSection, "ANDROID_KEYSTORE_BASE64")
+	mustContain(t, releaseSection, "Build Signed Release APK")
+	mustContain(t, releaseSection, "actions/download-artifact@v8")
+}
+
 func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/android-instrumented.yml")
 	mustContain(t, content, "workflow_dispatch:")
