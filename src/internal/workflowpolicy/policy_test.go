@@ -64,8 +64,19 @@ func TestSnapcraftActionPinnedToFullSHA(t *testing.T) {
 	mustMatch(t, content, `snapcore/action-build@[0-9a-f]{40}`)
 }
 
-func TestAndroidWorkflowHasPinnedEmulatorLane(t *testing.T) {
+func TestAndroidPRWorkflowStaysFastAndCompileFocused(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/pr-test-build-android.yml")
+	mustContain(t, content, "Run Unit Tests")
+	mustContain(t, content, "./gradlew test")
+	mustContain(t, content, ":app:compileDebugAndroidTestKotlin")
+	mustContain(t, content, ":app:assembleDebugAndroidTest")
+	mustNotContain(t, content, "ReactiveCircus/android-emulator-runner@")
+	mustNotContain(t, content, "connectedDebugAndroidTest")
+}
+
+func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
+	content := mustReadWorkflow(t, ".github/workflows/android-instrumented.yml")
+	mustContain(t, content, "workflow_dispatch:")
 	mustMatch(t, content, `ReactiveCircus/android-emulator-runner@[0-9a-f]{40}`)
 	mustContain(t, content, "connectedDebugAndroidTest")
 	mustContain(t, content, "PasswordCardTest")
