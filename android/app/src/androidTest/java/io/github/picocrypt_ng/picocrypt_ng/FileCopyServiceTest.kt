@@ -39,7 +39,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `getInternalStoragePath returns correct path`() {
+    fun getInternalStoragePath_returns_correct_path() {
         val path = FileCopyService.getInternalStoragePath(context)
         
         assertNotNull("Path should not be null", path)
@@ -48,7 +48,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `getOutputFilePath returns pcv extension for encryption`() {
+    fun getOutputFilePath_returns_pcv_extension_for_encryption() {
         val inputPath = "/data/test/input_file.txt"
         val outputPath = FileCopyService.getOutputFilePath(context, inputPath, isEncrypt = true)
         
@@ -58,7 +58,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `getOutputFilePath returns no extension for decryption`() {
+    fun getOutputFilePath_returns_no_extension_for_decryption() {
         val inputPath = "/data/test/input_file.pcv"
         val outputPath = FileCopyService.getOutputFilePath(context, inputPath, isEncrypt = false)
         
@@ -68,14 +68,14 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `validateFileExists returns false for non-existent file`() {
+    fun validateFileExists_returns_false_for_non_existent_file() {
         val result = FileCopyService.validateFileExists("/nonexistent/file.txt")
         
         assertFalse("Should return false for non-existent file", result)
     }
     
     @Test
-    fun `validateFileExists returns true for existing file`() = runTest {
+    fun validateFileExists_returns_true_for_existing_file() = runTest {
         // Create a test file
         val testFile = File(context.filesDir, "picocrypt_files/test_file.txt")
         testFile.parentFile?.mkdirs()
@@ -90,7 +90,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `cleanupAllFiles removes all files from internal storage`() = runTest {
+    fun cleanupAllFiles_removes_all_files_from_internal_storage() = runTest {
         // Create some test files
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
@@ -110,7 +110,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `cleanupAllFiles handles non-existent directory`() = runTest {
+    fun cleanupAllFiles_handles_non_existent_directory() = runTest {
         // Ensure directory doesn't exist
         val internalDir = File(context.filesDir, "picocrypt_files")
         if (internalDir.exists()) {
@@ -124,7 +124,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `cleanupOperationFiles removes input and output files`() = runTest {
+    fun cleanupOperationFiles_removes_input_and_output_files() = runTest {
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
         
@@ -146,7 +146,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `cleanupOperationFiles removes keyfiles`() = runTest {
+    fun cleanupOperationFiles_removes_keyfiles() = runTest {
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
         
@@ -168,7 +168,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `cleanupOperationFiles handles non-existent files gracefully`() = runTest {
+    fun cleanupOperationFiles_handles_non_existent_files_gracefully() = runTest {
         val result = FileCopyService.cleanupOperationFiles(
             context = context,
             inputFilePath = "/nonexistent/input.txt",
@@ -181,7 +181,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `cleanupIncompleteFiles removes incomplete files`() = runTest {
+    fun cleanupIncompleteFiles_removes_incomplete_files() = runTest {
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
         
@@ -198,7 +198,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `cleanupKeyfiles removes keyfile files`() = runTest {
+    fun cleanupKeyfiles_removes_keyfile_files() = runTest {
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
         
@@ -218,7 +218,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `cleanupOperationFilesBeforeStart removes output files`() = runTest {
+    fun cleanupOperationFilesBeforeStart_removes_output_files() = runTest {
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
         
@@ -238,7 +238,7 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `deleteFile removes existing file`() = runTest {
+    fun deleteFile_removes_existing_file() = runTest {
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
         
@@ -254,10 +254,9 @@ class FileCopyServiceTest {
     }
     
     @Test
-    fun `deleteFile returns false for non-existent file`() = runTest {
+    fun deleteFile_returns_false_for_non_existent_file() = runTest {
         val result = FileCopyService.deleteFile(context, "/nonexistent/file.txt")
         
         assertFalse("Should return false for non-existent file", result)
     }
 }
-

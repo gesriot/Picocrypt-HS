@@ -29,7 +29,7 @@ class ProgressCardTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun `ProgressCard composes with no active operation`() {
+    fun progressCard_composes_with_no_active_operation() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val mainViewModel = MainViewModel(application, savedStateHandle)
@@ -46,7 +46,7 @@ class ProgressCardTest {
     }
 
     @Test
-    fun `ProgressCard shows retry dialog for password errors`() {
+    fun progressCard_shows_retry_dialog_for_password_errors() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val mainViewModel = MainViewModel(application, savedStateHandle)
@@ -77,7 +77,7 @@ class ProgressCardTest {
     }
 
     @Test
-    fun `ProgressCard shows force decrypt dialog for corruption errors`() {
+    fun progressCard_shows_force_decrypt_dialog_for_corruption_errors() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val mainViewModel = MainViewModel(application, savedStateHandle)

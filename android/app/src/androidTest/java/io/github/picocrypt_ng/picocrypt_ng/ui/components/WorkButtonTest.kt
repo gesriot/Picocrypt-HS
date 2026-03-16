@@ -24,7 +24,7 @@ class WorkButtonTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun `WorkButton displays encrypt label`() {
+    fun workButton_displays_encrypt_label() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val mainViewModel = MainViewModel(application, savedStateHandle)
@@ -59,7 +59,7 @@ class WorkButtonTest {
     }
 
     @Test
-    fun `WorkButton displays decrypt label`() {
+    fun workButton_displays_decrypt_label() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val mainViewModel = MainViewModel(application, savedStateHandle)
@@ -94,7 +94,7 @@ class WorkButtonTest {
     }
 
     @Test
-    fun `WorkButton is disabled when copied file path is missing`() {
+    fun workButton_is_disabled_when_copied_file_path_is_missing() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val mainViewModel = MainViewModel(application, savedStateHandle)
