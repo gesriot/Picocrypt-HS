@@ -5,14 +5,11 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/app"
-
-	"fyne.io/fyne/v2/test"
 )
 
 // TestPasswordStrengthScoring tests password strength calculation.
 func TestPasswordStrengthScoring(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	// Note: zxcvbn library returns scores 0-4
 	testCases := []struct {
@@ -48,8 +45,7 @@ func TestPasswordStrengthScoring(t *testing.T) {
 
 // TestPasswordVisibilityToggle tests show/hide password functionality.
 func TestPasswordVisibilityToggle(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	a := createTestApp(t)
 
@@ -350,8 +346,7 @@ func TestPasswordValidationIndicator(t *testing.T) {
 
 // TestPasswordEntryOnChanged tests password entry change handling.
 func TestPasswordEntryOnChanged(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("PasswordUpdate", func(t *testing.T) {
 		state := app.NewState()

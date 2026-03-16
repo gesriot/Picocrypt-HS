@@ -12,8 +12,7 @@ import (
 // TestPasswordStrengthIndicator tests the password strength indicator widget.
 func TestPasswordStrengthIndicator(t *testing.T) {
 	// Create test app
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("NewPasswordStrengthIndicator", func(t *testing.T) {
 		indicator := NewPasswordStrengthIndicator()
@@ -92,8 +91,7 @@ func TestPasswordStrengthIndicator(t *testing.T) {
 
 // TestValidationIndicator tests the validation indicator widget.
 func TestValidationIndicator(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("NewValidationIndicator", func(t *testing.T) {
 		indicator := NewValidationIndicator()
@@ -160,8 +158,7 @@ func TestValidationIndicator(t *testing.T) {
 
 // TestPasswordEntry tests the password entry widget.
 func TestPasswordEntry(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("NewPasswordEntry", func(t *testing.T) {
 		entry := NewPasswordEntry()
@@ -214,8 +211,7 @@ func TestPasswordEntry(t *testing.T) {
 
 // TestColoredLabel tests the colored label widget.
 func TestColoredLabel(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("NewColoredLabel", func(t *testing.T) {
 		testColor := color.RGBA{R: 255, G: 0, B: 0, A: 255}
@@ -275,8 +271,7 @@ func TestColoredLabel(t *testing.T) {
 
 // TestDisabledEntry tests the disabled entry widget.
 func TestDisabledEntry(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("NewDisabledEntry", func(t *testing.T) {
 		entry := NewDisabledEntry()
@@ -302,8 +297,7 @@ func TestDisabledEntry(t *testing.T) {
 
 // TestTooltipButton tests the tooltip button widget.
 func TestTooltipButton(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("NewTooltipButton", func(t *testing.T) {
 		tapped := false
@@ -340,8 +334,7 @@ func TestTooltipButton(t *testing.T) {
 
 // TestFixedWidthLayout tests the fixed width layout.
 func TestFixedWidthLayout(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("MinSize_Empty", func(t *testing.T) {
 		layout := &fixedWidthLayout{width: 100}

@@ -194,8 +194,7 @@ func itoa(n int) string {
 
 // TestDropStateTransitions tests state changes during drop handling.
 func TestDropStateTransitions(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("SingleFileDropSetsEncryptMode", func(t *testing.T) {
 		state := app.NewState()
@@ -246,7 +245,7 @@ func TestDropStateTransitions(t *testing.T) {
 }
 
 func TestApplyDropErrorPreservesStatusAfterReset(t *testing.T) {
-	test.NewApp()
+	newTestFyneApp(t)
 
 	testCases := []struct {
 		name              string

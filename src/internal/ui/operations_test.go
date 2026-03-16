@@ -17,8 +17,7 @@ import (
 
 // TestOnClickStartValidation tests the validation logic in onClickStart.
 func TestOnClickStartValidation(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	t.Run("NoMode", func(t *testing.T) {
 		a := createTestApp(t)
@@ -115,8 +114,7 @@ func TestOnClickStartValidation(t *testing.T) {
 }
 
 func TestUpdateOutputFileForCompressClearsDialogConfirmation(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	a := createTestApp(t)
 	a.State.Mode = "encrypt"
@@ -135,8 +133,7 @@ func TestUpdateOutputFileForCompressClearsDialogConfirmation(t *testing.T) {
 }
 
 func TestCreateReporterUsesAtomicCancelledFlag(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	a := createTestApp(t)
 	a.State.Working = false
@@ -154,8 +151,7 @@ func TestCreateReporterUsesAtomicCancelledFlag(t *testing.T) {
 }
 
 func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "input.txt")
