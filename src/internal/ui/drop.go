@@ -202,13 +202,14 @@ func (a *App) onDrop(names []string) {
 
 		for _, name := range a.State.OnlyFolders {
 			if filepath.Walk(name, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					fyne.DoAndWait(func() {
-						a.resetUI()
-						a.State.MainStatus = "Failed to walk through dropped items"
-						a.State.MainStatusColor = util.RED
-						a.refreshUI()
-					})
+					if err != nil {
+						fyne.DoAndWait(func() {
+							a.State.SetScanning(false)
+							a.resetUI()
+							a.State.MainStatus = "Failed to walk through dropped items"
+							a.State.MainStatusColor = util.RED
+							a.refreshUI()
+						})
 					return err
 				}
 				// If 'path' is a valid regular file, add to 'allFiles'
@@ -220,13 +221,14 @@ func (a *App) onDrop(names []string) {
 					}
 				}
 				return nil
-			}) != nil {
-				fyne.DoAndWait(func() {
-					a.resetUI()
-					a.State.MainStatus = "Failed to walk through dropped items"
-					a.State.MainStatusColor = util.RED
-					a.refreshUI()
-				})
+				}) != nil {
+					fyne.DoAndWait(func() {
+						a.State.SetScanning(false)
+						a.resetUI()
+						a.State.MainStatus = "Failed to walk through dropped items"
+						a.State.MainStatusColor = util.RED
+						a.refreshUI()
+					})
 				return
 			}
 		}

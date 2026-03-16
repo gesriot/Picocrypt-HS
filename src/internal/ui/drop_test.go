@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -494,6 +495,45 @@ func TestAppendScannedFilesUpdatesState(t *testing.T) {
 	}
 	if !strings.Contains(a.State.InputLabel, "35") && !strings.Contains(a.State.InputLabel, "B") {
 		t.Fatalf("InputLabel = %q; want size summary", a.State.InputLabel)
+	}
+}
+
+func TestFolderWalkErrorClearsScanningState(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-based walk failure setup is not reliable on Windows")
+	}
+
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	rootDir := t.TempDir()
+	blockedDir := filepath.Join(rootDir, "blocked")
+	if err := os.Mkdir(blockedDir, 0700); err != nil {
+		t.Fatalf("create blocked dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rootDir, "visible.txt"), []byte("ok"), 0600); err != nil {
+		t.Fatalf("create visible file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(blockedDir, "secret.txt"), []byte("secret"), 0600); err != nil {
+		t.Fatalf("create blocked file: %v", err)
+	}
+	if err := os.Chmod(blockedDir, 0); err != nil {
+		t.Fatalf("chmod blocked dir: %v", err)
+	}
+	defer func() {
+		_ = os.Chmod(blockedDir, 0700)
+	}()
+
+	fyne.DoAndWait(func() {
+		a.onDrop([]string{rootDir})
+	})
+
+	waitForDropProcessing(t, a)
+	fyne.DoAndWait(func() {})
+
+	if a.State.IsScanning() {
+		t.Fatal("Scanning should be false after folder walk error")
 	}
 }
 
