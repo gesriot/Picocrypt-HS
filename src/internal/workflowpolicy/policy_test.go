@@ -104,12 +104,18 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/android-instrumented.yml")
 	mustContain(t, content, "workflow_dispatch:")
+	mustContain(t, content, "test_scope:")
+	mustContain(t, content, "default: focused")
+	mustContain(t, content, "- focused")
+	mustContain(t, content, "- extended")
 	mustMatch(t, content, `ReactiveCircus/android-emulator-runner@[0-9a-f]{40}`)
 	mustContain(t, content, "connectedDebugAndroidTest")
 	mustContain(t, content, "PasswordCardTest")
 	mustContain(t, content, "ProgressCardTest")
+	mustContain(t, content, "OperationManagerIntegrationTest")
 	mustNotContain(t, content, "connectedDebugAndroidTest \\")
-	mustContain(t, content, "cd android && ./gradlew connectedDebugAndroidTest")
+	mustContain(t, content, "TEST_CLASSES=")
+	mustContain(t, content, "./gradlew connectedDebugAndroidTest")
 }
 
 func TestWindowsLegacyPRWorkflowIsCLIOnly(t *testing.T) {
