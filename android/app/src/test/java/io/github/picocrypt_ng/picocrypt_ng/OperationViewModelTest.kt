@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -39,16 +39,12 @@ class OperationViewModelTest {
     fun setUp() {
         mockContext = mockk<Context>(relaxed = true)
         viewModel = OperationViewModel()
-        runBlocking {
-            OperationManager.clearOperation(shouldCleanupFiles = false)
-        }
+        resetOperationState()
     }
     
     @After
     fun tearDown() {
-        runBlocking {
-            OperationManager.clearOperation(shouldCleanupFiles = false)
-        }
+        resetOperationState()
     }
     
     @Test
@@ -103,6 +99,18 @@ class OperationViewModelTest {
     
     @Test
     fun `clearOperation stops polling and clears operation`() = runTest {
+        setOperationState(
+            OperationState(
+                id = "op_123",
+                type = OperationType.ENCRYPT,
+                inputFile = "/data/test/input_file.txt",
+                outputFile = "/data/test/output_file.pcv",
+                status = "Processing",
+                progress = 0.5f,
+                info = "Working..."
+            )
+        )
+
         viewModel.clearOperation(mockContext, shouldCleanupFiles = false)
         
         advanceUntilIdle()
@@ -146,5 +154,17 @@ class OperationViewModelTest {
         // but we verify the StateFlow is connected
         val managerState = OperationManager.currentOperation.first()
         assertEquals(managerState, operationState)
+    }
+
+    private fun resetOperationState() {
+        setOperationState(null)
+    }
+
+    private fun setOperationState(state: OperationState?) {
+        val field = OperationManager::class.java.getDeclaredField("_currentOperation")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = field.get(OperationManager) as MutableStateFlow<OperationState?>
+        flow.value = state
     }
 }
