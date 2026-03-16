@@ -80,7 +80,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `startEncrypt validates form data before starting`() = runTest {
+    fun startEncrypt_validates_form_data_before_starting() = runTest {
         // Test with invalid form data (no file)
         val invalidFormData = encryptFormData(
             copiedFilePath = "" // Invalid - no file
@@ -99,7 +99,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `startDecrypt validates form data before starting`() = runTest {
+    fun startDecrypt_validates_form_data_before_starting() = runTest {
         // Test with invalid form data (no file)
         val invalidFormData = decryptFormData(
             copiedFilePath = "" // Invalid - no file
@@ -118,7 +118,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `startEncrypt creates operation state on success`() = runTest {
+    fun startEncrypt_creates_operation_state_on_success() = runTest {
         // Create a test file
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
@@ -149,7 +149,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `startDecrypt creates operation state on success`() = runTest {
+    fun startDecrypt_creates_operation_state_on_success() = runTest {
         // Create a test file
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
@@ -177,7 +177,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `pollProgress updates operation state`() = runTest {
+    fun pollProgress_updates_operation_state() = runTest {
         // This test requires an active operation
         // We'll test that pollProgress doesn't throw when called
         // Full testing requires Go mobile bindings
@@ -190,7 +190,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `cancelOperation updates operation state to cancelled`() = runTest {
+    fun cancelOperation_updates_operation_state_to_cancelled() = runTest {
         // This test requires an active operation
         // We'll test the error case when no operation exists
         OperationManager.clearOperation(shouldCleanupFiles = false)
@@ -204,7 +204,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `clearOperation removes operation state`() = runTest {
+    fun clearOperation_removes_operation_state() = runTest {
         OperationManager.clearOperation(context, shouldCleanupFiles = false)
         
         val operationState = OperationManager.currentOperation.first()
@@ -212,7 +212,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `clearOperation cleans up files when requested`() = runTest {
+    fun clearOperation_cleans_up_files_when_requested() = runTest {
         // Create test files
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
@@ -247,7 +247,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `retryOperation requires active operation`() = runTest {
+    fun retryOperation_requires_active_operation() = runTest {
         OperationManager.clearOperation(shouldCleanupFiles = false)
         
         val formData = encryptFormData(
@@ -264,7 +264,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `retryDecryptWithForce requires active decrypt operation`() = runTest {
+    fun retryDecryptWithForce_requires_active_decrypt_operation() = runTest {
         OperationManager.clearOperation(shouldCleanupFiles = false)
         
         val result = OperationManager.retryDecryptWithForce()
@@ -276,7 +276,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `currentOperation StateFlow reflects operation state`() = runTest {
+    fun currentOperation_stateFlow_reflects_operation_state() = runTest {
         // Initially should be null
         var operationState = OperationManager.currentOperation.first()
         assertNull("Should be null initially", operationState)
@@ -287,4 +287,3 @@ class OperationManagerIntegrationTest {
         assertNull("Should be null after clearing", operationState)
     }
 }
-

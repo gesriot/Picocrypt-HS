@@ -18,7 +18,7 @@ class ErrorDialogTest {
     val composeTestRule = createComposeRule()
     
     @Test
-    fun `ErrorDialog displays error message`() {
+    fun errorDialog_displays_error_message() {
         val error = io.github.picocrypt_ng.picocrypt_ng.AppError.ValidationError.NoFileSelected
         
         composeTestRule.setContent {
@@ -33,7 +33,7 @@ class ErrorDialogTest {
     }
     
     @Test
-    fun `ErrorDialog displays operation error`() {
+    fun errorDialog_displays_operation_error() {
         val error = io.github.picocrypt_ng.picocrypt_ng.AppError.OperationError.GenericOperation(
             userMessage = "Operation failed",
             technicalMessage = "Technical details"
@@ -51,7 +51,7 @@ class ErrorDialogTest {
     }
     
     @Test
-    fun `ErrorDialog does not display when error is null`() {
+    fun errorDialog_does_not_display_when_error_is_null() {
         composeTestRule.setContent {
             ErrorDialog(
                 error = null,
@@ -64,5 +64,4 @@ class ErrorDialogTest {
         composeTestRule.onRoot().assertIsDisplayed()
     }
 }
-
 

@@ -22,7 +22,7 @@ class FileCardTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun `FileCard displays when no file is selected`() {
+    fun fileCard_displays_when_no_file_is_selected() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val viewModel = MainViewModel(application, savedStateHandle)
@@ -35,7 +35,7 @@ class FileCardTest {
     }
 
     @Test
-    fun `FileCard displays selected filename`() {
+    fun fileCard_displays_selected_filename() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val viewModel = MainViewModel(application, savedStateHandle)

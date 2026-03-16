@@ -29,7 +29,7 @@ class PasswordCardTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun `PasswordCard displays for encryption`() {
+    fun passwordCard_displays_for_encryption() {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val viewModel = MainViewModel(application, SavedStateHandle())
 
@@ -49,7 +49,7 @@ class PasswordCardTest {
     }
 
     @Test
-    fun `password fields are not restored after saved state restore`() {
+    fun password_fields_are_not_restored_after_saved_state_restore() {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val viewModel = MainViewModel(application, SavedStateHandle())
         val restorationTester = StateRestorationTester(composeTestRule)
