@@ -177,16 +177,12 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun pollProgress_updates_operation_state() = runTest {
-        // This test requires an active operation
-        // We'll test that pollProgress doesn't throw when called
-        // Full testing requires Go mobile bindings
-        
+    fun pollProgress_returns_null_without_active_operation() = runTest {
+        OperationManager.clearOperation(shouldCleanupFiles = false)
+
         val result = OperationManager.pollProgress()
-        
-        // Should return null if no operation, or OperationState if operation exists
-        // Should not throw
-        assertNotNull("Result should not be null (may be null if no operation)", result != null || result == null)
+
+        assertNull("pollProgress should return null when no operation is active", result)
     }
     
     @Test
