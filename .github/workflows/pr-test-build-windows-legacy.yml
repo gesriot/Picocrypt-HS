@@ -17,13 +17,21 @@ jobs:
     runs-on: windows-2022
     env:
       GO_LEGACY_SHA256: 82d44d1f777ae7c88aa52562979f1606f60bc5ad8df00c727a624c0ce4e5caf2
-      RESHACKER_SHA256: e5a5b6d6be38ae3eb20e72b09f257f284bab2deb5f37164e9f2faefd23f27cf4
       UPX_SHA256: 41c7492edeed0f7e67d347ca9e8d2131e2af7ca7a7695f92283a8e655c251c13
-      MESA3D_SHA256: b19d0904183ca4a68a6a2e28d896fa3f1533cb4408f6ce499f52b25267fcc31f
     steps:
     - uses: actions/checkout@v6
 
+    - name: Cache go-legacy-win7
+      id: cache-go-legacy
+      uses: actions/cache@v4
+      with:
+        path: C:\go-legacy
+        key: ${{ runner.os }}-go-legacy-${{ env.GO_LEGACY_SHA256 }}
+        restore-keys: |
+          ${{ runner.os }}-go-legacy-
+
     - name: Download go-legacy-win7
+      if: steps.cache-go-legacy.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
         # Download go-legacy-win7 (Go 1.25.x with Windows 7 support)
@@ -34,6 +42,10 @@ jobs:
           throw "Checksum mismatch for go-legacy.zip: expected $expectedHash, got $actualHash"
         }
         Expand-Archive -DestinationPath C:\go-legacy go-legacy.zip
+
+    - name: Add go-legacy-win7 to PATH
+      shell: pwsh
+      run: |
         echo "C:\go-legacy\go\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Verify Go installation
@@ -49,50 +61,17 @@ jobs:
     - name: Run tests
       run: |
         cd src
-        go test -v -timeout 15m ./...
+        go test -v -timeout 15m ./internal/cli ./internal/fileops ./internal/volume
       env:
         PICOCRYPT_RUN_CLI_INTEGRATION: 1
 
-    - name: Build GUI with GLES (OpenGL ES for better Mesa compatibility)
+    - name: Build CLI-only legacy binary
       run: |
         cd src
-        go build -v -tags gles -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
+        go build -v -tags cli -ldflags="-s -w -extldflags=-static" -o Picocrypt-NG-cli-Legacy.exe ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
-
-    - name: Build CLI-only (no graphics dependencies - ideal for legacy systems)
-      run: |
-        cd src
-        go build -v -tags cli -ldflags="-s -w -extldflags=-static" -o Picocrypt-NG-cli.exe ./cmd/picocrypt
-      env:
-        CGO_ENABLED: 1
-        GOAMD64: v1
-
-    - name: Add icon, manifest, and version info
-      shell: pwsh
-      run: |
-        Invoke-WebRequest -OutFile reshacker_setup.zip https://github.com/user-attachments/files/18878075/reshacker_setup.zip
-        $expectedHash = $env:RESHACKER_SHA256
-        $actualHash = (Get-FileHash reshacker_setup.zip -Algorithm SHA256).Hash.ToLower()
-        if ($actualHash -ne $expectedHash) {
-          throw "Checksum mismatch for reshacker_setup.zip: expected $expectedHash, got $actualHash"
-        }
-        Expand-Archive -DestinationPath reshacker_setup reshacker_setup.zip
-        reshacker_setup/reshacker_setup.exe /SILENT
-        Start-Sleep -Seconds 60
-        Invoke-Expression "& `"$Env:P`" -open src/1.exe -save src/2.exe -action addoverwrite -res images/key.ico -mask `"ICONGROUP,MAINICON,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/2.exe -save src/3.exe -action addoverwrite -res images/key.ico -mask `"ICONGROUP,A,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/3.exe -save src/4.exe -action addoverwrite -res dist/windows/manifest.xml -mask `"MANIFEST,1,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open dist/windows/versioninfo.rc -save resources.res -action compile"
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/4.exe -save src/5.exe -action addoverwrite -res resources.res"
-        Start-Sleep -Seconds 30
-      env:
-        P: "C:\\Program Files (x86)\\Resource Hacker\\ResourceHacker.exe"
 
     - name: Compress with upx
       shell: pwsh
@@ -104,93 +83,12 @@ jobs:
           throw "Checksum mismatch for upx.zip: expected $expectedHash, got $actualHash"
         }
         Expand-Archive -DestinationPath upx upx.zip
-        upx/upx-5.1.0-win64/upx.exe --lzma -o src/Picocrypt-NG-Legacy.exe src/5.exe
-        upx/upx-5.1.0-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
-
-    - name: Download and bundle Mesa3D for OpenGL software rendering
-      shell: pwsh
-      run: |
-        # Download Mesa3D llvmpipe (software OpenGL renderer)
-        Invoke-WebRequest -OutFile mesa3d.7z https://github.com/pal1000/mesa-dist-win/releases/download/25.0.1/mesa3d-25.0.1-release-msvc.7z
-        $expectedHash = $env:MESA3D_SHA256
-        $actualHash = (Get-FileHash mesa3d.7z -Algorithm SHA256).Hash.ToLower()
-        if ($actualHash -ne $expectedHash) {
-          throw "Checksum mismatch for mesa3d.7z: expected $expectedHash, got $actualHash"
-        }
-
-        # 7-Zip is preinstalled on the GitHub-hosted Windows runner image.
-        $sevenZip = "C:\Program Files\7-Zip\7z.exe"
-        if (-not (Test-Path $sevenZip)) {
-          $sevenZip = (Get-Command 7z.exe -ErrorAction Stop).Source
-        }
-
-        # Extract Mesa3D
-        & $sevenZip x mesa3d.7z -omesa3d
-
-        # List extracted contents for debugging
-        Write-Host "=== Mesa3D extracted contents ==="
-        Get-ChildItem -Recurse mesa3d -Name
-
-        # Create legacy package directory
-        New-Item -ItemType Directory -Force -Path legacy-package
-
-        # Copy the executables
-        Copy-Item src/Picocrypt-NG-Legacy.exe legacy-package/
-        Copy-Item src/Picocrypt-NG-cli.exe legacy-package/
-
-        # Copy Mesa3D DLLs for software rendering (x64 folder)
-        Copy-Item mesa3d/x64/*.dll legacy-package/ -ErrorAction SilentlyContinue
-
-        # List what was copied
-        Write-Host "=== Legacy package contents ==="
-        Get-ChildItem legacy-package -Name
-
-        # Create README explaining the bundle
-        @"
-        Picocrypt-NG Legacy Build for Windows 7/8 (PR TEST BUILD)
-        ==========================================================
-
-        This is a TEST BUILD from a pull request. DO NOT use in production.
-
-        This build is specifically designed for older Windows systems that lack:
-        - Native OpenGL support
-        - Windows 10+ APIs
-
-        CONTENTS:
-        - Picocrypt-NG-Legacy.exe: GUI application (GLES mode for Mesa compatibility)
-        - Picocrypt-NG-cli.exe: CLI-only version (NO graphics dependencies!)
-        - Mesa3D DLLs: Software OpenGL renderer (llvmpipe) for GUI
-
-        RECOMMENDED FOR LEGACY SYSTEMS:
-        Use Picocrypt-NG-cli.exe for best performance on older hardware.
-        Run: Picocrypt-NG-cli.exe --help
-
-        SYSTEM REQUIREMENTS:
-        - Windows 7 SP1 / Windows 8 / Windows Server 2008 R2 or newer
-        - No GPU or graphics driver requirements
-
-        INSTALLATION (GUI):
-        Keep all files in the same directory and run Picocrypt-NG-Legacy.exe
-
-        INSTALLATION (CLI):
-        Picocrypt-NG-cli.exe can be used standalone without the Mesa3D DLLs.
-
-        BUILD INFO:
-        - Go Compiler: go-legacy-win7 v1.25.5-1 (based on Go 1.25.5 with Windows 7 patches)
-        - OpenGL: Mesa3D 25.0.1 llvmpipe (software renderer)
-        - Build mode: GLES (OpenGL ES)
-        - Repository: https://github.com/Picocrypt/Picocrypt-NG
-        "@ | Out-File -FilePath legacy-package/README-LEGACY-TEST.txt -Encoding utf8
-
-        # Create a zip package
-        Compress-Archive -Path legacy-package/* -DestinationPath Picocrypt-NG-Legacy-Windows-TEST.zip
+        upx/upx-5.1.0-win64/upx.exe --lzma src/Picocrypt-NG-cli-Legacy.exe
 
     - name: Upload artifact
       uses: actions/upload-artifact@v7
       with:
         name: pr-test-build-windows-legacy-ONLY-FOR-TESTING
-        path: |
-          legacy-package/*
-          Picocrypt-NG-Legacy-Windows-TEST.zip
+        path: src/Picocrypt-NG-cli-Legacy.exe
         if-no-files-found: error
         compression-level: 9

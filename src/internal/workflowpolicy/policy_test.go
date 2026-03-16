@@ -84,3 +84,32 @@ func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	mustNotContain(t, content, "connectedDebugAndroidTest \\")
 	mustContain(t, content, "cd android && ./gradlew connectedDebugAndroidTest")
 }
+
+func TestWindowsLegacyPRWorkflowIsCLIOnly(t *testing.T) {
+	content := mustReadWorkflow(t, ".github/workflows/pr-test-build-windows-legacy.yml")
+	mustContain(t, content, "Picocrypt-NG-cli-Legacy.exe")
+	mustContain(t, content, "Build CLI-only legacy binary")
+	mustNotContain(t, content, "Build GUI with GLES")
+	mustNotContain(t, content, "Add icon, manifest, and version info")
+	mustNotContain(t, content, "Mesa3D")
+}
+
+func TestWindowsLegacyReleaseWorkflowIsCLIOnly(t *testing.T) {
+	content := mustReadWorkflow(t, ".github/workflows/build-windows-legacy.yml")
+	mustContain(t, content, "Picocrypt-NG-cli-Legacy.exe")
+	mustContain(t, content, "Build CLI-only legacy binary")
+	mustNotContain(t, content, "Build GUI with GLES")
+	mustNotContain(t, content, "Add icon, manifest, and version info")
+	mustNotContain(t, content, "Mesa3D")
+}
+
+func TestWindowsLegacyWorkflowsCacheLegacyGo(t *testing.T) {
+	for _, path := range []string{
+		".github/workflows/pr-test-build-windows-legacy.yml",
+		".github/workflows/build-windows-legacy.yml",
+	} {
+		content := mustReadWorkflow(t, path)
+		mustContain(t, content, "actions/cache@v4")
+		mustContain(t, content, "C:\\go-legacy")
+	}
+}
