@@ -3,6 +3,7 @@ package fileops
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -233,6 +234,63 @@ func TestUnpackRejectsHighlyCompressedFileAboveFloor(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "decompression limit exceeded") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUnpackRejectsArchiveWhenDeclaredSizeExceedsAvailableSpace(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "space-check.zip")
+	data := []byte("payload requiring space")
+	createDeflatedZipWithContent(t, zipPath, "payload.txt", data)
+
+	originalAvailableSpace := availableExtractionSpace
+	availableExtractionSpace = func(path string) (int64, error) {
+		return int64(len(data) - 1), nil
+	}
+	defer func() {
+		availableExtractionSpace = originalAvailableSpace
+	}()
+
+	err := Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: filepath.Join(tmpDir, "out"),
+	})
+	if err == nil {
+		t.Fatal("expected insufficient disk space error")
+	}
+	if !strings.Contains(err.Error(), "insufficient disk space") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUnpackSkipsDiskSpaceGuardWhenSpaceCheckUnavailable(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "space-check-fallback.zip")
+	data := []byte("payload requiring fallback")
+	createDeflatedZipWithContent(t, zipPath, "payload.txt", data)
+
+	originalAvailableSpace := availableExtractionSpace
+	availableExtractionSpace = func(path string) (int64, error) {
+		return 0, errors.New("statfs unavailable")
+	}
+	defer func() {
+		availableExtractionSpace = originalAvailableSpace
+	}()
+
+	extractDir := filepath.Join(tmpDir, "out")
+	if err := Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+	}); err != nil {
+		t.Fatalf("Unpack should fall back to existing ratio guard when disk space is unavailable: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(extractDir, "payload.txt"))
+	if err != nil {
+		t.Fatalf("Read unpacked file: %v", err)
+	}
+	if !bytes.Equal(content, data) {
+		t.Fatal("unpacked content mismatch")
 	}
 }
 

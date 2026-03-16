@@ -260,6 +260,9 @@ func Unpack(opts UnpackOptions) (retErr error) {
 	if err != nil {
 		return err
 	}
+	if available, err := availableExtractionSpace(extractDir); err == nil && totalSize > available {
+		return fmt.Errorf("insufficient disk space for extraction: need %d bytes, have %d", totalSize, available)
+	}
 
 	// First pass: create all directories and cache normalized paths
 	// Cache normalized paths to avoid redundant normalization in second pass
