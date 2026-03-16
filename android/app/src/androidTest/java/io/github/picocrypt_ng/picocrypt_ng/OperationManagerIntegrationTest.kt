@@ -11,7 +11,6 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
-import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
 
 /**
  * Integration tests for OperationManager.
@@ -24,26 +23,66 @@ import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
 class OperationManagerIntegrationTest {
     
     private lateinit var context: Context
+
+    private fun encryptFormData(
+        copiedFilePath: String = "/data/test/input_file.txt",
+        password: String = "testpassword",
+        confirmPassword: String = password,
+        keyfiles: List<KeyfileInfo> = emptyList()
+    ) = FormData(
+        selectedFilename = "test.txt",
+        copiedFilePath = copiedFilePath,
+        comments = "",
+        passwordInput = password.toCharArray(),
+        confirmPasswordInput = confirmPassword.toCharArray(),
+        reedSolomon = false,
+        paranoid = false,
+        deniability = false,
+        keyfileFilenames = keyfiles,
+        keyfileOrdered = false,
+        decryptionInfo = null
+    )
+
+    private fun decryptFormData(
+        copiedFilePath: String = "/data/test/input_file.pcv",
+        password: String = "testpassword"
+    ) = FormData(
+        selectedFilename = "test.pcv",
+        copiedFilePath = copiedFilePath,
+        comments = "",
+        passwordInput = password.toCharArray(),
+        confirmPasswordInput = password.toCharArray(),
+        reedSolomon = false,
+        paranoid = false,
+        deniability = false,
+        keyfileFilenames = emptyList(),
+        keyfileOrdered = false,
+        decryptionInfo = null
+    )
     
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         // Clean up any existing operations and files
-        OperationManager.clearOperation(context, shouldCleanupFiles = true)
-        FileCopyService.cleanupAllFiles(context)
+        runTest {
+            OperationManager.clearOperation(context, shouldCleanupFiles = true)
+            FileCopyService.cleanupAllFiles(context)
+        }
     }
     
     @After
     fun tearDown() {
         // Clean up after each test
-        OperationManager.clearOperation(context, shouldCleanupFiles = true)
-        FileCopyService.cleanupAllFiles(context)
+        runTest {
+            OperationManager.clearOperation(context, shouldCleanupFiles = true)
+            FileCopyService.cleanupAllFiles(context)
+        }
     }
     
     @Test
-    fun `startEncrypt validates form data before starting`() = runTest {
+    fun startEncrypt_validates_form_data_before_starting() = runTest {
         // Test with invalid form data (no file)
-        val invalidFormData = TestDataBuilders.createEncryptFormData(
+        val invalidFormData = encryptFormData(
             copiedFilePath = "" // Invalid - no file
         )
         
@@ -60,9 +99,9 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `startDecrypt validates form data before starting`() = runTest {
+    fun startDecrypt_validates_form_data_before_starting() = runTest {
         // Test with invalid form data (no file)
-        val invalidFormData = TestDataBuilders.createDecryptFormData(
+        val invalidFormData = decryptFormData(
             copiedFilePath = "" // Invalid - no file
         )
         
@@ -79,14 +118,14 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `startEncrypt creates operation state on success`() = runTest {
+    fun startEncrypt_creates_operation_state_on_success() = runTest {
         // Create a test file
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
         val testFile = File(internalDir, "input_file.txt")
         testFile.writeText("test content")
         
-        val formData = TestDataBuilders.createEncryptFormData(
+        val formData = encryptFormData(
             copiedFilePath = testFile.absolutePath,
             password = "testpassword",
             confirmPassword = "testpassword"
@@ -110,14 +149,14 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `startDecrypt creates operation state on success`() = runTest {
+    fun startDecrypt_creates_operation_state_on_success() = runTest {
         // Create a test file
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
         val testFile = File(internalDir, "input_file.pcv")
         testFile.writeText("test encrypted content")
         
-        val formData = TestDataBuilders.createDecryptFormData(
+        val formData = decryptFormData(
             copiedFilePath = testFile.absolutePath,
             password = "testpassword"
         )
@@ -138,7 +177,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `pollProgress updates operation state`() = runTest {
+    fun pollProgress_updates_operation_state() = runTest {
         // This test requires an active operation
         // We'll test that pollProgress doesn't throw when called
         // Full testing requires Go mobile bindings
@@ -151,7 +190,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `cancelOperation updates operation state to cancelled`() = runTest {
+    fun cancelOperation_updates_operation_state_to_cancelled() = runTest {
         // This test requires an active operation
         // We'll test the error case when no operation exists
         OperationManager.clearOperation(shouldCleanupFiles = false)
@@ -165,7 +204,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `clearOperation removes operation state`() = runTest {
+    fun clearOperation_removes_operation_state() = runTest {
         OperationManager.clearOperation(context, shouldCleanupFiles = false)
         
         val operationState = OperationManager.currentOperation.first()
@@ -173,7 +212,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `clearOperation cleans up files when requested`() = runTest {
+    fun clearOperation_cleans_up_files_when_requested() = runTest {
         // Create test files
         val internalDir = File(context.filesDir, "picocrypt_files")
         internalDir.mkdirs()
@@ -188,9 +227,9 @@ class OperationManagerIntegrationTest {
         // (We can't easily create a real operation without Go mobile bindings)
         // But we can test that clearOperation cleans up files
         
-        val formData = TestDataBuilders.createEncryptFormData(
+        val formData = encryptFormData(
             copiedFilePath = inputFile.absolutePath,
-            keyfiles = listOf(TestDataBuilders.createKeyfileInfo(internalPath = keyfile.absolutePath))
+            keyfiles = listOf(KeyfileInfo(internalPath = keyfile.absolutePath, displayName = keyfile.name))
         )
         
         // Note: We can't set operation state directly, but we can test
@@ -208,10 +247,10 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `retryOperation requires active operation`() = runTest {
+    fun retryOperation_requires_active_operation() = runTest {
         OperationManager.clearOperation(shouldCleanupFiles = false)
         
-        val formData = TestDataBuilders.createEncryptFormData(
+        val formData = encryptFormData(
             password = "test",
             confirmPassword = "test"
         )
@@ -225,7 +264,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `retryDecryptWithForce requires active decrypt operation`() = runTest {
+    fun retryDecryptWithForce_requires_active_decrypt_operation() = runTest {
         OperationManager.clearOperation(shouldCleanupFiles = false)
         
         val result = OperationManager.retryDecryptWithForce()
@@ -237,7 +276,7 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun `currentOperation StateFlow reflects operation state`() = runTest {
+    fun currentOperation_stateFlow_reflects_operation_state() = runTest {
         // Initially should be null
         var operationState = OperationManager.currentOperation.first()
         assertNull("Should be null initially", operationState)
@@ -248,5 +287,3 @@ class OperationManagerIntegrationTest {
         assertNull("Should be null after clearing", operationState)
     }
 }
-
-

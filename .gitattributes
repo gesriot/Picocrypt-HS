@@ -1,0 +1,2 @@
+src/testdata/golden/*.pcv -text
+src/testdata/golden/*.bin -text

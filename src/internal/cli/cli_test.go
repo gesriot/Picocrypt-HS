@@ -572,6 +572,47 @@ func TestEncryptStdinValidation(t *testing.T) {
 		encPasswordStdin = false
 	})
 
+	t.Run("password stdin empty without keyfiles", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "test.txt")
+		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		oldStdin := os.Stdin
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdin = r
+		if _, err := w.WriteString("\n"); err != nil {
+			t.Fatal(err)
+		}
+		_ = w.Close()
+		t.Cleanup(func() {
+			os.Stdin = oldStdin
+			_ = r.Close()
+		})
+
+		encInput = []string{tmpFile}
+		encOutput = filepath.Join(t.TempDir(), "test.pcv")
+		encPassword = ""
+		encPasswordStdin = true
+		encKeyfiles = nil
+		encSplit = false
+		encDeniability = false
+
+		cmd := encryptCmd
+		err = cmd.RunE(cmd, []string{})
+		if err == nil {
+			t.Fatal("expected error for empty password from stdin")
+		}
+		if !strings.Contains(err.Error(), ErrPasswordEmpty.Error()) {
+			t.Errorf("expected empty password error, got: %v", err)
+		}
+
+		encPasswordStdin = false
+	})
+
 	t.Run("stdin with multiple inputs conflict", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
 		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
@@ -659,6 +700,68 @@ func TestEncryptStdinValidation(t *testing.T) {
 
 		// Reset
 		encDeniability = false
+	})
+}
+
+func TestCleanupEncryptError(t *testing.T) {
+	t.Run("preserves pre-existing output file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		output := filepath.Join(tmpDir, "existing.pcv")
+		if err := os.WriteFile(output, []byte("original"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		incomplete := output + ".incomplete"
+		if err := os.WriteFile(incomplete, []byte("partial"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cleanupEncryptError(output, false, true)
+
+		data, err := os.ReadFile(output)
+		if err != nil {
+			t.Fatalf("expected pre-existing output file to remain: %v", err)
+		}
+		if string(data) != "original" {
+			t.Fatalf("expected original content preserved, got %q", string(data))
+		}
+		if _, err := os.Stat(incomplete); !os.IsNotExist(err) {
+			t.Fatalf("expected incomplete file removed, got: %v", err)
+		}
+	})
+
+	t.Run("removes new output file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		output := filepath.Join(tmpDir, "new.pcv")
+		if err := os.WriteFile(output, []byte("new"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		incomplete := output + ".incomplete"
+		if err := os.WriteFile(incomplete, []byte("partial"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cleanupEncryptError(output, false, false)
+
+		if _, err := os.Stat(output); !os.IsNotExist(err) {
+			t.Fatalf("expected output file removed, got: %v", err)
+		}
+		if _, err := os.Stat(incomplete); !os.IsNotExist(err) {
+			t.Fatalf("expected incomplete file removed, got: %v", err)
+		}
+	})
+
+	t.Run("stdout mode does not remove output file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		output := filepath.Join(tmpDir, "stdout-temp.pcv")
+		if err := os.WriteFile(output, []byte("temp"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cleanupEncryptError(output, true, false)
+
+		if _, err := os.Stat(output); err != nil {
+			t.Fatalf("expected stdout path untouched, got: %v", err)
+		}
 	})
 }
 

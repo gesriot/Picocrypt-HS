@@ -40,3 +40,13 @@ func TestSplitChunkBase(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitChunkBaseUnicodeExpansionBeforeSuffix(t *testing.T) {
+	path := "/tmp/ȺȺȺ.PCV.1"
+	want := "/tmp/ȺȺȺ.PCV"
+
+	got, ok := SplitChunkBase(path)
+	if !ok || got != want {
+		t.Fatalf("SplitChunkBase(%q) = (%q, %v), want (%q, true)", path, got, ok, want)
+	}
+}

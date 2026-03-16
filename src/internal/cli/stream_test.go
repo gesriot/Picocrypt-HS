@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -161,6 +162,37 @@ func TestBufferStdinToTempLarge(t *testing.T) {
 	}
 	if !bytes.Equal(content, testData) {
 		t.Error("large data content mismatch")
+	}
+}
+
+func TestBufferStdinToTempDoesNotUseOutputDir(t *testing.T) {
+	testData := []byte("stdin output-path isolation")
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+
+	go func() {
+		_, _ = w.Write(testData)
+		_ = w.Close()
+	}()
+
+	outputDir := t.TempDir()
+	outputPath := filepath.Join(outputDir, "output.pcv")
+
+	tmpPath, err := BufferStdinToTemp(outputPath)
+	if err != nil {
+		t.Fatalf("BufferStdinToTemp() error = %v", err)
+	}
+	defer os.Remove(tmpPath)
+
+	if filepath.Dir(tmpPath) == outputDir {
+		t.Fatalf("stdin temp file should not be created in output dir %s", outputDir)
 	}
 }
 

@@ -4,10 +4,10 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.picocrypt_ng.picocrypt_ng.FormData
 import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
-import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
-import io.mockk.mockk
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,42 +17,49 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class FileCardTest {
-    
+
     @get:Rule
     val composeTestRule = createComposeRule()
-    
+
     @Test
-    fun `FileCard displays when no file is selected`() {
-        val mockApplication = mockk<android.app.Application>(relaxed = true)
+    fun fileCard_displays_when_no_file_is_selected() {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
-        val viewModel = MainViewModel(mockApplication, savedStateHandle)
-        
+        val viewModel = MainViewModel(application, savedStateHandle)
+
         composeTestRule.setContent {
             ChooseFile(viewModel = viewModel)
         }
-        
-        // Verify the component is displayed
+
         composeTestRule.onRoot().assertIsDisplayed()
     }
-    
+
     @Test
-    fun `FileCard displays selected filename`() {
-        val mockApplication = mockk<android.app.Application>(relaxed = true)
+    fun fileCard_displays_selected_filename() {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
-        val viewModel = MainViewModel(mockApplication, savedStateHandle)
-        
-        val formData = TestDataBuilders.createEncryptFormData(
-            selectedFilename = "test.txt"
+        val viewModel = MainViewModel(application, savedStateHandle)
+
+        viewModel.updateFormData(
+            FormData(
+                selectedFilename = "test.txt",
+                copiedFilePath = "/data/test/input_file.txt",
+                comments = "",
+                passwordInput = CharArray(0),
+                confirmPasswordInput = CharArray(0),
+                reedSolomon = false,
+                paranoid = false,
+                deniability = false,
+                keyfileFilenames = emptyList(),
+                keyfileOrdered = false,
+                decryptionInfo = null
+            )
         )
-        viewModel.updateFormData(formData)
-        
+
         composeTestRule.setContent {
             ChooseFile(viewModel = viewModel)
         }
-        
-        // Verify the component is displayed
-        composeTestRule.onRoot().assertIsDisplayed()
+
+        composeTestRule.onNodeWithText("test.txt").assertIsDisplayed()
     }
 }
-
-

@@ -22,11 +22,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalView
@@ -169,9 +168,10 @@ fun PasswordCard(
         ) {
             // Use copiedFilePath as key so passwords reset when file changes
             // Store as String for UI, convert to CharArray when updating ViewModel
-            var passwordValue by rememberSaveable(key = formData.copiedFilePath) { mutableStateOf("") }
-            var confirmPasswordValue by rememberSaveable(key = formData.copiedFilePath) { mutableStateOf("") }
+            var passwordValue by remember(formData.copiedFilePath) { mutableStateOf("") }
+            var confirmPasswordValue by remember(formData.copiedFilePath) { mutableStateOf("") }
             var debounceJob by remember { mutableStateOf<Job?>(null) }
+            val coroutineScope = rememberCoroutineScope()
             
             // Sync local state with ViewModel state when it changes externally
             // Convert CharArray to String for UI display
@@ -210,7 +210,7 @@ fun PasswordCard(
                 debounceJob?.cancel()
                 
                 // Debounce ViewModel update to batch rapid changes
-                debounceJob = CoroutineScope(Dispatchers.Main).launch {
+                debounceJob = coroutineScope.launch {
                     delay(150) // 150ms debounce - balances responsiveness with batching
                     
                     // Convert String to CharArray for secure storage

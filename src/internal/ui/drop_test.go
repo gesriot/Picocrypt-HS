@@ -2,15 +2,20 @@
 package ui
 
 import (
+	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
 )
 
@@ -237,6 +242,291 @@ func TestDropStateTransitions(t *testing.T) {
 			t.Errorf("StartLabel = %q; want 'Zip and Encrypt'", state.StartLabel)
 		}
 	})
+}
+
+func TestApplyDropErrorPreservesStatusAfterReset(t *testing.T) {
+	test.NewApp()
+
+	testCases := []struct {
+		name              string
+		status            string
+		closeKeyfileModal bool
+	}{
+		{name: "DecryptDrop", status: "Read access denied", closeKeyfileModal: false},
+		{name: "KeyfileDrop", status: "Keyfile read access denied", closeKeyfileModal: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &App{
+				State:             app.NewState(),
+				advancedContainer: container.NewVBox(),
+			}
+			a.State.StartLabel = "Decrypt"
+			a.State.MainStatus = "Old status"
+			a.State.MainStatusColor = util.GREEN
+
+			a.applyDropError(tc.status, tc.closeKeyfileModal)
+
+			if a.State.StartLabel != "Start" {
+				t.Fatalf("expected resetUI() to run, StartLabel = %q", a.State.StartLabel)
+			}
+			if a.State.MainStatus != tc.status {
+				t.Fatalf("MainStatus = %q, want %q", a.State.MainStatus, tc.status)
+			}
+			if a.State.MainStatusColor != util.RED {
+				t.Fatalf("MainStatusColor = %#v, want %#v", a.State.MainStatusColor, util.RED)
+			}
+		})
+	}
+}
+
+func TestApplyStartupPathsLoadsInitialFiles(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	inputFile := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	fyne.DoAndWait(func() {
+		a.applyStartupPaths([]string{inputFile})
+	})
+	waitForDropProcessing(t, a)
+	state := snapshotDropState(t, a)
+
+	if state.Mode != "encrypt" {
+		t.Fatalf("Mode = %q; want encrypt", state.Mode)
+	}
+	if state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
+	}
+	if state.OutputFile != inputFile+".pcv" {
+		t.Fatalf("OutputFile = %q; want %q", state.OutputFile, inputFile+".pcv")
+	}
+	if len(state.AllFiles) != 1 || state.AllFiles[0] != inputFile {
+		t.Fatalf("AllFiles = %#v; want [%q]", state.AllFiles, inputFile)
+	}
+	if len(state.OnlyFiles) != 1 || state.OnlyFiles[0] != inputFile {
+		t.Fatalf("OnlyFiles = %#v; want [%q]", state.OnlyFiles, inputFile)
+	}
+}
+
+func TestApplyStartupPathsIgnoresMacOSProcessSerialNumber(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		a.applyStartupPaths([]string{"-psn_0_12345"})
+	})
+	state := snapshotDropState(t, a)
+
+	if state.MainStatus != "Ready" {
+		t.Fatalf("MainStatus = %q; want Ready", state.MainStatus)
+	}
+	if state.Mode != "" {
+		t.Fatalf("Mode = %q; want empty", state.Mode)
+	}
+	if state.InputFile != "" {
+		t.Fatalf("InputFile = %q; want empty", state.InputFile)
+	}
+}
+
+func TestApplyStartupPathsIgnoresMissingNonFlagArgs(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		a.applyStartupPaths([]string{filepath.Join(t.TempDir(), "missing.txt")})
+	})
+	state := snapshotDropState(t, a)
+
+	if state.MainStatus != "Ready" {
+		t.Fatalf("MainStatus = %q; want Ready", state.MainStatus)
+	}
+	if state.Mode != "" {
+		t.Fatalf("Mode = %q; want empty", state.Mode)
+	}
+}
+
+func TestApplyStartupPathsSkipsInvalidArgsWhenValidPathsRemain(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	missingPath := filepath.Join(tempDir, "missing.txt")
+	inputFile := filepath.Join(tempDir, "report.txt")
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	fyne.DoAndWait(func() {
+		a.applyStartupPaths([]string{missingPath, inputFile})
+	})
+	waitForDropProcessing(t, a)
+	state := snapshotDropState(t, a)
+
+	if state.Mode != "encrypt" {
+		t.Fatalf("Mode = %q; want encrypt", state.Mode)
+	}
+	if state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
+	}
+	if state.MainStatus != "Ready" {
+		t.Fatalf("MainStatus = %q; want Ready", state.MainStatus)
+	}
+}
+
+func TestApplyStartupPathsAllowsHyphenPrefixedFilename(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	inputFile := filepath.Join(t.TempDir(), "-secret.txt")
+	if err := os.WriteFile(inputFile, []byte("secret"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	fyne.DoAndWait(func() {
+		a.applyStartupPaths([]string{inputFile})
+	})
+	waitForDropProcessing(t, a)
+	state := snapshotDropState(t, a)
+
+	if state.Mode != "encrypt" {
+		t.Fatalf("Mode = %q; want encrypt", state.Mode)
+	}
+	if state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
+	}
+}
+
+func TestApplyStartupPathsReportsAccessError(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	originalStat := startupPathStat
+	startupPathStat = func(path string) (os.FileInfo, error) {
+		return nil, os.ErrPermission
+	}
+	defer func() {
+		startupPathStat = originalStat
+	}()
+
+	fyne.DoAndWait(func() {
+		a.applyStartupPaths([]string{"blocked.txt"})
+	})
+
+	if a.State.MainStatus != startupPathAccessStatus {
+		t.Fatalf("MainStatus = %q; want %q", a.State.MainStatus, startupPathAccessStatus)
+	}
+	if a.State.MainStatusColor != util.RED {
+		t.Fatalf("MainStatusColor = %#v; want %#v", a.State.MainStatusColor, util.RED)
+	}
+}
+
+func TestCollectStartupPathsAllowsHyphenPrefixedFilename(t *testing.T) {
+	validPaths, err := collectStartupPaths([]string{"-secret.txt"}, func(path string) (os.FileInfo, error) {
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatalf("collectStartupPaths returned error: %v", err)
+	}
+	if len(validPaths) != 1 || validPaths[0] != "-secret.txt" {
+		t.Fatalf("validPaths = %#v; want [-secret.txt]", validPaths)
+	}
+}
+
+func TestCollectStartupPathsSkipsMissingAndReportsAccessError(t *testing.T) {
+	validPaths, err := collectStartupPaths([]string{"missing.txt", "blocked.txt"}, func(path string) (os.FileInfo, error) {
+		switch path {
+		case "missing.txt":
+			return nil, os.ErrNotExist
+		case "blocked.txt":
+			return nil, os.ErrPermission
+		default:
+			return nil, nil
+		}
+	})
+	if len(validPaths) != 0 {
+		t.Fatalf("validPaths = %#v; want empty", validPaths)
+	}
+	if err == nil {
+		t.Fatal("collectStartupPaths should report non-missing access errors")
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("error = %v; want permission error", err)
+	}
+}
+
+func TestAppendScannedFilesUpdatesState(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	files := []scannedFile{
+		{path: "/tmp/a.txt", size: 10},
+		{path: "/tmp/b.txt", size: 25},
+	}
+
+	fyne.DoAndWait(func() {
+		a.appendScannedFiles(files)
+	})
+
+	state := snapshotDropState(t, a)
+	if len(state.AllFiles) != 2 {
+		t.Fatalf("AllFiles = %#v; want 2 entries", state.AllFiles)
+	}
+	if a.State.CompressTotal != 35 {
+		t.Fatalf("CompressTotal = %d; want 35", a.State.CompressTotal)
+	}
+	if a.State.RequiredFreeSpace != 35 {
+		t.Fatalf("RequiredFreeSpace = %d; want 35", a.State.RequiredFreeSpace)
+	}
+	if !strings.Contains(a.State.InputLabel, "35") && !strings.Contains(a.State.InputLabel, "B") {
+		t.Fatalf("InputLabel = %q; want size summary", a.State.InputLabel)
+	}
+}
+
+func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	inputFile := filepath.Join(t.TempDir(), "startup.txt")
+	if err := os.WriteFile(inputFile, []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	fake := newLifecycleCaptureApp(fyne.CurrentApp())
+	a.fyneApp = fake
+
+	a.scheduleStartupPaths([]string{inputFile})
+
+	state := snapshotDropState(t, a)
+	if state.InputFile != "" {
+		t.Fatalf("InputFile = %q before start hook; want empty", state.InputFile)
+	}
+	if fake.started == nil {
+		t.Fatal("expected startup hook to be registered")
+	}
+
+	fake.started()
+	waitForDropProcessing(t, a)
+	state = snapshotDropState(t, a)
+
+	if state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q after start hook; want %q", state.InputFile, inputFile)
+	}
 }
 
 // TestKeyfileDropHandling tests keyfile drop in keyfile modal.
@@ -571,3 +861,96 @@ func TestStatusWithFreeSpace(t *testing.T) {
 		}
 	}
 }
+
+func createUIReadyDropTestApp(t *testing.T, fyneApp fyne.App) *App {
+	t.Helper()
+
+	a, err := NewApp("v2.08")
+	if err != nil {
+		t.Fatalf("Failed to create test app: %v", err)
+	}
+
+	a.fyneApp = fyneApp
+	fyne.DoAndWait(func() {
+		a.Window = fyneApp.NewWindow("drop-test")
+		a.Window.SetContent(a.buildUI())
+	})
+	return a
+}
+
+func waitForDropProcessing(t *testing.T, a *App) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !a.State.IsScanning() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if a.State.IsScanning() {
+		t.Fatal("drop processing did not finish")
+	}
+}
+
+type dropStateSnapshot struct {
+	Mode       string
+	MainStatus string
+	InputFile  string
+	OutputFile string
+	OnlyFiles  []string
+	AllFiles   []string
+}
+
+func snapshotDropState(t *testing.T, a *App) dropStateSnapshot {
+	t.Helper()
+
+	var state dropStateSnapshot
+	fyne.DoAndWait(func() {
+		state = dropStateSnapshot{
+			Mode:       a.State.Mode,
+			MainStatus: a.State.MainStatus,
+			InputFile:  a.State.InputFile,
+			OutputFile: a.State.OutputFile,
+			OnlyFiles:  append([]string(nil), a.State.OnlyFiles...),
+			AllFiles:   append([]string(nil), a.State.AllFiles...),
+		}
+	})
+	return state
+}
+
+type lifecycleCaptureApp struct {
+	driver   fyne.Driver
+	started  func()
+	stopped  func()
+	bg       func()
+	fg       func()
+}
+
+func newLifecycleCaptureApp(base fyne.App) *lifecycleCaptureApp {
+	return &lifecycleCaptureApp{driver: base.Driver()}
+}
+
+func (a *lifecycleCaptureApp) NewWindow(title string) fyne.Window { return fyne.CurrentApp().NewWindow(title) }
+func (a *lifecycleCaptureApp) OpenURL(*url.URL) error             { return nil }
+func (a *lifecycleCaptureApp) Icon() fyne.Resource                { return nil }
+func (a *lifecycleCaptureApp) SetIcon(fyne.Resource)              {}
+func (a *lifecycleCaptureApp) Run()                               {}
+func (a *lifecycleCaptureApp) Quit()                              {}
+func (a *lifecycleCaptureApp) Driver() fyne.Driver                { return a.driver }
+func (a *lifecycleCaptureApp) UniqueID() string                   { return "lifecycle-capture-app" }
+func (a *lifecycleCaptureApp) SendNotification(*fyne.Notification) {}
+func (a *lifecycleCaptureApp) Settings() fyne.Settings            { return fyne.CurrentApp().Settings() }
+func (a *lifecycleCaptureApp) Preferences() fyne.Preferences      { return fyne.CurrentApp().Preferences() }
+func (a *lifecycleCaptureApp) Storage() fyne.Storage              { return fyne.CurrentApp().Storage() }
+func (a *lifecycleCaptureApp) Lifecycle() fyne.Lifecycle          { return a }
+func (a *lifecycleCaptureApp) Metadata() fyne.AppMetadata         { return fyne.AppMetadata{} }
+func (a *lifecycleCaptureApp) CloudProvider() fyne.CloudProvider  { return nil }
+func (a *lifecycleCaptureApp) SetCloudProvider(fyne.CloudProvider) {}
+func (a *lifecycleCaptureApp) Clipboard() fyne.Clipboard          { return fyne.CurrentApp().Clipboard() }
+
+func (a *lifecycleCaptureApp) SetOnEnteredForeground(fn func()) { a.fg = fn }
+func (a *lifecycleCaptureApp) SetOnExitedForeground(fn func())  { a.bg = fn }
+func (a *lifecycleCaptureApp) SetOnStarted(fn func())           { a.started = fn }
+func (a *lifecycleCaptureApp) SetOnStopped(fn func())           { a.stopped = fn }

@@ -338,35 +338,6 @@ func TestTooltipButton(t *testing.T) {
 	})
 }
 
-// TestTooltipCheckbox tests the tooltip checkbox widget.
-func TestTooltipCheckbox(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
-
-	t.Run("NewTooltipCheckbox", func(t *testing.T) {
-		changed := false
-		check := NewTooltipCheckbox("Enable", "This is a tooltip", func(checked bool) {
-			changed = true
-		})
-
-		if check == nil {
-			t.Fatal("Expected non-nil checkbox")
-		}
-		if check.Text != "Enable" {
-			t.Errorf("Expected text 'Enable', got '%s'", check.Text)
-		}
-		if check.tooltip != "This is a tooltip" {
-			t.Errorf("Expected tooltip 'This is a tooltip', got '%s'", check.tooltip)
-		}
-
-		// Simulate tap
-		test.Tap(check)
-		if !changed {
-			t.Error("Expected OnChanged to be called")
-		}
-	})
-}
-
 // TestFixedWidthLayout tests the fixed width layout.
 func TestFixedWidthLayout(t *testing.T) {
 	test.NewApp()

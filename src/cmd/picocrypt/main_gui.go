@@ -27,5 +27,5 @@ func run() {
 		os.Exit(1)
 	}
 
-	app.Run()
+	app.Run(os.Args[1:])
 }

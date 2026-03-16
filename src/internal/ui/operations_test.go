@@ -5,10 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/util"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
 )
 
@@ -128,6 +131,137 @@ func TestUpdateOutputFileForCompressClearsDialogConfirmation(t *testing.T) {
 	}
 	if got := a.State.OutputFile; got != filepath.Join(filepath.Dir(a.State.OutputFile), "report.txt.zip.pcv") {
 		t.Fatalf("OutputFile = %q", got)
+	}
+}
+
+func TestCreateReporterUsesAtomicCancelledFlag(t *testing.T) {
+	test.NewApp()
+	defer test.NewApp()
+
+	a := createTestApp(t)
+	a.State.Working = false
+	a.cancelled.Store(false)
+
+	reporter := a.CreateReporter()
+	if reporter.IsCancelled() {
+		t.Fatal("reporter should not report cancellation when only Working is false")
+	}
+
+	a.cancelled.Store(true)
+	if !reporter.IsCancelled() {
+		t.Fatal("reporter should use the atomic cancelled flag")
+	}
+}
+
+func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
+	test.NewApp()
+	defer test.NewApp()
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input.txt")
+	if err := os.WriteFile(inputPath, []byte("payload"), 0600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	a := createTestApp(t)
+	a.State.Compress = false
+	a.advancedContainer = container.NewVBox()
+
+	saved := recursiveSettings{
+		password:       "secret",
+		keyfile:        true,
+		keyfiles:       []string{"k1", "k2"},
+		keyfileOrdered: true,
+		keyfileLabel:   "Using multiple keyfiles",
+		comments:       "saved comments",
+		paranoid:       true,
+		reedSolomon:    true,
+		deniability:    true,
+		split:          true,
+		splitSize:      "64",
+		splitSelected:  2,
+		delete:         true,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		a.applyRecursiveSelection(inputPath, saved, 1, 3)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("applyRecursiveSelection did not complete")
+	}
+
+	fyne.DoAndWait(func() {})
+
+	if a.State.InputFile != inputPath {
+		t.Fatalf("InputFile = %q, want %q", a.State.InputFile, inputPath)
+	}
+	if a.State.Password != saved.password || a.State.CPassword != saved.password {
+		t.Fatalf("passwords not restored: %q / %q", a.State.Password, a.State.CPassword)
+	}
+	if got := a.State.PopupStatus; got != "Processing file 1/3..." {
+		t.Fatalf("PopupStatus = %q", got)
+	}
+	if !a.State.Keyfile || !a.State.KeyfileOrdered || !a.State.Paranoid || !a.State.ReedSolomon || !a.State.Deniability || !a.State.Split || !a.State.Delete {
+		t.Fatal("saved boolean options were not restored")
+	}
+	if a.State.SplitSize != saved.splitSize || a.State.SplitSelected != saved.splitSelected {
+		t.Fatal("split settings were not restored")
+	}
+	if a.State.Comments != saved.comments || a.State.KeyfileLabel != saved.keyfileLabel {
+		t.Fatal("saved metadata was not restored")
+	}
+}
+
+func TestCreateReporterCallbacksUpdateStateAndCancelButton(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	fyne.DoAndWait(func() {
+		a.showProgressModal()
+	})
+
+	reporter := a.CreateReporter()
+
+	done := make(chan struct{})
+	go func() {
+		reporter.SetStatus("Encrypting...")
+		reporter.SetProgress(0.5, "50%")
+		reporter.SetCanCancel(false)
+		reporter.SetCanCancel(true)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reporter callbacks did not complete")
+	}
+
+	fyne.DoAndWait(func() {})
+
+	if a.State.PopupStatus != "Encrypting..." {
+		t.Fatalf("PopupStatus = %q; want %q", a.State.PopupStatus, "Encrypting...")
+	}
+	if a.State.Progress != 0.5 {
+		t.Fatalf("Progress = %v; want 0.5", a.State.Progress)
+	}
+	if a.State.ProgressInfo != "50%" {
+		t.Fatalf("ProgressInfo = %q; want %q", a.State.ProgressInfo, "50%")
+	}
+	if !a.State.CanCancel {
+		t.Fatal("CanCancel should be true after final callback")
+	}
+	if a.cancelButton == nil {
+		t.Fatal("cancelButton should exist after showProgressModal")
+	}
+	if a.cancelButton.Disabled() {
+		t.Fatal("cancelButton should be enabled")
 	}
 }
 

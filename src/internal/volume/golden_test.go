@@ -39,6 +39,12 @@ const goldenPassword = "test"
 // Expected plaintext content
 const expectedContent = "There is a test file for Picocrypt validation.\n"
 
+var goldenKeyfileFixtures = []string{
+	"keyfile_alpha.bin",
+	"keyfile_beta.bin",
+	"keyfile_gamma.bin",
+}
+
 // Golden test corpus paths (relative to testdata/golden/)
 var goldenTestCases = []struct {
 	name        string
@@ -113,6 +119,79 @@ var goldenCompressedTestCases = []struct {
 		paranoid:    true,
 		reedSolomon: true,
 	},
+}
+
+var goldenKeyfileTestCases = []struct {
+	name          string
+	file          string
+	password      string
+	keyfiles      []string
+	keyfileOrdered bool
+}{
+	{
+		name:           "v2_keyfile_single",
+		file:           "pico_test_v2_keyfile_single.txt.pcv",
+		password:       goldenPassword,
+		keyfiles:       []string{"keyfile_alpha.bin"},
+		keyfileOrdered: false,
+	},
+	{
+		name:           "v2_keyfile_only",
+		file:           "pico_test_v2_keyfile_only.txt.pcv",
+		password:       "",
+		keyfiles:       []string{"keyfile_alpha.bin"},
+		keyfileOrdered: false,
+	},
+	{
+		name:           "v2_keyfile_multi",
+		file:           "pico_test_v2_keyfile_multi.txt.pcv",
+		password:       goldenPassword,
+		keyfiles:       []string{"keyfile_alpha.bin", "keyfile_beta.bin"},
+		keyfileOrdered: false,
+	},
+	{
+		name:           "v2_keyfile_multi_ordered",
+		file:           "pico_test_v2_keyfile_multi_ordered.txt.pcv",
+		password:       goldenPassword,
+		keyfiles:       []string{"keyfile_alpha.bin", "keyfile_beta.bin"},
+		keyfileOrdered: true,
+	},
+}
+
+var goldenCompressedKeyfileTestCases = []struct {
+	name           string
+	file           string
+	password       string
+	keyfiles       []string
+	keyfileOrdered bool
+}{
+	{
+		name:           "v2_keyfile_compress",
+		file:           "pico_test_v2_keyfile_compress.zip.pcv",
+		password:       goldenPassword,
+		keyfiles:       []string{"keyfile_alpha.bin"},
+		keyfileOrdered: false,
+	},
+}
+
+func TestGoldenKeyfileCorpusPresent(t *testing.T) {
+	testdataPath := findTestdata(t)
+
+	required := make([]string, 0, len(goldenKeyfileFixtures)+len(goldenKeyfileTestCases)+len(goldenCompressedKeyfileTestCases))
+	required = append(required, goldenKeyfileFixtures...)
+	for _, tc := range goldenKeyfileTestCases {
+		required = append(required, tc.file)
+	}
+	for _, tc := range goldenCompressedKeyfileTestCases {
+		required = append(required, tc.file)
+	}
+
+	for _, name := range required {
+		path := filepath.Join(testdataPath, name)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("required golden asset missing: %s (%v)", path, err)
+		}
+	}
 }
 
 func TestGoldenDecryption(t *testing.T) {
@@ -284,6 +363,214 @@ func TestGoldenCompressedDecryption(t *testing.T) {
 			}
 
 			t.Logf("Successfully decrypted and verified %s", tc.file)
+		})
+	}
+}
+
+func TestGoldenKeyfileDecryption(t *testing.T) {
+	restore := useProductionTestKDF()
+	defer restore()
+
+	testdataPath := findTestdata(t)
+
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	for _, tc := range goldenKeyfileTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			inputPath := filepath.Join(testdataPath, tc.file)
+			outputPath := filepath.Join(t.TempDir(), "decrypted.txt")
+
+			req := &DecryptRequest{
+				InputFile:    inputPath,
+				OutputFile:   outputPath,
+				Password:     tc.password,
+				Keyfiles:     goldenFixturePaths(testdataPath, tc.keyfiles),
+				ForceDecrypt: false,
+				AutoUnzip:    false,
+				SameLevel:    false,
+				Recombine:    false,
+				Deniability:  false,
+				Reporter:     &GoldenTestReporter{},
+				RSCodecs:     rsCodecs,
+			}
+
+			if err := Decrypt(context.Background(), req); err != nil {
+				t.Fatalf("Decrypt failed: %v", err)
+			}
+
+			content, err := os.ReadFile(outputPath)
+			if err != nil {
+				t.Fatalf("Failed to read output: %v", err)
+			}
+			if string(content) != expectedContent {
+				t.Fatalf("Content mismatch.\nExpected: %q\nGot: %q", expectedContent, string(content))
+			}
+		})
+	}
+}
+
+func TestGoldenCompressedKeyfileDecryption(t *testing.T) {
+	restore := useProductionTestKDF()
+	defer restore()
+
+	testdataPath := findTestdata(t)
+
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	for _, tc := range goldenCompressedKeyfileTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			inputPath := filepath.Join(testdataPath, tc.file)
+			outputPath := filepath.Join(t.TempDir(), strings.TrimSuffix(tc.file, ".pcv"))
+
+			req := &DecryptRequest{
+				InputFile:    inputPath,
+				OutputFile:   outputPath,
+				Password:     tc.password,
+				Keyfiles:     goldenFixturePaths(testdataPath, tc.keyfiles),
+				ForceDecrypt: false,
+				AutoUnzip:    false,
+				SameLevel:    false,
+				Recombine:    false,
+				Deniability:  false,
+				Reporter:     &GoldenTestReporter{},
+				RSCodecs:     rsCodecs,
+			}
+
+			if err := Decrypt(context.Background(), req); err != nil {
+				t.Fatalf("Decrypt failed: %v", err)
+			}
+
+			zipReader, err := zip.OpenReader(outputPath)
+			if err != nil {
+				t.Fatalf("Failed to open zip: %v", err)
+			}
+			defer func() { _ = zipReader.Close() }()
+
+			found := false
+			for _, f := range zipReader.File {
+				if !strings.HasSuffix(f.Name, "pico_test.txt") {
+					continue
+				}
+				found = true
+				rc, err := f.Open()
+				if err != nil {
+					t.Fatalf("Failed to open file in zip: %v", err)
+				}
+				content, err := io.ReadAll(rc)
+				_ = rc.Close()
+				if err != nil {
+					t.Fatalf("Failed to read file in zip: %v", err)
+				}
+				if string(content) != expectedContent {
+					t.Fatalf("Content mismatch in zip.\nExpected: %q\nGot: %q", expectedContent, string(content))
+				}
+			}
+
+			if !found {
+				t.Fatal("pico_test.txt not found in zip")
+			}
+		})
+	}
+}
+
+func TestGoldenKeyfileFailures(t *testing.T) {
+	restore := useProductionTestKDF()
+	defer restore()
+
+	testdataPath := findTestdata(t)
+
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	testCases := []struct {
+		name     string
+		file     string
+		password string
+		keyfiles []string
+	}{
+		{
+			name:     "wrong_single_keyfile",
+			file:     "pico_test_v2_keyfile_single.txt.pcv",
+			password: goldenPassword,
+			keyfiles: []string{"keyfile_gamma.bin"},
+		},
+		{
+			name:     "wrong_ordered_keyfile_order",
+			file:     "pico_test_v2_keyfile_multi_ordered.txt.pcv",
+			password: goldenPassword,
+			keyfiles: []string{"keyfile_beta.bin", "keyfile_alpha.bin"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &DecryptRequest{
+				InputFile:    filepath.Join(testdataPath, tc.file),
+				OutputFile:   filepath.Join(t.TempDir(), "decrypted.txt"),
+				Password:     tc.password,
+				Keyfiles:     goldenFixturePaths(testdataPath, tc.keyfiles),
+				ForceDecrypt: false,
+				AutoUnzip:    false,
+				SameLevel:    false,
+				Recombine:    false,
+				Deniability:  false,
+				Reporter:     &GoldenTestReporter{},
+				RSCodecs:     rsCodecs,
+			}
+
+			if err := Decrypt(context.Background(), req); err == nil {
+				t.Fatal("Decrypt should have failed")
+			}
+		})
+	}
+}
+
+func TestGoldenKeyfileHeaderFlags(t *testing.T) {
+	testdataPath := findTestdata(t)
+
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	testCases := []struct {
+		file          string
+		keyfileOrdered bool
+	}{
+		{file: "pico_test_v2_keyfile_single.txt.pcv", keyfileOrdered: false},
+		{file: "pico_test_v2_keyfile_only.txt.pcv", keyfileOrdered: false},
+		{file: "pico_test_v2_keyfile_multi.txt.pcv", keyfileOrdered: false},
+		{file: "pico_test_v2_keyfile_multi_ordered.txt.pcv", keyfileOrdered: true},
+		{file: "pico_test_v2_keyfile_compress.zip.pcv", keyfileOrdered: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.file, func(t *testing.T) {
+			fin, err := os.Open(filepath.Join(testdataPath, tc.file))
+			if err != nil {
+				t.Fatalf("Failed to open golden file: %v", err)
+			}
+			defer func() { _ = fin.Close() }()
+
+			result, err := NewHeaderReaderForTest(fin, rsCodecs).ReadHeader()
+			if err != nil {
+				t.Fatalf("Failed to read header: %v", err)
+			}
+
+			if !result.Header.Flags.UseKeyfiles {
+				t.Fatal("UseKeyfiles flag should be true")
+			}
+			if result.Header.Flags.KeyfileOrdered != tc.keyfileOrdered {
+				t.Fatalf("KeyfileOrdered = %v, want %v", result.Header.Flags.KeyfileOrdered, tc.keyfileOrdered)
+			}
 		})
 	}
 }
@@ -577,6 +864,14 @@ func copyFile(t *testing.T, src, dst string) {
 	if err := os.WriteFile(dst, data, 0644); err != nil {
 		t.Fatalf("Failed to write destination file: %v", err)
 	}
+}
+
+func goldenFixturePaths(testdataPath string, names []string) []string {
+	paths := make([]string, len(names))
+	for i, name := range names {
+		paths[i] = filepath.Join(testdataPath, name)
+	}
+	return paths
 }
 
 // NewHeaderReaderForTest creates a header reader for testing

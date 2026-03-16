@@ -172,8 +172,8 @@ func NewApp(version string) (*App, error) {
 	}, nil
 }
 
-// Run starts the UI application.
-func (a *App) Run() {
+// Run starts the UI application and optionally loads files passed at startup.
+func (a *App) Run(startupPaths []string) {
 	// Create Fyne app with unique ID for preferences API support
 	a.fyneApp = fyneApp.NewWithID("io.github.picocryptng.PicocryptNG")
 
@@ -241,8 +241,23 @@ func (a *App) Run() {
 		})
 	}
 
+	a.scheduleStartupPaths(startupPaths)
+
 	a.Window.SetContent(content)
 	a.Window.ShowAndRun()
+}
+
+func (a *App) scheduleStartupPaths(startupPaths []string) {
+	if len(startupPaths) == 0 {
+		return
+	}
+
+	paths := append([]string(nil), startupPaths...)
+	a.fyneApp.Lifecycle().SetOnStarted(func() {
+		fyne.Do(func() {
+			a.applyStartupPaths(paths)
+		})
+	})
 }
 
 // showFileDialogWithResize temporarily resizes the window to accommodate file dialogs.

@@ -33,6 +33,36 @@ func normalizeZipPath(zipPath string) string {
 	return filepath.FromSlash(normalized)
 }
 
+// hasUnsafeWindowsTrimTraversalComponent rejects path segments that Windows can
+// canonicalize into "." or ".." by trimming trailing spaces or periods.
+func hasUnsafeWindowsTrimTraversalComponent(path string) bool {
+	for _, segment := range strings.Split(strings.ReplaceAll(path, "\\", "/"), "/") {
+		if becomesDotTraversalAfterWindowsTrim(segment) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func becomesDotTraversalAfterWindowsTrim(segment string) bool {
+	current := segment
+	for {
+		if current == "." || current == ".." {
+			return true
+		}
+		if current == "" {
+			return false
+		}
+
+		last := current[len(current)-1]
+		if last != ' ' && last != '.' {
+			return false
+		}
+		current = current[:len(current)-1]
+	}
+}
+
 // isValidExtractionPath checks if the output path is within the extraction directory.
 // This prevents zip slip attacks where malicious archives contain paths like ../../etc/passwd
 // while allowing legitimate filenames with double dots like "file..txt".
@@ -236,6 +266,9 @@ func Unpack(opts UnpackOptions) (retErr error) {
 	normalizedPaths := make(map[*zip.File]string, len(reader.File))
 	for _, f := range reader.File {
 		// Normalize and validate path to prevent zip slip attacks
+		if hasUnsafeWindowsTrimTraversalComponent(f.Name) {
+			return errors.New("potentially malicious zip item path")
+		}
 		normalizedName := normalizeZipPath(f.Name)
 		outPath, err := prepareExtractionPath(extractDir, normalizedName, f.FileInfo().IsDir())
 		if err != nil {
