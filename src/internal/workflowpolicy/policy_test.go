@@ -7,7 +7,9 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 		name string
 		path string
 	}{
+		{name: "build-android", path: ".github/workflows/build-android.yml"},
 		{name: "build-linux", path: ".github/workflows/build-linux.yml"},
+		{name: "build-macos", path: ".github/workflows/build-macos.yml"},
 		{name: "build-windows", path: ".github/workflows/build-windows.yml"},
 		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml"},
 	}
@@ -21,9 +23,19 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 }
 
 func TestBuildPermissionsStayLeastPrivilege(t *testing.T) {
+	buildAndroid := mustReadWorkflow(t, ".github/workflows/build-android.yml")
+	mustContain(t, buildAndroid, "permissions:\n  contents: read")
+	mustMatch(t, buildAndroid, `(?s)\n  build:\n(?:.*\n)*?    permissions:\n      contents: read\n`)
+	mustMatch(t, buildAndroid, `(?s)\n  release:\n(?:.*\n)*?    permissions:\n      contents: write\n`)
+
 	buildLinux := mustReadWorkflow(t, ".github/workflows/build-linux.yml")
 	mustContain(t, buildLinux, "permissions:\n  contents: read")
 	mustContain(t, buildLinux, "release:\n    needs: build\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: write")
+
+	buildMacOS := mustReadWorkflow(t, ".github/workflows/build-macos.yml")
+	mustContain(t, buildMacOS, "permissions:\n  contents: read")
+	mustMatch(t, buildMacOS, `(?s)\n  build:\n(?:.*\n)*?    permissions:\n      contents: read\n`)
+	mustMatch(t, buildMacOS, `(?s)\n  release:\n(?:.*\n)*?    permissions:\n      contents: write\n`)
 
 	buildWindows := mustReadWorkflow(t, ".github/workflows/build-windows.yml")
 	mustContain(t, buildWindows, "permissions:\n  contents: read")
