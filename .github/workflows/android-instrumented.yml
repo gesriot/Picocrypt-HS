@@ -5,6 +5,15 @@ permissions:
 
 on:
   workflow_dispatch:
+    inputs:
+      test_scope:
+        description: Instrumented test scope
+        required: true
+        default: focused
+        type: choice
+        options:
+          - focused
+          - extended
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -110,7 +119,12 @@ jobs:
         api-level: 36
         arch: x86_64
         script: |
-          cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest
+          cd android
+          TEST_CLASSES="io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest"
+          if [ "${{ inputs.test_scope }}" = "extended" ]; then
+            TEST_CLASSES="$TEST_CLASSES,io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest"
+          fi
+          ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="$TEST_CLASSES"
 
     - name: Prepare artifacts
       run: |
