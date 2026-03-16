@@ -1,7 +1,11 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
@@ -19,61 +23,20 @@ class MainActivityUITest {
     
     @Test
     fun mainActivity_displays_on_launch() {
-        // Activity should be launched automatically by createAndroidComposeRule
-        // Verify the main UI is displayed
         composeTestRule.onRoot().assertIsDisplayed()
     }
     
     @Test
-    fun mainActivity_displays_file_selection_ui() {
-        // Verify that file selection components are displayed
-        composeTestRule.onRoot().assertIsDisplayed()
-        
-        // The UI should be visible and interactive
-        // Note: Specific UI element testing depends on the actual implementation
-        // and may require test tags to be added to the composables
+    fun mainActivity_displays_logo_and_file_selection_ui() {
+        composeTestRule.onNodeWithContentDescription("logo icon").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("logo text").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Choose file").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Choose a file").assertIsDisplayed()
     }
     
     @Test
-    fun mainActivity_handles_form_state_updates() {
-        // Test that the activity responds to form state changes
-        // This is tested indirectly through the UI being displayed
-        composeTestRule.onRoot().assertIsDisplayed()
-    }
-    
-    @Test
-    fun mainActivity_displays_progress_during_operation() {
-        // Test that progress UI is displayed when an operation is active
-        // Note: This requires setting up an actual operation, which may need
-        // Go mobile bindings. For now, we verify the UI can be displayed.
-        composeTestRule.onRoot().assertIsDisplayed()
-    }
-    
-    @Test
-    fun mainActivity_displays_error_dialog_on_error() {
-        // Test that error dialogs are displayed when errors occur
-        // Note: This requires triggering an error condition
-        composeTestRule.onRoot().assertIsDisplayed()
-    }
-    
-    @Test
-    fun mainActivity_handles_operation_cancellation() {
-        // Test that the activity handles operation cancellation
-        // Note: This requires setting up an operation first
-        composeTestRule.onRoot().assertIsDisplayed()
-    }
-    
-    @Test
-    fun mainActivity_shows_encrypt_ui_for_non_pcv_files() {
-        // Test that encryption UI is shown when a non-.pcv file is selected
-        // Note: This requires file selection, which may need additional setup
-        composeTestRule.onRoot().assertIsDisplayed()
-    }
-    
-    @Test
-    fun mainActivity_shows_decrypt_ui_for_pcv_files() {
-        // Test that decryption UI is shown when a .pcv file is selected
-        // Note: This requires file selection, which may need additional setup
-        composeTestRule.onRoot().assertIsDisplayed()
+    fun mainActivity_hides_work_buttons_before_file_selection() {
+        composeTestRule.onAllNodesWithText("Encrypt File").assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("Decrypt File").assertCountEquals(0)
     }
 }
