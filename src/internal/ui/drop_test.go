@@ -434,6 +434,44 @@ func TestApplyStartupPathsReportsAccessError(t *testing.T) {
 	}
 }
 
+func TestApplyStartupPathsPreservesPartialAccessWarning(t *testing.T) {
+	fyneApp := test.NewApp()
+	defer fyneApp.Quit()
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	inputFile := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	originalStat := startupPathStat
+	startupPathStat = func(path string) (os.FileInfo, error) {
+		if path == "blocked.txt" {
+			return nil, os.ErrPermission
+		}
+		return originalStat(path)
+	}
+	defer func() {
+		startupPathStat = originalStat
+	}()
+
+	fyne.DoAndWait(func() {
+		a.applyStartupPaths([]string{"blocked.txt", inputFile})
+	})
+	waitForDropProcessing(t, a)
+	state := snapshotDropState(t, a)
+
+	if state.Mode != "encrypt" {
+		t.Fatalf("Mode = %q; want encrypt", state.Mode)
+	}
+	if state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
+	}
+	if state.MainStatus != startupPathAccessStatus {
+		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathAccessStatus)
+	}
+}
+
 func TestCollectStartupPathsAllowsHyphenPrefixedFilename(t *testing.T) {
 	validPaths, err := collectStartupPaths([]string{"-secret.txt"}, func(path string) (os.FileInfo, error) {
 		return nil, nil

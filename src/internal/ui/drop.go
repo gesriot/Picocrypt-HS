@@ -73,6 +73,11 @@ func (a *App) applyStartupPaths(paths []string) {
 	}
 
 	a.onDrop(validPaths)
+	if err != nil {
+		a.State.MainStatus = startupPathAccessStatus
+		a.State.MainStatusColor = util.YELLOW
+		a.refreshUI()
+	}
 }
 
 func (a *App) appendScannedFiles(files []scannedFile) {
