@@ -6,34 +6,50 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 	testCases := []struct {
 		name string
 		path string
+		job  string
 	}{
-		{name: "build-linux", path: ".github/workflows/build-linux.yml"},
-		{name: "build-windows", path: ".github/workflows/build-windows.yml"},
-		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml"},
+		{name: "build-android", path: ".github/workflows/build-android.yml", job: "release"},
+		{name: "build-linux", path: ".github/workflows/build-linux.yml", job: "release"},
+		{name: "build-macos", path: ".github/workflows/build-macos.yml", job: "release"},
+		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
+		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			content := mustReadWorkflow(t, tc.path)
-			mustMatch(t, content, `softprops/action-gh-release@[0-9a-f]{40}`)
+			workflow := mustReadWorkflowDoc(t, tc.path)
+			releaseJob := mustJob(t, workflow, tc.job)
+			releaseStep := mustHaveStepUsingPrefix(t, releaseJob, "softprops/action-gh-release@")
+			mustMatch(t, releaseStep.Uses, `softprops/action-gh-release@[0-9a-f]{40}`)
 		})
 	}
 }
 
 func TestBuildPermissionsStayLeastPrivilege(t *testing.T) {
-	buildLinux := mustReadWorkflow(t, ".github/workflows/build-linux.yml")
-	mustContain(t, buildLinux, "permissions:\n  contents: read")
-	mustContain(t, buildLinux, "release:\n    needs: build\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: write")
+	buildAndroid := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
+	mustPermission(t, buildAndroid.Permissions, "contents", "read")
+	mustEffectivePermission(t, buildAndroid, mustJob(t, buildAndroid, "build"), "contents", "read")
+	mustPermission(t, mustJob(t, buildAndroid, "release").Permissions, "contents", "write")
 
-	buildWindows := mustReadWorkflow(t, ".github/workflows/build-windows.yml")
-	mustContain(t, buildWindows, "permissions:\n  contents: read")
-	mustContain(t, buildWindows, "build:\n    runs-on: windows-2025\n    permissions:\n      contents: read")
-	mustContain(t, buildWindows, "release:\n    needs: build\n    runs-on: windows-2025\n    permissions:\n      contents: write")
+	buildLinux := mustReadWorkflowDoc(t, ".github/workflows/build-linux.yml")
+	mustPermission(t, buildLinux.Permissions, "contents", "read")
+	mustEffectivePermission(t, buildLinux, mustJob(t, buildLinux, "build"), "contents", "read")
+	mustEffectivePermission(t, buildLinux, mustJob(t, buildLinux, "release"), "contents", "write")
 
-	buildSnapcraft := mustReadWorkflow(t, ".github/workflows/build-snapcraft.yml")
-	mustContain(t, buildSnapcraft, "permissions:\n  contents: read")
-	mustContain(t, buildSnapcraft, "build-snapcraft:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read")
-	mustContain(t, buildSnapcraft, "release:\n    needs: build-snapcraft\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write")
+	buildMacOS := mustReadWorkflowDoc(t, ".github/workflows/build-macos.yml")
+	mustPermission(t, buildMacOS.Permissions, "contents", "read")
+	mustEffectivePermission(t, buildMacOS, mustJob(t, buildMacOS, "build"), "contents", "read")
+	mustEffectivePermission(t, buildMacOS, mustJob(t, buildMacOS, "release"), "contents", "write")
+
+	buildWindows := mustReadWorkflowDoc(t, ".github/workflows/build-windows.yml")
+	mustPermission(t, buildWindows.Permissions, "contents", "read")
+	mustEffectivePermission(t, buildWindows, mustJob(t, buildWindows, "build"), "contents", "read")
+	mustEffectivePermission(t, buildWindows, mustJob(t, buildWindows, "release"), "contents", "write")
+
+	buildSnapcraft := mustReadWorkflowDoc(t, ".github/workflows/build-snapcraft.yml")
+	mustPermission(t, buildSnapcraft.Permissions, "contents", "read")
+	mustEffectivePermission(t, buildSnapcraft, mustJob(t, buildSnapcraft, "build-snapcraft"), "contents", "read")
+	mustEffectivePermission(t, buildSnapcraft, mustJob(t, buildSnapcraft, "release"), "contents", "write")
 }
 
 func TestLinuxUPXDownloadsRemainChecksumGated(t *testing.T) {
@@ -60,8 +76,10 @@ func TestLinuxDebPackagingDoesNotUseExternalScaffold(t *testing.T) {
 }
 
 func TestSnapcraftActionPinnedToFullSHA(t *testing.T) {
-	content := mustReadWorkflow(t, ".github/workflows/build-snapcraft.yml")
-	mustMatch(t, content, `snapcore/action-build@[0-9a-f]{40}`)
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-snapcraft.yml")
+	buildJob := mustJob(t, workflow, "build-snapcraft")
+	buildStep := mustHaveStepUsingPrefix(t, buildJob, "snapcore/action-build@")
+	mustMatch(t, buildStep.Uses, `snapcore/action-build@[0-9a-f]{40}`)
 }
 
 func TestAndroidPRWorkflowStaysFastAndCompileFocused(t *testing.T) {
@@ -74,15 +92,39 @@ func TestAndroidPRWorkflowStaysFastAndCompileFocused(t *testing.T) {
 	mustNotContain(t, content, "connectedDebugAndroidTest")
 }
 
+func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
+	buildJob := mustJob(t, workflow, "build")
+	releaseJob := mustJob(t, workflow, "release")
+
+	mustStepNamed(t, buildJob, "Build Go Mobile AAR")
+	mustStepNamed(t, buildJob, "Run Unit Tests")
+	mustNotHaveStepNamed(t, buildJob, "Decode Android signing keystore")
+	mustNotHaveStepNamed(t, buildJob, "Build Signed Release APK")
+
+	releaseStep := mustStepNamed(t, releaseJob, "Decode Android signing keystore")
+	if _, ok := releaseStep.Env["ANDROID_KEYSTORE_BASE64"]; !ok {
+		t.Fatal("release keystore decode step should declare ANDROID_KEYSTORE_BASE64")
+	}
+	mustStepNamed(t, releaseJob, "Build Signed Release APK")
+	mustStepUsing(t, releaseJob, "actions/download-artifact@v8")
+}
+
 func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/android-instrumented.yml")
 	mustContain(t, content, "workflow_dispatch:")
+	mustContain(t, content, "test_scope:")
+	mustContain(t, content, "default: focused")
+	mustContain(t, content, "- focused")
+	mustContain(t, content, "- extended")
 	mustMatch(t, content, `ReactiveCircus/android-emulator-runner@[0-9a-f]{40}`)
 	mustContain(t, content, "connectedDebugAndroidTest")
 	mustContain(t, content, "PasswordCardTest")
 	mustContain(t, content, "ProgressCardTest")
+	mustContain(t, content, "OperationManagerIntegrationTest")
 	mustNotContain(t, content, "connectedDebugAndroidTest \\")
-	mustContain(t, content, "cd android && ./gradlew connectedDebugAndroidTest")
+	mustContain(t, content, "TEST_CLASSES=")
+	mustContain(t, content, "./gradlew connectedDebugAndroidTest")
 }
 
 func TestWindowsLegacyPRWorkflowIsCLIOnly(t *testing.T) {
@@ -104,12 +146,23 @@ func TestWindowsLegacyReleaseWorkflowIsCLIOnly(t *testing.T) {
 }
 
 func TestWindowsLegacyWorkflowsCacheLegacyGo(t *testing.T) {
-	for _, path := range []string{
-		".github/workflows/pr-test-build-windows-legacy.yml",
-		".github/workflows/build-windows-legacy.yml",
-	} {
-		content := mustReadWorkflow(t, path)
-		mustContain(t, content, "actions/cache@v4")
-		mustContain(t, content, "C:\\go-legacy")
+	testCases := []struct {
+		path string
+		job  string
+	}{
+		{path: ".github/workflows/pr-test-build-windows-legacy.yml", job: "pr-test-build-windows-legacy"},
+		{path: ".github/workflows/build-windows-legacy.yml", job: "build"},
+	}
+
+	for _, tc := range testCases {
+		workflow := mustReadWorkflowDoc(t, tc.path)
+		job := mustJob(t, workflow, tc.job)
+		cacheStep := mustStepNamed(t, job, "Cache go-legacy-win7")
+		if cacheStep.Uses != "actions/cache@v4" {
+			t.Fatalf("cache step uses = %q, want actions/cache@v4", cacheStep.Uses)
+		}
+		if cacheStep.With["path"] != `C:\go-legacy` {
+			t.Fatalf("cache step path = %#v, want C:\\go-legacy", cacheStep.With["path"])
+		}
 	}
 }

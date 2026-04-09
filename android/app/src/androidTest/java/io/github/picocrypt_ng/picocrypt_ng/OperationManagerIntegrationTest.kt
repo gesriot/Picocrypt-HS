@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -132,61 +133,52 @@ class OperationManagerIntegrationTest {
         )
         
         val result = OperationManager.startEncrypt(context, formData)
-        
-        // Result may succeed or fail depending on Go mobile bindings availability
-        // But if it succeeds, operation state should be set
-        result.onSuccess { operationID ->
-            assertNotNull("Operation ID should not be null", operationID)
-            
-            val operationState = OperationManager.currentOperation.first()
-            assertNotNull("Operation state should be set", operationState)
-            assertEquals("Operation ID should match", operationID, operationState?.id)
-            assertEquals("Operation type should be ENCRYPT", OperationType.ENCRYPT, operationState?.type)
-            assertEquals("Input file should match", testFile.absolutePath, operationState?.inputFile)
-            assertNotNull("Output file should be set", operationState?.outputFile)
-            assertTrue("Output file should end with .pcv", operationState?.outputFile?.endsWith(".pcv") == true)
-        }
+
+        assertTrue("Encrypt should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
+        val operationID = result.getOrThrow()
+
+        val operationState = OperationManager.currentOperation.first()
+        assertNotNull("Operation state should be set", operationState)
+        assertEquals("Operation ID should match", operationID, operationState?.id)
+        assertEquals("Operation type should be ENCRYPT", OperationType.ENCRYPT, operationState?.type)
+        assertEquals("Input file should match", testFile.absolutePath, operationState?.inputFile)
+        assertNotNull("Output file should be set", operationState?.outputFile)
+        assertTrue("Output file should end with .pcv", operationState?.outputFile?.endsWith(".pcv") == true)
     }
     
     @Test
     fun startDecrypt_creates_operation_state_on_success() = runTest {
-        // Create a test file
-        val internalDir = File(context.filesDir, "picocrypt_files")
-        internalDir.mkdirs()
-        val testFile = File(internalDir, "input_file.pcv")
-        testFile.writeText("test encrypted content")
-        
-        val formData = decryptFormData(
-            copiedFilePath = testFile.absolutePath,
-            password = "testpassword"
+        val password = "testpassword"
+        val encryptedFile = createEncryptedVolume(
+            sourceText = "test encrypted content",
+            password = password
         )
-        
+
+        val formData = decryptFormData(
+            copiedFilePath = encryptedFile.absolutePath,
+            password = password
+        )
+
         val result = OperationManager.startDecrypt(context, formData)
-        
-        // Result may succeed or fail depending on Go mobile bindings availability
-        result.onSuccess { operationID ->
-            assertNotNull("Operation ID should not be null", operationID)
-            
-            val operationState = OperationManager.currentOperation.first()
-            assertNotNull("Operation state should be set", operationState)
-            assertEquals("Operation ID should match", operationID, operationState?.id)
-            assertEquals("Operation type should be DECRYPT", OperationType.DECRYPT, operationState?.type)
-            assertEquals("Input file should match", testFile.absolutePath, operationState?.inputFile)
-            assertNotNull("Output file should be set", operationState?.outputFile)
-        }
+
+        assertTrue("Decrypt should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
+        val operationID = result.getOrThrow()
+
+        val operationState = OperationManager.currentOperation.first()
+        assertNotNull("Operation state should be set", operationState)
+        assertEquals("Operation ID should match", operationID, operationState?.id)
+        assertEquals("Operation type should be DECRYPT", OperationType.DECRYPT, operationState?.type)
+        assertEquals("Input file should match", encryptedFile.absolutePath, operationState?.inputFile)
+        assertNotNull("Output file should be set", operationState?.outputFile)
     }
     
     @Test
-    fun pollProgress_updates_operation_state() = runTest {
-        // This test requires an active operation
-        // We'll test that pollProgress doesn't throw when called
-        // Full testing requires Go mobile bindings
-        
+    fun pollProgress_returns_null_without_active_operation() = runTest {
+        OperationManager.clearOperation(shouldCleanupFiles = false)
+
         val result = OperationManager.pollProgress()
-        
-        // Should return null if no operation, or OperationState if operation exists
-        // Should not throw
-        assertNotNull("Result should not be null (may be null if no operation)", result != null || result == null)
+
+        assertNull("pollProgress should return null when no operation is active", result)
     }
     
     @Test
@@ -285,5 +277,43 @@ class OperationManagerIntegrationTest {
         OperationManager.clearOperation(shouldCleanupFiles = false)
         operationState = OperationManager.currentOperation.first()
         assertNull("Should be null after clearing", operationState)
+    }
+
+    private suspend fun createEncryptedVolume(sourceText: String, password: String): File {
+        val internalDir = File(context.filesDir, "picocrypt_files")
+        internalDir.mkdirs()
+        val inputFile = File(internalDir, "integration_input.txt")
+        inputFile.writeText(sourceText)
+
+        val result = OperationManager.startEncrypt(
+            context,
+            encryptFormData(
+                copiedFilePath = inputFile.absolutePath,
+                password = password,
+                confirmPassword = password
+            )
+        )
+        assertTrue("Encrypt setup should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
+
+        val completed = waitForOperationToFinish()
+        assertTrue("Encrypt setup operation should complete successfully", completed.done)
+        assertNull("Encrypt setup should not finish with error", completed.error)
+
+        val encryptedFile = File(completed.outputFile)
+        OperationManager.clearOperation(context, shouldCleanupFiles = false)
+
+        assertTrue("Encrypted file should exist for decrypt test", encryptedFile.exists())
+        return encryptedFile
+    }
+
+    private suspend fun waitForOperationToFinish(maxPolls: Int = 200): OperationState {
+        repeat(maxPolls) {
+            val state = OperationManager.pollProgress()
+            if (state != null && state.done) {
+                return state
+            }
+            delay(50)
+        }
+        throw AssertionError("Timed out waiting for operation to finish")
     }
 }

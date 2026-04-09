@@ -1,7 +1,7 @@
 name: build-macos
 
 permissions:
-  contents: write
+  contents: read
 
 on:
   push:
@@ -20,6 +20,8 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
+    permissions:
+      contents: read
     env:
       MACOSX_DEPLOYMENT_TARGET: "15.0"
       CGO_CFLAGS: "-mmacosx-version-min=15.0"
@@ -88,6 +90,20 @@ jobs:
         if-no-files-found: error
         compression-level: 9
 
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Download artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: build-macos
+        path: artifacts/build-macos
+
     - name: Get version tag
       run: |
         VERSION=$(cat VERSION)
@@ -95,17 +111,17 @@ jobs:
 
     - name: Generate checksums
       run: |
-        HASH=$(shasum -a 256 Picocrypt-NG.dmg | cut -d ' ' -f1)
+        HASH=$(sha256sum artifacts/build-macos/Picocrypt-NG.dmg | cut -d ' ' -f1)
         echo "CHECKSUM_PICOCRYPT_NG=$HASH" >> $GITHUB_ENV
-        HASH_CLI=$(shasum -a 256 src/Picocrypt-NG-cli-macos | cut -d ' ' -f1)
+        HASH_CLI=$(sha256sum artifacts/build-macos/Picocrypt-NG-cli-macos | cut -d ' ' -f1)
         echo "CHECKSUM_PICOCRYPT_NG_CLI_MACOS=$HASH_CLI" >> $GITHUB_ENV
 
     - name: Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
       with:
         files: |
-          Picocrypt-NG.dmg
-          src/Picocrypt-NG-cli-macos
+          artifacts/build-macos/Picocrypt-NG.dmg
+          artifacts/build-macos/Picocrypt-NG-cli-macos
         tag_name: ${{ env.VERSION }}
         make_latest: true
         append_body: true

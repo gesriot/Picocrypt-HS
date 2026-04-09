@@ -3,6 +3,7 @@ package volume
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
 )
 
 // TestRoundTripBasic tests basic encrypt -> decrypt cycle
@@ -1063,6 +1065,80 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 	}
 
 	t.Log("Auto-unzip same-level: SUCCESS")
+}
+
+func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	testContent := []byte("Auto-unzip rollback test content!")
+	testDir := filepath.Join(tmpDir, "rollback_folder")
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+	testFile := filepath.Join(testDir, "rollback.txt")
+	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "rollback.zip")
+	if err := createTestZip(zipPath, testDir, "rollback_folder"); err != nil {
+		t.Fatalf("Failed to create test zip: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "rollback.zip.pcv")
+	decryptedPath := filepath.Join(tmpDir, "rollback")
+	reporter := &GoldenTestReporter{}
+
+	encReq := &EncryptRequest{
+		InputFile:  zipPath,
+		OutputFile: encryptedPath,
+		Password:   "rollback_password",
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	_ = os.Remove(zipPath)
+	_ = os.RemoveAll(testDir)
+
+	originalUnpackArchive := unpackArchive
+	unpackArchive = func(opts fileops.UnpackOptions) error {
+		return errors.New("insufficient disk space for extraction")
+	}
+	defer func() {
+		unpackArchive = originalUnpackArchive
+	}()
+
+	decReq := &DecryptRequest{
+		InputFile:    encryptedPath,
+		OutputFile:   decryptedPath,
+		Password:     "rollback_password",
+		AutoUnzip:    true,
+		ForceDecrypt: false,
+		Reporter:     reporter,
+		RSCodecs:     rsCodecs,
+	}
+
+	err = Decrypt(context.Background(), decReq)
+	if err == nil {
+		t.Fatal("expected decrypt to fail when unpack step fails")
+	}
+	if !strings.Contains(err.Error(), "unzip") {
+		t.Fatalf("expected unzip error, got %v", err)
+	}
+
+	if _, statErr := os.Stat(decryptedPath); statErr != nil {
+		t.Fatalf("expected original decrypted output path to be restored, stat err: %v", statErr)
+	}
+	if _, statErr := os.Stat(decryptedPath + ".zip"); !os.IsNotExist(statErr) {
+		t.Fatalf("temporary renamed zip should not remain after unpack failure")
+	}
 }
 
 // createTestZip creates a zip file from a directory

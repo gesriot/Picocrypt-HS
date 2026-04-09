@@ -6,12 +6,10 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/test"
 )
 
 func TestBuildEncryptOptionsDoNotUseTooltipCheckboxes(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	a := createTestApp(t)
 	a.advancedContainer = container.NewVBox()
@@ -24,8 +22,7 @@ func TestBuildEncryptOptionsDoNotUseTooltipCheckboxes(t *testing.T) {
 }
 
 func TestBuildDecryptOptionsDoNotUseTooltipCheckboxes(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	a := createTestApp(t)
 	a.advancedContainer = container.NewVBox()
@@ -39,8 +36,7 @@ func TestBuildDecryptOptionsDoNotUseTooltipCheckboxes(t *testing.T) {
 }
 
 func TestBuildMobileEncryptOptionsDoNotUseTooltipCheckboxes(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	a := createTestApp(t)
 	a.advancedContainer = container.NewVBox()
@@ -53,8 +49,7 @@ func TestBuildMobileEncryptOptionsDoNotUseTooltipCheckboxes(t *testing.T) {
 }
 
 func TestBuildMobileDecryptOptionsDoNotUseTooltipCheckboxes(t *testing.T) {
-	test.NewApp()
-	defer test.NewApp()
+	newTestFyneApp(t)
 
 	a := createTestApp(t)
 	a.advancedContainer = container.NewVBox()

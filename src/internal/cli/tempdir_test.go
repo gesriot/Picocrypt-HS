@@ -195,17 +195,15 @@ func TestBuildCandidatesForStdin(t *testing.T) {
 		t.Errorf("expected at least 2 candidates, got %d", len(candidates))
 	}
 
-	// First should be system temp
-	if candidates[0] != os.TempDir() {
-		t.Errorf("first candidate should be os.TempDir(), got %s", candidates[0])
-	}
-
 	cacheDir, err := userCacheDir()
 	if err != nil {
 		t.Fatalf("userCacheDir() error = %v", err)
 	}
-	if candidates[1] != cacheDir {
-		t.Errorf("second candidate should be user cache dir %s, got %s", cacheDir, candidates[1])
+	if candidates[0] != cacheDir {
+		t.Errorf("first candidate should be user cache dir %s, got %s", cacheDir, candidates[0])
+	}
+	if candidates[1] != os.TempDir() {
+		t.Errorf("second candidate should be os.TempDir(), got %s", candidates[1])
 	}
 
 	disallowed := map[string]bool{
@@ -228,16 +226,15 @@ func TestBuildCandidatesForStdin_NoOutput(t *testing.T) {
 		t.Errorf("expected at least 2 candidates, got %d", len(candidates))
 	}
 
-	if candidates[0] != os.TempDir() {
-		t.Errorf("first candidate should be os.TempDir(), got %s", candidates[0])
-	}
-
 	cacheDir, err := userCacheDir()
 	if err != nil {
 		t.Fatalf("userCacheDir() error = %v", err)
 	}
-	if candidates[1] != cacheDir {
-		t.Errorf("second candidate should be user cache dir %s, got %s", cacheDir, candidates[1])
+	if candidates[0] != cacheDir {
+		t.Errorf("first candidate should be user cache dir %s, got %s", cacheDir, candidates[0])
+	}
+	if candidates[1] != os.TempDir() {
+		t.Errorf("second candidate should be os.TempDir(), got %s", candidates[1])
 	}
 }
 
@@ -251,12 +248,16 @@ func TestBuildCandidatesForStdin_StdoutOutput(t *testing.T) {
 		}
 	}
 
-	if candidates[0] != os.TempDir() {
-		t.Errorf("first candidate should be os.TempDir(), got %s", candidates[0])
+	cacheDir, err := userCacheDir()
+	if err != nil {
+		t.Fatalf("userCacheDir() error = %v", err)
+	}
+	if candidates[0] != cacheDir {
+		t.Errorf("first candidate should be user cache dir %s, got %s", cacheDir, candidates[0])
 	}
 }
 
-func TestChooseTempDir_StdinPrefersSystemTemp(t *testing.T) {
+func TestChooseTempDir_StdinPrefersUserCache(t *testing.T) {
 	TempDirOverride = ""
 
 	// Create a writable temp dir to simulate output location
@@ -269,9 +270,12 @@ func TestChooseTempDir_StdinPrefersSystemTemp(t *testing.T) {
 		t.Fatalf("ChooseTempDir() error = %v", err)
 	}
 
-	// Should prefer system temp for stdin when available
-	if dir != os.TempDir() {
-		t.Errorf("stdin mode should prefer system temp %s, got %s", os.TempDir(), dir)
+	cacheDir, err := userCacheDir()
+	if err != nil {
+		t.Fatalf("userCacheDir() error = %v", err)
+	}
+	if dir != cacheDir {
+		t.Errorf("stdin mode should prefer user cache %s, got %s", cacheDir, dir)
 	}
 }
 

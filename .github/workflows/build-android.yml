@@ -1,7 +1,7 @@
 name: build-android
 
 permissions:
-  contents: write
+  contents: read
 
 on:
   push:
@@ -18,6 +18,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v6
 
@@ -75,6 +77,77 @@ jobs:
         echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
         echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
+    - name: Build Go Mobile AAR
+      working-directory: android
+      run: |
+        chmod +x build-gomobile.sh
+        ./build-gomobile.sh
+
+    - name: Make gradlew executable
+      working-directory: android
+      run: chmod +x gradlew
+
+    - name: Run Unit Tests
+      working-directory: android
+      run: ./gradlew test
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: build-android-gomobile
+        path: android/app/libs/picocrypt-mobile.aar
+        if-no-files-found: error
+        compression-level: 9
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Download artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: build-android-gomobile
+        path: android/app/libs
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      with:
+        api-level: 36
+        build-tools: "36.0.0"
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: "temurin"
+        java-version: "17"
+
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          android/.gradle
+        key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Get version tag
+      run: |
+        VERSION=$(cat VERSION)
+        echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+        IFS='.' read -r major minor patch <<< "$VERSION"
+        major=${major:-0}
+        minor=${minor:-0}
+        patch=${patch:-0}
+        VERSION_CODE=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+        echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+
     - name: Decode Android signing keystore
       env:
         ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -94,19 +167,9 @@ jobs:
         echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
         echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
 
-    - name: Build Go Mobile AAR
-      working-directory: android
-      run: |
-        chmod +x build-gomobile.sh
-        ./build-gomobile.sh
-
     - name: Make gradlew executable
       working-directory: android
       run: chmod +x gradlew
-
-    - name: Run Unit Tests
-      working-directory: android
-      run: ./gradlew test
 
     - name: Build Signed Release APK
       working-directory: android
@@ -116,14 +179,6 @@ jobs:
       run: |
         mkdir -p out
         cp android/app/build/outputs/apk/release/app-release.apk out/Picocrypt-NG-android-release.apk
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: build-android
-        path: out/*.apk
-        if-no-files-found: error
-        compression-level: 9
 
     - name: Generate checksums
       run: |

@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	dropScanBatchSize       = 128
-	dropScanFlushInterval   = 50 * time.Millisecond
-	startupPathAccessStatus = "Failed to access startup path"
+	dropScanBatchSize              = 128
+	dropScanFlushInterval          = 50 * time.Millisecond
+	startupPathAccessStatus        = "Failed to access startup path"
+	startupPathPartialAccessStatus = "Some startup paths could not be accessed"
 )
 
 type scannedFile struct {
@@ -73,6 +74,19 @@ func (a *App) applyStartupPaths(paths []string) {
 	}
 
 	a.onDrop(validPaths)
+	if err != nil {
+		a.State.MainStatus = startupPathPartialAccessStatus
+		a.State.MainStatusColor = util.YELLOW
+		a.refreshUI()
+	}
+}
+
+func (a *App) applyFolderWalkError() {
+	a.State.SetScanning(false)
+	a.resetUI()
+	a.State.MainStatus = "Failed to walk through dropped items"
+	a.State.MainStatusColor = util.RED
+	a.refreshUI()
 }
 
 func (a *App) appendScannedFiles(files []scannedFile) {
@@ -204,10 +218,7 @@ func (a *App) onDrop(names []string) {
 			if filepath.Walk(name, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					fyne.DoAndWait(func() {
-						a.resetUI()
-						a.State.MainStatus = "Failed to walk through dropped items"
-						a.State.MainStatusColor = util.RED
-						a.refreshUI()
+						a.applyFolderWalkError()
 					})
 					return err
 				}
@@ -222,10 +233,7 @@ func (a *App) onDrop(names []string) {
 				return nil
 			}) != nil {
 				fyne.DoAndWait(func() {
-					a.resetUI()
-					a.State.MainStatus = "Failed to walk through dropped items"
-					a.State.MainStatusColor = util.RED
-					a.refreshUI()
+					a.applyFolderWalkError()
 				})
 				return
 			}

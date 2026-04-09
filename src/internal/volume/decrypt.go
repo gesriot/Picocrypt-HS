@@ -19,6 +19,8 @@ import (
 	"Picocrypt-NG/internal/util"
 )
 
+var unpackArchive = fileops.Unpack
+
 // Decrypt performs a complete volume decryption operation.
 // This is the main entry point for decryption.
 // If ctx is nil, a background context is used.
@@ -675,7 +677,7 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 		}
 
 		ctx.SetStatus("Unzipping...")
-		err := fileops.Unpack(fileops.UnpackOptions{
+		err := unpackArchive(fileops.UnpackOptions{
 			ZipPath:   zipPath,
 			SameLevel: req.SameLevel,
 			Progress: func(p float32, info string) {

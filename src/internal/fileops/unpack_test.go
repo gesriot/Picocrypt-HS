@@ -3,6 +3,7 @@ package fileops
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -233,6 +234,87 @@ func TestUnpackRejectsHighlyCompressedFileAboveFloor(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "decompression limit exceeded") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUnpackRejectsArchiveWhenDeclaredSizeExceedsAvailableSpace(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "space-check.zip")
+	data := []byte("payload requiring space")
+	createDeflatedZipWithContent(t, zipPath, "payload.txt", data)
+
+	err := Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: filepath.Join(tmpDir, "out"),
+		AvailableSpace: func(path string) (int64, error) {
+			return int64(len(data) - 1), nil
+		},
+	})
+	if err == nil {
+		t.Fatal("expected insufficient disk space error")
+	}
+	if !strings.Contains(err.Error(), "insufficient disk space") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUnpackSkipsDiskSpaceGuardWhenSpaceCheckUnavailable(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "space-check-fallback.zip")
+	data := []byte("payload requiring fallback")
+	createDeflatedZipWithContent(t, zipPath, "payload.txt", data)
+
+	extractDir := filepath.Join(tmpDir, "out")
+	if err := Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+		AvailableSpace: func(path string) (int64, error) {
+			return 0, errors.New("statfs unavailable")
+		},
+	}); err != nil {
+		t.Fatalf("Unpack should fall back to existing ratio guard when disk space is unavailable: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(extractDir, "payload.txt"))
+	if err != nil {
+		t.Fatalf("Read unpacked file: %v", err)
+	}
+	if !bytes.Equal(content, data) {
+		t.Fatal("unpacked content mismatch")
+	}
+}
+
+func TestUnpackAllowsOverwriteWhenNetNewUsageFits(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "space-overwrite.zip")
+	data := []byte("replacement payload")
+	createDeflatedZipWithContent(t, zipPath, "payload.txt", data)
+
+	extractDir := filepath.Join(tmpDir, "out")
+	if err := os.MkdirAll(extractDir, 0700); err != nil {
+		t.Fatalf("Create extract dir: %v", err)
+	}
+	existingPath := filepath.Join(extractDir, "payload.txt")
+	if err := os.WriteFile(existingPath, bytes.Repeat([]byte("x"), len(data)+8), 0600); err != nil {
+		t.Fatalf("Create existing file: %v", err)
+	}
+
+	if err := Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+		AvailableSpace: func(path string) (int64, error) {
+			return 0, nil
+		},
+	}); err != nil {
+		t.Fatalf("Unpack should allow overwrite when net-new usage fits: %v", err)
+	}
+
+	content, err := os.ReadFile(existingPath)
+	if err != nil {
+		t.Fatalf("Read overwritten file: %v", err)
+	}
+	if !bytes.Equal(content, data) {
+		t.Fatal("overwritten content mismatch")
 	}
 }
 

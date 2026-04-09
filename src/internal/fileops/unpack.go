@@ -16,12 +16,13 @@ import (
 
 // UnpackOptions configures archive extraction
 type UnpackOptions struct {
-	ZipPath    string // Path to .zip file
-	ExtractDir string // Directory to extract to (empty = same as zip, minus .zip)
-	SameLevel  bool   // Extract to same directory as zip (not a subdirectory)
-	Progress   ProgressFunc
-	Status     StatusFunc
-	Cancel     CancelFunc // Cancellation check callback (optional)
+	ZipPath        string // Path to .zip file
+	ExtractDir     string // Directory to extract to (empty = same as zip, minus .zip)
+	SameLevel      bool   // Extract to same directory as zip (not a subdirectory)
+	Progress       ProgressFunc
+	Status         StatusFunc
+	Cancel         CancelFunc                  // Cancellation check callback (optional)
+	AvailableSpace func(string) (int64, error) // Override free-space probe (optional, mainly for tests)
 }
 
 // normalizeZipPath normalizes a path from a zip file by converting all separators
@@ -264,6 +265,7 @@ func Unpack(opts UnpackOptions) (retErr error) {
 	// First pass: create all directories and cache normalized paths
 	// Cache normalized paths to avoid redundant normalization in second pass
 	normalizedPaths := make(map[*zip.File]string, len(reader.File))
+	desiredSizes := make(map[string]int64)
 	for _, f := range reader.File {
 		// Normalize and validate path to prevent zip slip attacks
 		if hasUnsafeWindowsTrimTraversalComponent(f.Name) {
@@ -278,7 +280,28 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		// Cache the output path for second pass
 		normalizedPaths[f] = outPath
 
-		// Directory entries are created by prepareExtractionPath().
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		size, ok := util.SafeUint64ToInt64(f.UncompressedSize64)
+		if !ok {
+			return fmt.Errorf("file %s: uncompressed size exceeds int64 max", f.Name)
+		}
+		if size > desiredSizes[outPath] {
+			desiredSizes[outPath] = size
+		}
+	}
+
+	requiredAdditionalBytes, err := requiredAdditionalBytesForExtraction(desiredSizes)
+	if err != nil {
+		return err
+	}
+	probe := opts.AvailableSpace
+	if probe == nil {
+		probe = availableSpace
+	}
+	if available, err := probe(extractDir); err == nil && requiredAdditionalBytes > available {
+		return fmt.Errorf("insufficient disk space for extraction: need %d bytes, have %d", requiredAdditionalBytes, available)
 	}
 
 	// Second pass: extract files
