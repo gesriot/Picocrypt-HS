@@ -11,6 +11,9 @@ func newTestFyneApp(t *testing.T) fyne.App {
 	t.Helper()
 
 	app := test.NewApp()
-	t.Cleanup(app.Quit)
+	t.Cleanup(func() {
+		fyne.DoAndWait(func() {})
+		app.Quit()
+	})
 	return app
 }
