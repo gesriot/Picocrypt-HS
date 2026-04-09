@@ -12,7 +12,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/test"
 )
 
 // TestOnClickStartValidation tests the validation logic in onClickStart.
@@ -214,8 +213,7 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 }
 
 func TestCreateReporterCallbacksUpdateStateAndCancelButton(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	fyne.DoAndWait(func() {

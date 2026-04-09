@@ -17,7 +17,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/test"
 )
 
 // TestFileTypeDetection tests detection of encrypted vs plain files.
@@ -282,8 +281,7 @@ func TestApplyDropErrorPreservesStatusAfterReset(t *testing.T) {
 }
 
 func TestApplyStartupPathsLoadsInitialFiles(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "report.txt")
@@ -315,8 +313,7 @@ func TestApplyStartupPathsLoadsInitialFiles(t *testing.T) {
 }
 
 func TestApplyStartupPathsIgnoresMacOSProcessSerialNumber(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 
@@ -337,8 +334,7 @@ func TestApplyStartupPathsIgnoresMacOSProcessSerialNumber(t *testing.T) {
 }
 
 func TestApplyStartupPathsIgnoresMissingNonFlagArgs(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 
@@ -356,8 +352,7 @@ func TestApplyStartupPathsIgnoresMissingNonFlagArgs(t *testing.T) {
 }
 
 func TestApplyStartupPathsSkipsInvalidArgsWhenValidPathsRemain(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	tempDir := t.TempDir()
@@ -385,8 +380,7 @@ func TestApplyStartupPathsSkipsInvalidArgsWhenValidPathsRemain(t *testing.T) {
 }
 
 func TestApplyStartupPathsAllowsHyphenPrefixedFilename(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "-secret.txt")
@@ -409,8 +403,7 @@ func TestApplyStartupPathsAllowsHyphenPrefixedFilename(t *testing.T) {
 }
 
 func TestApplyStartupPathsReportsAccessError(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	originalStat := startupPathStat
@@ -434,8 +427,7 @@ func TestApplyStartupPathsReportsAccessError(t *testing.T) {
 }
 
 func TestApplyStartupPathsPreservesPartialAccessWarning(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "report.txt")
@@ -506,8 +498,7 @@ func TestCollectStartupPathsSkipsMissingAndReportsAccessError(t *testing.T) {
 }
 
 func TestAppendScannedFilesUpdatesState(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 
@@ -540,8 +531,7 @@ func TestFolderWalkErrorClearsScanningState(t *testing.T) {
 		t.Skip("permission-based walk failure setup is not reliable on Windows")
 	}
 
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	rootDir := t.TempDir()
@@ -575,8 +565,7 @@ func TestFolderWalkErrorClearsScanningState(t *testing.T) {
 }
 
 func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
-	fyneApp := test.NewApp()
-	defer fyneApp.Quit()
+	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "startup.txt")
@@ -998,34 +987,36 @@ func snapshotDropState(t *testing.T, a *App) dropStateSnapshot {
 }
 
 type lifecycleCaptureApp struct {
-	driver   fyne.Driver
-	started  func()
-	stopped  func()
-	bg       func()
-	fg       func()
+	driver  fyne.Driver
+	started func()
+	stopped func()
+	bg      func()
+	fg      func()
 }
 
 func newLifecycleCaptureApp(base fyne.App) *lifecycleCaptureApp {
 	return &lifecycleCaptureApp{driver: base.Driver()}
 }
 
-func (a *lifecycleCaptureApp) NewWindow(title string) fyne.Window { return fyne.CurrentApp().NewWindow(title) }
-func (a *lifecycleCaptureApp) OpenURL(*url.URL) error             { return nil }
-func (a *lifecycleCaptureApp) Icon() fyne.Resource                { return nil }
-func (a *lifecycleCaptureApp) SetIcon(fyne.Resource)              {}
-func (a *lifecycleCaptureApp) Run()                               {}
-func (a *lifecycleCaptureApp) Quit()                              {}
-func (a *lifecycleCaptureApp) Driver() fyne.Driver                { return a.driver }
-func (a *lifecycleCaptureApp) UniqueID() string                   { return "lifecycle-capture-app" }
+func (a *lifecycleCaptureApp) NewWindow(title string) fyne.Window {
+	return fyne.CurrentApp().NewWindow(title)
+}
+func (a *lifecycleCaptureApp) OpenURL(*url.URL) error              { return nil }
+func (a *lifecycleCaptureApp) Icon() fyne.Resource                 { return nil }
+func (a *lifecycleCaptureApp) SetIcon(fyne.Resource)               {}
+func (a *lifecycleCaptureApp) Run()                                {}
+func (a *lifecycleCaptureApp) Quit()                               {}
+func (a *lifecycleCaptureApp) Driver() fyne.Driver                 { return a.driver }
+func (a *lifecycleCaptureApp) UniqueID() string                    { return "lifecycle-capture-app" }
 func (a *lifecycleCaptureApp) SendNotification(*fyne.Notification) {}
-func (a *lifecycleCaptureApp) Settings() fyne.Settings            { return fyne.CurrentApp().Settings() }
-func (a *lifecycleCaptureApp) Preferences() fyne.Preferences      { return fyne.CurrentApp().Preferences() }
-func (a *lifecycleCaptureApp) Storage() fyne.Storage              { return fyne.CurrentApp().Storage() }
-func (a *lifecycleCaptureApp) Lifecycle() fyne.Lifecycle          { return a }
-func (a *lifecycleCaptureApp) Metadata() fyne.AppMetadata         { return fyne.AppMetadata{} }
-func (a *lifecycleCaptureApp) CloudProvider() fyne.CloudProvider  { return nil }
+func (a *lifecycleCaptureApp) Settings() fyne.Settings             { return fyne.CurrentApp().Settings() }
+func (a *lifecycleCaptureApp) Preferences() fyne.Preferences       { return fyne.CurrentApp().Preferences() }
+func (a *lifecycleCaptureApp) Storage() fyne.Storage               { return fyne.CurrentApp().Storage() }
+func (a *lifecycleCaptureApp) Lifecycle() fyne.Lifecycle           { return a }
+func (a *lifecycleCaptureApp) Metadata() fyne.AppMetadata          { return fyne.AppMetadata{} }
+func (a *lifecycleCaptureApp) CloudProvider() fyne.CloudProvider   { return nil }
 func (a *lifecycleCaptureApp) SetCloudProvider(fyne.CloudProvider) {}
-func (a *lifecycleCaptureApp) Clipboard() fyne.Clipboard          { return fyne.CurrentApp().Clipboard() }
+func (a *lifecycleCaptureApp) Clipboard() fyne.Clipboard           { return fyne.CurrentApp().Clipboard() }
 
 func (a *lifecycleCaptureApp) SetOnEnteredForeground(fn func()) { a.fg = fn }
 func (a *lifecycleCaptureApp) SetOnExitedForeground(fn func())  { a.bg = fn }
