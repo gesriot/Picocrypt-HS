@@ -36,6 +36,22 @@ func isIgnoredStartupArg(path string) bool {
 	return path == "" || strings.HasPrefix(path, "-psn_")
 }
 
+func isDecryptVolumePath(path string) bool {
+	if fileops.IsSplitChunkPath(path) {
+		return true
+	}
+
+	return strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".pcv")
+}
+
+func trimPCVSuffix(path string) string {
+	if !strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".pcv") {
+		return path
+	}
+
+	return path[:len(path)-4]
+}
+
 func collectStartupPaths(paths []string, statFn func(string) (os.FileInfo, error)) ([]string, error) {
 	validPaths := make([]string, 0, len(paths))
 	var firstErr error
@@ -155,7 +171,7 @@ func (a *App) onDrop(names []string) {
 			isSplit := fileops.IsSplitChunkPath(names[0])
 
 			// Decide if encrypting or decrypting
-			if strings.HasSuffix(names[0], ".pcv") || isSplit {
+			if isDecryptVolumePath(names[0]) {
 				a.handleDecryptDrop(names[0], isSplit)
 				// For decrypt, no folder scanning needed
 				a.State.SetScanning(false)
@@ -273,10 +289,14 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 
 	// Get the correct input and output filenames
 	if isSplit {
-		ind := strings.Index(name, ".pcv")
-		name = name[:ind+4]
+		basePath, ok := fileops.SplitChunkBase(name)
+		if !ok {
+			a.applyDropError("Failed to derive split volume path", false)
+			return
+		}
+		name = basePath
 		a.State.InputFile = name
-		a.State.OutputFile = name[:ind]
+		a.State.OutputFile = trimPCVSuffix(name)
 		a.State.Recombine = true
 
 		// Find out the number of split chunks
@@ -292,7 +312,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		a.State.RequiredFreeSpace = a.State.CompressTotal
 	} else {
 		a.State.InputFile = name
-		a.State.OutputFile = name[:len(name)-4]
+		a.State.OutputFile = trimPCVSuffix(name)
 	}
 
 	// Open the input file in read-only mode
