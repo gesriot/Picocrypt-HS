@@ -10,6 +10,13 @@ if [ ! -f "$SRC" ]; then
   exit 1
 fi
 
+for tool in rsvg-convert inkscape; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "ERROR: required tool '$tool' not found in PATH" >&2
+    exit 1
+  fi
+done
+
 # Sizes 64+: rsvg-convert (fast, accurate at this scale)
 for SIZE in 64 128 256; do
   rsvg-convert -w "$SIZE" -h "$SIZE" -a "$SRC" -o "images/pcv-icon-${SIZE}.png"
