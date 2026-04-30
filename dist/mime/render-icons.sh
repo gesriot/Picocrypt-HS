@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/../.."
+
+SRC="images/pcv-icon.svg"
+
+if [ ! -f "$SRC" ]; then
+  echo "ERROR: $SRC not found" >&2
+  exit 1
+fi
+
+# Sizes 64+: rsvg-convert (fast, accurate at this scale)
+for SIZE in 64 128 256; do
+  rsvg-convert -w "$SIZE" -h "$SIZE" -a "$SRC" -o "images/pcv-icon-${SIZE}.png"
+done
+
+# Sizes 16/32/48: inkscape (pixel-perfect at small sizes — rsvg crops 1-2 px)
+for SIZE in 16 32 48; do
+  inkscape "$SRC" \
+    --export-type=png \
+    --export-filename="images/pcv-icon-${SIZE}.png" \
+    --export-width="$SIZE" \
+    --export-height="$SIZE" 2>/dev/null
+done
+
+# Strip non-critical chunks for reproducible diffs (per RESEARCH.md §"PNG storage")
+if command -v optipng >/dev/null 2>&1; then
+  optipng -o5 -strip all -quiet images/pcv-icon-*.png
+fi
+
+echo "Icons regenerated successfully."
