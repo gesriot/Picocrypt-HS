@@ -33,7 +33,12 @@ done
 
 # Strip non-critical chunks for reproducible diffs (per RESEARCH.md §"PNG storage")
 if command -v optipng >/dev/null 2>&1; then
-  optipng -o5 -strip all -quiet images/pcv-icon-*.png
+  shopt -s nullglob
+  pngs=(images/pcv-icon-*.png)
+  shopt -u nullglob
+  if [ ${#pngs[@]} -gt 0 ]; then
+    optipng -o5 -strip all -quiet "${pngs[@]}"
+  fi
 fi
 
 echo "Icons regenerated successfully."
