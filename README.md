@@ -5,6 +5,8 @@
 
 <p align="center"><img align="center" src="/images/logo.png" width="512" alt="Picocrypt NG"></p> 
 
+## Unofficial High Sierra / Intel fork; release artifacts are built manually on macOS 10.13
+
 Picocrypt NG (new generation) is a very small (hence <i>Pico</i>), very simple, yet very secure encryption tool that you can use to protect your files. It's designed to be the <i>go-to</i> tool for file encryption, with a focus on security, simplicity, and reliability. Picocrypt NG uses the secure XChaCha20 cipher and the Argon2id key derivation function to provide a high level of security.
 
 <br>

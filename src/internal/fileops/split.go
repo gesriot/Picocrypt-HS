@@ -117,7 +117,7 @@ func Split(opts SplitOptions) ([]string, error) {
 	var totalDone int64
 	startTime := time.Now()
 
-	for i := range numChunks {
+	for i := 0; i < numChunks; i++ {
 		if opts.Cancel != nil && opts.Cancel() {
 			// Clean up partial chunks
 			for _, chunk := range chunks {

@@ -1,17 +1,18 @@
 module Picocrypt-NG
 
-go 1.26.0
+go 1.20
 
 require (
 	fyne.io/fyne/v2 v2.7.3
-	github.com/Picocrypt/infectious v0.0.0-20250713161924-ae9b3ccb49d7
+	github.com/Picocrypt/infectious v0.0.0-20240830233326-3a050f65f9ec
 	github.com/Picocrypt/serpent v0.0.0-20240830233833-9ad6ab254fd7
-	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
+	github.com/Picocrypt/zxcvbn-go v0.0.0-20240831000415-fccb38ccb913
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
-	golang.org/x/crypto v0.49.0
-	golang.org/x/sys v0.43.0
-	golang.org/x/term v0.42.0
+	golang.org/x/crypto v0.33.0
+	golang.org/x/sys v0.30.0
+	golang.org/x/term v0.29.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -43,8 +44,7 @@ require (
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
-	golang.org/x/image v0.38.0 // indirect
-	golang.org/x/net v0.51.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
+	golang.org/x/image v0.24.0 // indirect
+	golang.org/x/net v0.35.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 )

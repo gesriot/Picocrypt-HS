@@ -79,7 +79,7 @@ func GenPassword(opts PassgenOptions) (string, error) {
 	}
 
 	tmp := make([]byte, opts.Length)
-	for i := range opts.Length {
+	for i := 0; i < opts.Length; i++ {
 		j, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
 		if err != nil {
 			return "", fmt.Errorf("fatal crypto/rand error: %w", err)

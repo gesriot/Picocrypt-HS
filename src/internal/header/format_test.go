@@ -42,7 +42,7 @@ func TestFlags(t *testing.T) {
 		t.Fatalf("ToBytes() length = %d; want 5", len(b))
 	}
 
-	for i := range 5 {
+	for i := 0; i < 5; i++ {
 		if b[i] != 1 {
 			t.Errorf("ToBytes()[%d] = %d; want 1", i, b[i])
 		}
@@ -58,7 +58,7 @@ func TestFlags(t *testing.T) {
 	// Test no flags set
 	flags = Flags{}
 	b = flags.ToBytes()
-	for i := range 5 {
+	for i := 0; i < 5; i++ {
 		if b[i] != 0 {
 			t.Errorf("Empty flags ToBytes()[%d] = %d; want 0", i, b[i])
 		}

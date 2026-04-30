@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"Picocrypt-NG/internal/encoding"
@@ -139,7 +138,13 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	useStdout := IsStdout(encOutput)
 
 	// Check if any input is stdin
-	hasStdinInput := slices.ContainsFunc(encInput, IsStdin)
+	hasStdinInput := false
+	for _, p := range encInput {
+		if IsStdin(p) {
+			hasStdinInput = true
+			break
+		}
+	}
 	useStdin := len(encInput) == 1 && hasStdinInput
 
 	// Validate stdin/stdout constraints

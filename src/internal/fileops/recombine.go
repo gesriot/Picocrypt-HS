@@ -112,7 +112,7 @@ func Recombine(opts RecombineOptions) error {
 	var totalDone int64
 	startTime := time.Now()
 
-	for i := range numChunks {
+	for i := 0; i < numChunks; i++ {
 		if opts.Cancel != nil && opts.Cancel() {
 			_ = fout.Close()
 			_ = os.Remove(opts.OutputPath)

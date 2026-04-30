@@ -106,7 +106,7 @@ func Decode(rs *infectious.FEC, data []byte, fastDecode bool) ([]byte, error) {
 	}
 
 	tmp := make([]infectious.Share, rs.Total())
-	for i := range rs.Total() {
+	for i := 0; i < rs.Total(); i++ {
 		tmp[i].Number = i
 		tmp[i].Data = append(tmp[i].Data, data[i])
 	}
