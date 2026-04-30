@@ -21,7 +21,7 @@ for SIZE in 16 32 48; do
     --export-type=png \
     --export-filename="images/pcv-icon-${SIZE}.png" \
     --export-width="$SIZE" \
-    --export-height="$SIZE" 2>/dev/null
+    --export-height="$SIZE"
 done
 
 # Strip non-critical chunks for reproducible diffs (per RESEARCH.md §"PNG storage")
