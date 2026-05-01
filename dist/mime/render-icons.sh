@@ -41,4 +41,39 @@ if command -v optipng >/dev/null 2>&1; then
   fi
 fi
 
+# --- ICO build for Windows (Phase 4 D-17) ---
+# Reproducible byte-identical output via explicit metadata stripping.
+# ImageMagick does not honor SOURCE_DATE_EPOCH reliably as of 7.1.x
+# (see arch reproducible-builds todo + ImageMagick issues #1565, #8301).
+# Order of PNG arguments is explicit ascending (16->256) for deterministic
+# ICONDIR entry order regardless of locale glob sort.
+if command -v magick >/dev/null 2>&1; then
+  magick \
+    images/pcv-icon-16.png  \
+    images/pcv-icon-32.png  \
+    images/pcv-icon-48.png  \
+    images/pcv-icon-64.png  \
+    images/pcv-icon-128.png \
+    images/pcv-icon-256.png \
+    +set date:create +set date:modify \
+    -strip \
+    images/pcv-icon.ico
+  echo "ICO regenerated."
+elif command -v convert >/dev/null 2>&1; then
+  # ImageMagick 6 fallback (deprecated 'convert' alias)
+  convert \
+    images/pcv-icon-16.png  \
+    images/pcv-icon-32.png  \
+    images/pcv-icon-48.png  \
+    images/pcv-icon-64.png  \
+    images/pcv-icon-128.png \
+    images/pcv-icon-256.png \
+    +set date:create +set date:modify \
+    -strip \
+    images/pcv-icon.ico
+  echo "ICO regenerated (ImageMagick 6)."
+else
+  echo "WARNING: 'magick' (ImageMagick 7) or 'convert' (ImageMagick 6) not found; skipping ICO." >&2
+fi
+
 echo "Icons regenerated successfully."
