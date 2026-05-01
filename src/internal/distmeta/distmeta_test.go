@@ -1,6 +1,7 @@
 package distmeta
 
 import (
+	"bytes"
 	"encoding/xml"
 	"image/png"
 	"os"
@@ -240,5 +241,198 @@ func TestSnapDesktopMimeType(t *testing.T) {
 				t.Errorf("snap desktop file contains forbidden field code %q; only %%f is allowed per Desktop Entry Spec §3.1", fc)
 			}
 		})
+	}
+}
+
+// plistValue is a parsed plist value: string, bool, int, []plistValue, or plistDict.
+type plistValue struct {
+	Kind  string                // "string"|"true"|"false"|"integer"|"real"|"array"|"dict"
+	Str   string                // for string/integer/real (raw text)
+	Array []plistValue          // for array
+	Dict  map[string]plistValue // for dict
+}
+
+// decodePlist parses an entire <plist><dict>...</dict></plist> document.
+// The plist DTD allows array, dict, string, integer, true, false, real, data, date —
+// for our Info.plist only the first six are needed.
+func decodePlist(t *testing.T, data []byte) map[string]plistValue {
+	t.Helper()
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatalf("plist: scanning for top-level dict: %v", err)
+		}
+		if se, ok := tok.(xml.StartElement); ok && se.Name.Local == "dict" {
+			return parseDict(t, dec)
+		}
+	}
+}
+
+// parseDict consumes a <dict>...</dict> starting after the <dict> StartElement,
+// returning the parsed key->value map. Keys and values alternate as siblings.
+func parseDict(t *testing.T, dec *xml.Decoder) map[string]plistValue {
+	t.Helper()
+	out := map[string]plistValue{}
+	var pendingKey string
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatalf("plist dict: %v", err)
+		}
+		switch e := tok.(type) {
+		case xml.StartElement:
+			switch e.Name.Local {
+			case "key":
+				var s string
+				if err := dec.DecodeElement(&s, &e); err != nil {
+					t.Fatalf("plist key: %v", err)
+				}
+				pendingKey = s
+			default:
+				if pendingKey == "" {
+					t.Fatalf("plist: value <%s> with no preceding key", e.Name.Local)
+				}
+				out[pendingKey] = parseValue(t, dec, e)
+				pendingKey = ""
+			}
+		case xml.EndElement:
+			if e.Name.Local == "dict" {
+				return out
+			}
+		}
+	}
+}
+
+func parseValue(t *testing.T, dec *xml.Decoder, start xml.StartElement) plistValue {
+	t.Helper()
+	switch start.Name.Local {
+	case "string", "integer", "real":
+		var s string
+		if err := dec.DecodeElement(&s, &start); err != nil {
+			t.Fatalf("plist %s: %v", start.Name.Local, err)
+		}
+		return plistValue{Kind: start.Name.Local, Str: s}
+	case "true", "false":
+		if err := dec.Skip(); err != nil {
+			t.Fatalf("plist %s: %v", start.Name.Local, err)
+		}
+		return plistValue{Kind: start.Name.Local}
+	case "array":
+		var arr []plistValue
+		for {
+			tok, err := dec.Token()
+			if err != nil {
+				t.Fatalf("plist array: %v", err)
+			}
+			switch e := tok.(type) {
+			case xml.StartElement:
+				arr = append(arr, parseValue(t, dec, e))
+			case xml.EndElement:
+				if e.Name.Local == "array" {
+					return plistValue{Kind: "array", Array: arr}
+				}
+			}
+		}
+	case "dict":
+		return plistValue{Kind: "dict", Dict: parseDict(t, dec)}
+	}
+	t.Fatalf("plist: unsupported value tag <%s>", start.Name.Local)
+	return plistValue{}
+}
+
+func TestMacOSInfoPlist(t *testing.T) {
+	data := mustReadFile(t, "dist/macos/Info.plist")
+
+	// Syntactic XML well-formedness (plutil -lint validates DTD on macOS;
+	// here we validate XML well-formedness as a fast cross-platform check).
+	var probe struct{ XMLName xml.Name }
+	if err := xml.Unmarshal(data, &probe); err != nil {
+		t.Fatalf("Info.plist not well-formed XML: %v", err)
+	}
+
+	root := decodePlist(t, data)
+
+	// --- Identity assertions (D-14, D-15) ---
+	if got := root["CFBundleIdentifier"].Str; got != "io.github.picocryptng.PicocryptNG" {
+		t.Errorf("CFBundleIdentifier = %q, want io.github.picocryptng.PicocryptNG", got)
+	}
+	if got := root["CFBundleExecutable"].Str; got != "Picocrypt-NG" {
+		t.Errorf("CFBundleExecutable = %q, want Picocrypt-NG", got)
+	}
+	if got := root["CFBundlePackageType"].Str; got != "APPL" {
+		t.Errorf("CFBundlePackageType = %q, want APPL", got)
+	}
+	if got := root["LSMinimumSystemVersion"].Str; got != "15.0" {
+		t.Errorf("LSMinimumSystemVersion = %q, want 15.0", got)
+	}
+	if root["NSHighResolutionCapable"].Kind != "true" {
+		t.Errorf("NSHighResolutionCapable should be <true/>")
+	}
+
+	// --- CFBundleDocumentTypes (FA-MAC-01; D-07, D-08, D-09) ---
+	docs := root["CFBundleDocumentTypes"]
+	if docs.Kind != "array" || len(docs.Array) == 0 {
+		t.Fatalf("CFBundleDocumentTypes missing or not array")
+	}
+	entry := docs.Array[0].Dict
+	if entry["CFBundleTypeRole"].Str != "Editor" {
+		t.Errorf("CFBundleTypeRole = %q, want Editor", entry["CFBundleTypeRole"].Str)
+	}
+	if entry["LSHandlerRank"].Str != "Owner" {
+		t.Errorf("LSHandlerRank = %q, want Owner", entry["LSHandlerRank"].Str)
+	}
+	itemTypes := entry["LSItemContentTypes"].Array
+	foundUTI := false
+	for _, v := range itemTypes {
+		if v.Str == "io.github.picocryptng.pcv" {
+			foundUTI = true
+			break
+		}
+	}
+	if !foundUTI {
+		t.Errorf("LSItemContentTypes missing io.github.picocryptng.pcv; got %+v", itemTypes)
+	}
+
+	// --- UTExportedTypeDeclarations (FA-MAC-02; D-04, D-05, D-06) ---
+	utis := root["UTExportedTypeDeclarations"]
+	if utis.Kind != "array" || len(utis.Array) == 0 {
+		t.Fatalf("UTExportedTypeDeclarations missing or not array")
+	}
+	uti := utis.Array[0].Dict
+	if uti["UTTypeIdentifier"].Str != "io.github.picocryptng.pcv" {
+		t.Errorf("UTTypeIdentifier = %q, want io.github.picocryptng.pcv", uti["UTTypeIdentifier"].Str)
+	}
+	conformsTo := uti["UTTypeConformsTo"].Array
+	if len(conformsTo) != 1 || conformsTo[0].Str != "public.data" {
+		t.Errorf("UTTypeConformsTo = %+v, want [public.data] only (D-05: NOT public.archive)", conformsTo)
+	}
+	tagSpec := uti["UTTypeTagSpecification"].Dict
+	exts := tagSpec["public.filename-extension"].Array
+	gotExt := false
+	for _, v := range exts {
+		if v.Str == "pcv" {
+			gotExt = true
+			break
+		}
+	}
+	if !gotExt {
+		t.Errorf("UTTypeTagSpecification public.filename-extension missing pcv; got %+v", exts)
+	}
+	mimes := tagSpec["public.mime-type"].Array
+	gotMime := false
+	for _, v := range mimes {
+		if v.Str == "application/x-pcv" {
+			gotMime = true
+			break
+		}
+	}
+	if !gotMime {
+		t.Errorf("UTTypeTagSpecification public.mime-type missing application/x-pcv; got %+v", mimes)
+	}
+
+	// --- Negative assertion: ensure stale hyphenated bundle ID is gone (D-14 fix) ---
+	if strings.Contains(string(data), "io.github.picocrypt-ng") {
+		t.Errorf("Info.plist still contains pre-Phase-3 stale ID 'io.github.picocrypt-ng' (must be picocryptng — no hyphen)")
 	}
 }
