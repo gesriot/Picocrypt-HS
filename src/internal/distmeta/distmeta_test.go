@@ -560,3 +560,41 @@ func TestWindowsNSISScript(t *testing.T) {
 		}
 	})
 }
+
+// TestWindowsICO validates images/pcv-icon.ico — pre-rendered multi-resolution
+// ICO committed to the repo (D-16, D-34). Mirrors TestPCVIconRenditions
+// pattern but for binary ICO format (no png.Decode; raw byte assertions).
+func TestWindowsICO(t *testing.T) {
+	data := mustReadFile(t, "images/pcv-icon.ico")
+
+	// D-34: file size > 1 KB (multi-resolution ICO with 6 entries minimum,
+	// PNG inputs total 11042 bytes; expect ICO ~12-30 KB).
+	if len(data) < 1024 {
+		t.Errorf("pcv-icon.ico size = %d bytes, want > 1024", len(data))
+	}
+
+	// D-34: ICO magic bytes (ICONDIR header per Wikipedia ICO spec):
+	//   bytes 0-1: 00 00  (reserved, must be 0)
+	//   bytes 2-3: 01 00  (type=1, ICO; 02 00 = CUR)
+	if len(data) < 4 || !bytes.Equal(data[:4], []byte{0x00, 0x00, 0x01, 0x00}) {
+		got := []byte{}
+		if len(data) >= 4 {
+			got = data[:4]
+		} else {
+			got = data
+		}
+		t.Errorf("pcv-icon.ico magic bytes = % x, want 00 00 01 00", got)
+	}
+
+	// D-34: image count at bytes 4-5 (little-endian uint16); D-16 specifies 6 sizes
+	// (16/32/48/64/128/256). Assert exactly 6 to catch accidental size omissions
+	// in render-icons.sh changes.
+	if len(data) >= 6 {
+		count := uint16(data[4]) | uint16(data[5])<<8
+		if count != 6 {
+			t.Errorf("pcv-icon.ico image count = %d, want 6 (sizes 16/32/48/64/128/256 per D-16)", count)
+		}
+	} else {
+		t.Errorf("pcv-icon.ico too short to contain ICONDIR header (%d bytes)", len(data))
+	}
+}
