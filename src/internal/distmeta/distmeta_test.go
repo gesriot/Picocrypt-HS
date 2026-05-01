@@ -436,3 +436,127 @@ func TestMacOSInfoPlist(t *testing.T) {
 		t.Errorf("Info.plist still contains pre-Phase-3 stale ID 'io.github.picocrypt-ng' (must be picocryptng — no hyphen)")
 	}
 }
+
+// TestWindowsNSISScript validates the canonical NSIS installer script in
+// dist/windows/installer.nsi. Mirrors Phase 2/3 contract test patterns
+// (TestSnapDesktopMimeType + TestMacOSInfoPlist) — regex-based assertions
+// since NSIS has no formal Go grammar (D-32). makensis itself is not invoked
+// here; CI compiles the script on a Windows host (D-33, build-windows.yml
+// Phase 4 step).
+func TestWindowsNSISScript(t *testing.T) {
+	data := mustReadFile(t, "dist/windows/installer.nsi")
+	text := string(data)
+
+	// --- Positive assertions: required canonical strings (table-driven) ---
+	requiredLiterals := []struct {
+		name string
+		line string
+	}{
+		{name: "progid", line: "PicocryptNG.pcv"},                           // D-20
+		{name: "content_type", line: `"application/x-pcv"`},                 // D-21 + Pattern S-1
+		{name: "registered_apps", line: `Software\RegisteredApplications`},  // D-22
+		{name: "capabilities_assoc", line: `Capabilities\FileAssociations`}, // D-22
+		{name: "version_guard", line: "!ifndef VERSION"},                    // D-03 + Pitfall 3
+		{name: "uac", line: "RequestExecutionLevel admin"},                  // D-07
+	}
+	for _, tc := range requiredLiterals {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(text, tc.line) {
+				t.Errorf("installer.nsi missing required literal: %q", tc.line)
+			}
+		})
+	}
+
+	// --- Positive assertions: regex patterns ---
+	t.Run("shell_open_command_with_arg1", func(t *testing.T) {
+		// D-21: shell\open\command writes "$INSTDIR\Picocrypt-NG.exe" "%1"
+		re := regexp.MustCompile(`shell\\open\\command.*%1`)
+		if !re.MatchString(text) {
+			t.Errorf("installer.nsi missing shell\\open\\command with %%1 placeholder")
+		}
+	})
+
+	t.Run("running_x64_guard", func(t *testing.T) {
+		// D-09: ${IfNot} ${RunningX64} → Abort. Match RunningX64 anywhere in script
+		// (covers ${IfNot} ${RunningX64}, ${If} ${RunningX64}, etc.)
+		if !regexp.MustCompile(`\$\{(?:IfNot\s+)?RunningX64\}`).MatchString(text) {
+			t.Errorf("installer.nsi missing ${RunningX64} 64-bit guard (D-09)")
+		}
+	})
+
+	t.Run("license_path_filedir_anchored", func(t *testing.T) {
+		// D-11 + Pitfall 5: license path MUST be ${__FILEDIR__}\..\..\LICENSE
+		// (NOT $%CD% which is brittle across CWDs).
+		re := regexp.MustCompile(`MUI_PAGE_LICENSE\s+"\$\{__FILEDIR__\}\\\.\.\\\.\.\\LICENSE"`)
+		if !re.MatchString(text) {
+			t.Errorf("installer.nsi MUI_PAGE_LICENSE must reference ${__FILEDIR__}\\..\\..\\LICENSE (Pitfall 5)")
+		}
+	})
+
+	t.Run("shchangenotify_at_least_twice", func(t *testing.T) {
+		// D-25 + D-26: SHChangeNotify must appear in BOTH install Section and Uninstall Section.
+		matches := regexp.MustCompile(`SHChangeNotify`).FindAllString(text, -1)
+		if len(matches) < 2 {
+			t.Errorf("installer.nsi must call SHChangeNotify at least twice (install + uninstall); found %d", len(matches))
+		}
+	})
+
+	t.Run("setregview_64_install_and_uninstall", func(t *testing.T) {
+		// Pitfall 4: SetRegView 64 MUST appear in BOTH .onInit and un.onInit
+		// (without it, NSIS x86 installer writes to WOW6432Node, hidden from Default Apps UI).
+		matches := regexp.MustCompile(`SetRegView 64`).FindAllString(text, -1)
+		if len(matches) < 2 {
+			t.Errorf("installer.nsi must call SetRegView 64 at least twice (.onInit + un.onInit); found %d", len(matches))
+		}
+	})
+
+	// --- Uninstaller block scoped assertions (D-27 hybrid cleanup) ---
+	uninstallBlock := regexp.MustCompile(`(?ms)Section\s+"Uninstall".*?SectionEnd`).FindString(text)
+	if uninstallBlock == "" {
+		t.Fatalf("installer.nsi missing 'Section \"Uninstall\"' block — cannot validate D-27 cleanup")
+	}
+	t.Run("uninstall_deletes_progid", func(t *testing.T) {
+		if !regexp.MustCompile(`DeleteRegKey.*PicocryptNG\.pcv`).MatchString(uninstallBlock) {
+			t.Errorf("Uninstall Section missing DeleteRegKey for PicocryptNG.pcv ProgID (D-27)")
+		}
+	})
+	t.Run("uninstall_deletes_openwithprogids_value", func(t *testing.T) {
+		if !regexp.MustCompile(`DeleteRegValue.*OpenWithProgids`).MatchString(uninstallBlock) {
+			t.Errorf("Uninstall Section missing DeleteRegValue for OpenWithProgids entry (D-27)")
+		}
+	})
+	t.Run("uninstall_shchangenotify", func(t *testing.T) {
+		if !strings.Contains(uninstallBlock, "SHChangeNotify") {
+			t.Errorf("Uninstall Section missing SHChangeNotify call (D-26)")
+		}
+	})
+
+	// --- Negative assertions: anti-patterns that must NOT appear ---
+	negatives := []struct {
+		name   string
+		needle string
+		why    string
+	}{
+		{name: "no_wow6432node_literal", needle: "WOW6432Node", why: "SetRegView 64 must handle redirection (Pitfall 4); manual WOW6432 paths indicate missing SetRegView"},
+		{name: "no_pct_cd_path", needle: "$%CD%", why: "$%CD% is brittle across CWDs; use ${__FILEDIR__} (Pitfall 5)"},
+		{name: "no_hkcr_writeregstr", needle: `WriteRegStr HKCR`, why: "HKCR is a virtual merged view; write to HKLM\\Software\\Classes\\... per Microsoft Default Programs spec"},
+	}
+	for _, tc := range negatives {
+		t.Run(tc.name, func(t *testing.T) {
+			if strings.Contains(text, tc.needle) {
+				t.Errorf("installer.nsi contains forbidden pattern %q: %s", tc.needle, tc.why)
+			}
+		})
+	}
+
+	// --- Negative: no Cyrillic / non-ASCII script chars (D-14, Pitfall 9) ---
+	// English-only LangString + comments. Use bytes scan to avoid expensive regex on UTF.
+	t.Run("no_cyrillic_chars", func(t *testing.T) {
+		for i, r := range text {
+			if r >= 0x0400 && r <= 0x04FF {
+				t.Errorf("installer.nsi contains Cyrillic character %q at byte offset %d (D-14 English-only; Pitfall 9 -INPUTCHARSET)", r, i)
+				return // stop at first match to avoid log spam
+			}
+		}
+	})
+}
