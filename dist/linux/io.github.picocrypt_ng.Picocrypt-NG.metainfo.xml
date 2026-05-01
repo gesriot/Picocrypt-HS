@@ -35,6 +35,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.09" date="2026-05-01">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v209</url>
+      <description>
+        <ul>
+          <li>File associations: double-click .pcv files to open in decrypt mode on Windows / macOS / Linux</li>
+          <li>Linux: .deb installs MIME XML + .desktop + AppStream metainfo (Nautilus, Dolphin); Snap advertises handler</li>
+          <li>macOS: .app bundle declares UTI io.github.picocryptng.pcv + Apple Events handler (Finder cold-launch)</li>
+          <li>Windows: NSIS installer (Picocrypt-NG-Setup.exe) writes ProgID + registry associations alongside portable .exe</li>
+          <li>Cross-platform application/x-pcv MIME type canonicalized in dist/mime/application-x-pcv.xml</li>
+          <li>File-type icon: pcv-icon.svg + 6 PNG renditions (16/32/48/64/128/256) + multi-resolution .ico</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.08" date="2026-03-04">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v208</url>
       <description>

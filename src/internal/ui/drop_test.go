@@ -1039,7 +1039,7 @@ func TestStatusWithFreeSpace(t *testing.T) {
 func createUIReadyDropTestApp(t *testing.T, fyneApp fyne.App) *App {
 	t.Helper()
 
-	a, err := NewApp("v2.08")
+	a, err := NewApp("v2.09")
 	if err != nil {
 		t.Fatalf("Failed to create test app: %v", err)
 	}
