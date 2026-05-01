@@ -690,6 +690,10 @@ func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
 // drainOpenedPaths(). Removing the wiring on empty input would silently lose
 // those events. (FA-MAC-03 / Plan 03-03)
 func TestScheduleStartupPathsAlwaysWiresStartHook(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+
 	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
