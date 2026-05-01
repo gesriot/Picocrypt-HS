@@ -25,6 +25,9 @@
     <category>Security</category>
   </categories>
   <launchable type="desktop-id">io.github.picocrypt_ng.Picocrypt-NG.desktop</launchable>
+  <provides>
+    <mediatype>application/x-pcv</mediatype>
+  </provides>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/Picocrypt-NG/Picocrypt-NG/main/images/screenshot.png</image>
