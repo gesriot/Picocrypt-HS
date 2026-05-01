@@ -673,6 +673,36 @@ func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
 	}
 }
 
+// TestScheduleStartupPathsAlwaysWiresStartHook verifies that scheduleStartupPaths
+// registers the OnStarted callback even when startupPaths is empty. On darwin,
+// Apple-Event-buffered paths from a Finder cold launch may be the only source
+// of startup paths and are drained inside the OnStarted closure via
+// drainOpenedPaths(). Removing the wiring on empty input would silently lose
+// those events. (FA-MAC-03 / Plan 03-03)
+func TestScheduleStartupPathsAlwaysWiresStartHook(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fake := newLifecycleCaptureApp(fyne.CurrentApp())
+	a.fyneApp = fake
+
+	a.scheduleStartupPaths(nil)
+
+	if fake.started == nil {
+		t.Fatal("expected startup hook to be registered even for empty startupPaths (AE paths may arrive)")
+	}
+
+	// Firing the hook with empty CLI args + nil drain (non-darwin stub returns nil)
+	// must be a safe no-op: no panic, no state mutation.
+	fake.started()
+	waitForDropProcessing(t, a)
+	state := snapshotDropState(t, a)
+	if state.InputFile != "" {
+		t.Fatalf("InputFile = %q after start hook with no inputs; want empty", state.InputFile)
+	}
+}
+
 // TestKeyfileDropHandling tests keyfile drop in keyfile modal.
 func TestKeyfileDropHandling(t *testing.T) {
 	t.Run("AddUniqueKeyfiles", func(t *testing.T) {
