@@ -53,12 +53,15 @@ jobs:
 
     - name: Install packages
       run: |
-        sudo apt install -y gcc pkg-config libgl1-mesa-dev xorg-dev libgtk-3-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev wget libxml2-utils
+        sudo apt install -y gcc pkg-config libgl1-mesa-dev xorg-dev libgtk-3-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev wget libxml2-utils desktop-file-utils appstream
 
     - name: Validate dist artefacts
       run: |
         xmllint --noout dist/mime/application-x-pcv.xml
         xmllint --noout images/pcv-icon.svg
+        output=$(desktop-file-validate dist/linux/io.github.picocrypt_ng.Picocrypt-NG.desktop)
+        if [ -n "$output" ]; then echo "$output"; exit 1; fi
+        appstreamcli validate --no-net dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml
 
     - name: Install dependencies
       run: |
@@ -116,20 +119,80 @@ jobs:
         Maintainer: Picocrypt-NG
         Priority: optional
         Section: utils
+        Depends: shared-mime-info, desktop-file-utils, hicolor-icon-theme
+        Recommends: gtk-update-icon-cache
         Description: Picocrypt-NG file encryption utility
         EOF
-        cat > "$package_root/usr/share/applications/picocrypt-ng.desktop" <<'EOF'
-        [Desktop Entry]
-        Type=Application
-        Name=Picocrypt-NG
-        GenericName=File Encryption
-        Comment=A very small, very simple, yet very secure encryption tool
-        Exec=/usr/bin/picocrypt-ng-gui
-        Icon=picocrypt-ng
-        Terminal=false
-        Categories=Utility;Security;
+        install -m 0644 dist/linux/io.github.picocrypt_ng.Picocrypt-NG.desktop \
+            "$package_root/usr/share/applications/io.github.picocrypt_ng.Picocrypt-NG.desktop"
+        sed -i 's|^Exec=.*|Exec=/usr/bin/picocrypt-ng-gui %f|' \
+            "$package_root/usr/share/applications/io.github.picocrypt_ng.Picocrypt-NG.desktop"
+        install -d "$package_root/usr/share/mime/packages"
+        install -m 0644 dist/mime/application-x-pcv.xml \
+            "$package_root/usr/share/mime/packages/application-x-pcv.xml"
+        for size in 16 32 48 64 128 256; do
+          install -d "$package_root/usr/share/icons/hicolor/${size}x${size}/mimetypes"
+          install -m 0644 "images/pcv-icon-${size}.png" \
+            "$package_root/usr/share/icons/hicolor/${size}x${size}/mimetypes/application-x-pcv.png"
+        done
+        install -d "$package_root/usr/share/icons/hicolor/scalable/mimetypes"
+        install -m 0644 images/pcv-icon.svg \
+            "$package_root/usr/share/icons/hicolor/scalable/mimetypes/application-x-pcv.svg"
+        cat > "$package_root/DEBIAN/postinst" <<'EOF'
+        #!/bin/sh
+        set -e
+        case "$1" in
+          configure)
+            if command -v update-mime-database >/dev/null 2>&1; then
+              update-mime-database /usr/share/mime || true
+            fi
+            if command -v update-desktop-database >/dev/null 2>&1; then
+              update-desktop-database -q /usr/share/applications || true
+            fi
+            if [ -e /usr/share/icons/hicolor/icon-theme.cache ]; then
+              touch /usr/share/icons/hicolor
+              if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+                gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor || true
+              fi
+            fi
+            ;;
+          abort-upgrade|abort-remove|abort-deconfigure)
+            ;;
+        esac
+        exit 0
         EOF
+        chmod 0755 "$package_root/DEBIAN/postinst"
+        cat > "$package_root/DEBIAN/postrm" <<'EOF'
+        #!/bin/sh
+        set -e
+        case "$1" in
+          remove|purge)
+            if command -v update-mime-database >/dev/null 2>&1; then
+              update-mime-database /usr/share/mime || true
+            fi
+            if command -v update-desktop-database >/dev/null 2>&1; then
+              update-desktop-database -q /usr/share/applications || true
+            fi
+            if [ -e /usr/share/icons/hicolor/icon-theme.cache ]; then
+              touch /usr/share/icons/hicolor
+              if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+                gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor || true
+              fi
+            fi
+            ;;
+          upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+            ;;
+        esac
+        exit 0
+        EOF
+        chmod 0755 "$package_root/DEBIAN/postrm"
+        sh -n "$package_root/DEBIAN/postinst"
+        sh -n "$package_root/DEBIAN/postrm"
         dpkg-deb -Zxz --build --root-owner-group "$package_root"
+        dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/applications/io\.github\.picocrypt_ng\.Picocrypt-NG\.desktop' >/dev/null
+        dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/mime/packages/application-x-pcv\.xml' >/dev/null
+        dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/icons/hicolor/[0-9]+x[0-9]+/mimetypes/application-x-pcv\.png' >/dev/null
+        dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/icons/hicolor/scalable/mimetypes/application-x-pcv\.svg' >/dev/null
 
     - name: Prepare to upload artifacts
       run: |
