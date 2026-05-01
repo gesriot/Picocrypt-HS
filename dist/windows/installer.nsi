@@ -53,7 +53,8 @@ VIAddVersionKey   "ProductVersion"  "${VERSION}"
 VIAddVersionKey   "LegalCopyright"  "(c) ${COMPANYNAME}"
 
 ; --- MUI2 pages (D-10, D-11, D-13, D-15) ---
-; License path uses ${__FILEDIR__}\..\..\LICENSE per Pitfall 5 (NOT $%CD%).
+; License path uses ${__FILEDIR__}\..\..\LICENSE per Pitfall 5 (script-relative,
+; not CWD-relative — the brittle CWD form is forbidden by the contract test).
 !define MUI_ABORTWARNING
 !define MUI_ICON   "${__FILEDIR__}\..\..\images\key.ico"
 !define MUI_UNICON "${__FILEDIR__}\..\..\images\key.ico"

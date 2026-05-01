@@ -516,7 +516,9 @@ func TestWindowsNSISScript(t *testing.T) {
 		t.Fatalf("installer.nsi missing 'Section \"Uninstall\"' block — cannot validate D-27 cleanup")
 	}
 	t.Run("uninstall_deletes_progid", func(t *testing.T) {
-		if !regexp.MustCompile(`DeleteRegKey.*PicocryptNG\.pcv`).MatchString(uninstallBlock) {
+		// Accept either the literal ProgID or the NSIS preprocessor reference ${PROGID}
+		// (script !defines PROGID = "PicocryptNG.pcv"; DRY > literal repetition).
+		if !regexp.MustCompile(`DeleteRegKey.*(PicocryptNG\.pcv|\$\{PROGID\})`).MatchString(uninstallBlock) {
 			t.Errorf("Uninstall Section missing DeleteRegKey for PicocryptNG.pcv ProgID (D-27)")
 		}
 	})
