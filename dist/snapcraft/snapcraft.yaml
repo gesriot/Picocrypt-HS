@@ -20,6 +20,21 @@ parts:
   picocrypt-ng:
     plugin: go
     source: .
+    override-build: |
+      craftctl default
+      # MIME XML — system-wide MIME registration declaration
+      install -d "$CRAFT_PART_INSTALL/usr/share/mime/packages"
+      install -m 0644 "$CRAFT_PROJECT_DIR/dist/mime/application-x-pcv.xml" \
+        "$CRAFT_PART_INSTALL/usr/share/mime/packages/"
+      # Hicolor mimetypes icon set (16/32/48/64/128/256 PNG + scalable SVG)
+      for size in 16 32 48 64 128 256; do
+        install -d "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/${size}x${size}/mimetypes"
+        install -m 0644 "$CRAFT_PROJECT_DIR/images/pcv-icon-${size}.png" \
+          "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/${size}x${size}/mimetypes/application-x-pcv.png"
+      done
+      install -d "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/mimetypes"
+      install -m 0644 "$CRAFT_PROJECT_DIR/images/pcv-icon.svg" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/mimetypes/application-x-pcv.svg"
     build-packages:
       - gcc
       - pkg-config
