@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -148,5 +149,96 @@ func TestPCVMasterSVGExists(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `xmlns="http://www.w3.org/2000/svg"`) {
 		t.Errorf("pcv-icon.svg missing svg namespace")
+	}
+}
+
+func TestDesktopEntryContract(t *testing.T) {
+	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.desktop")
+	text := string(data)
+
+	requiredLines := []struct {
+		name string
+		line string
+	}{
+		{name: "header", line: "[Desktop Entry]"},
+		{name: "type", line: "Type=Application"},
+		{name: "mimetype", line: "MimeType=application/x-pcv;"},
+		{name: "icon", line: "Icon=io.github.picocrypt_ng.Picocrypt-NG"},
+	}
+	for _, tc := range requiredLines {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(text, tc.line) {
+				t.Errorf("desktop file missing required line: %q", tc.line)
+			}
+		})
+	}
+
+	// Exact anchored Exec= match (REVIEWS MEDIUM #2): only `Exec=picocrypt-ng-gui %f` accepted.
+	// Loose `(?m)^Exec=.*%f\b` would have passed `Exec=wrong-binary %f`.
+	// `\r?$` tolerates CRLF if a Windows checkout ignored .gitattributes.
+	execRe := regexp.MustCompile(`(?m)^Exec=picocrypt-ng-gui %f\r?$`)
+	if !execRe.MatchString(text) {
+		t.Errorf("desktop file Exec= line must be exactly %q; want regex match for %q", "Exec=picocrypt-ng-gui %f", execRe.String())
+	}
+
+	// Negative field-code assertions (REVIEWS MEDIUM #2): Desktop Entry Spec §3.1 allows exactly one
+	// of %f/%F/%u/%U; we require %f, so the others must be absent.
+	forbiddenFieldCodes := []string{"%F", "%u", "%U"}
+	for _, fc := range forbiddenFieldCodes {
+		t.Run("forbidden_"+fc, func(t *testing.T) {
+			if strings.Contains(text, fc) {
+				t.Errorf("desktop file contains forbidden field code %q; only %%f is allowed per Desktop Entry Spec §3.1", fc)
+			}
+		})
+	}
+
+	if strings.Contains(text, "Encoding=") {
+		t.Errorf("desktop file contains deprecated Encoding= key; remove per Desktop Entry Spec 1.4")
+	}
+}
+
+func TestMetainfoContract(t *testing.T) {
+	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml")
+
+	var root struct {
+		XMLName xml.Name
+	}
+	if err := xml.Unmarshal(data, &root); err != nil {
+		t.Fatalf("metainfo not well-formed XML: %v", err)
+	}
+
+	text := string(data)
+	if !strings.Contains(text, "<mediatype>application/x-pcv</mediatype>") {
+		t.Errorf("metainfo missing <mediatype>application/x-pcv</mediatype>")
+	}
+	if strings.Contains(text, "<mimetypes>") {
+		t.Errorf("metainfo contains deprecated <mimetypes> tag; use <provides><mediatype> form per AppStream 1.0 spec")
+	}
+}
+
+func TestSnapDesktopMimeType(t *testing.T) {
+	data := mustReadFile(t, "dist/snapcraft/snap/gui/picocrypt-ng.desktop")
+	text := string(data)
+
+	if !strings.Contains(text, "MimeType=application/x-pcv;") {
+		t.Errorf("snap desktop file missing MimeType=application/x-pcv;")
+	}
+
+	// Exact anchored Exec= match (REVIEWS MEDIUM #2): snap app name is `picocrypt-ng` per Q3 Option A,
+	// NOT `picocrypt-ng-gui` (the .deb binary name). Loose regex would mask Option A drift.
+	// `\r?$` tolerates CRLF if a Windows checkout ignored .gitattributes.
+	execRe := regexp.MustCompile(`(?m)^Exec=picocrypt-ng %f\r?$`)
+	if !execRe.MatchString(text) {
+		t.Errorf("snap desktop file Exec= line must be exactly %q; want regex match for %q", "Exec=picocrypt-ng %f", execRe.String())
+	}
+
+	// Negative field-code assertions (REVIEWS MEDIUM #2): snap desktop must use %f only.
+	forbiddenFieldCodes := []string{"%F", "%u", "%U"}
+	for _, fc := range forbiddenFieldCodes {
+		t.Run("forbidden_"+fc, func(t *testing.T) {
+			if strings.Contains(text, fc) {
+				t.Errorf("snap desktop file contains forbidden field code %q; only %%f is allowed per Desktop Entry Spec §3.1", fc)
+			}
+		})
 	}
 }
