@@ -1,3 +1,14 @@
+# v2.09
+<ul>
+	<li>✓ <strong>File associations</strong>: double-click <code>.pcv</code> files to open Picocrypt NG in decrypt mode on Windows / macOS / Linux</li>
+	<li>✓ Linux: <code>.deb</code> installs MIME XML + <code>.desktop</code> + AppStream metainfo (Nautilus, Dolphin); Snap advertises handler (host MIME limited per snapd RFE #6467); Flatpak via Flathub manifest</li>
+	<li>✓ macOS: <code>.app</code> bundle declares UTI <code>io.github.picocryptng.pcv</code> + Apple Events <code>kAEOpenDocuments</code> handler (Finder cold-launch routes paths to decrypt mode)</li>
+	<li>✓ Windows: NSIS installer (<code>Picocrypt-NG-Setup.exe</code>) writes ProgID + registry associations alongside existing portable <code>.exe</code></li>
+	<li>✓ Windows: <code>Picocrypt-NG.exe</code> (portable) renamed to <code>Picocrypt-NG-portable.exe</code>; new <code>Picocrypt-NG-Setup.exe</code> ships in parallel</li>
+	<li>✓ Cross-platform <code>application/x-pcv</code> MIME type canonicalized in <code>dist/mime/application-x-pcv.xml</code></li>
+	<li>✓ File-type icon: <code>images/pcv-icon.svg</code> + 6 PNG renditions (16/32/48/64/128/256) + multi-resolution <code>.ico</code></li>
+</ul>
+
 # v2.08
 <ul>
 	<li>✓ Added Linux ARM64 build artifacts for both GUI and CLI in CI/release pipelines</li>

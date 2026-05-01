@@ -1,2 +1,16 @@
 src/testdata/golden/*.pcv -text
 src/testdata/golden/*.bin -text
+
+# POSIX-format declarative artifacts must keep LF on Windows checkout.
+# `core.autocrlf=true` (default on GitHub Windows runners) would otherwise
+# convert these to CRLF and break distmeta contract tests + makensis/plutil.
+dist/linux/*.desktop                text eol=lf
+dist/linux/*.metainfo.xml           text eol=lf
+dist/macos/Info.plist               text eol=lf
+dist/mime/*.xml                     text eol=lf
+dist/mime/*.sh                      text eol=lf
+dist/snapcraft/snap/gui/*.desktop   text eol=lf
+dist/snapcraft/snapcraft.yaml       text eol=lf
+dist/windows/installer.nsi          text eol=lf
+dist/windows/manifest.xml           text eol=lf
+dist/windows/versioninfo.rc         text eol=lf

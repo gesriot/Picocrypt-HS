@@ -2,5 +2,6 @@
 Type=Application
 Terminal=false
 Name=Picocrypt NG
-Exec=picocrypt-ng
+Exec=picocrypt-ng %f
 Icon=${SNAP}/meta/gui/picocrypt-ng.svg
+MimeType=application/x-pcv;

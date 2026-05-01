@@ -248,14 +248,17 @@ func (a *App) Run(startupPaths []string) {
 }
 
 func (a *App) scheduleStartupPaths(startupPaths []string) {
-	if len(startupPaths) == 0 {
-		return
-	}
-
-	paths := append([]string(nil), startupPaths...)
+	// Always wire SetOnStarted: even if startupPaths is empty, AppleEvent paths
+	// from a Finder cold launch may have been buffered by the cgo handler before
+	// Go's main() ran (drainOpenedPaths is a no-op on non-darwin via stub).
 	a.fyneApp.Lifecycle().SetOnStarted(func() {
 		fyne.Do(func() {
-			a.applyStartupPaths(paths)
+			merged := append([]string(nil), startupPaths...)
+			merged = append(merged, drainOpenedPaths()...)
+			if len(merged) == 0 {
+				return
+			}
+			a.applyStartupPaths(merged)
 		})
 	})
 }
