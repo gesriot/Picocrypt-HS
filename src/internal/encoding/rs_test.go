@@ -213,11 +213,8 @@ func TestRSAllCodecsRoundtrip(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name  string
-		codec interface {
-			Required() int
-			Total() int
-		}
+		name     string
+		codec    *infectious.FEC
 		dataSize int
 	}{
 		{"RS1", codecs.RS1, 1},
@@ -237,35 +234,11 @@ func TestRSAllCodecsRoundtrip(t *testing.T) {
 				data[i] = byte((i * 37) % 256) // Use a pattern
 			}
 
-			// Get the actual FEC codec using type assertion
-			var encoded []byte
-			var decoded []byte
-			var encErr error
-			var decErr error
-
-			switch tc.name {
-			case "RS1":
-				encoded, encErr = Encode(codecs.RS1, data)
-				decoded, decErr = Decode(codecs.RS1, encoded, false)
-			case "RS5":
-				encoded, encErr = Encode(codecs.RS5, data)
-				decoded, decErr = Decode(codecs.RS5, encoded, false)
-			case "RS16":
-				encoded, encErr = Encode(codecs.RS16, data)
-				decoded, decErr = Decode(codecs.RS16, encoded, false)
-			case "RS24":
-				encoded, encErr = Encode(codecs.RS24, data)
-				decoded, decErr = Decode(codecs.RS24, encoded, false)
-			case "RS32":
-				encoded, encErr = Encode(codecs.RS32, data)
-				decoded, decErr = Decode(codecs.RS32, encoded, false)
-			case "RS64":
-				encoded, encErr = Encode(codecs.RS64, data)
-				decoded, decErr = Decode(codecs.RS64, encoded, false)
-			case "RS128":
-				encoded, encErr = Encode(codecs.RS128, data)
-				decoded, decErr = Decode(codecs.RS128, encoded, false)
-			}
+			// Dispatch through the stored codec — the table drives the full
+			// execution path (no switch-by-name; a typo'd case can't silently
+			// exercise the zero-value path).
+			encoded, encErr := Encode(tc.codec, data)
+			decoded, decErr := Decode(tc.codec, encoded, false)
 
 			if encErr != nil {
 				t.Fatalf("Encode failed: %v", encErr)

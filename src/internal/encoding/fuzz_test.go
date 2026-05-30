@@ -61,8 +61,15 @@ func FuzzPad(f *testing.F) {
 // Run with: go test -fuzz=FuzzRSEncodeDecode -fuzztime=30s
 func FuzzRSEncodeDecode(f *testing.F) {
 	// Seed with 128-byte blocks (RS128 input size)
-	f.Add(make([]byte, 128))
-	f.Add([]byte("This is exactly 128 bytes of test data for Reed-Solomon encoding and decoding verification purposes!!!!"))
+	f.Add(make([]byte, 128)) // all-zero block
+	// A varied 128-byte block (0x00..0x7F). Replaces a prior 103-byte string
+	// seed that len(data)!=128 always skipped (zero coverage); this one
+	// actually exercises the encode/decode body.
+	variedSeed := make([]byte, 128)
+	for i := range variedSeed {
+		variedSeed[i] = byte(i)
+	}
+	f.Add(variedSeed)
 
 	codecs, err := NewRSCodecs()
 	if err != nil {
