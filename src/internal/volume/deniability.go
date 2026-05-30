@@ -151,8 +151,12 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 	_ = fout.Close()
 
-	// Clean up: remove .tmp and rename .incomplete to final name
-	if err := os.Remove(tmpPath); err != nil {
+	// Clean up: overwrite-before-unlink the .tmp (SEC-04, defense-in-depth — the
+	// .tmp holds inner .pcv ciphertext) and rename .incomplete to final name.
+	// NOTE: this site is intentionally error-checked (not `_ =`): a failed .tmp
+	// removal must abort before the rename so both files are left for manual
+	// recovery. Preserve that control flow.
+	if err := fileops.OverwriteAndRemove(tmpPath); err != nil {
 		// .tmp removal failed, but we have the complete .incomplete
 		// Don't try to rename - leave both files for manual inspection
 		// User can manually: verify .incomplete is correct, remove .tmp, rename .incomplete
