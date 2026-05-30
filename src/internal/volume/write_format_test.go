@@ -102,6 +102,12 @@ func TestWriteFormatRegression(t *testing.T) {
 	if got := len(h.KeyfileHash); got != header.KeyfileHashSize {
 		t.Errorf("KeyfileHash width = %d, want header.KeyfileHashSize %d", got, header.KeyfileHashSize)
 	}
+	if got := len(h.KeyHash); got != header.KeyHashSize {
+		t.Errorf("KeyHash width = %d, want header.KeyHashSize %d", got, header.KeyHashSize)
+	}
+	if got := len(h.AuthTag); got != header.AuthTagSize {
+		t.Errorf("AuthTag width = %d, want header.AuthTagSize %d", got, header.AuthTagSize)
+	}
 
 	// (4) Flags invariant: a basic volume has these all false.
 	if h.Flags.Paranoid || h.Flags.UseKeyfiles || h.Flags.ReedSolomon {
