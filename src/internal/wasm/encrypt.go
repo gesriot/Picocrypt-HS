@@ -153,17 +153,26 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	offset := header.AuthValuesOffset(len(hdr.Comments))
 
 	// Encode and write KeyHash (rs64)
-	keyHashEnc := encoding.Encode(rsCodecs.RS64, hdr.KeyHash)
+	keyHashEnc, err := encoding.Encode(rsCodecs.RS64, hdr.KeyHash)
+	if err != nil {
+		return nil, ErrModifiedData
+	}
 	copy(headerBytes[offset:], keyHashEnc)
 	offset += int64(header.KeyHashEncSize)
 
 	// Encode and write KeyfileHash (rs32)
-	keyfileHashEnc := encoding.Encode(rsCodecs.RS32, hdr.KeyfileHash)
+	keyfileHashEnc, err := encoding.Encode(rsCodecs.RS32, hdr.KeyfileHash)
+	if err != nil {
+		return nil, ErrModifiedData
+	}
 	copy(headerBytes[offset:], keyfileHashEnc)
 	offset += int64(header.KeyfileHashEncSize)
 
 	// Encode and write AuthTag (rs64)
-	authTagEnc := encoding.Encode(rsCodecs.RS64, authTag)
+	authTagEnc, err := encoding.Encode(rsCodecs.RS64, authTag)
+	if err != nil {
+		return nil, ErrModifiedData
+	}
 	copy(headerBytes[offset:], authTagEnc)
 
 	// Combine header and encrypted payload

@@ -94,7 +94,10 @@ func TestRSEncodeDecodeRS128(t *testing.T) {
 	}
 
 	// Encode
-	encoded := Encode(codecs.RS128, data)
+	encoded, err := Encode(codecs.RS128, data)
+	if err != nil {
+		t.Fatalf("Encode(RS128) failed: %v", err)
+	}
 	if len(encoded) != 136 {
 		t.Errorf("Encode(RS128) length = %d; want 136", len(encoded))
 	}
@@ -128,7 +131,10 @@ func TestRSEncodeDecodeRS5(t *testing.T) {
 	data := []byte("v2.00")
 
 	// Encode
-	encoded := Encode(codecs.RS5, data)
+	encoded, err := Encode(codecs.RS5, data)
+	if err != nil {
+		t.Fatalf("Encode(RS5) failed: %v", err)
+	}
 	if len(encoded) != 15 {
 		t.Errorf("Encode(RS5) length = %d; want 15", len(encoded))
 	}
@@ -153,7 +159,10 @@ func TestRSEncodeDecodeRS1(t *testing.T) {
 	data := []byte("A")
 
 	// Encode
-	encoded := Encode(codecs.RS1, data)
+	encoded, err := Encode(codecs.RS1, data)
+	if err != nil {
+		t.Fatalf("Encode(RS1) failed: %v", err)
+	}
 	if len(encoded) != 3 {
 		t.Errorf("Encode(RS1) length = %d; want 3", len(encoded))
 	}
@@ -176,7 +185,10 @@ func TestRSErrorCorrection(t *testing.T) {
 
 	// Test error correction capability of RS5
 	data := []byte("v2.00")
-	encoded := Encode(codecs.RS5, data)
+	encoded, err := Encode(codecs.RS5, data)
+	if err != nil {
+		t.Fatalf("Encode(RS5) failed: %v", err)
+	}
 
 	// Corrupt some bytes (RS5 can correct up to 5 errors since total=15, required=5)
 	corrupted := make([]byte, len(encoded))
@@ -228,32 +240,36 @@ func TestRSAllCodecsRoundtrip(t *testing.T) {
 			// Get the actual FEC codec using type assertion
 			var encoded []byte
 			var decoded []byte
+			var encErr error
 			var decErr error
 
 			switch tc.name {
 			case "RS1":
-				encoded = Encode(codecs.RS1, data)
+				encoded, encErr = Encode(codecs.RS1, data)
 				decoded, decErr = Decode(codecs.RS1, encoded, false)
 			case "RS5":
-				encoded = Encode(codecs.RS5, data)
+				encoded, encErr = Encode(codecs.RS5, data)
 				decoded, decErr = Decode(codecs.RS5, encoded, false)
 			case "RS16":
-				encoded = Encode(codecs.RS16, data)
+				encoded, encErr = Encode(codecs.RS16, data)
 				decoded, decErr = Decode(codecs.RS16, encoded, false)
 			case "RS24":
-				encoded = Encode(codecs.RS24, data)
+				encoded, encErr = Encode(codecs.RS24, data)
 				decoded, decErr = Decode(codecs.RS24, encoded, false)
 			case "RS32":
-				encoded = Encode(codecs.RS32, data)
+				encoded, encErr = Encode(codecs.RS32, data)
 				decoded, decErr = Decode(codecs.RS32, encoded, false)
 			case "RS64":
-				encoded = Encode(codecs.RS64, data)
+				encoded, encErr = Encode(codecs.RS64, data)
 				decoded, decErr = Decode(codecs.RS64, encoded, false)
 			case "RS128":
-				encoded = Encode(codecs.RS128, data)
+				encoded, encErr = Encode(codecs.RS128, data)
 				decoded, decErr = Decode(codecs.RS128, encoded, false)
 			}
 
+			if encErr != nil {
+				t.Fatalf("Encode failed: %v", encErr)
+			}
 			if decErr != nil {
 				t.Fatalf("Decode failed: %v", decErr)
 			}

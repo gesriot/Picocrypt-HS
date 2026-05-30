@@ -17,6 +17,7 @@ package encoding
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/Picocrypt/infectious"
 )
@@ -73,16 +74,25 @@ func NewRSCodecs() (*RSCodecs, error) {
 // The input data length must match the codec's Required() size.
 // Returns encoded data with parity bytes appended (length = codec.Total()).
 //
+// Precondition: len(data) must equal rs.Required(); otherwise a non-nil error
+// is returned (never panics). The exact-size check is required because the
+// res[s.Number] = s.Data[0] callback assumes a single block (block_size == 1):
+// a wrong-but-multiple-of-k size (e.g. 256 for RS128) would pass infectious's
+// own len%k check yet misalign the result, so relying on rs.Encode's error
+// alone is insufficient.
+//
 // Example: Encode(rs128, 128-byte-data) -> 136 bytes with 8 parity bytes.
-func Encode(rs *infectious.FEC, data []byte) []byte {
+func Encode(rs *infectious.FEC, data []byte) ([]byte, error) {
+	if len(data) != rs.Required() {
+		return nil, fmt.Errorf("rs encode: input size %d != required %d", len(data), rs.Required())
+	}
 	res := make([]byte, rs.Total())
 	if err := rs.Encode(data, func(s infectious.Share) {
 		res[s.Number] = s.Data[0]
 	}); err != nil {
-		// This should never happen with correct input size
-		panic("rs.Encode failed: " + err.Error())
+		return nil, fmt.Errorf("rs encode: %w", err)
 	}
-	return res
+	return res, nil
 }
 
 // Decode attempts to decode and repair Reed-Solomon encoded data.

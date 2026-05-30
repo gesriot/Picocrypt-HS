@@ -76,7 +76,10 @@ func FuzzRSEncodeDecode(f *testing.F) {
 		}
 
 		// Encode
-		encoded := Encode(codecs.RS128, data)
+		encoded, err := Encode(codecs.RS128, data)
+		if err != nil {
+			t.Fatalf("Encode failed: %v", err)
+		}
 		if len(encoded) != 136 {
 			t.Errorf("Encoded length wrong: got %d, want 136", len(encoded))
 		}

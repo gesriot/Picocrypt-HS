@@ -359,7 +359,11 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			// Apply Reed-Solomon if enabled
 			var writeData []byte
 			if req.ReedSolomon {
-				writeData = encodeWithRS(dstData, req.RSCodecs)
+				enc, err := encodeWithRS(dstData, req.RSCodecs)
+				if err != nil {
+					return fmt.Errorf("rs encode payload: %w", err)
+				}
+				writeData = enc
 			} else {
 				writeData = dstData
 			}
@@ -487,7 +491,7 @@ func cleanupEncrypt(ctx *OperationContext, req *EncryptRequest) {
 // For partial blocks (< 1 MiB), this ALWAYS adds a padding chunk, even if data
 // is exactly divisible by 128, because the original Picocrypt always unpads
 // the last chunk of partial blocks.
-func encodeWithRS(data []byte, rs *encoding.RSCodecs) []byte {
+func encodeWithRS(data []byte, rs *encoding.RSCodecs) ([]byte, error) {
 	// Pre-allocate result slice to avoid repeated reallocations
 	// Each RS128DataSize-byte input chunk becomes RS128EncodedSize bytes (128 data + 8 parity)
 	// For partial blocks, we add one more chunk for padding
@@ -500,22 +504,34 @@ func encodeWithRS(data []byte, rs *encoding.RSCodecs) []byte {
 	// Full 1 MiB block - no padding needed within the block
 	if len(data) == util.MiB {
 		for i := 0; i < util.MiB; i += encoding.RS128DataSize {
-			result = append(result, encoding.Encode(rs.RS128, data[i:i+encoding.RS128DataSize])...)
+			enc, err := encoding.Encode(rs.RS128, data[i:i+encoding.RS128DataSize])
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, enc...)
 		}
-		return result
+		return result, nil
 	}
 
 	// Partial block (< 1 MiB) - need to handle padding
 	// Encode full 128-byte chunks
 	fullChunks := len(data) / encoding.RS128DataSize
 	for i := 0; i < fullChunks; i++ {
-		result = append(result, encoding.Encode(rs.RS128, data[i*encoding.RS128DataSize:(i+1)*encoding.RS128DataSize])...)
+		enc, err := encoding.Encode(rs.RS128, data[i*encoding.RS128DataSize:(i+1)*encoding.RS128DataSize])
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, enc...)
 	}
 
 	// ALWAYS add a padded chunk for partial blocks (matches original line 2071-2072)
 	// This is because decryption always unpads the last chunk of partial blocks
 	remaining := data[fullChunks*encoding.RS128DataSize:]
-	result = append(result, encoding.Encode(rs.RS128, encoding.Pad(remaining))...)
+	enc, err := encoding.Encode(rs.RS128, encoding.Pad(remaining))
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, enc...)
 
-	return result
+	return result, nil
 }

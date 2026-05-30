@@ -37,13 +37,13 @@ func BenchmarkRS128Encode(b *testing.B) {
 	data := make([]byte, RS128DataSize)
 	b.ResetTimer()
 	for b.Loop() {
-		_ = Encode(codecs.RS128, data)
+		_, _ = Encode(codecs.RS128, data)
 	}
 }
 
 // BenchmarkRS128DecodeFast measures RS128 fast decoding (no error correction).
 func BenchmarkRS128DecodeFast(b *testing.B) {
-	data := Encode(codecs.RS128, make([]byte, RS128DataSize))
+	data, _ := Encode(codecs.RS128, make([]byte, RS128DataSize))
 	b.ResetTimer()
 	for b.Loop() {
 		_, _ = Decode(codecs.RS128, data, true)
@@ -52,7 +52,7 @@ func BenchmarkRS128DecodeFast(b *testing.B) {
 
 // BenchmarkRS128DecodeFull measures RS128 full decoding (with error correction).
 func BenchmarkRS128DecodeFull(b *testing.B) {
-	data := Encode(codecs.RS128, make([]byte, RS128DataSize))
+	data, _ := Encode(codecs.RS128, make([]byte, RS128DataSize))
 	b.ResetTimer()
 	for b.Loop() {
 		_, _ = Decode(codecs.RS128, data, false)
@@ -64,13 +64,13 @@ func BenchmarkRS5Encode(b *testing.B) {
 	data := make([]byte, 5) // Version, flags, etc.
 	b.ResetTimer()
 	for b.Loop() {
-		_ = Encode(codecs.RS5, data)
+		_, _ = Encode(codecs.RS5, data)
 	}
 }
 
 // BenchmarkRS5Decode measures RS5 decoding.
 func BenchmarkRS5Decode(b *testing.B) {
-	data := Encode(codecs.RS5, make([]byte, 5))
+	data, _ := Encode(codecs.RS5, make([]byte, 5))
 	b.ResetTimer()
 	for b.Loop() {
 		_, _ = Decode(codecs.RS5, data, false)
@@ -85,7 +85,8 @@ func BenchmarkRS1MiBEncode(b *testing.B) {
 	for b.Loop() {
 		var result []byte
 		for j := 0; j < MiB; j += RS128DataSize {
-			result = append(result, Encode(codecs.RS128, data[j:j+RS128DataSize])...)
+			enc, _ := Encode(codecs.RS128, data[j:j+RS128DataSize])
+			result = append(result, enc...)
 		}
 		_ = result
 	}
@@ -98,7 +99,8 @@ func BenchmarkRS1MiBDecodeFast(b *testing.B) {
 	data := make([]byte, MiB)
 	var encoded []byte
 	for j := 0; j < MiB; j += RS128DataSize {
-		encoded = append(encoded, Encode(codecs.RS128, data[j:j+RS128DataSize])...)
+		enc, _ := Encode(codecs.RS128, data[j:j+RS128DataSize])
+		encoded = append(encoded, enc...)
 	}
 
 	b.ResetTimer()
