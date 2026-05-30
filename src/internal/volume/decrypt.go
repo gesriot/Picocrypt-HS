@@ -267,6 +267,18 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 		// For v1, XOR keyfile key into main key BEFORE HKDF
 		key := ctx.Key
 		if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
+			// DATA-02: a legacy v1 volume may have been authored with an
+			// even-count duplicate keyfile set whose unordered XOR cancels to
+			// all-zeros. Original Picocrypt did not block this, so the volume
+			// is already decryptable (its effective key is just the password
+			// key). We must NOT block here like the v2 path does (D-11) — we
+			// only WARN, mirroring the encrypt-side detection (D-10/D-12). This
+			// sits AFTER the v1 SHA3-512(key) password verifier above, so it
+			// does not let a wrong-password/tampered volume through.
+			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
+				log.Warn("duplicate keyfiles detected (keys cancel out)")
+				ctx.SetStatus("Warning: duplicate keyfiles detected (keys cancel out)…")
+			}
 			key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
 		}
 
