@@ -334,6 +334,21 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 	return nil
 }
 
+// verifyFirstProgressDelta returns how many bytes to advance the verify-first pass's
+// progress counter for a read of n on-disk bytes.
+//
+// BUG (VER-03 / D-13): for Reed-Solomon volumes this returns a FIXED full-block size
+// regardless of n, so the final partial read over-counts and pushes the running total
+// past ctx.Total. The over-count is currently masked at the display layer by
+// util.Statify's <=1.0 clamp, but it makes the verify-pass counter unfaithful to
+// ctx.Total's raw on-disk byte basis. Fixed in Task 2 to return int64(n).
+func verifyFirstProgressDelta(n int, reedsolo bool) int64 {
+	if reedsolo {
+		return int64(util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize)
+	}
+	return int64(n)
+}
+
 // decryptVerifyMACFirst performs a verification-only pass to check MAC before decryption.
 // This addresses security audit recommendation PCC-004: the ciphertext is authenticated
 // BEFORE any decryption occurs, ensuring we never apply crypto to attacker-controlled data.
@@ -439,11 +454,7 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 			// Update MAC with ciphertext (no decryption!)
 			mac.Write(data)
 
-			if reedsolo {
-				done += int64(util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize)
-			} else {
-				done += int64(n)
-			}
+			done += verifyFirstProgressDelta(n, reedsolo)
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress/2, fmt.Sprintf("%.2f%% (verifying)", progress*50)) // Show 0-50% for pass 1
