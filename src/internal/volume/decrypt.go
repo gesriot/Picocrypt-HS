@@ -743,7 +743,9 @@ func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
 // When fastDecode is true, it skips RS error correction and just returns the data bytes.
 // This matches the original Picocrypt behavior for performance.
 func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceDecode, fastDecode bool) ([]byte, error) {
-	var result []byte
+	// Pre-allocate once: each 136-byte encoded chunk yields <= 128 decoded bytes.
+	// Mirrors the encode side (encrypt.go:498). Unpad only shrinks the last chunk.
+	result := make([]byte, 0, len(data)/encoding.RS128EncodedSize*encoding.RS128DataSize)
 	fullBlockEncodedSize := util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
 
 	// Full 1 MiB block
