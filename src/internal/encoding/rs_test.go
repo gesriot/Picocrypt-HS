@@ -3,6 +3,8 @@ package encoding
 import (
 	"bytes"
 	"testing"
+
+	"github.com/Picocrypt/infectious"
 )
 
 func TestNewRSCodecs(t *testing.T) {
@@ -39,6 +41,43 @@ func TestNewRSCodecs(t *testing.T) {
 	}
 	if codecs.RS128.Required() != 128 || codecs.RS128.Total() != 136 {
 		t.Errorf("RS128: got Required=%d, Total=%d; want 128, 136", codecs.RS128.Required(), codecs.RS128.Total())
+	}
+}
+
+func TestEncodeWrongSizeReturnsError(t *testing.T) {
+	codecs, err := NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs() failed: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		rs   *infectious.FEC
+		size int // != rs.Required()
+	}{
+		{"RS128 too small", codecs.RS128, 127},
+		{"RS128 too large", codecs.RS128, 129},
+		{"RS128 multiple-of-k", codecs.RS128, 256}, // multiple of k=128: passes infectious but panics in callback (index case)
+		{"RS5 wrong", codecs.RS5, 4},
+		{"RS1 wrong", codecs.RS1, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Encode(tt.rs, make([]byte, tt.size))
+			if err == nil {
+				t.Errorf("Encode(size=%d) = nil error; want non-nil", tt.size)
+			}
+		})
+	}
+
+	// Correct size still succeeds, byte-identical length to pre-change.
+	enc, err := Encode(codecs.RS128, make([]byte, 128))
+	if err != nil {
+		t.Fatalf("correct-size Encode: unexpected err=%v", err)
+	}
+	if len(enc) != 136 {
+		t.Errorf("correct-size Encode: len=%d; want 136", len(enc))
 	}
 }
 
