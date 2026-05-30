@@ -30,20 +30,13 @@ func CreateSecureNoSymlink(path string) (*os.File, error) {
 // even for multi-GiB recombined temp files.
 const overwriteChunkSize = 64 * 1024
 
-// removeFile is the unlink seam used by OverwriteAndRemove. It is a package var
-// so SEC-04 tests can intercept the on-disk bytes at the instant after the
-// overwrite but before the unlink, proving overwrite-before-unlink ordering.
-// Production code always uses os.Remove.
+// removeFile is the unlink seam used by OverwriteAndRemove. It is an UNEXPORTED
+// package var so the white-box SEC-04 tests (same package, file_test.go) can
+// intercept the on-disk bytes at the instant after the overwrite but before the
+// unlink, proving overwrite-before-unlink ordering. It is deliberately not
+// exported (WR-02): no production binary ships a public hook that an importer
+// could swap to disable secure unlinking. Production code always uses os.Remove.
 var removeFile = os.Remove
-
-// SwapRemoveForTest replaces the unlink seam used by OverwriteAndRemove and
-// returns a restore func. Test-only (cross-package SEC-04 tests live in
-// internal/volume); not for production use.
-func SwapRemoveForTest(fn func(path string) error) func() {
-	prev := removeFile
-	removeFile = fn
-	return func() { removeFile = prev }
-}
 
 // OverwriteAndRemove best-effort overwrites a file's bytes with zeros, then
 // unlinks it. It is used to clean up plaintext / sensitive temp artifacts
