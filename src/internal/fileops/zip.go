@@ -180,7 +180,7 @@ func entryNameForPath(opts ZipOptions, path string) (string, error) {
 // Returns the path to the created archive.
 // On error or cancellation, the partial output file is removed.
 func CreateZip(opts ZipOptions) error {
-	file, err := CreateSecure(opts.OutputPath)
+	file, err := CreateSecureNoSymlink(opts.OutputPath)
 	if err != nil {
 		return fmt.Errorf("create zip file: %w", err)
 	}

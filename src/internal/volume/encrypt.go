@@ -197,7 +197,7 @@ func encryptGenerateValues(ctx *OperationContext, req *EncryptRequest) error {
 
 func encryptWriteHeader(ctx *OperationContext, req *EncryptRequest) error {
 	// Create output file
-	fout, err := fileops.CreateSecure(req.OutputFile + ".incomplete")
+	fout, err := fileops.CreateSecureNoSymlink(req.OutputFile + ".incomplete")
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}

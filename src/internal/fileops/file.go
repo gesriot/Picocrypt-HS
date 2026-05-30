@@ -5,14 +5,9 @@ import (
 	"os"
 )
 
-// CreateSecure creates file with 0600 permissions atomically.
-// Uses os.OpenFile to set perms at creation (no TOCTOU window).
-func CreateSecure(path string) (*os.File, error) {
-	// #nosec G304 -- path is user-provided input file, validated by caller
-	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-}
-
 // CreateSecureNoSymlink creates or truncates a file unless the leaf already exists as a symlink.
+// It is the only sanctioned write-creation primitive (SEC-02): the plain CreateSecure was retired
+// so an unguarded O_CREATE that follows a pre-planted symlink cannot be reintroduced.
 func CreateSecureNoSymlink(path string) (*os.File, error) {
 	info, err := os.Lstat(path)
 	if err == nil {

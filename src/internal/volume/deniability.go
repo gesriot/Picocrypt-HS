@@ -56,7 +56,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 	defer func() { _ = fin.Close() }()
 
-	fout, err := fileops.CreateSecure(incompletePath)
+	fout, err := fileops.CreateSecureNoSymlink(incompletePath)
 	if err != nil {
 		_ = fin.Close()
 		restoreOriginal()
@@ -204,7 +204,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	}
 	outputPath += ".tmp"
 
-	fout, err := fileops.CreateSecure(outputPath)
+	fout, err := fileops.CreateSecureNoSymlink(outputPath)
 	if err != nil {
 		return "", fmt.Errorf("create output: %w", err)
 	}

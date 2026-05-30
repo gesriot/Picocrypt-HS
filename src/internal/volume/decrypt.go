@@ -623,7 +623,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 		return fmt.Errorf("seek past header: %w", err)
 	}
 
-	fout, err := fileops.CreateSecure(req.OutputFile + ".incomplete")
+	fout, err := fileops.CreateSecureNoSymlink(req.OutputFile + ".incomplete")
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
