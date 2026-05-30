@@ -111,6 +111,11 @@ func prepareExtractionPath(extractDir, normalizedName string, isDir bool) (strin
 		case err != nil:
 			return "", err
 		case info.Mode()&os.ModeSymlink != 0:
+			// SEC-03 invariant (pinned by TestUnpackSymlinkEscape): every path
+			// component is Lstat'd and any symlink rejected before a write, so a
+			// symlinked intermediate dir cannot be followed out of the extraction
+			// root. In-archive symlink entries never reach here as symlinks — they
+			// are materialized as regular files (target string = body).
 			return "", fmt.Errorf("refusing to follow symlink during extraction: %s", next)
 		case !info.IsDir() && (!isLast || isDir):
 			return "", fmt.Errorf("path exists as file: %s", next)
