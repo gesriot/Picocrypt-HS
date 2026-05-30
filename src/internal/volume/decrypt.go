@@ -337,15 +337,18 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 // verifyFirstProgressDelta returns how many bytes to advance the verify-first pass's
 // progress counter for a read of n on-disk bytes.
 //
-// BUG (VER-03 / D-13): for Reed-Solomon volumes this returns a FIXED full-block size
-// regardless of n, so the final partial read over-counts and pushes the running total
-// past ctx.Total. The over-count is currently masked at the display layer by
-// util.Statify's <=1.0 clamp, but it makes the verify-pass counter unfaithful to
-// ctx.Total's raw on-disk byte basis. Fixed in Task 2 to return int64(n).
-func verifyFirstProgressDelta(n int, reedsolo bool) int64 {
-	if reedsolo {
-		return int64(util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize)
-	}
+// VER-03 (D-13/D-14, mechanism a): advance by the ACTUAL bytes read, n, for BOTH the
+// Reed-Solomon and plain cases. ctx.Total is the raw on-disk ciphertext byte count
+// (filesize - headerSize - comments*3, decrypt.go:160,192) and the verify loop reads
+// exactly those on-disk bytes — so `done` must track n to stay faithful to ctx.Total.
+// The previous code advanced by a FIXED full-block size for RS volumes, which
+// over-counts on the final partial read and pushes `done` past ctx.Total. util.Statify
+// masked the visible fraction with its <=1.0 clamp, but the counter was unfaithful;
+// advancing by n is monotonic, never overshoots ctx.Total, and reaches it exactly at
+// EOF (== 50% in pass-1 terms). This is verify-pass-only and display-only: it does not
+// touch the decrypt-pass increment (decrypt.go), the MAC, output bytes, the on-disk
+// format, or util.Statify.
+func verifyFirstProgressDelta(n int) int64 {
 	return int64(n)
 }
 
@@ -454,7 +457,7 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 			// Update MAC with ciphertext (no decryption!)
 			mac.Write(data)
 
-			done += verifyFirstProgressDelta(n, reedsolo)
+			done += verifyFirstProgressDelta(n)
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress/2, fmt.Sprintf("%.2f%% (verifying)", progress*50)) // Show 0-50% for pass 1

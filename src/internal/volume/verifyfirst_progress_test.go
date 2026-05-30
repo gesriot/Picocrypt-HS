@@ -69,37 +69,33 @@ func TestVerifyFirstProgressDeltaFaithful(t *testing.T) {
 	const fixedBlock = int64(util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize)
 
 	tests := []struct {
-		name     string
-		n        int
-		reedsolo bool
-		want     int64
+		name string
+		n    int
+		want int64
 	}{
 		{
-			name:     "rs partial final read advances by actual bytes, not fixed block",
-			n:        12345,        // a short final read: n << fixedBlock
-			reedsolo: true,
-			want:     12345,        // faithful: matches the on-disk bytes counted in ctx.Total
+			name: "rs partial final read advances by actual bytes, not fixed block",
+			n:    12345, // a short final read: n << fixedBlock; pre-fix advanced by fixedBlock
+			want: 12345, // faithful: matches the on-disk bytes counted in ctx.Total
 		},
 		{
-			name:     "rs full read advances by the bytes read (== fixed block at a full chunk)",
-			n:        int(fixedBlock),
-			reedsolo: true,
-			want:     fixedBlock,
+			name: "full read advances by the bytes read (== fixed block at a full chunk)",
+			n:    int(fixedBlock),
+			want: fixedBlock,
 		},
 		{
-			name:     "non-rs read advances by actual bytes (unchanged)",
-			n:        9001,
-			reedsolo: false,
-			want:     9001,
+			name: "small read advances by actual bytes",
+			n:    9001,
+			want: 9001,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := verifyFirstProgressDelta(tt.n, tt.reedsolo)
+			got := verifyFirstProgressDelta(tt.n)
 			if got != tt.want {
-				t.Errorf("verifyFirstProgressDelta(%d, reedsolo=%v) = %d, want %d (the on-disk bytes counted in ctx.Total)",
-					tt.n, tt.reedsolo, got, tt.want)
+				t.Errorf("verifyFirstProgressDelta(%d) = %d, want %d (the on-disk bytes counted in ctx.Total)",
+					tt.n, got, tt.want)
 			}
 		})
 	}
