@@ -594,6 +594,98 @@ func TestUnpackRejectsSymlinkLeaf(t *testing.T) {
 	}
 }
 
+// TestUnpackSymlinkEscape pins SEC-03: an archive whose entries declare a
+// symlinked intermediate directory component (a/b -> outside, immediately
+// followed by a/b/evil) cannot write outside the extraction root via a
+// TOCTOU symlink escape. This is a characterization test for the EXISTING
+// defense in unpack.go (prepareExtractionPath per-component os.Lstat +
+// os.ModeSymlink reject, plus the fact that Go's archive/zip materializes a
+// symlink entry as a REGULAR FILE whose body is the target string and never
+// realizes it as an OS symlink); no production code change is expected.
+//
+// RED-meaningful: if unpack.go realized in-archive symlink entries as real
+// OS symlinks (or skipped the per-component Lstat reject), the a/b/evil entry
+// would follow a/b -> outsideDir and land at outsideDir/evil, escaping the
+// root. The assertions below (no outsideDir/evil + a non-nil rejection error)
+// fail-closed and would catch any such regression.
+func TestUnpackSymlinkEscape(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Symlink-support probe: bail out cleanly on platforms (e.g. Windows
+	// without privilege) where symlinks are unavailable, matching the
+	// established skip pattern in the sibling extraction tests.
+	probeLink := filepath.Join(tmpDir, "symlink-probe")
+	if err := os.Symlink(tmpDir, probeLink); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+	_ = os.Remove(probeLink)
+
+	outsideDir := filepath.Join(tmpDir, "outside")
+	if err := os.MkdirAll(outsideDir, 0700); err != nil {
+		t.Fatalf("Create outside dir: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "evil.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Create zip file: %v", err)
+	}
+
+	w := zip.NewWriter(f)
+
+	// Entry 1: "a/b" authored as a symlink entry whose body is outsideDir.
+	// Go's archive/zip has no symlink type-flag; Unpack ignores the mode bits
+	// and writes the body as a regular file, never realizing the symlink.
+	h := &zip.FileHeader{Name: "a/b"}
+	h.SetMode(os.ModeSymlink | 0777)
+	sw, err := w.CreateHeader(h)
+	if err != nil {
+		t.Fatalf("Create symlink entry: %v", err)
+	}
+	if _, err := sw.Write([]byte(outsideDir)); err != nil {
+		t.Fatalf("Write symlink entry body: %v", err)
+	}
+
+	// Entry 2: "a/b/evil" — would escape to outsideDir/evil ONLY if a/b were
+	// realized as a real symlink to outsideDir.
+	ew, err := w.CreateHeader(&zip.FileHeader{Name: "a/b/evil", Method: zip.Store})
+	if err != nil {
+		t.Fatalf("Create escape entry: %v", err)
+	}
+	if _, err := ew.Write([]byte("pwned")); err != nil {
+		t.Fatalf("Write escape entry body: %v", err)
+	}
+	_ = w.Close()
+	_ = f.Close()
+
+	extractDir := filepath.Join(tmpDir, "extract")
+	err = Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+	})
+
+	// Primary security invariant: nothing was written outside the extraction
+	// root. This is the assertion that proves the escape was blocked.
+	if _, statErr := os.Stat(filepath.Join(outsideDir, "evil")); !os.IsNotExist(statErr) {
+		t.Fatalf("Payload escaped extraction root via symlinked intermediate dir")
+	}
+
+	// Secondary invariant: extraction reports a rejection error rather than
+	// silently succeeding. The a/b/evil entry forces a/b to be created as a
+	// directory during the first-pass component walk, so the second pass'
+	// CreateSecureNoSymlink for the a/b leaf entry hits the dir-collision
+	// reject ("path exists as directory", file.go). The exact branch observed
+	// at HEAD is the path-collision one; accept the symlink reject too so the
+	// test stays robust if the materialization order ever shifts.
+	if err == nil {
+		t.Fatalf("Expected extraction to reject the symlinked-intermediate archive, got nil")
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "path exists") && !strings.Contains(msg, "symlink") {
+		t.Fatalf("Expected a path-collision/symlink rejection, got %v", err)
+	}
+}
+
 func TestUnpackRejectsSymlinkedExtractionRootAncestor(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideRoot := filepath.Join(tmpDir, "outside-root")
