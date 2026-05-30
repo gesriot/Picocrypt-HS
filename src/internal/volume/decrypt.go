@@ -368,7 +368,6 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 	ctx.SetCanCancel(true)
 	startTime := time.Now()
 	var done int64
-	var counter int64
 
 	reedsolo := ctx.Header.Flags.ReedSolomon
 	padded := ctx.Header.Flags.Padded
@@ -411,19 +410,16 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 			} else {
 				done += int64(n)
 			}
-			counter += int64(len(data))
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress/2, fmt.Sprintf("%.2f%% (verifying)", progress*50)) // Show 0-50% for pass 1
 			ctx.SetStatus(fmt.Sprintf("Verifying at %.2f MiB/s (ETA: %s)", speed, eta))
 
-			// Handle rekey threshold - we need to track this for MAC computation
-			// but can't actually rekey without ciphers. For very large files (>60GiB),
-			// this verification pass might not perfectly match the encryption MAC.
-			// However, since we're using the same MAC construction, it should still work.
-			if counter >= crypto.RekeyThreshold {
-				counter = 0
-			}
+			// No rekey handling here: the verify pass holds no cipher to rekey. It
+			// MACs the identical ciphertext bytes with the identical keyed MAC
+			// subkey as the decrypt pass, and Rekey() only reseeds the cipher
+			// nonce/IV (never the MAC), so the verify MAC matches the decrypt-pass
+			// MAC across the 60 GiB rekey boundary without any rekeying.
 		}
 
 		if readErr == io.EOF {
