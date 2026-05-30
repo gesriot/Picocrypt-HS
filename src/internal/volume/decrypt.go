@@ -347,6 +347,26 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 	return nil
 }
 
+// reDeriveForRetry resets the key-derivation state before a full-RS decode retry.
+//
+// IN-03: both the decryptFinalize retry and the verify-first (DATA-01) retry must
+// re-run the SAME three-step sequence — decryptDeriveKeys → decryptProcessKeyfiles
+// → decryptVerifyAuth — in this exact order so the HKDF stream and keyfile XOR
+// reset correctly (re-derive the key BEFORE any v1/v2 keyfile XOR so it is never
+// double-XORed, re-set the keyfile key/hash, and rebuild the SubkeyReader). This is
+// a pure extraction of the previously-duplicated sequence: a single source of truth
+// keeps the two AUDIT-CRITICAL retry paths in lockstep. It performs NO additional
+// work and changes NO behavior, MAC, output, or on-disk format.
+func reDeriveForRetry(ctx *OperationContext, req *DecryptRequest) error {
+	if err := decryptDeriveKeys(ctx, req); err != nil {
+		return err
+	}
+	if err := decryptProcessKeyfiles(ctx, req); err != nil {
+		return err
+	}
+	return decryptVerifyAuth(ctx, req)
+}
+
 // verifyFirstProgressDelta returns how many bytes to advance the verify-first pass's
 // progress counter for a read of n on-disk bytes.
 //
@@ -527,13 +547,7 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 			// errors with "subkey already consumed". The verify pass writes no
 			// output, so there is no .incomplete file to remove.
 			ctx.SetStatus("Repairing (verifying)...")
-			if err := decryptDeriveKeys(ctx, req); err != nil {
-				return err
-			}
-			if err := decryptProcessKeyfiles(ctx, req); err != nil {
-				return err
-			}
-			if err := decryptVerifyAuth(ctx, req); err != nil {
+			if err := reDeriveForRetry(ctx, req); err != nil {
 				return err
 			}
 			// One-shot: fastDecode=false never recurses again (T-03-05).
@@ -738,14 +752,8 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 			// Remove incomplete file
 			_ = os.Remove(req.OutputFile + ".incomplete")
 
-			// Re-derive keys (needed to reset HKDF stream)
-			if err := decryptDeriveKeys(ctx, req); err != nil {
-				return err
-			}
-			if err := decryptProcessKeyfiles(ctx, req); err != nil {
-				return err
-			}
-			if err := decryptVerifyAuth(ctx, req); err != nil {
+			// Re-derive keys (needed to reset HKDF stream); see reDeriveForRetry.
+			if err := reDeriveForRetry(ctx, req); err != nil {
 				return err
 			}
 
