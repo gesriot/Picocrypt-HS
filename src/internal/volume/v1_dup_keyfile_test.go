@@ -1,6 +1,7 @@
 package volume
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/keyfile"
+	"Picocrypt-NG/internal/log"
 	"Picocrypt-NG/internal/util"
 )
 
@@ -248,6 +250,15 @@ func TestV1DuplicateKeyfileWarnOnly(t *testing.T) {
 		}
 	}()
 
+	// Install a capturing logger so the parallel log.Warn signal can be asserted.
+	// The package default is a nullLogger (log.go:168), so log.Warn is otherwise a
+	// no-op in tests — this closes the human-verification item from 03-VERIFICATION.md
+	// (confirm log.Warn actually reaches an installed log sink, not just that the
+	// code path exists). Restored to the null logger via defer.
+	var logBuf bytes.Buffer
+	log.SetLogger(log.NewSimpleLogger(&logBuf, log.LevelWarn))
+	defer log.SetLogger(nil)
+
 	reporter := &dupWarnReporter{}
 	outputPath := filepath.Join(filepath.Dir(pcvPath), "v1_dup_out.bin")
 	decReq := &DecryptRequest{
@@ -288,5 +299,14 @@ func TestV1DuplicateKeyfileWarnOnly(t *testing.T) {
 	if !reporter.sawDuplicate {
 		t.Fatal("no \"duplicate\" warning surfaced on the v1 decrypt path; " +
 			"DATA-02 requires log.Warn + ctx.SetStatus mirroring the encrypt-side detection")
+	}
+
+	// (d) the parallel log.Warn signal reached the installed logger. DATA-02
+	// emits BOTH log.Warn (decrypt.go:279) and ctx.SetStatus; (c) covers the
+	// reporter surface, this covers the log sink so neither can silently regress.
+	if !strings.Contains(strings.ToLower(logBuf.String()), "duplicate keyfiles detected") {
+		t.Fatalf("log.Warn did not emit the duplicate-keyfile warning to the installed log sink; "+
+			"DATA-02 requires log.Warn(\"duplicate keyfiles detected (keys cancel out)\") on the v1 path. "+
+			"captured log output: %q", logBuf.String())
 	}
 }
