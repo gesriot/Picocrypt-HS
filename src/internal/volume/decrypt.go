@@ -277,7 +277,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 			// does not let a wrong-password/tampered volume through.
 			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
 				log.Warn("duplicate keyfiles detected (keys cancel out)")
-				ctx.SetStatus("Warning: duplicate keyfiles detected (keys cancel out)…")
+				ctx.SetStatus("Warning: duplicate keyfiles detected (keys cancel out)...")
 			}
 			key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
 		}
