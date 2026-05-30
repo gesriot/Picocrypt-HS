@@ -68,6 +68,16 @@ var goldenTestCases = []struct {
 		reedSolomon: false,
 	},
 	{
+		// Cross-version interop fixture: authored by a stock 2.08 CLI build
+		// (not current src). Decrypting it under HEAD proves the on-disk
+		// format is frozen across versions (REL-01).
+		name:        "v208_basic",
+		file:        "pico_test_v208.txt.pcv",
+		deniability: false,
+		paranoid:    false,
+		reedSolomon: false,
+	},
+	{
 		name:        "v1_deny_paranoid_rs",
 		file:        "pico_test_v1_deny_paranoid_rs.txt.pcv",
 		deniability: true,
@@ -191,6 +201,19 @@ func TestGoldenKeyfileCorpusPresent(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("required golden asset missing: %s (%v)", path, err)
 		}
+	}
+}
+
+// TestGoldenV208CorpusPresent enforces that the cross-version 2.08 golden
+// fixture is REQUIRED (not skippable). REL-01 mandates this fixture as the
+// frozen-format interop proof, so its absence must hard-fail rather than let
+// the v208_basic case silently skip via the per-case t.Skipf in
+// TestGoldenDecryption.
+func TestGoldenV208CorpusPresent(t *testing.T) {
+	testdataPath := findTestdata(t)
+	path := filepath.Join(testdataPath, "pico_test_v208.txt.pcv")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("required golden asset missing: %s (%v)", path, err)
 	}
 }
 
