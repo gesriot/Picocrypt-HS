@@ -9,7 +9,12 @@ import (
 
 // RekeyThreshold is the number of bytes after which rekeying must occur.
 // This prevents nonce overflow in XChaCha20.
-const RekeyThreshold = 60 * util.GiB
+//
+// It is a package-level var (not const) solely to serve as a test seam: tests
+// lower it to a few MiB to exercise the >60 GiB rekey boundary on a small
+// synthetic volume, then restore it via defer. The production default is
+// byte-identical (60 GiB) and no production code path reassigns it.
+var RekeyThreshold int64 = 60 * util.GiB
 
 // Counter tracks bytes processed and triggers rekeying at the threshold.
 type Counter struct {
