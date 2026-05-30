@@ -70,8 +70,16 @@ type State struct {
 	InputLabel                string
 
 	// Credentials
+	//
+	// SECURITY (SEC-05): Password and CPassword are immutable Go strings. Strings
+	// cannot be zeroed in place (immutable + freely copied/relocated by the GC), so
+	// resetUILocked only sets them to "" — the prior contents may linger in memory
+	// until GC. Guaranteed password zeroing is intentionally out of scope (CONCERNS
+	// 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing"); only []byte key
+	// material derived from the password is zeroed (see OperationContext.Close).
 	Password           string
 	CPassword          string // Confirm password
+
 	PasswordStrength   int
 	PasswordMode       PasswordInputMode
 	PasswordStateLabel string

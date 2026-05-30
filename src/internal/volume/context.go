@@ -57,7 +57,14 @@ type EncryptRequest struct {
 	OutputFile  string   // Output path for the .pcv volume
 
 	// Credentials - at least one required
-	Password       string   // User password (processed through Argon2id)
+	//
+	// SECURITY (SEC-05): Password is an immutable Go string. Strings cannot be
+	// zeroed in place (they are immutable and freely copied/relocated by the GC),
+	// so the password and its transient []byte(Password) copy outlive Close().
+	// Guaranteed password zeroing is intentionally out of scope (CONCERNS 3.1;
+	// ROADMAP "Out of Scope: Guaranteed password zeroing"); only []byte key
+	// material derived from it is zeroed.
+	Password       string   // User password (processed through Argon2id) — see SECURITY note above
 	Keyfiles       []string // Paths to keyfile(s) for additional security
 	KeyfileOrdered bool     // If true, keyfile order matters (sequential hash vs XOR)
 
@@ -88,7 +95,11 @@ type DecryptRequest struct {
 	OutputFile string // Destination path for decrypted output
 
 	// Credentials - must match encryption parameters
-	Password string   // User password
+	//
+	// SECURITY (SEC-05): immutable Go string — cannot be zeroed in place (GC +
+	// string immutability). Out of scope, same as EncryptRequest.Password above
+	// (CONCERNS 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing").
+	Password string   // User password — see SECURITY note above
 	Keyfiles []string // Keyfile paths (validated against hash stored in header)
 
 	// Decryption options
