@@ -21,6 +21,19 @@ import (
 
 var unpackArchive = fileops.Unpack
 
+// rsEncodedBlockSize is the on-disk byte size of a single Reed-Solomon-encoded
+// 1 MiB payload block: each 128-byte (RS128DataSize) plaintext chunk encodes to
+// 136 bytes (RS128EncodedSize), so a 1 MiB block expands to 1,114,112 bytes.
+//
+// IN-01: this single source of truth replaces the previously-duplicated
+// `util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize` expression at
+// the verify buffer sizing, the decrypt buffer sizing, the decrypt-pass progress
+// increment, and decodeWithRSFast's full-block detection. It is an untyped integer
+// const, so the computed value is byte-identical to the inline expression in every
+// context (int buffer sizes, int64 progress, full-block length comparison) — this
+// keeps the write-format and golden vectors frozen.
+const rsEncodedBlockSize = util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
+
 // Decrypt performs a complete volume decryption operation.
 // This is the main entry point for decryption.
 // If ctx is nil, a background context is used.
@@ -425,7 +438,7 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 	// Pre-allocate buffer outside loop to reduce GC pressure
 	var srcBufSize int
 	if reedsolo {
-		srcBufSize = util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
+		srcBufSize = rsEncodedBlockSize
 	} else {
 		srcBufSize = util.MiB
 	}
@@ -600,7 +613,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	// RS-encoded buffer is larger: 1 MiB * 136/128 = ~1.0625 MiB
 	var srcBufSize int
 	if reedsolo {
-		srcBufSize = util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
+		srcBufSize = rsEncodedBlockSize
 	} else {
 		srcBufSize = util.MiB
 	}
@@ -639,7 +652,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 			}
 
 			if reedsolo {
-				done += int64(util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize)
+				done += int64(rsEncodedBlockSize)
 			} else {
 				done += int64(n)
 			}
@@ -840,7 +853,7 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 	// Pre-allocate once: each 136-byte encoded chunk yields <= 128 decoded bytes.
 	// Mirrors the encode side (encrypt.go:498). Unpad only shrinks the last chunk.
 	result := make([]byte, 0, len(data)/encoding.RS128EncodedSize*encoding.RS128DataSize)
-	fullBlockEncodedSize := util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
+	fullBlockEncodedSize := rsEncodedBlockSize
 
 	// Full 1 MiB block
 	if len(data) == fullBlockEncodedSize {
