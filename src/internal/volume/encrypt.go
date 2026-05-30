@@ -269,14 +269,21 @@ func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error {
 }
 
 func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
-	// Apply keyfile XOR to key (AFTER HKDF init for v2)
-	key := ctx.Key
+	// Apply keyfile XOR to key (AFTER HKDF init for v2).
 	if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
 		if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
 			return perrors.ErrDuplicateKeyfiles
 		}
-		key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
+		// SEC-05/WR-01: route the XOR reassignment through setKey for symmetry
+		// with the decrypt path. keyfile.XORWithKey allocates a NEW slice, so the
+		// old Argon2 backing array would otherwise linger until Close(); setKey
+		// zeros it now. Safe here because HKDF has already extracted ctx.Key
+		// (encryptComputeAuth read HeaderSubkey, so the stream's PRK is fixed) and
+		// the cipher uses the XOR result, not the original key. The pointer-identity
+		// guard means the no-keyfile path (this branch skipped) is never wiped.
+		ctx.setKey(keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey))
 	}
+	key := ctx.Key
 
 	// Read remaining subkeys
 	macSubkey, err := ctx.SubkeyReader.MACSubkey()
