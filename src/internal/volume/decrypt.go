@@ -430,7 +430,16 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 	// Verification loop - read ciphertext and update MAC without decrypting
 	ctx.SetCanCancel(true)
 	startTime := time.Now()
-	var done int64
+	var done int64 // display-only progress counter (drives util.Statify)
+	// WR-02: `read` is a dedicated on-disk byte counter used SOLELY to detect the
+	// final chunk for RS unpadding (isLast). It is deliberately decoupled from the
+	// display-only `done` counter: decodeWithRSFast only unpads the last RS chunk
+	// when isLast && padded, and a wrong isLast would unpad the wrong block and
+	// corrupt the MAC input (turning a valid volume into a false ErrAuthFailed). By
+	// tracking the actual bytes read here, isLast stays correct even if `done`'s
+	// display semantics ever change (e.g. a future fixed-block increment), and the
+	// fast first pass and the full-RS verify retry detect the final chunk identically.
+	var read int64
 
 	reedsolo := ctx.Header.Flags.ReedSolomon
 	padded := ctx.Header.Flags.Padded
@@ -454,12 +463,18 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 			srcData := src[:n]
 			var data []byte
 
+			// Advance the on-disk byte counter BEFORE deriving isLast so the check
+			// reflects this read's bytes (matches the prior `done+int64(n)` basis,
+			// since done was advanced by the actual bytes read on earlier iterations).
+			read += int64(n)
+			isLast := read >= ctx.Total
+
 			// Decode Reed-Solomon if enabled. fastDecode mirrors the decrypt pass:
 			// true skips RS error correction (fast path); false (the DATA-01 retry)
 			// applies full RS correction to repair correctable damage.
 			if reedsolo {
 				var decErr error
-				data, decErr = decodeWithRSFast(srcData, req.RSCodecs, done+int64(n) >= ctx.Total, padded, req.ForceDecrypt, fastDecode)
+				data, decErr = decodeWithRSFast(srcData, req.RSCodecs, isLast, padded, req.ForceDecrypt, fastDecode)
 				if decErr != nil && !req.ForceDecrypt {
 					return decErr
 				}
@@ -470,7 +485,7 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 			// Update MAC with ciphertext (no decryption!)
 			mac.Write(data)
 
-			done += verifyFirstProgressDelta(n)
+			done += verifyFirstProgressDelta(n) // display only
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress/2, fmt.Sprintf("%.2f%% (verifying)", progress*50)) // Show 0-50% for pass 1
