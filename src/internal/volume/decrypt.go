@@ -489,6 +489,13 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	if err != nil {
 		return err
 	}
+	// RS-03: zero the previous suite's key material before replacing it on retry.
+	// On the full-RS-decode retry this function runs a second time; without this
+	// the prior XChaCha20/Serpent key + MAC state would linger until ctx.Close()
+	// at the very end (mirror OperationContext.Close, context.go:266-269).
+	if ctx.CipherSuite != nil {
+		ctx.CipherSuite.Close()
+	}
 	ctx.CipherSuite = cipherSuite
 
 	// Open files
@@ -611,6 +618,23 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 		// If Reed-Solomon is enabled, retry with full RS error correction (fastDecode=false)
 		reedsolo := ctx.Header.Flags.ReedSolomon
 		if reedsolo && !ctx.TriedFullRSDecode {
+			// RS-03: state reset invariant — the full-RS retry below re-runs the
+			// decrypt pipeline from a clean state so a second pass cannot bleed
+			// state into (or corrupt) the output. Every mutated piece of state is
+			// reset before the retry decode:
+			//   - ctx.Key:         re-derived by decryptDeriveKeys BEFORE any v1/v2
+			//                      keyfile XOR, so the key is never double-XORed.
+			//   - ctx.KeyfileKey/Hash: re-set by decryptProcessKeyfiles.
+			//   - ctx.SubkeyReader (HKDF stream): rebuilt by decryptVerifyAuth.
+			//   - ctx.CipherSuite: freshly built in decryptPayloadWithFastDecode;
+			//                      the previous suite is now Close()'d (key zeroed)
+			//                      before reassignment (see that function).
+			//   - input offset:    fresh os.Open + Seek(headerSize) per call.
+			//   - output:          the old .incomplete is removed and recreated
+			//                      (truncated) per call.
+			// The Argon2id re-derivation is intentionally KEPT (D-07); reducing
+			// Argon2 passes is Out of Scope — correctness over perf in a paranoid
+			// tool. Do NOT cache derived material or skip the re-derive.
 			ctx.TriedFullRSDecode = true
 
 			// Remove incomplete file
