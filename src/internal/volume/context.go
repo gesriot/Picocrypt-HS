@@ -246,11 +246,53 @@ func (ctx *OperationContext) TempZipReader(r io.Reader) io.Reader {
 	return r
 }
 
+// setKey zeros the previous Key backing array before replacing it with k.
+//
+// SEC-05 / WR-01: mid-operation reassignments of ctx.Key (the v1/v2 keyfile XOR at
+// decrypt.go:303/:343 and the full-RS retry re-derive at decryptDeriveKeys:223)
+// produce a NEW slice (keyfile.XORWithKey allocates, processor.go:216; Argon2
+// re-derive allocates), orphaning the old backing array. OperationContext.Close()
+// (the end-of-operation sweep, D-03) structurally cannot reach those predecessors
+// because the field has already moved on. Zeroing here closes that window.
+//
+// Pitfall 1 (self-assign guard): the no-keyfile v1 path does `ctx.Key = key` where
+// key IS ctx.Key (same backing array, decrypt.go:303). A naive zero-then-assign
+// would wipe the LIVE key and break decryption. The pointer-identity guard
+// (&k[0] != &ctx.Key[0]) skips zeroing in that case; the len(k)==0 guard avoids
+// indexing an empty slice. Reuses the single crypto.SecureZero primitive (no second
+// zeroing primitive — CONVENTIONS).
+func (ctx *OperationContext) setKey(k []byte) {
+	if ctx.Key != nil && (len(k) == 0 || &k[0] != &ctx.Key[0]) {
+		crypto.SecureZero(ctx.Key)
+	}
+	ctx.Key = k
+}
+
+// setKeyfileKey zeros the previous KeyfileKey backing array before replacing it.
+// Analogous to setKey: the full-RS retry re-processes keyfiles (decryptProcessKeyfiles:247),
+// orphaning the prior keyfile-key buffer that Close() can no longer reach. Same
+// pointer-identity self-assign guard.
+func (ctx *OperationContext) setKeyfileKey(k []byte) {
+	if ctx.KeyfileKey != nil && (len(k) == 0 || &k[0] != &ctx.KeyfileKey[0]) {
+		crypto.SecureZero(ctx.KeyfileKey)
+	}
+	ctx.KeyfileKey = k
+}
+
 // Close securely zeros all sensitive cryptographic material in the context.
 // This should be called via defer immediately after creating the context.
 //
 // SECURITY: Always call Close() when done with an operation to minimize
 // the window during which key material is recoverable from memory.
+//
+// SECURITY (password limitation): Close() zeros only []byte key material. The
+// user password lives in immutable Go strings (EncryptRequest.Password /
+// DecryptRequest.Password, and their app/state.go counterparts) plus their
+// transient []byte(req.Password) copies. Go strings are immutable and freely
+// copied/relocated by the garbage collector, so in-place password zeroing is
+// impossible — it is intentionally out of scope (CONCERNS 3.1; ROADMAP "Out of
+// Scope: Guaranteed password zeroing"). This is an honest, accepted limitation,
+// mirroring crypto.SecureZero's own GC/optimization caveat.
 func (ctx *OperationContext) Close() {
 	if ctx == nil {
 		return

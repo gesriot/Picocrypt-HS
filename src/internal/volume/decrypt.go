@@ -220,7 +220,9 @@ func decryptDeriveKeys(ctx *OperationContext, req *DecryptRequest) error {
 	if err != nil {
 		return err
 	}
-	ctx.Key = key
+	// SEC-05/WR-01: on the full-RS retry this re-runs, orphaning the prior key; setKey
+	// zeros the old backing array before reassigning (no-op on the first pass).
+	ctx.setKey(key)
 
 	return nil
 }
@@ -244,7 +246,9 @@ func decryptProcessKeyfiles(ctx *OperationContext, req *DecryptRequest) error {
 		return err
 	}
 
-	ctx.KeyfileKey = result.Key
+	// SEC-05/WR-01: on the full-RS retry this re-runs, orphaning the prior keyfile
+	// key; setKeyfileKey zeros the old backing array before reassigning.
+	ctx.setKeyfileKey(result.Key)
 	ctx.KeyfileHash = result.Hash
 
 	return nil
@@ -299,8 +303,12 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 		hkdfStream := crypto.NewHKDFStream(key, ctx.Header.HKDFSalt)
 		ctx.SubkeyReader = crypto.NewSubkeyReader(hkdfStream)
 
-		// Store the XORed key for cipher initialization
-		ctx.Key = key
+		// Store the XORed key for cipher initialization.
+		// SEC-05/WR-01: with keyfiles, `key` is a NEW XOR-result slice and the old
+		// Argon2 backing array is orphaned — setKey zeros it. With NO keyfiles,
+		// `key == ctx.Key` (self-assign, Pitfall 1) and the pointer-identity guard
+		// skips zeroing so the LIVE key survives.
+		ctx.setKey(key)
 	} else {
 		// v2: HKDF initialized BEFORE keyfile XOR
 		hkdfStream := crypto.NewHKDFStream(ctx.Key, ctx.Header.HKDFSalt)
@@ -340,7 +348,9 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
 				return perrors.ErrDuplicateKeyfiles
 			}
-			ctx.Key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
+			// SEC-05/WR-01: XORWithKey returns a NEW slice; setKey zeros the orphaned
+			// Argon2 backing array before reassigning.
+			ctx.setKey(keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey))
 		}
 	}
 
