@@ -943,7 +943,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read version (15 bytes -> 5 bytes)
 	versionEnc := make([]byte, 15)
-	if _, err := r.r.Read(versionEnc); err != nil {
+	if _, err := io.ReadFull(r.r, versionEnc); err != nil {
 		return nil, err
 	}
 	versionDec, err := encoding.Decode(r.rs.RS5, versionEnc, false)
@@ -954,7 +954,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read comment length (15 bytes -> 5 bytes)
 	commentLenEnc := make([]byte, 15)
-	if _, err := r.r.Read(commentLenEnc); err != nil {
+	if _, err := io.ReadFull(r.r, commentLenEnc); err != nil {
 		return nil, err
 	}
 	commentLenDec, err := encoding.Decode(r.rs.RS5, commentLenEnc, false)
@@ -973,7 +973,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 	comments := make([]byte, 0, commentsLen)
 	for i := 0; i < commentsLen; i++ {
 		cEnc := make([]byte, 3)
-		if _, err := r.r.Read(cEnc); err != nil {
+		if _, err := io.ReadFull(r.r, cEnc); err != nil {
 			return nil, fmt.Errorf("read comment byte %d: %w", i, err)
 		}
 		cDec, err := encoding.Decode(r.rs.RS1, cEnc, false)
@@ -986,7 +986,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read flags (15 bytes -> 5 bytes)
 	flagsEnc := make([]byte, 15)
-	if _, err := r.r.Read(flagsEnc); err != nil {
+	if _, err := io.ReadFull(r.r, flagsEnc); err != nil {
 		return nil, fmt.Errorf("read flags: %w", err)
 	}
 	flagsDec, err := encoding.Decode(r.rs.RS5, flagsEnc, false)
@@ -1003,7 +1003,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read salt (48 bytes -> 16 bytes)
 	saltEnc := make([]byte, 48)
-	if _, err := r.r.Read(saltEnc); err != nil {
+	if _, err := io.ReadFull(r.r, saltEnc); err != nil {
 		return nil, fmt.Errorf("read salt: %w", err)
 	}
 	h.Salt, err = encoding.Decode(r.rs.RS16, saltEnc, false)
@@ -1013,7 +1013,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read HKDF salt (96 bytes -> 32 bytes)
 	hkdfSaltEnc := make([]byte, 96)
-	if _, err := r.r.Read(hkdfSaltEnc); err != nil {
+	if _, err := io.ReadFull(r.r, hkdfSaltEnc); err != nil {
 		return nil, fmt.Errorf("read hkdf salt: %w", err)
 	}
 	h.HKDFSalt, err = encoding.Decode(r.rs.RS32, hkdfSaltEnc, false)
@@ -1023,7 +1023,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read Serpent IV (48 bytes -> 16 bytes)
 	serpentIVEnc := make([]byte, 48)
-	if _, err := r.r.Read(serpentIVEnc); err != nil {
+	if _, err := io.ReadFull(r.r, serpentIVEnc); err != nil {
 		return nil, fmt.Errorf("read serpent iv: %w", err)
 	}
 	h.SerpentIV, err = encoding.Decode(r.rs.RS16, serpentIVEnc, false)
@@ -1033,7 +1033,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read nonce (72 bytes -> 24 bytes)
 	nonceEnc := make([]byte, 72)
-	if _, err := r.r.Read(nonceEnc); err != nil {
+	if _, err := io.ReadFull(r.r, nonceEnc); err != nil {
 		return nil, fmt.Errorf("read nonce: %w", err)
 	}
 	h.Nonce, err = encoding.Decode(r.rs.RS24, nonceEnc, false)
@@ -1043,7 +1043,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read key hash (192 bytes -> 64 bytes)
 	keyHashEnc := make([]byte, 192)
-	if _, err := r.r.Read(keyHashEnc); err != nil {
+	if _, err := io.ReadFull(r.r, keyHashEnc); err != nil {
 		return nil, fmt.Errorf("read key hash: %w", err)
 	}
 	h.KeyHash, err = encoding.Decode(r.rs.RS64, keyHashEnc, false)
@@ -1053,7 +1053,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read keyfile hash (96 bytes -> 32 bytes)
 	keyfileHashEnc := make([]byte, 96)
-	if _, err := r.r.Read(keyfileHashEnc); err != nil {
+	if _, err := io.ReadFull(r.r, keyfileHashEnc); err != nil {
 		return nil, fmt.Errorf("read keyfile hash: %w", err)
 	}
 	h.KeyfileHash, err = encoding.Decode(r.rs.RS32, keyfileHashEnc, false)
@@ -1063,7 +1063,7 @@ func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
 
 	// Read auth tag (192 bytes -> 64 bytes)
 	authTagEnc := make([]byte, 192)
-	if _, err := r.r.Read(authTagEnc); err != nil {
+	if _, err := io.ReadFull(r.r, authTagEnc); err != nil {
 		return nil, fmt.Errorf("read auth tag: %w", err)
 	}
 	h.AuthTag, err = encoding.Decode(r.rs.RS64, authTagEnc, false)
