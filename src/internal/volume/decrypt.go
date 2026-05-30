@@ -328,7 +328,27 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 //
 // Trade-off: This doubles the I/O time since we read the file twice.
 // The MAC is computed over ciphertext, so we can verify without decrypting.
+//
+// It runs the fast RS decode first (matching the decrypt pass's first pass); on a
+// MAC mismatch with Reed-Solomon enabled it retries once with full RS correction
+// (DATA-01) via decryptVerifyMACFirstWithDecode.
 func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
+	return decryptVerifyMACFirstWithDecode(ctx, req, true)
+}
+
+// decryptVerifyMACFirstWithDecode is the verify-first pass body, parameterized by
+// fastDecode (sibling shape to decryptPayloadWithFastDecode):
+//   - fastDecode=true:  skip RS error correction (fast path, matches the decrypt
+//     pass's first pass). This is what the single call site uses.
+//   - fastDecode=false: full RS error correction — the DATA-01 one-shot retry,
+//     entered only on a MAC mismatch when Reed-Solomon is enabled.
+//
+// DATA-01 / Pitfall 4 (LOCKED guard rule): the retry guard is LOCAL — the
+// fastDecode recursion parameter. It MUST NOT touch or reuse ctx.TriedFullRSDecode,
+// which is owned exclusively by decryptFinalize; reusing it would disable the
+// decrypt-pass retry or risk infinite recursion. The fastDecode=false invocation
+// never recurses again, so the retry is one-shot (T-03-05).
+func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest, fastDecode bool) error {
 	ctx.SetStatus("Verifying integrity (pass 1 of 2)...")
 
 	// Read remaining subkeys (same order as decryptPayload)
@@ -391,10 +411,12 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 			srcData := src[:n]
 			var data []byte
 
-			// Decode Reed-Solomon if enabled (fast decode for verification)
+			// Decode Reed-Solomon if enabled. fastDecode mirrors the decrypt pass:
+			// true skips RS error correction (fast path); false (the DATA-01 retry)
+			// applies full RS correction to repair correctable damage.
 			if reedsolo {
 				var decErr error
-				data, decErr = decodeWithRSFast(srcData, req.RSCodecs, done+int64(n) >= ctx.Total, padded, req.ForceDecrypt, true)
+				data, decErr = decodeWithRSFast(srcData, req.RSCodecs, done+int64(n) >= ctx.Total, padded, req.ForceDecrypt, fastDecode)
 				if decErr != nil && !req.ForceDecrypt {
 					return decErr
 				}
@@ -436,6 +458,32 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 		if req.ForceDecrypt {
 			// Continue anyway - user forced it
 			ctx.SetStatus("MAC verification failed, continuing anyway...")
+		} else if ctx.Header.Flags.ReedSolomon && fastDecode {
+			// DATA-01: the fast verify pass skips RS error correction, so
+			// correctable damage (<= 4 errors / 136-byte block) yields wrong
+			// ciphertext -> MAC mismatch. Before rejecting, retry the verify pass
+			// ONCE with full RS correction (fastDecode=false), mirroring
+			// decryptFinalize's guarded retry. Only reject if the full-RS verify
+			// ALSO fails — a genuinely forged MAC (damage beyond the RS budget)
+			// still returns ErrAuthFailed (PCC-004 fail-closed; T-03-04).
+			//
+			// State reset before recursing: the verify pass consumed MACSubkey()
+			// and SerpentKey() from ctx.SubkeyReader (one-shot reads), so re-derive
+			// keys + rebuild the HKDF stream first — otherwise the recursive read
+			// errors with "subkey already consumed". The verify pass writes no
+			// output, so there is no .incomplete file to remove.
+			ctx.SetStatus("Repairing (verifying)...")
+			if err := decryptDeriveKeys(ctx, req); err != nil {
+				return err
+			}
+			if err := decryptProcessKeyfiles(ctx, req); err != nil {
+				return err
+			}
+			if err := decryptVerifyAuth(ctx, req); err != nil {
+				return err
+			}
+			// One-shot: fastDecode=false never recurses again (T-03-05).
+			return decryptVerifyMACFirstWithDecode(ctx, req, false)
 		} else {
 			return perrors.ErrAuthFailed
 		}
