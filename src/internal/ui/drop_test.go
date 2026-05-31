@@ -1107,6 +1107,77 @@ func snapshotDropState(t *testing.T, a *App) dropStateSnapshot {
 	return state
 }
 
+// TestHandleDecryptDropMalformedCommentLen drops a crafted .pcv whose 5-digit
+// comment-length RS5 field decodes to a non-digit / "negative"-looking value.
+// The original hand-rolled parse did strconv.Atoi then make([]byte, n*3), which
+// panics ("makeslice: len out of range") on a negative length. Routing through
+// the validated parser (SEC-01) must instead yield a graceful status and never
+// panic / over-allocate.
+func TestHandleDecryptDropMalformedCommentLen(t *testing.T) {
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	cases := []struct {
+		name       string
+		version    string
+		commentLen string
+	}{
+		// "-0001" -> Atoi == -1 -> make([]byte, -3) panics in the old code.
+		{"negative comment length", "v2.09", "-0001"},
+		// A non-digit field that also fails the ^\d{5}$ guard.
+		{"non-digit comment length", "v2.09", "0x009"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fyneApp := newTestFyneApp(t)
+			a := createUIReadyDropTestApp(t, fyneApp)
+
+			// Craft a .pcv: valid version field + malformed comment-length field.
+			raw := craftPreviewBytes(t, rs, tc.version, tc.commentLen, "", []byte{0, 0, 0, 0, 0})
+			// Pad so any reader past the header does not hit an unexpected EOF.
+			raw = append(raw, make([]byte, header.BaseHeaderSize)...)
+
+			pcvPath := filepath.Join(t.TempDir(), "crafted.pcv")
+			if err := os.WriteFile(pcvPath, raw, 0644); err != nil {
+				t.Fatalf("write crafted .pcv: %v", err)
+			}
+
+			// Drive through onDrop -> handleDecryptDrop. The old hand-rolled
+			// path panics here on the negative length; the validated path must
+			// set a graceful status instead.
+			fyne.DoAndWait(func() {
+				a.onDrop([]string{pcvPath})
+			})
+			waitForDropProcessing(t, a)
+
+			var comments, mainStatus, mode string
+			fyne.DoAndWait(func() {
+				comments = a.State.Comments
+				mainStatus = a.State.MainStatus
+				mode = a.State.Mode
+			})
+
+			if mode != "decrypt" {
+				t.Fatalf("Mode = %q; want decrypt", mode)
+			}
+			// A graceful outcome: either the comment-length-corrupted message or
+			// a header-level status (e.g. deniable / damaged). The key invariant
+			// is no panic and no over-allocation; status must be non-empty and
+			// must not be the success "comments shown" state.
+			graceful := comments == "Comment length is corrupted" ||
+				comments == "Comments are corrupted" ||
+				mainStatus == "The volume header is damaged" ||
+				mainStatus == "Cannot read header, volume may be deniable"
+			if !graceful {
+				t.Fatalf("expected graceful corrupt status; got Comments=%q MainStatus=%q", comments, mainStatus)
+			}
+		})
+	}
+}
+
 type lifecycleCaptureApp struct {
 	driver  fyne.Driver
 	started func()
