@@ -81,7 +81,7 @@ func (a *App) startWork() {
 				a.CleanupMobileTempFiles()
 			}
 			fyne.Do(func() {
-				a.State.Working = false
+				a.State.SetWorking(false)
 				a.State.ShowProgress = false
 				if a.progressModal != nil {
 					a.progressModal.Hide()
@@ -101,7 +101,7 @@ func (a *App) startWork() {
 // Returns true if the operation completed successfully.
 func (a *App) doWork() bool {
 	fyne.DoAndWait(func() {
-		a.State.Working = true
+		a.State.SetWorking(true)
 	})
 	reporter := a.CreateReporter()
 
@@ -114,9 +114,8 @@ func (a *App) doWork() bool {
 // startRecursiveWork handles batch processing of multiple files individually.
 func (a *App) startRecursiveWork() {
 	if len(a.State.AllFiles) == 0 {
-		a.State.MainStatus = "No files to process"
-		a.State.MainStatusColor = util.YELLOW
-		a.State.Working = false
+		a.State.SetStatus("No files to process", util.YELLOW)
+		a.State.SetWorking(false)
 		a.State.ShowProgress = false
 		fyne.Do(func() {
 			if a.progressModal != nil {
@@ -163,7 +162,7 @@ func (a *App) startRecursiveWork() {
 			// Reset Working flag so next iteration's onDrop() isn't blocked
 			// (onDrop has a guard to prevent race conditions during scanning/working)
 			fyne.DoAndWait(func() {
-				a.State.Working = false
+				a.State.SetWorking(false)
 			})
 
 			if a.cancelled.Load() {
@@ -172,7 +171,7 @@ func (a *App) startRecursiveWork() {
 					a.CleanupMobileTempFiles()
 				}
 				fyne.DoAndWait(func() {
-					a.State.Working = false
+					a.State.SetWorking(false)
 					a.State.ShowProgress = false
 					if a.progressModal != nil {
 						a.progressModal.Hide()
@@ -190,17 +189,14 @@ func (a *App) startRecursiveWork() {
 		}
 
 		fyne.DoAndWait(func() {
-			a.State.Working = false
+			a.State.SetWorking(false)
 			a.State.ShowProgress = false
 			if failedCount == 0 {
-				a.State.MainStatus = fmt.Sprintf("Completed (%d files)", successCount)
-				a.State.MainStatusColor = util.GREEN
+				a.State.SetStatus(fmt.Sprintf("Completed (%d files)", successCount), util.GREEN)
 			} else if successCount == 0 {
-				a.State.MainStatus = fmt.Sprintf("Failed (all %d files)", failedCount)
-				a.State.MainStatusColor = util.RED
+				a.State.SetStatus(fmt.Sprintf("Failed (all %d files)", failedCount), util.RED)
 			} else {
-				a.State.MainStatus = fmt.Sprintf("Completed (%d ok, %d failed)", successCount, failedCount)
-				a.State.MainStatusColor = util.YELLOW
+				a.State.SetStatus(fmt.Sprintf("Completed (%d ok, %d failed)", successCount, failedCount), util.YELLOW)
 			}
 			if a.progressModal != nil {
 				a.progressModal.Hide()
@@ -240,8 +236,12 @@ func (a *App) applyRecursiveSelection(file string, saved recursiveSettings, inde
 
 // doEncrypt performs encryption using the volume package.
 func (a *App) doEncrypt(reporter *app.UIReporter) bool {
+	// APP-02: read every request-building field once, consistently, under a
+	// single RLock instead of ~15 bare cross-goroutine field reads.
+	snap := a.State.Snapshot()
+
 	var chunkUnit fileops.SplitUnit
-	switch a.State.SplitSelected {
+	switch snap.SplitSelected {
 	case 0:
 		chunkUnit = fileops.SplitUnitKiB
 	case 1:
@@ -255,57 +255,52 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	}
 
 	chunkSize := 1
-	if a.State.SplitSize != "" {
-		n, err := strconv.Atoi(a.State.SplitSize)
+	if snap.SplitSize != "" {
+		n, err := strconv.Atoi(snap.SplitSize)
 		if err != nil || n <= 0 {
-			a.State.MainStatus = "Invalid split size"
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus("Invalid split size", util.RED)
 			return false
 		}
 		chunkSize = n
 	}
 
-	shouldDelete := a.State.Delete
+	shouldDelete := snap.Delete
 
 	req := &volume.EncryptRequest{
-		InputFile:      a.State.InputFile,
-		InputFiles:     a.State.AllFiles,
-		OnlyFolders:    a.State.OnlyFolders,
-		OnlyFiles:      a.State.OnlyFiles,
-		OutputFile:     a.State.OutputFile,
-		Password:       a.State.Password,
-		Keyfiles:       a.State.Keyfiles,
-		KeyfileOrdered: a.State.KeyfileOrdered,
-		Comments:       a.State.Comments,
-		Paranoid:       a.State.Paranoid,
-		ReedSolomon:    a.State.ReedSolomon,
-		Deniability:    a.State.Deniability,
-		Compress:       a.State.Compress,
-		Split:          a.State.Split,
+		InputFile:      snap.InputFile,
+		InputFiles:     snap.InputFiles,
+		OnlyFolders:    snap.OnlyFolders,
+		OnlyFiles:      snap.OnlyFiles,
+		OutputFile:     snap.OutputFile,
+		Password:       snap.Password,
+		Keyfiles:       snap.Keyfiles,
+		KeyfileOrdered: snap.KeyfileOrdered,
+		Comments:       snap.Comments,
+		Paranoid:       snap.Paranoid,
+		ReedSolomon:    snap.ReedSolomon,
+		Deniability:    snap.Deniability,
+		Compress:       snap.Compress,
+		Split:          snap.Split,
 		ChunkSize:      chunkSize,
 		ChunkUnit:      chunkUnit,
 		Reporter:       reporter,
 		RSCodecs:       a.rsCodecs,
 	}
 
-	filesToDelete := make([]string, len(a.State.AllFiles))
-	copy(filesToDelete, a.State.AllFiles)
-	foldersToDelete := make([]string, len(a.State.OnlyFolders))
-	copy(foldersToDelete, a.State.OnlyFolders)
-	inputFileToDelete := a.State.InputFile
+	filesToDelete := append([]string(nil), snap.InputFiles...)
+	foldersToDelete := append([]string(nil), snap.OnlyFolders...)
+	inputFileToDelete := snap.InputFile
 
 	err := volume.Encrypt(context.Background(), req)
 	if err != nil {
 		if !a.cancelled.Load() {
-			a.State.MainStatus = err.Error()
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus(err.Error(), util.RED)
 		}
 		return false
 	}
 
 	a.State.ResetUI()
-	a.State.MainStatus = "Completed"
-	a.State.MainStatusColor = util.GREEN
+	a.State.SetStatus("Completed", util.GREEN)
 
 	// Clear UI widgets to match the reset state
 	fyne.Do(func() {
@@ -341,8 +336,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 			}
 		}
 		if len(deleteErrors) > 0 {
-			a.State.MainStatus = "Completed (some files couldn't be deleted)"
-			a.State.MainStatusColor = util.YELLOW
+			a.State.SetStatus("Completed (some files couldn't be deleted)", util.YELLOW)
 		}
 	}
 
@@ -353,21 +347,24 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	kept := false
 
-	shouldDelete := a.State.Delete
-	recombine := a.State.Recombine
-	inputFile := a.State.InputFile
+	// APP-02: snapshot the request-building fields once under one RLock.
+	snap := a.State.Snapshot()
+
+	shouldDelete := snap.Delete
+	recombine := snap.Recombine
+	inputFile := snap.InputFile
 
 	req := &volume.DecryptRequest{
-		InputFile:    a.State.InputFile,
-		OutputFile:   a.State.OutputFile,
-		Password:     a.State.Password,
-		Keyfiles:     a.State.Keyfiles,
-		ForceDecrypt: a.State.Keep,
-		VerifyFirst:  a.State.VerifyFirst,
-		AutoUnzip:    a.State.AutoUnzip,
-		SameLevel:    a.State.SameLevel,
-		Recombine:    a.State.Recombine,
-		Deniability:  a.State.Deniability,
+		InputFile:    snap.InputFile,
+		OutputFile:   snap.OutputFile,
+		Password:     snap.Password,
+		Keyfiles:     snap.Keyfiles,
+		ForceDecrypt: snap.Keep,
+		VerifyFirst:  snap.VerifyFirst,
+		AutoUnzip:    snap.AutoUnzip,
+		SameLevel:    snap.SameLevel,
+		Recombine:    snap.Recombine,
+		Deniability:  snap.Deniability,
 		Reporter:     reporter,
 		RSCodecs:     a.rsCodecs,
 		Kept:         &kept,
@@ -376,8 +373,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	err := volume.Decrypt(context.Background(), req)
 	if err != nil {
 		if !a.cancelled.Load() {
-			a.State.MainStatus = err.Error()
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus(err.Error(), util.RED)
 		}
 		return false
 	}
@@ -400,12 +396,10 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	})
 
 	if kept {
-		a.State.Kept = true
-		a.State.MainStatus = "The input file was modified. Please be careful"
-		a.State.MainStatusColor = util.YELLOW
+		a.State.SetKept(true)
+		a.State.SetStatus("The input file was modified. Please be careful", util.YELLOW)
 	} else {
-		a.State.MainStatus = "Completed"
-		a.State.MainStatusColor = util.GREEN
+		a.State.SetStatus("Completed", util.GREEN)
 	}
 
 	if shouldDelete && !kept {
@@ -426,8 +420,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 			}
 		}
 		if deleteError {
-			a.State.MainStatus = "Completed (volume couldn't be deleted)"
-			a.State.MainStatusColor = util.YELLOW
+			a.State.SetStatus("Completed (volume couldn't be deleted)", util.YELLOW)
 		}
 	}
 
