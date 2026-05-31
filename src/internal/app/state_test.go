@@ -483,7 +483,7 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 			_ = snap.Compress
 			_ = snap.VerifyFirst
 			_ = snap.Keep
-			state.SetStatus("working", util.RGBA{})
+			state.SetStatus("working", util.WHITE)
 			state.SetKept(i%2 == 0)
 		}
 	}()
