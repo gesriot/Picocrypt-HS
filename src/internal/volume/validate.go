@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"Picocrypt-NG/internal/errors"
+	"Picocrypt-NG/internal/header"
 )
 
 // Validate checks that the EncryptRequest has all required fields and valid configuration.
@@ -17,6 +18,13 @@ func (req *EncryptRequest) Validate() error {
 	// Check for credentials
 	if req.Password == "" && len(req.Keyfiles) == 0 {
 		return errors.ErrNoCredentials
+	}
+
+	// QUAL-05: reject an over-long comment here, before the expensive Argon2id
+	// key derivation, instead of only at write time (header/writer.go). This
+	// only moves *when* the existing bound is enforced — no on-disk format change.
+	if len(req.Comments) > header.MaxCommentLen {
+		return errors.ErrCommentTooLong
 	}
 
 	// Check output file is specified
