@@ -4,6 +4,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
