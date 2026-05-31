@@ -2,12 +2,31 @@ package wasm
 
 import (
 	"bytes"
+	"io"
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/util"
 )
+
+var writeAuthValues = header.WriteAuthValues
+
+type byteSliceWriterAt struct {
+	data []byte
+}
+
+func (w byteSliceWriterAt) WriteAt(p []byte, off int64) (int, error) {
+	if off < 0 || off > int64(len(w.data)) {
+		return 0, io.ErrShortWrite
+	}
+	start := int(off)
+	if len(p) > len(w.data)-start {
+		return 0, io.ErrShortWrite
+	}
+	copy(w.data[start:], p)
+	return len(p), nil
+}
 
 // EncryptVolume encrypts plaintext data into a Picocrypt volume.
 // Returns (ciphertext, 0) on success, or (nil, errorCode) on failure.
@@ -148,32 +167,16 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	// Now we need to patch the auth values into the header
 	// The header was written with placeholders, we need to update them
 	headerBytes := headerBuf.Bytes()
-
-	// Calculate offset for auth values
-	offset := header.AuthValuesOffset(len(hdr.Comments))
-
-	// Encode and write KeyHash (rs64)
-	keyHashEnc, err := encoding.Encode(rsCodecs.RS64, hdr.KeyHash)
-	if err != nil {
+	if err := writeAuthValues(
+		byteSliceWriterAt{data: headerBytes},
+		header.AuthValuesOffset(len(hdr.Comments)),
+		hdr.KeyHash,
+		hdr.KeyfileHash,
+		authTag,
+		rsCodecs,
+	); err != nil {
 		return nil, ErrModifiedData
 	}
-	copy(headerBytes[offset:], keyHashEnc)
-	offset += int64(header.KeyHashEncSize)
-
-	// Encode and write KeyfileHash (rs32)
-	keyfileHashEnc, err := encoding.Encode(rsCodecs.RS32, hdr.KeyfileHash)
-	if err != nil {
-		return nil, ErrModifiedData
-	}
-	copy(headerBytes[offset:], keyfileHashEnc)
-	offset += int64(header.KeyfileHashEncSize)
-
-	// Encode and write AuthTag (rs64)
-	authTagEnc, err := encoding.Encode(rsCodecs.RS64, authTag)
-	if err != nil {
-		return nil, ErrModifiedData
-	}
-	copy(headerBytes[offset:], authTagEnc)
 
 	// Combine header and encrypted payload
 	result := make([]byte, 0, len(headerBytes)+ciphertextBuf.Len())
