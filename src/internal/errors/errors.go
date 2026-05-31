@@ -22,6 +22,7 @@ var (
 	ErrPasswordMismatch  = errors.New("passwords do not match")
 	ErrInvalidChunkSize  = errors.New("invalid chunk size")
 	ErrDuplicateKeyfiles = errors.New("duplicate keyfiles detected")
+	ErrCommentTooLong    = errors.New("comment exceeds maximum length")
 
 	// File errors
 	ErrFileNotFound    = errors.New("file not found")

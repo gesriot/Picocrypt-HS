@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/errors"
+	"Picocrypt-NG/internal/header"
 )
 
 func TestEncryptRequestValidate(t *testing.T) {
@@ -82,6 +83,45 @@ func TestEncryptRequestValidate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestValidateRejectsLongCommentEarly proves QUAL-05: an over-long comment is
+// rejected by EncryptRequest.Validate() with errors.ErrCommentTooLong BEFORE any
+// Argon2id key derivation runs. A counting spy wraps the deriveVolumeKey seam
+// (the Argon2id entry the encrypt pipeline routes through at encrypt.go:220,
+// AFTER Validate); the counter must stay 0 because Validate rejects first.
+func TestValidateRejectsLongCommentEarly(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Install a counting spy over the deriveVolumeKey seam (override+restore).
+	// TestMain already swaps deriveVolumeKey to the fast stub; we wrap that so the
+	// counter proves no key derivation happens when Validate rejects early.
+	var deriveCalls int
+	prevVolumeKey := deriveVolumeKey
+	deriveVolumeKey = func(password, salt []byte, paranoid bool) ([]byte, error) {
+		deriveCalls++
+		return prevVolumeKey(password, salt, paranoid)
+	}
+	defer func() { deriveVolumeKey = prevVolumeKey }()
+
+	req := &EncryptRequest{
+		InputFile:  testFile,
+		OutputFile: filepath.Join(tmpDir, "out.pcv"),
+		Password:   "test",
+		Comments:   string(make([]byte, header.MaxCommentLen+1)), // 1 over the bound
+	}
+
+	err := req.Validate()
+	if !errors.Is(err, errors.ErrCommentTooLong) {
+		t.Fatalf("Validate() error = %v, want errors.ErrCommentTooLong", err)
+	}
+	if deriveCalls != 0 {
+		t.Errorf("deriveVolumeKey called %d times during Validate; want 0 (no Argon2id before rejection)", deriveCalls)
 	}
 }
 
