@@ -217,3 +217,84 @@ func TestWASMRoundtripDesktopDecrypt(t *testing.T) {
 		t.Fatalf("desktop decrypt output mismatch\ngot:  %q\nwant: %q", plaintext, original)
 	}
 }
+
+func observeWASMZeroingForTest(observer func(wasmZeroingEvent)) func() {
+	previous := wasmZeroingObserver
+	wasmZeroingObserver = observer
+	return func() {
+		wasmZeroingObserver = previous
+	}
+}
+
+func TestWASMBuffersZeroed(t *testing.T) {
+	plaintext := []byte("Phase 6 zeroing coverage needs plaintext-derived ciphertext staging.")
+	password := "phase6-zeroing-password"
+
+	var events []wasmZeroingEvent
+	restore := observeWASMZeroingForTest(func(event wasmZeroingEvent) {
+		events = append(events, event)
+	})
+	defer restore()
+
+	volumeData, errCode := EncryptVolume(plaintext, password)
+	if errCode != 0 {
+		t.Fatalf("EncryptVolume returned error code %d", errCode)
+	}
+	if len(volumeData) == 0 {
+		t.Fatal("EncryptVolume returned empty volume")
+	}
+	if bytes.Equal(volumeData, make([]byte, len(volumeData))) {
+		t.Fatal("returned volume bytes were wiped before return")
+	}
+
+	// The plaintext argument is caller-owned at the internal package boundary.
+	// Browser bridge input-copy zeroing is covered by the bridge task; this test
+	// only observes encryption-local Go buffers that EncryptVolume owns.
+	if !bytes.Equal(plaintext, []byte("Phase 6 zeroing coverage needs plaintext-derived ciphertext staging.")) {
+		t.Fatal("EncryptVolume wiped caller-owned plaintext input")
+	}
+
+	want := map[wasmZeroingBufferKind]bool{
+		wasmZeroingPasswordBytes:    true,
+		wasmZeroingHeaderSubkey:     true,
+		wasmZeroingMACSubkey:        true,
+		wasmZeroingSerpentKey:       true,
+		wasmZeroingCiphertextChunk:  true,
+		wasmZeroingCiphertextBuffer: true,
+		wasmZeroingKeyfileHash:      true,
+		wasmZeroingHeaderKeyHash:    true,
+		wasmZeroingAuthTag:          true,
+		wasmZeroingHeaderBuffer:     true,
+	}
+	seen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+	for _, event := range events {
+		if event.Len == 0 {
+			t.Fatalf("%s zeroing event had empty buffer", event.Kind)
+		}
+		if !event.Zeroed {
+			t.Fatalf("%s buffer was not zeroed after cleanup", event.Kind)
+		}
+		seen[event.Kind] = event
+	}
+	for kind := range want {
+		if _, ok := seen[kind]; !ok {
+			t.Fatalf("missing zeroing event for %s; saw %v", kind, seen)
+		}
+	}
+
+	for _, kind := range []wasmZeroingBufferKind{
+		wasmZeroingPasswordBytes,
+		wasmZeroingHeaderSubkey,
+		wasmZeroingMACSubkey,
+		wasmZeroingSerpentKey,
+		wasmZeroingCiphertextChunk,
+		wasmZeroingCiphertextBuffer,
+		wasmZeroingHeaderKeyHash,
+		wasmZeroingAuthTag,
+		wasmZeroingHeaderBuffer,
+	} {
+		if !seen[kind].WasNonZero {
+			t.Fatalf("%s buffer was already zero before cleanup; test would be vacuous", kind)
+		}
+	}
+}

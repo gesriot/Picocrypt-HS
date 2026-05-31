@@ -12,6 +12,58 @@ import (
 
 var writeAuthValues = header.WriteAuthValues
 
+type wasmZeroingBufferKind string
+
+const (
+	wasmZeroingPasswordBytes    wasmZeroingBufferKind = "password bytes"
+	wasmZeroingHeaderSubkey     wasmZeroingBufferKind = "header subkey"
+	wasmZeroingMACSubkey        wasmZeroingBufferKind = "mac subkey"
+	wasmZeroingSerpentKey       wasmZeroingBufferKind = "serpent key"
+	wasmZeroingCiphertextChunk  wasmZeroingBufferKind = "ciphertext chunk"
+	wasmZeroingCiphertextBuffer wasmZeroingBufferKind = "ciphertext buffer"
+	wasmZeroingKeyfileHash      wasmZeroingBufferKind = "keyfile hash placeholder"
+	wasmZeroingHeaderKeyHash    wasmZeroingBufferKind = "header auth value"
+	wasmZeroingAuthTag          wasmZeroingBufferKind = "payload auth value"
+	wasmZeroingHeaderBuffer     wasmZeroingBufferKind = "header buffer"
+)
+
+type wasmZeroingEvent struct {
+	Kind       wasmZeroingBufferKind
+	Len        int
+	WasNonZero bool
+	Zeroed     bool
+}
+
+// wasmZeroingObserver is a package-local test seam. It is nil in production and
+// records only aggregate zeroing state, never buffer contents.
+var wasmZeroingObserver func(wasmZeroingEvent)
+
+func zeroWASMSensitiveBuffer(kind wasmZeroingBufferKind, b []byte) {
+	if len(b) == 0 {
+		return
+	}
+	wasNonZero := hasNonZeroByte(b)
+	crypto.SecureZero(b)
+	zeroed := !hasNonZeroByte(b)
+	if wasmZeroingObserver != nil {
+		wasmZeroingObserver(wasmZeroingEvent{
+			Kind:       kind,
+			Len:        len(b),
+			WasNonZero: wasNonZero,
+			Zeroed:     zeroed,
+		})
+	}
+}
+
+func hasNonZeroByte(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 type byteSliceWriterAt struct {
 	data []byte
 }
@@ -70,7 +122,9 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	}
 
 	// Derive key
-	key, err := crypto.DeriveKey([]byte(password), salt, false)
+	passwordBytes := []byte(password)
+	key, err := crypto.DeriveKey(passwordBytes, salt, false)
+	zeroWASMSensitiveBuffer(wasmZeroingPasswordBytes, passwordBytes)
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
@@ -85,11 +139,25 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
-	defer crypto.SecureZero(subkeyHeader)
 
 	// Compute header MAC (no keyfiles, so keyfileHash is zeros)
 	keyfileHash := make([]byte, 32)
+	keyfileHashZeroed := false
+	defer func() {
+		if !keyfileHashZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingKeyfileHash, keyfileHash)
+		}
+	}()
 	hdr.KeyHash = header.ComputeV2HeaderMAC(subkeyHeader, hdr, keyfileHash)
+	headerKeyHash := hdr.KeyHash
+	headerKeyHashZeroed := false
+	defer func() {
+		if !headerKeyHashZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingHeaderKeyHash, headerKeyHash)
+		}
+	}()
+	zeroWASMSensitiveBuffer(wasmZeroingHeaderSubkey, subkeyHeader)
+	subkeyHeader = nil
 	hdr.KeyfileHash = keyfileHash
 
 	// Read remaining subkeys
@@ -97,16 +165,16 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
-	defer crypto.SecureZero(macSubkey)
 
 	serpentKey, err := subkeyReader.SerpentKey()
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
-	defer crypto.SecureZero(serpentKey)
 
 	// Create MAC (normal mode = BLAKE2b)
 	mac, err := crypto.NewMAC(macSubkey, false)
+	zeroWASMSensitiveBuffer(wasmZeroingMACSubkey, macSubkey)
+	macSubkey = nil
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
@@ -121,6 +189,8 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 		subkeyReader.Reader(),
 		false, // not paranoid
 	)
+	zeroWASMSensitiveBuffer(wasmZeroingSerpentKey, serpentKey)
+	serpentKey = nil
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
@@ -132,9 +202,21 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	if _, err := headerWriter.WriteHeader(hdr); err != nil {
 		return nil, ErrRandomFailure
 	}
+	headerBufferZeroed := false
+	defer func() {
+		if !headerBufferZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingHeaderBuffer, headerBuf.Bytes())
+		}
+	}()
 
 	// Encrypt payload
 	var ciphertextBuf bytes.Buffer
+	ciphertextBufferZeroed := false
+	defer func() {
+		if !ciphertextBufferZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingCiphertextBuffer, ciphertextBuf.Bytes())
+		}
+	}()
 	chunkSize := util.MiB
 	var counter int64
 
@@ -148,6 +230,7 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 		dst := make([]byte, len(chunk))
 		cipherSuite.Encrypt(dst, chunk)
 		ciphertextBuf.Write(dst)
+		zeroWASMSensitiveBuffer(wasmZeroingCiphertextChunk, dst)
 
 		counter += int64(len(chunk))
 
@@ -162,6 +245,12 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 
 	// Get final MAC
 	authTag := cipherSuite.Sum()
+	authTagZeroed := false
+	defer func() {
+		if !authTagZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingAuthTag, authTag)
+		}
+	}()
 	hdr.AuthTag = authTag
 
 	// Now we need to patch the auth values into the header
@@ -177,11 +266,22 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	); err != nil {
 		return nil, ErrModifiedData
 	}
+	zeroWASMSensitiveBuffer(wasmZeroingKeyfileHash, keyfileHash)
+	keyfileHashZeroed = true
+	zeroWASMSensitiveBuffer(wasmZeroingHeaderKeyHash, hdr.KeyHash)
+	headerKeyHashZeroed = true
+	zeroWASMSensitiveBuffer(wasmZeroingAuthTag, authTag)
+	authTagZeroed = true
 
 	// Combine header and encrypted payload
-	result := make([]byte, 0, len(headerBytes)+ciphertextBuf.Len())
+	ciphertextBytes := ciphertextBuf.Bytes()
+	result := make([]byte, 0, len(headerBytes)+len(ciphertextBytes))
 	result = append(result, headerBytes...)
-	result = append(result, ciphertextBuf.Bytes()...)
+	result = append(result, ciphertextBytes...)
+	zeroWASMSensitiveBuffer(wasmZeroingHeaderBuffer, headerBytes)
+	headerBufferZeroed = true
+	zeroWASMSensitiveBuffer(wasmZeroingCiphertextBuffer, ciphertextBytes)
+	ciphertextBufferZeroed = true
 
 	return result, 0
 }
