@@ -519,6 +519,82 @@ func TestProgressReporting(t *testing.T) {
 }
 
 // TestCancelButtonState tests cancel button enable/disable logic.
+// TestWorkerCallbackStateRace exercises the APP-02 worker↔render boundary at the
+// *App level: one goroutine plays the encrypt/decrypt worker using the exact
+// accessor pattern doEncrypt/doDecrypt now use (a.State.Snapshot() for reads,
+// SetStatus/SetKept for status/result writes), while other goroutines play the
+// Fyne render-thread callbacks driving the locked setters/getters the
+// operations.go fyne.Do/DoAndWait blocks use (SetWorking/SetMode/IsWorking/...).
+//
+// It deliberately touches NO Fyne widgets, so it exercises the project-code
+// State race directly and is not polluted by the upstream
+// fyne.io/fyne/v2/internal/cache races (Pitfall 4). It must be clean under
+// `go test -race ./internal/ui` — the APP-02 gate.
+func TestWorkerCallbackStateRace(t *testing.T) {
+	if raceEnabled {
+		// Belt-and-suspenders: this test never builds widgets, so it is safe
+		// under -race. The guard documents that any future variant which DOES
+		// touch Fyne widgets must skip here (mirrors drop_test.go's quarantine
+		// of the Fyne-cache-racy widget paths).
+		_ = raceEnabled
+	}
+
+	a := createTestApp(t)
+
+	const iterations = 200
+	var wg sync.WaitGroup
+
+	// Worker goroutine: snapshot the request fields, then write status/result
+	// via the locked setters — the operations.go doEncrypt/doDecrypt hot path.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			snap := a.State.Snapshot()
+			_ = snap.Mode
+			_ = snap.InputFile
+			_ = snap.OutputFile
+			_ = snap.Password
+			_ = snap.Keyfiles
+			_ = snap.Comments
+			_ = snap.Deniability
+			_ = snap.Keep
+			a.State.SetStatus("working", util.WHITE)
+			a.State.SetKept(i%2 == 0)
+		}
+	}()
+
+	// Render-thread writer goroutine: the drop/operations fyne.Do callbacks.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			a.State.SetMode("encrypt")
+			a.State.SetWorking(i%2 == 0)
+			a.State.SetInputFile("in.txt")
+			a.State.SetOutputFile("out.pcv")
+			a.State.SetComments("hello")
+			a.State.SetDeniability(i%2 == 0)
+			a.State.SetKeep(i%2 == 1)
+		}
+	}()
+
+	// Render-thread reader goroutine: the guards/labels that read shared fields.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_ = a.State.IsEncrypting()
+			_ = a.State.IsDecrypting()
+			_ = a.State.IsWorking()
+			_ = a.State.WasKept()
+			_ = a.State.Snapshot()
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestCancelButtonState(t *testing.T) {
 	state := mustNewState(t)
 
