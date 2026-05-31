@@ -84,8 +84,8 @@ type State struct {
 	// until GC. Guaranteed password zeroing is intentionally out of scope (CONCERNS
 	// 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing"); only []byte key
 	// material derived from the password is zeroed (see OperationContext.Close).
-	Password  string
-	CPassword string // Confirm password
+	Password           string
+	CPassword          string // Confirm password
 
 	PasswordStrength   int
 	PasswordMode       PasswordInputMode
