@@ -1,15 +1,14 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/util"
@@ -333,54 +332,32 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	}
 	defer func() { _ = fin.Close() }()
 
-	// Check if version can be read from header
-	tmp := make([]byte, 15)
-	if n, err := fin.Read(tmp); err != nil || n != 15 {
-		a.State.MainStatus = "Failed to read header"
-		a.State.MainStatusColor = util.RED
-		return
-	}
-
-	tmp, err = encoding.Decode(a.rsCodecs.RS5, tmp, false)
-	if valid, _ := regexp.Match(`^v\d\.\d{2}`, tmp); err != nil || !valid {
-		// Volume has plausible deniability
-		a.State.Deniability = true
-		a.State.MainStatus = "Cannot read header, volume may be deniable"
-		return
-	}
-
-	// Read comments from file
-	tmp = make([]byte, 15)
-	if n, err := fin.Read(tmp); err != nil || n != 15 {
-		a.State.MainStatus = "Failed to read header"
-		a.State.MainStatusColor = util.RED
-		return
-	}
-
-	tmp, err = encoding.Decode(a.rsCodecs.RS5, tmp, false)
-	if err == nil {
-		commentsLength, err := strconv.Atoi(string(tmp))
-		if err != nil {
+	// Parse the header through the single validated parser (SEC-01/UI-01/D-01).
+	// previewHeader is pure + UI-free; it shares the ^\d{5}$ comment-length
+	// guard (+ D-02 bound) and the anchored version regex used at decrypt time,
+	// so a crafted comment-length field can never drive an over-allocation here.
+	res, err := previewHeader(fin, a.rsCodecs)
+	if err != nil {
+		switch {
+		case errors.Is(err, header.ErrInvalidVersion):
+			// Version field does not match ^v\d\.\d{2}$ — the volume may have a
+			// plausible-deniability wrapper (its leading bytes are random).
+			a.State.Deniability = true
+			a.State.MainStatus = "Cannot read header, volume may be deniable"
+			return
+		case errors.Is(err, header.ErrInvalidCommentLength):
+			// Malformed comment-length field — graceful status, no over-alloc.
 			a.State.Comments = "Comment length is corrupted"
-		} else {
-			tmp = make([]byte, commentsLength*3)
-			if n, err := fin.Read(tmp); err != nil || n != commentsLength*3 {
-				a.State.MainStatus = "Failed to read comments"
-				a.State.MainStatusColor = util.RED
-				return
-			}
-			a.State.Comments = ""
-			for i := 0; i < commentsLength*3; i += 3 {
-				t, err := encoding.Decode(a.rsCodecs.RS1, tmp[i:i+3], false)
-				if err != nil {
-					a.State.Comments = "Comments are corrupted"
-					break
-				}
-				a.State.Comments += string(t)
-			}
+		default:
+			a.State.MainStatus = "The volume header is damaged"
+			a.State.MainStatusColor = util.RED
+			return
 		}
-	} else {
+	} else if res.DecodeError != nil {
+		// Header is usable but the comment characters did not RS-decode cleanly.
 		a.State.Comments = "Comments are corrupted"
+	} else {
+		a.State.Comments = res.Header.Comments
 	}
 
 	// Update comments entry if it exists
@@ -390,31 +367,18 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		}
 	})
 
-	// Read flags from file
-	flags := make([]byte, 15)
-	if n, err := fin.Read(flags); err != nil || n != 15 {
-		a.State.MainStatus = "Failed to read header"
-		a.State.MainStatusColor = util.RED
-		return
-	}
-
-	flagsDec, err := encoding.Decode(a.rsCodecs.RS5, flags, false)
-	if err != nil {
-		a.State.MainStatus = "The volume header is damaged"
-		a.State.MainStatusColor = util.RED
-		return
-	}
-
-	// Parse flags
-	flagsStruct := header.FlagsFromBytes(flagsDec)
-	if flagsStruct.UseKeyfiles {
-		a.State.Keyfile = true
-		a.State.KeyfileLabel = "Keyfiles required"
-	} else {
-		a.State.KeyfileLabel = "Not applicable"
-	}
-	if flagsStruct.KeyfileOrdered {
-		a.State.KeyfileOrdered = true
+	// Parse flags from the decoded header (only when ReadHeader produced one).
+	if res != nil {
+		flagsStruct := res.Header.Flags
+		if flagsStruct.UseKeyfiles {
+			a.State.Keyfile = true
+			a.State.KeyfileLabel = "Keyfiles required"
+		} else {
+			a.State.KeyfileLabel = "Not applicable"
+		}
+		if flagsStruct.KeyfileOrdered {
+			a.State.KeyfileOrdered = true
+		}
 	}
 
 	// Check for deniability
