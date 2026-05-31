@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"

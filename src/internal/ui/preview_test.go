@@ -71,15 +71,15 @@ func TestPreviewVersionRegexAndNonBlocking(t *testing.T) {
 		raw := craftPreviewBytes(t, rs, "v2.09", "00002", "hi", []byte{0, 0, 0, 0, 0})
 		// Pad the rest of the base header so ReadHeader reaches the end cleanly.
 		raw = append(raw, make([]byte, header.BaseHeaderSize)...)
-		h, err := previewHeader(bytes.NewReader(raw), rs)
+		res, err := previewHeader(bytes.NewReader(raw), rs)
 		if err != nil {
 			t.Fatalf("previewHeader returned error on valid header: %v", err)
 		}
-		if h == nil {
-			t.Fatal("previewHeader returned nil header on valid input")
+		if res == nil || res.Header == nil {
+			t.Fatal("previewHeader returned nil result/header on valid input")
 		}
-		if h.Comments != "hi" {
-			t.Errorf("Comments = %q; want %q", h.Comments, "hi")
+		if res.Header.Comments != "hi" {
+			t.Errorf("Comments = %q; want %q", res.Header.Comments, "hi")
 		}
 	})
 
