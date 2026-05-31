@@ -19,6 +19,20 @@ var ErrInvalidVersion = errors.New("invalid version format")
 // ErrInvalidCommentLength indicates the comment length field is corrupted
 var ErrInvalidCommentLength = errors.New("unable to read comments length")
 
+// Package-scope, compile-once header validation patterns (QUAL-01/D-03).
+// versionRE is the single anchored version pattern; it stays private and
+// immutable — callers use MatchVersion instead of compiling their own copy.
+var (
+	versionRE    = regexp.MustCompile(`^v\d\.\d{2}$`)
+	commentLenRE = regexp.MustCompile(`^\d{5}$`)
+)
+
+// MatchVersion reports whether b is a well-formed Picocrypt version string
+// ("v2.09", "v1.49", ...). It encapsulates the single anchored version pattern
+// shared by the header parser, the GUI preview, and deniability detection so
+// every site uses the exact same (anchored) match (UI-01/QUAL-01/D-03).
+func MatchVersion(b []byte) bool { return versionRE.Match(b) }
+
 // Reader handles reading volume headers from an input stream
 type Reader struct {
 	r  io.Reader
@@ -62,7 +76,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	h.Version = string(versionDec)
 
 	// Validate version format
-	if valid, _ := regexp.Match(`^v\d\.\d{2}$`, versionDec); !valid {
+	if !versionRE.Match(versionDec) {
 		return result, ErrInvalidVersion
 	}
 
@@ -80,11 +94,20 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	}
 
 	// Validate comment length format (5 digits)
-	if valid, _ := regexp.Match(`^\d{5}$`, commentLenDec); !valid {
+	if !commentLenRE.Match(commentLenDec) {
 		return result, ErrInvalidCommentLength
 	}
 
 	commentsLen, _ := strconv.Atoi(string(commentLenDec))
+
+	// D-02 defense-in-depth bound: the ^\d{5}$ guard above already caps
+	// commentsLen to [0, 99999] and forbids '-', but bound the value
+	// explicitly against MaxCommentLen before allocating so any future
+	// caller (or the guard-less ReadHeaderRaw path, if it ever routes here)
+	// can never drive an oversized make([]byte, ...) allocation (SEC-01).
+	if commentsLen < 0 || commentsLen > MaxCommentLen {
+		return result, ErrInvalidCommentLength
+	}
 
 	// Read comments (each byte is rs1 encoded: 3 bytes -> 1 byte)
 	comments := make([]byte, 0, commentsLen)
