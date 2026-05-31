@@ -29,6 +29,7 @@ package ui
 
 import (
 	_ "embed"
+	"fmt"
 	"path/filepath"
 	"sync/atomic"
 
@@ -153,18 +154,18 @@ type App struct {
 
 // NewApp creates a new UI application.
 func NewApp(version string) (*App, error) {
-	rsCodecs, err := encoding.NewRSCodecs()
+	// NewState builds the Reed-Solomon codecs once and returns an error on
+	// RS-init failure (APP-01). Reuse those codecs here instead of constructing
+	// a second, redundant set.
+	state, err := app.NewState()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("init app state: %w", err)
 	}
-
-	state := app.NewState()
-	state.RSCodecs = rsCodecs
 
 	return &App{
 		Version:  version,
 		State:    state,
-		rsCodecs: rsCodecs,
+		rsCodecs: state.RSCodecs,
 		DPI:      1.0,
 		// Initialize data bindings
 		boundProgress: binding.NewFloat(),

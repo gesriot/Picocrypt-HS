@@ -199,7 +199,7 @@ func TestDropStateTransitions(t *testing.T) {
 	newTestFyneApp(t)
 
 	t.Run("SingleFileDropSetsEncryptMode", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 
 		// Simulate dropping a plain file
 		state.Mode = "encrypt"
@@ -215,7 +215,7 @@ func TestDropStateTransitions(t *testing.T) {
 	})
 
 	t.Run("PcvFileDropSetsDecryptMode", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 
 		// Simulate dropping a .pcv file
 		state.Mode = "decrypt"
@@ -231,7 +231,7 @@ func TestDropStateTransitions(t *testing.T) {
 	})
 
 	t.Run("FolderDropSetsZipMode", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 
 		// Simulate dropping a folder
 		state.Mode = "encrypt"
@@ -261,7 +261,7 @@ func TestApplyDropErrorPreservesStatusAfterReset(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			a := &App{
-				State:             app.NewState(),
+				State:             mustNewState(t),
 				advancedContainer: container.NewVBox(),
 			}
 			a.State.StartLabel = "Decrypt"
@@ -720,7 +720,7 @@ func TestScheduleStartupPathsAlwaysWiresStartHook(t *testing.T) {
 // TestKeyfileDropHandling tests keyfile drop in keyfile modal.
 func TestKeyfileDropHandling(t *testing.T) {
 	t.Run("AddUniqueKeyfiles", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 		state.ShowKeyfile = true
 
 		// Add keyfiles
@@ -745,7 +745,7 @@ func TestKeyfileDropHandling(t *testing.T) {
 	})
 
 	t.Run("PreventDuplicateKeyfiles", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 		state.ShowKeyfile = true
 		state.Keyfiles = []string{"/path/key1.bin"}
 
@@ -781,7 +781,7 @@ func TestKeyfileDropHandling(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			state := app.NewState()
+			state := mustNewState(t)
 			state.Keyfile = tc.required
 			state.Keyfiles = make([]string, tc.count)
 			for i := 0; i < tc.count; i++ {
@@ -800,7 +800,7 @@ func TestKeyfileDropHandling(t *testing.T) {
 
 // TestScanningState tests the scanning state during folder processing.
 func TestScanningState(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 
 	// Initially not scanning
 	if state.Scanning {
@@ -828,7 +828,7 @@ func TestScanningState(t *testing.T) {
 // TestDeniabilityDetection tests deniability mode detection from headers.
 func TestDeniabilityDetection(t *testing.T) {
 	t.Run("DeniableVolumeStatus", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 
 		// When version cannot be read, assume deniable
 		state.Deniability = true
@@ -840,7 +840,7 @@ func TestDeniabilityDetection(t *testing.T) {
 	})
 
 	t.Run("NormalVolumeStatus", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 		state.Deniability = false
 		state.MainStatus = "Ready"
 
@@ -954,7 +954,7 @@ func TestDropWithRealFiles(t *testing.T) {
 
 // TestDropRaceConditionPrevention tests that concurrent drops are blocked.
 func TestDropRaceConditionPrevention(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 
 	// Simulate scanning in progress
 	state.Scanning = true
@@ -988,7 +988,7 @@ func TestCommentsFromHeader(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
+			state := mustNewState(t)
 			state.Mode = "decrypt"
 			state.Comments = tc.comments
 			state.CommentsLabel = "Comments (read-only):"
@@ -1003,7 +1003,7 @@ func TestCommentsFromHeader(t *testing.T) {
 
 // TestRequiredFreeSpaceCalculation tests free space estimation.
 func TestRequiredFreeSpaceCalculation(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 
 	// Single file
 	state.RequiredFreeSpace = 1024 * 1024 // 1 MiB
@@ -1033,7 +1033,7 @@ func TestRequiredFreeSpaceCalculation(t *testing.T) {
 
 // TestStatusWithFreeSpace tests status message with free space info.
 func TestStatusWithFreeSpace(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 	state.MainStatus = "Ready"
 	state.RequiredFreeSpace = 10 * 1024 * 1024 // 10 MiB
 

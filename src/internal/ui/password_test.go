@@ -98,7 +98,7 @@ func TestPasswordMatchValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
+			state := mustNewState(t)
 			state.Mode = tc.mode
 			state.Password = tc.password
 			state.CPassword = tc.cPassword
@@ -120,7 +120,7 @@ func TestPasswordMatchValidation(t *testing.T) {
 
 // TestPasswordClearButton tests clearing password fields.
 func TestPasswordClearButton(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 
 	// Set passwords
 	state.Password = "secret"
@@ -146,7 +146,7 @@ func TestPasswordClearButton(t *testing.T) {
 // TestPasswordPasteButton tests pasting password behavior.
 func TestPasswordPasteButton(t *testing.T) {
 	t.Run("EncryptModePastesBoth", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 		state.Mode = "encrypt"
 
 		// Simulate paste
@@ -165,7 +165,7 @@ func TestPasswordPasteButton(t *testing.T) {
 	})
 
 	t.Run("DecryptModeOnlyPastesPassword", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 		state.Mode = "decrypt"
 		state.CPassword = "original"
 
@@ -205,7 +205,7 @@ func TestPasswordGeneratorOptions(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
+			state := mustNewState(t)
 			state.PassgenLength = tc.length
 			state.PassgenUpper = tc.upper
 			state.PassgenLower = tc.lower
@@ -221,7 +221,7 @@ func TestPasswordGeneratorOptions(t *testing.T) {
 
 // TestPasswordGeneratorOutput tests generated password characteristics.
 func TestPasswordGeneratorOutput(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 	state.PassgenLength = 32
 	state.PassgenUpper = true
 	state.PassgenLower = true
@@ -263,7 +263,7 @@ func TestConfirmPasswordDisabledStates(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
+			state := mustNewState(t)
 			state.Mode = tc.mode
 			state.Password = tc.password
 
@@ -292,7 +292,7 @@ func TestCreatePasswordButtonDisabledInDecrypt(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
+			state := mustNewState(t)
 			state.Mode = tc.mode
 
 			// Logic from updatePasswordUIState for createBtn
@@ -325,7 +325,7 @@ func TestPasswordValidationIndicator(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
+			state := mustNewState(t)
 			state.Mode = tc.mode
 			state.Password = tc.password
 			state.CPassword = tc.cPassword
@@ -349,7 +349,7 @@ func TestPasswordEntryOnChanged(t *testing.T) {
 	newTestFyneApp(t)
 
 	t.Run("PasswordUpdate", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 
 		// Simulate OnChanged
 		newPassword := "newpassword"
@@ -361,7 +361,7 @@ func TestPasswordEntryOnChanged(t *testing.T) {
 	})
 
 	t.Run("ConfirmPasswordUpdate", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 
 		// Simulate OnChanged
 		newCPassword := "confirm"

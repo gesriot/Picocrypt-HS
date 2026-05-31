@@ -4,9 +4,23 @@ import (
 	"os"
 	"testing"
 
+	"Picocrypt-NG/internal/app"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 )
+
+// mustNewState builds an *app.State for UI tests, failing the test if RS-codec
+// initialization returns an error. Centralizes the (*State, error) call after
+// APP-01 changed app.NewState's signature, keeping the many call sites terse.
+func mustNewState(t *testing.T) *app.State {
+	t.Helper()
+	s, err := app.NewState()
+	if err != nil {
+		t.Fatalf("app.NewState() returned error: %v", err)
+	}
+	return s
+}
 
 // TestMain pre-warms Fyne's process-global font-metric cache before any
 // parallel test goroutines start. Fyne v2.7.3's internal/cache/base.go

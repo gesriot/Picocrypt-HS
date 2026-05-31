@@ -275,7 +275,7 @@ func TestSplitUnitConversion(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.expected, func(t *testing.T) {
 			// This tests the State.SplitUnits array alignment
-			state := app.NewState()
+			state := mustNewState(t)
 			if tc.selected < len(state.SplitUnits) {
 				if state.SplitUnits[tc.selected] != tc.expected {
 					t.Errorf("SplitUnits[%d] = %q; want %q",
@@ -355,7 +355,7 @@ func parseIntHelper(s string, n *int) (bool, error) {
 // TestOperationStatusColors tests that status colors are set correctly.
 func TestOperationStatusColors(t *testing.T) {
 	t.Run("SuccessStatus", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 		state.SetStatus("Completed", util.GREEN)
 
 		if state.MainStatus != "Completed" {
@@ -367,7 +367,7 @@ func TestOperationStatusColors(t *testing.T) {
 	})
 
 	t.Run("ErrorStatus", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 		state.SetStatus("Failed", util.RED)
 
 		if state.MainStatus != "Failed" {
@@ -379,7 +379,7 @@ func TestOperationStatusColors(t *testing.T) {
 	})
 
 	t.Run("WarningStatus", func(t *testing.T) {
-		state := app.NewState()
+		state := mustNewState(t)
 		state.SetStatus("Warning", util.YELLOW)
 
 		if state.MainStatus != "Warning" {
@@ -393,7 +393,7 @@ func TestOperationStatusColors(t *testing.T) {
 
 // TestRecursiveModeSettings tests recursive mode state preservation.
 func TestRecursiveModeSettings(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 
 	// Set encryption settings
 	state.Password = "secret"
@@ -485,7 +485,7 @@ func TestCanStartLogic(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
+			state := mustNewState(t)
 			state.Mode = tc.mode
 			state.Password = tc.password
 			state.CPassword = tc.cPassword
@@ -501,7 +501,7 @@ func TestCanStartLogic(t *testing.T) {
 
 // TestProgressReporting tests progress callback integration.
 func TestProgressReporting(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 
 	// Simulate progress updates
 	progressValues := []float32{0.0, 0.25, 0.5, 0.75, 1.0}
@@ -521,7 +521,7 @@ func TestProgressReporting(t *testing.T) {
 
 // TestCancelButtonState tests cancel button enable/disable logic.
 func TestCancelButtonState(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 
 	// Initially not cancellable
 	if state.CanCancel {
