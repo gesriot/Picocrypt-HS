@@ -845,6 +845,95 @@ func TestIsDeniableNormalFile(t *testing.T) {
 	}
 }
 
+// TestIsDeniableCorruptedNotDeniable proves the QUAL-02 fix: a truncated/corrupt
+// REGULAR volume must NOT be misclassified as deniable. The old IsDeniable returned
+// true on any short read (deniability.go:343) or RS5-decode failure (:348), so a
+// truncated regular volume was mis-routed as deniable. The fix is a length pre-guard:
+// a genuine deniable volume always wraps a COMPLETE regular volume, so its size is at
+// least salt(16) + nonce(24) + header.BaseHeaderSize; anything shorter cannot be
+// deniable. Over-correction is guarded by the existing reliably-green true-positive
+// tests (TestGoldenDeniabilityDetection, TestRoundTripDeniability) which run in the
+// same close gate; we do not rebuild a deniable fixture here because IsDeniable's
+// positive path is input-dependent (the random leading bytes occasionally RS5-decode
+// to a version-like string) — that property is pre-existing and frozen by 05-03's
+// guardrail (positive path unchanged; only negative rejections added).
+func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// Build a genuine regular (non-deniable) volume to corrupt.
+	plaintext := []byte("Corruption test plaintext")
+	inputPath := filepath.Join(tmpDir, "regular.txt")
+	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	regularPath := filepath.Join(tmpDir, "regular.pcv")
+	if err := Encrypt(context.Background(), &EncryptRequest{
+		InputFile:   inputPath,
+		OutputFile:  regularPath,
+		Password:    "regular_password",
+		Deniability: false,
+		Reporter:    &GoldenTestReporter{},
+		RSCodecs:    rsCodecs,
+	}); err != nil {
+		t.Fatalf("encrypt regular: %v", err)
+	}
+	full, err := os.ReadFile(regularPath)
+	if err != nil {
+		t.Fatalf("read regular volume: %v", err)
+	}
+
+	// Variant (a): truncate below 15 bytes — old code hits the io.ReadFull error
+	// branch (:343) and returns true. New code rejects via the length pre-guard.
+	shortPath := filepath.Join(tmpDir, "short.pcv")
+	if err := os.WriteFile(shortPath, full[:10], 0644); err != nil {
+		t.Fatalf("write short volume: %v", err)
+	}
+	if IsDeniable(shortPath, rsCodecs) {
+		t.Error("truncated regular volume (10 bytes) misclassified as deniable (QUAL-02)")
+	}
+
+	// Variant (b): a short file (< deniable minimum) with a zeroed leading version
+	// field — old code decodes the all-zero RS5 word to a non-version string and
+	// returns !MatchVersion == true. New code rejects via the length pre-guard.
+	if len(full) < 200 {
+		t.Fatalf("regular volume unexpectedly shorter than 200 bytes: %d", len(full))
+	}
+	garbage := make([]byte, 200)
+	copy(garbage, full[:200])
+	for i := 0; i < 15; i++ {
+		garbage[i] = 0
+	}
+	garbagePath := filepath.Join(tmpDir, "garbage.pcv")
+	if err := os.WriteFile(garbagePath, garbage, 0644); err != nil {
+		t.Fatalf("write garbage volume: %v", err)
+	}
+	if IsDeniable(garbagePath, rsCodecs) {
+		t.Error("short corrupt regular volume (200 bytes) misclassified as deniable (QUAL-02)")
+	}
+
+	// Variant (c): a file exactly one byte below the deniable minimum must be rejected
+	// by the length guard (boundary check).
+	minDeniable := 16 + 24 + header.BaseHeaderSize
+	belowMin := make([]byte, minDeniable-1)
+	copy(belowMin, full[:min(len(full), minDeniable-1)])
+	belowMinPath := filepath.Join(tmpDir, "belowmin.pcv")
+	if err := os.WriteFile(belowMinPath, belowMin, 0644); err != nil {
+		t.Fatalf("write below-min volume: %v", err)
+	}
+	if IsDeniable(belowMinPath, rsCodecs) {
+		t.Errorf("file one byte below deniable minimum (%d) misclassified as deniable (QUAL-02)", minDeniable)
+	}
+
+	// Over-correction guard: the existing reliably-green TestGoldenDeniabilityDetection
+	// and TestRoundTripDeniability assert that genuine deniable volumes (size >= the
+	// deniable minimum) are still detected as deniable after this guard lands.
+}
+
 // =============================================================================
 // Tests for operation context
 // =============================================================================
