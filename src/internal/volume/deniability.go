@@ -338,9 +338,23 @@ func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 	}
 	defer func() { _ = fin.Close() }()
 
+	// QUAL-02 negative pre-guard: a deniability-wrapped volume always wraps a COMPLETE
+	// inner regular volume, so its on-disk size is at least salt(16) + nonce(24) +
+	// header.BaseHeaderSize. A file shorter than that cannot be deniable — it is a
+	// truncated/corrupt regular volume (or junk). Classifying such a short file as
+	// deniable mis-routes it down the deniability-strip path; reject it here instead.
+	// This only ADDS a negative rejection; the positive RS5-magic detection path below
+	// is format-frozen and unchanged.
+	const minDeniableSize = 16 + 24 + header.BaseHeaderSize
+	if fi, err := fin.Stat(); err != nil || fi.Size() < int64(minDeniableSize) {
+		return false // too short to be a deniable volume (truncated/corrupt regular)
+	}
+
 	versionEnc := make([]byte, 15)
 	if _, err := io.ReadFull(fin, versionEnc); err != nil {
-		return true // Can't read, might be deniable
+		// Size already cleared the minimum above, so a short read here means an I/O
+		// error rather than truncation — treat as non-deniable (cannot confirm).
+		return false
 	}
 
 	versionDec, err := encoding.Decode(rs.RS5, versionEnc, false)
