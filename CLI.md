@@ -259,6 +259,8 @@ picocrypt decrypt -i damaged.pcv -p "password" --force
 picocrypt decrypt -i innocent.pcv -p "real-password" --deniability
 ```
 
+If `--force` keeps output after MAC verification failed, Picocrypt NG writes `Warning: Force decrypt kept output...` to stderr and exits with exit code 2. The recovered file or stdout bytes are not fully verified; scripts must not treat exit code 2 as clean success.
+
 ## Stdin/Stdout Streaming
 
 Use `-` as the filename for stdin/stdout to enable full pipeline automation. This allows encrypting data from pipes and streaming encrypted output without intermediate files.
@@ -317,6 +319,8 @@ Stdin/stdout streaming has the following limitations:
 | `-o -` cannot combine with `--recombine` (decrypt) | Requires file access |
 
 **Note:** When using `-o -`, progress output is automatically suppressed (quiet mode) to avoid mixing progress with encrypted data.
+
+If `picocrypt decrypt -o - --force` keeps recovered output after MAC verification failed, recovered bytes are written to stdout before the process returns exit code 2. The kept-output warning is written to stderr, so stdout remains parseable by scripts.
 
 ## Scripting Guide
 
@@ -427,6 +431,7 @@ tar czf - /home/user/documents | \
 |------|-------------|
 | 0 | Success |
 | 1 | General error (invalid arguments, file not found, encryption/decryption failure) |
+| 2 | Force-decrypt kept recovered output after MAC verification failed; output was delivered but is not fully verified |
 
 ## Troubleshooting
 

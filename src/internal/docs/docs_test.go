@@ -67,3 +67,21 @@ func TestWASMDocumentationStatesReducedSurfaceAndZeroingLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestCLIForceDecryptDocumentationStatesKeptOutputExitSemantics(t *testing.T) {
+	doc := mustReadDoc(t, "CLI.md")
+
+	requiredSnippets := []string{
+		"--force",
+		"exit code 2",
+		"stderr",
+		"Warning: Force decrypt kept output",
+		"not fully verified",
+	}
+
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(doc, snippet) {
+			t.Errorf("missing %q", snippet)
+		}
+	}
+}

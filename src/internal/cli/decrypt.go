@@ -361,15 +361,22 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		if err := StreamFileToStdout(outputFile); err != nil {
 			return fmt.Errorf("streaming to stdout: %w", err)
 		}
+		if kept {
+			return forceDecryptKeptResult("stdout")
+		}
 		return nil
 	}
 
 	if kept {
-		fmt.Fprintf(os.Stderr, "Warning: Force decrypt kept output after MAC verification failed; recovered data is untrusted: %s\n", outputFile)
-		return newExitCodeError(ExitForceDecryptKept, "force decrypt kept output after MAC verification failed")
+		return forceDecryptKeptResult(outputFile)
 	}
 	reporter.PrintSuccess("Decryption completed successfully: %s", outputFile)
 	return nil
+}
+
+func forceDecryptKeptResult(destination string) error {
+	fmt.Fprintf(os.Stderr, "Warning: Force decrypt kept output after MAC verification failed; recovered data is untrusted: %s\n", destination)
+	return newExitCodeError(ExitForceDecryptKept, "force decrypt kept output after MAC verification failed")
 }
 
 // readHeaderInfo reads just the header to get volume information

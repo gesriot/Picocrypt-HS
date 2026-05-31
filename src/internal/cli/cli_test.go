@@ -377,9 +377,64 @@ func TestForceDecryptKeptExitCode(t *testing.T) {
 	})
 }
 
+func TestForceDecryptKeptStdoutOrdering(t *testing.T) {
+	binaryPath := buildCLITestBinary(t)
+	goldenPath := filepath.Join("..", "..", "testdata", "golden", "pico_test_v2.txt.pcv")
+	if _, err := os.Stat(goldenPath); err != nil {
+		t.Fatalf("golden volume missing: %v", err)
+	}
+
+	t.Run("clean stdout decrypt exits zero without warning", func(t *testing.T) {
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", goldenPath,
+			"-o", "-",
+			"-p", "test",
+			"-q",
+		)
+
+		if result.exitCode != 0 {
+			t.Fatalf("exit code = %d, want 0\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if len(result.stdout) == 0 {
+			t.Fatal("expected clean plaintext on stdout")
+		}
+		if strings.Contains(result.stderr, "Warning:") || strings.Contains(result.stderr, "MAC verification failed") {
+			t.Fatalf("clean stdout decrypt emitted warning:\n%s", result.stderr)
+		}
+	})
+
+	t.Run("kept stdout decrypt writes bytes before non-clean exit", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		corruptPath := filepath.Join(tmpDir, "corrupt-stdout.pcv")
+		copyCLITestFile(t, goldenPath, corruptPath)
+		corruptCLITestPayload(t, corruptPath)
+
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", corruptPath,
+			"-o", "-",
+			"-p", "test",
+			"--force",
+			"-q",
+		)
+
+		if result.exitCode != 2 {
+			t.Fatalf("exit code = %d, want 2\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if len(result.stdout) == 0 {
+			t.Fatal("expected recovered bytes on stdout before non-clean exit")
+		}
+		if !strings.Contains(result.stderr, "Warning:") || !strings.Contains(result.stderr, "MAC verification failed") {
+			t.Fatalf("kept-output warning missing from stderr:\n%s", result.stderr)
+		}
+		if bytes.Contains(result.stdout, []byte("Warning:")) || bytes.Contains(result.stdout, []byte("MAC verification failed")) {
+			t.Fatalf("stdout contains warning text: %q", result.stdout)
+		}
+	})
+}
+
 type cliTestResult struct {
 	exitCode int
-	stdout   string
+	stdout   []byte
 	stderr   string
 }
 
@@ -426,7 +481,7 @@ func runCLITestCommand(t *testing.T, binaryPath string, args ...string) cliTestR
 
 	return cliTestResult{
 		exitCode: exitCode,
-		stdout:   stdout.String(),
+		stdout:   append([]byte(nil), stdout.Bytes()...),
 		stderr:   stderr.String(),
 	}
 }
