@@ -1,14 +1,64 @@
 package app
 
 import (
+	"errors"
+	"strings"
 	"sync"
 	"testing"
 
+	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/util"
 )
 
+// mustNewState builds a *State for tests, failing the test if RS-codec
+// initialization returns an error. Centralizes the (*State, error) call so the
+// many table tests below stay readable after APP-01 changed NewState's signature.
+func mustNewState(t *testing.T) *State {
+	t.Helper()
+	s, err := NewState()
+	if err != nil {
+		t.Fatalf("NewState() returned error: %v", err)
+	}
+	return s
+}
+
+// TestNewStateRSInitFailure proves APP-01/D-05: when the RS-codec constructor
+// fails, NewState returns a non-nil error (wrapping the cause) and a nil *State,
+// and never panics. The newRSCodecs package-level seam is overridden to force
+// the failure, mirroring the Phase 3/4 var-seam override+restore pattern.
+func TestNewStateRSInitFailure(t *testing.T) {
+	orig := newRSCodecs
+	t.Cleanup(func() { newRSCodecs = orig })
+
+	forced := errors.New("forced RS init failure")
+	newRSCodecs = func() (*encoding.RSCodecs, error) {
+		return nil, forced
+	}
+
+	// Must not panic; recover only to surface a clearer failure if it does.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("NewState() panicked instead of returning an error: %v", r)
+		}
+	}()
+
+	state, err := NewState()
+	if err == nil {
+		t.Fatal("NewState() error = nil; want non-nil on RS-init failure")
+	}
+	if state != nil {
+		t.Errorf("NewState() state = %v; want nil on error", state)
+	}
+	if !errors.Is(err, forced) {
+		t.Errorf("NewState() error = %v; want wrapping %v", err, forced)
+	}
+	if !strings.Contains(err.Error(), "init RS codecs") {
+		t.Errorf("NewState() error = %q; want it to mention 'init RS codecs'", err.Error())
+	}
+}
+
 func TestNewState(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// Check defaults
 	if state.InputLabel != "Drop files and folders into this window" {
@@ -58,7 +108,7 @@ func TestNewState(t *testing.T) {
 }
 
 func TestStateReset(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// Modify state
 	state.Mode = "encrypt"
@@ -98,7 +148,7 @@ func TestStateReset(t *testing.T) {
 }
 
 func TestStateResetUI(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// Set progress-related flags
 	state.Working = true
@@ -124,7 +174,7 @@ func TestStateResetUI(t *testing.T) {
 }
 
 func TestStateResetAfterOperation(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	state.Working = true
 	state.ShowProgress = true
@@ -152,7 +202,7 @@ func TestStateResetAfterOperation(t *testing.T) {
 }
 
 func TestIsEncryptingDecrypting(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// Initially neither
 	if state.IsEncrypting() {
@@ -182,7 +232,7 @@ func TestIsEncryptingDecrypting(t *testing.T) {
 }
 
 func TestCanStart(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// No credentials
 	if state.CanStart() {
@@ -225,7 +275,7 @@ func TestCanStart(t *testing.T) {
 }
 
 func TestTogglePasswordVisibility(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// Initially hidden
 	if state.PasswordMode != PasswordModeHidden {
@@ -255,7 +305,7 @@ func TestTogglePasswordVisibility(t *testing.T) {
 }
 
 func TestIsPasswordHidden(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	if !state.IsPasswordHidden() {
 		t.Error("Password should be hidden initially")
@@ -268,7 +318,7 @@ func TestIsPasswordHidden(t *testing.T) {
 }
 
 func TestUpdateKeyfileLabel(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// No keyfiles, not required
 	state.Keyfile = false
@@ -301,7 +351,7 @@ func TestUpdateKeyfileLabel(t *testing.T) {
 }
 
 func TestSetStatus(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	state.SetStatus("Testing", util.GREEN)
 
@@ -314,7 +364,7 @@ func TestSetStatus(t *testing.T) {
 }
 
 func TestSetPopupStatus(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	state.SetPopupStatus("Processing...")
 
@@ -324,7 +374,7 @@ func TestSetPopupStatus(t *testing.T) {
 }
 
 func TestSetProgress(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	state.SetProgress(0.5, "50%")
 
@@ -337,7 +387,7 @@ func TestSetProgress(t *testing.T) {
 }
 
 func TestSetCanCancel(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	state.SetCanCancel(true)
 	if !state.CanCancel {
@@ -351,7 +401,7 @@ func TestSetCanCancel(t *testing.T) {
 }
 
 func TestGenPassword(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// Set passgen options
 	state.PassgenLength = 20
@@ -376,7 +426,7 @@ func TestGenPassword(t *testing.T) {
 }
 
 func TestGenPasswordNoOptions(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	// No character sets enabled
 	state.PassgenLength = 10
@@ -394,7 +444,7 @@ func TestGenPasswordNoOptions(t *testing.T) {
 }
 
 func TestStateConcurrency(t *testing.T) {
-	state := NewState()
+	state := mustNewState(t)
 
 	var wg sync.WaitGroup
 	iterations := 100

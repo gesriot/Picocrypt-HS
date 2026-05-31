@@ -18,6 +18,7 @@
 package app
 
 import (
+	"fmt"
 	"image/color"
 	"sync"
 	"time"
@@ -27,6 +28,12 @@ import (
 
 	"github.com/Picocrypt/infectious"
 )
+
+// newRSCodecs is the Reed-Solomon codec constructor used by NewState. It is a
+// package-level seam (mirroring the Phase 3/4 RekeyThreshold / deriveVolumeKey
+// pattern) so tests can inject a failing constructor to exercise the RS-init
+// error path without a real failure (see TestNewStateRSInitFailure).
+var newRSCodecs = encoding.NewRSCodecs
 
 // Version is the application version string.
 const Version = "v2.09"
@@ -156,10 +163,14 @@ type State struct {
 }
 
 // NewState creates a new application state with default values.
-func NewState() *State {
-	rs, err := encoding.NewRSCodecs()
+//
+// It returns an error (rather than panicking) when the Reed-Solomon codecs
+// cannot be initialized, so callers can surface a recoverable, user-visible
+// startup failure instead of crashing the process (APP-01/D-05).
+func NewState() (*State, error) {
+	rs, err := newRSCodecs()
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("init RS codecs: %w", err)
 	}
 
 	return &State{
@@ -187,7 +198,7 @@ func NewState() *State {
 		RS32:     rs.RS32,
 		RS64:     rs.RS64,
 		RS128:    rs.RS128,
-	}
+	}, nil
 }
 
 // Reset clears the state to initial values (full reset for Clear button).
