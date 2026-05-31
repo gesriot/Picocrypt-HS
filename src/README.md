@@ -42,6 +42,10 @@ CGO_ENABLED=1 go build -ldflags="-s -w -H=windowsgui -extldflags=-static" -o Pic
 
 The Android build path now lives in the repository root `android/` project and uses gomobile bindings from `src/mobile/`. See `../android/README.md` for the native Android app build instructions.
 
+## WebAssembly
+
+The browser WASM build supports standard password-only single-file volumes. It does not enable Paranoid mode, keyfiles, Reed-Solomon payload protection, splitting, or deniability. Go-owned byte buffers are wiped best-effort after use, but JavaScript engine copies and garbage-collected runtime copies cannot be guaranteed wiped.
+
 ## Test
 
 ```bash

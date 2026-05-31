@@ -67,7 +67,7 @@ For local Android builds and architecture details, see <a href="android/README.m
 Picocrypt NG includes a command-line interface in this repository; see <a href="CLI.md">CLI.md</a> for usage. It can encrypt and decrypt files, folders, and glob patterns, and supports paranoid mode and Reed-Solomon encoding. You can use it on systems that don't have a GUI or can't run the GUI app.
 
 ## Web
-A functionally limited web app is available <a href="https://picocrypt-ng.github.io/">here</a> which allows you to encrypt and decrypt standard Picocrypt NG volumes (no advanced features or keyfiles) on any modern browser, including mobile devices. It's a simple, future-proof way to securely encrypt files that should work indefinitely due to the web's stable nature. Note that you can only encrypt/decrypt single files up to a maximum size of 512 MiB.
+A functionally limited web app is available <a href="https://picocrypt-ng.github.io/">here</a> which allows you to encrypt and decrypt standard password-only single-file volumes on any modern browser, including mobile devices. The WASM build does not enable Paranoid mode, keyfiles, Reed-Solomon payload protection, splitting, or deniability. Go-owned byte buffers are wiped best-effort after use, but JavaScript engine copies and garbage-collected runtime copies cannot be guaranteed wiped. It's a simple, future-proof way to securely encrypt files that should work indefinitely due to the web's stable nature. Note that you can only encrypt/decrypt single files up to a maximum size of 512 MiB.
 
 ## File Associations
 Double-click `.pcv` files to open Picocrypt NG in decrypt mode on Windows, macOS, and Linux. Installer/`.deb`/`.app` packages register the association automatically.
