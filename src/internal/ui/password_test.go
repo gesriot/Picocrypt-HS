@@ -3,7 +3,6 @@ package ui
 
 import (
 	"testing"
-
 )
 
 // TestPasswordStrengthScoring tests password strength calculation.
