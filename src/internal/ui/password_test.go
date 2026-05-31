@@ -4,7 +4,6 @@ package ui
 import (
 	"testing"
 
-	"Picocrypt-NG/internal/app"
 )
 
 // TestPasswordStrengthScoring tests password strength calculation.
