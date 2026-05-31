@@ -84,8 +84,8 @@ type State struct {
 	// until GC. Guaranteed password zeroing is intentionally out of scope (CONCERNS
 	// 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing"); only []byte key
 	// material derived from the password is zeroed (see OperationContext.Close).
-	Password           string
-	CPassword          string // Confirm password
+	Password  string
+	CPassword string // Confirm password
 
 	PasswordStrength   int
 	PasswordMode       PasswordInputMode
@@ -431,6 +431,157 @@ func (s *State) SetCanCancel(can bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.CanCancel = can
+}
+
+// Snapshot is a value-copy of the State fields the encrypt/decrypt worker
+// reads to build a volume.EncryptRequest / volume.DecryptRequest. Taking one
+// Snapshot under a single RLock lets the worker's request-building hot path
+// read every field consistently without touching State unlocked (APP-02/D-06).
+//
+// It holds exactly the fields doEncrypt/doDecrypt build their request from;
+// no UI/widget or progress fields belong here.
+type Snapshot struct {
+	Mode string
+
+	// Inputs / outputs
+	InputFile   string
+	InputFiles  []string // mirrors State.AllFiles
+	OnlyFiles   []string
+	OnlyFolders []string
+	OutputFile  string
+
+	// Credentials
+	Password       string
+	Keyfiles       []string
+	KeyfileOrdered bool
+
+	// Metadata + encryption options
+	Comments    string
+	Paranoid    bool
+	ReedSolomon bool
+	Deniability bool
+	Compress    bool
+
+	// Decryption options
+	Keep        bool
+	VerifyFirst bool
+	AutoUnzip   bool
+	SameLevel   bool
+	Recombine   bool
+
+	// Split options
+	Split         bool
+	SplitSize     string
+	SplitSelected int32
+
+	// Post-operation file handling
+	Delete bool
+}
+
+// Snapshot returns a consistent value-copy of the request-building fields under
+// a single read lock. Slice fields are deep-copied so the worker never aliases
+// State's backing arrays after the lock is released (APP-02).
+func (s *State) Snapshot() Snapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return Snapshot{
+		Mode:           s.Mode,
+		InputFile:      s.InputFile,
+		InputFiles:     append([]string(nil), s.AllFiles...),
+		OnlyFiles:      append([]string(nil), s.OnlyFiles...),
+		OnlyFolders:    append([]string(nil), s.OnlyFolders...),
+		OutputFile:     s.OutputFile,
+		Password:       s.Password,
+		Keyfiles:       append([]string(nil), s.Keyfiles...),
+		KeyfileOrdered: s.KeyfileOrdered,
+		Comments:       s.Comments,
+		Paranoid:       s.Paranoid,
+		ReedSolomon:    s.ReedSolomon,
+		Deniability:    s.Deniability,
+		Compress:       s.Compress,
+		Keep:           s.Keep,
+		VerifyFirst:    s.VerifyFirst,
+		AutoUnzip:      s.AutoUnzip,
+		SameLevel:      s.SameLevel,
+		Recombine:      s.Recombine,
+		Split:          s.Split,
+		SplitSize:      s.SplitSize,
+		SplitSelected:  s.SplitSelected,
+		Delete:         s.Delete,
+	}
+}
+
+// SetMode sets the current operation mode ("encrypt", "decrypt", or "").
+// Reads of Mode go through IsEncrypting/IsDecrypting or Snapshot (the field name
+// is unchanged per D-06, so it cannot also be a getter method name).
+func (s *State) SetMode(mode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Mode = mode
+}
+
+// IsWorking reports whether an operation is in progress.
+func (s *State) IsWorking() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Working
+}
+
+// SetWorking sets whether an operation is in progress.
+func (s *State) SetWorking(working bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Working = working
+}
+
+// SetInputFile sets the current input file path.
+func (s *State) SetInputFile(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputFile = path
+}
+
+// SetOutputFile sets the current output file path.
+func (s *State) SetOutputFile(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.OutputFile = path
+}
+
+// SetComments sets the current header comments.
+func (s *State) SetComments(comments string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Comments = comments
+}
+
+// SetDeniability sets whether deniability is enabled.
+func (s *State) SetDeniability(deniable bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Deniability = deniable
+}
+
+// SetKeep sets whether force-decrypt-despite-errors is enabled.
+func (s *State) SetKeep(keep bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Keep = keep
+}
+
+// WasKept reports whether the input file was kept despite errors.
+// (Named WasKept because the field Kept is unchanged per D-06.)
+func (s *State) WasKept() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Kept
+}
+
+// SetKept sets whether the input file was kept despite errors.
+func (s *State) SetKept(kept bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Kept = kept
 }
 
 // GenPassword generates a password using current passgen settings.
