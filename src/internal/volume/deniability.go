@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/chacha20"
@@ -319,7 +319,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
 
-	if valid, _ := regexp.Match(`^v\d\.\d{2}$`, versionDec); !valid {
+	if !header.MatchVersion(versionDec) {
 		_ = os.Remove(outputPath)
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
@@ -348,6 +348,5 @@ func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 		return true // Decode failed, likely deniable
 	}
 
-	valid, _ := regexp.Match(`^v\d\.\d{2}$`, versionDec)
-	return !valid // Invalid version format means deniable
+	return !header.MatchVersion(versionDec) // Invalid version format means deniable
 }
