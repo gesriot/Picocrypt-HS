@@ -42,12 +42,14 @@ func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
 	hdr := result.Header
 
 	// Check for unsupported features
-	if hdr.Flags.UseKeyfiles {
-		return nil, ErrUnsupported // Keyfiles not supported in web version
+	if hasUnsupportedWASMFeature(hdr.Flags) {
+		return nil, ErrUnsupported
 	}
 
 	// Derive key
-	key, err := crypto.DeriveKey([]byte(password), hdr.Salt, hdr.Flags.Paranoid)
+	passwordBytes := []byte(password)
+	key, err := crypto.DeriveKey(passwordBytes, hdr.Salt, hdr.Flags.Paranoid)
+	zeroWASMSensitiveBuffer(wasmZeroingDecryptPasswordBytes, passwordBytes)
 	if err != nil {
 		return nil, ErrCorruptedHeader
 	}
@@ -55,6 +57,7 @@ func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
 
 	// Prepare keyfile hash (zeros since no keyfiles)
 	keyfileHash := make([]byte, 32)
+	defer zeroWASMSensitiveBuffer(wasmZeroingDecryptKeyfileHash, keyfileHash)
 
 	// Initialize HKDF and verify auth based on version
 	var subkeyReader *crypto.SubkeyReader
@@ -80,10 +83,10 @@ func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
 		if err != nil {
 			return nil, ErrCorruptedHeader
 		}
-		defer crypto.SecureZero(subkeyHeader)
 
 		// Verify header MAC
 		authResult := header.VerifyV2Header(subkeyHeader, hdr, keyfileHash)
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptHeaderSubkey, subkeyHeader)
 		if !authResult.Valid {
 			return nil, ErrWrongPassword
 		}
@@ -94,16 +97,15 @@ func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
 	if err != nil {
 		return nil, ErrCorruptedHeader
 	}
-	defer crypto.SecureZero(macSubkey)
 
 	serpentKey, err := subkeyReader.SerpentKey()
 	if err != nil {
 		return nil, ErrCorruptedHeader
 	}
-	defer crypto.SecureZero(serpentKey)
 
 	// Create MAC
 	mac, err := crypto.NewMAC(macSubkey, hdr.Flags.Paranoid)
+	zeroWASMSensitiveBuffer(wasmZeroingDecryptMACSubkey, macSubkey)
 	if err != nil {
 		return nil, ErrCorruptedHeader
 	}
@@ -118,6 +120,7 @@ func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
 		subkeyReader.Reader(),
 		hdr.Flags.Paranoid,
 	)
+	zeroWASMSensitiveBuffer(wasmZeroingDecryptSerpentKey, serpentKey)
 	if err != nil {
 		return nil, ErrCorruptedHeader
 	}
@@ -154,11 +157,22 @@ func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
 
 	// Verify MAC
 	computedMAC := cipherSuite.Sum()
-	if subtle.ConstantTimeCompare(computedMAC, hdr.AuthTag) != 1 {
+	macValid := subtle.ConstantTimeCompare(computedMAC, hdr.AuthTag) == 1
+	zeroWASMSensitiveBuffer(wasmZeroingDecryptComputedMAC, computedMAC)
+	if !macValid {
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, plaintext)
 		return nil, ErrModifiedData
 	}
 
 	return plaintext, 0
+}
+
+func hasUnsupportedWASMFeature(flags header.Flags) bool {
+	return flags.Paranoid ||
+		flags.UseKeyfiles ||
+		flags.KeyfileOrdered ||
+		flags.ReedSolomon ||
+		flags.Padded
 }
 
 // decryptPlainPayload decrypts non-RS payload in chunks
@@ -176,6 +190,7 @@ func decryptPlainPayload(payload []byte, cs *crypto.CipherSuite, counter *int64)
 		dst := make([]byte, len(chunk))
 		cs.Decrypt(dst, chunk)
 		plaintext = append(plaintext, dst...)
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, dst)
 
 		*counter += int64(len(chunk))
 
@@ -221,6 +236,8 @@ func decryptRSPayload(payload []byte, cs *crypto.CipherSuite, rsCodecs *encoding
 		dst := make([]byte, len(decoded))
 		cs.Decrypt(dst, decoded)
 		plaintext = append(plaintext, dst...)
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, dst)
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, decoded)
 
 		*counter += int64(len(decoded))
 		offset += chunkSize

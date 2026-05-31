@@ -298,3 +298,122 @@ func TestWASMBuffersZeroed(t *testing.T) {
 		}
 	}
 }
+
+func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
+	cases := []struct {
+		name  string
+		flags header.Flags
+	}{
+		{
+			name:  "keyfiles",
+			flags: header.Flags{UseKeyfiles: true},
+		},
+		{
+			name:  "keyfile_ordered",
+			flags: header.Flags{KeyfileOrdered: true},
+		},
+		{
+			name:  "reed_solomon_payload",
+			flags: header.Flags{ReedSolomon: true},
+		},
+		{
+			name:  "reed_solomon_padding",
+			flags: header.Flags{Padded: true},
+		},
+		{
+			name:  "paranoid",
+			flags: header.Flags{Paranoid: true},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			volumeData := wasmVolumeWithFlags(t, tc.flags)
+
+			_, errCode := DecryptVolume(volumeData, "phase6-unsupported-flags")
+			if errCode != ErrUnsupported {
+				t.Fatalf("DecryptVolume error code = %d; want ErrUnsupported", errCode)
+			}
+		})
+	}
+}
+
+func TestWASMDecryptBuffersZeroed(t *testing.T) {
+	original := []byte("Phase 6 decrypt zeroing coverage needs returned plaintext intact.")
+	password := "phase6-decrypt-zeroing"
+	volumeData, errCode := EncryptVolume(original, password)
+	if errCode != 0 {
+		t.Fatalf("EncryptVolume returned error code %d", errCode)
+	}
+
+	var events []wasmZeroingEvent
+	restore := observeWASMZeroingForTest(func(event wasmZeroingEvent) {
+		events = append(events, event)
+	})
+	defer restore()
+
+	plaintext, errCode := DecryptVolume(volumeData, password)
+	if errCode != 0 {
+		t.Fatalf("DecryptVolume returned error code %d", errCode)
+	}
+	if !bytes.Equal(plaintext, original) {
+		t.Fatalf("plaintext mismatch\ngot:  %q\nwant: %q", plaintext, original)
+	}
+	if bytes.Equal(plaintext, make([]byte, len(plaintext))) {
+		t.Fatal("returned plaintext was wiped before return")
+	}
+
+	// This observes package-owned Go slices only. JavaScript engine copies and
+	// Go runtime/GC-managed copies cannot be inspected directly from this test.
+	want := map[wasmZeroingBufferKind]bool{
+		wasmZeroingDecryptPasswordBytes:  true,
+		wasmZeroingDecryptKeyfileHash:    false,
+		wasmZeroingDecryptHeaderSubkey:   true,
+		wasmZeroingDecryptMACSubkey:      true,
+		wasmZeroingDecryptSerpentKey:     true,
+		wasmZeroingDecryptPlaintextChunk: true,
+		wasmZeroingDecryptComputedMAC:    true,
+	}
+	seen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+	for _, event := range events {
+		if event.Len == 0 {
+			t.Fatalf("%s zeroing event had empty buffer", event.Kind)
+		}
+		if !event.Zeroed {
+			t.Fatalf("%s buffer was not zeroed after cleanup", event.Kind)
+		}
+		seen[event.Kind] = event
+	}
+	for kind, mustBeNonZero := range want {
+		event, ok := seen[kind]
+		if !ok {
+			t.Fatalf("missing zeroing event for %s; saw %v", kind, seen)
+		}
+		if mustBeNonZero && !event.WasNonZero {
+			t.Fatalf("%s buffer was already zero before cleanup; test would be vacuous", kind)
+		}
+	}
+}
+
+func wasmVolumeWithFlags(t *testing.T, flags header.Flags) []byte {
+	t.Helper()
+
+	volumeData, errCode := EncryptVolume([]byte("unsupported wasm feature flags"), "phase6-unsupported-flags")
+	if errCode != 0 {
+		t.Fatalf("EncryptVolume returned error code %d", errCode)
+	}
+
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+	flagsEnc, err := encoding.Encode(rs.RS5, flags.ToBytes())
+	if err != nil {
+		t.Fatalf("encode flags: %v", err)
+	}
+
+	patched := append([]byte(nil), volumeData...)
+	flagsOffset := header.VersionEncSize + header.CommentLenEncSize
+	copy(patched[flagsOffset:flagsOffset+header.FlagsEncSize], flagsEnc)
+	return patched
+}

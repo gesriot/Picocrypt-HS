@@ -15,16 +15,23 @@ var writeAuthValues = header.WriteAuthValues
 type wasmZeroingBufferKind string
 
 const (
-	wasmZeroingPasswordBytes    wasmZeroingBufferKind = "password bytes"
-	wasmZeroingHeaderSubkey     wasmZeroingBufferKind = "header subkey"
-	wasmZeroingMACSubkey        wasmZeroingBufferKind = "mac subkey"
-	wasmZeroingSerpentKey       wasmZeroingBufferKind = "serpent key"
-	wasmZeroingCiphertextChunk  wasmZeroingBufferKind = "ciphertext chunk"
-	wasmZeroingCiphertextBuffer wasmZeroingBufferKind = "ciphertext buffer"
-	wasmZeroingKeyfileHash      wasmZeroingBufferKind = "keyfile hash placeholder"
-	wasmZeroingHeaderKeyHash    wasmZeroingBufferKind = "header auth value"
-	wasmZeroingAuthTag          wasmZeroingBufferKind = "payload auth value"
-	wasmZeroingHeaderBuffer     wasmZeroingBufferKind = "header buffer"
+	wasmZeroingPasswordBytes         wasmZeroingBufferKind = "password bytes"
+	wasmZeroingHeaderSubkey          wasmZeroingBufferKind = "header subkey"
+	wasmZeroingMACSubkey             wasmZeroingBufferKind = "mac subkey"
+	wasmZeroingSerpentKey            wasmZeroingBufferKind = "serpent key"
+	wasmZeroingCiphertextChunk       wasmZeroingBufferKind = "ciphertext chunk"
+	wasmZeroingCiphertextBuffer      wasmZeroingBufferKind = "ciphertext buffer"
+	wasmZeroingKeyfileHash           wasmZeroingBufferKind = "keyfile hash placeholder"
+	wasmZeroingHeaderKeyHash         wasmZeroingBufferKind = "header auth value"
+	wasmZeroingAuthTag               wasmZeroingBufferKind = "payload auth value"
+	wasmZeroingHeaderBuffer          wasmZeroingBufferKind = "header buffer"
+	wasmZeroingDecryptPasswordBytes  wasmZeroingBufferKind = "decrypt password bytes"
+	wasmZeroingDecryptKeyfileHash    wasmZeroingBufferKind = "decrypt keyfile hash placeholder"
+	wasmZeroingDecryptHeaderSubkey   wasmZeroingBufferKind = "decrypt header subkey"
+	wasmZeroingDecryptMACSubkey      wasmZeroingBufferKind = "decrypt mac subkey"
+	wasmZeroingDecryptSerpentKey     wasmZeroingBufferKind = "decrypt serpent key"
+	wasmZeroingDecryptPlaintextChunk wasmZeroingBufferKind = "decrypt plaintext chunk"
+	wasmZeroingDecryptComputedMAC    wasmZeroingBufferKind = "decrypt computed mac"
 )
 
 type wasmZeroingEvent struct {
