@@ -509,14 +509,16 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			_ = state.Mode()
-			_ = state.Working()
-			_ = state.InputFile()
-			_ = state.OutputFile()
-			_ = state.Comments()
-			_ = state.Deniability()
-			_ = state.Keep()
-			_ = state.Kept()
+			_ = state.IsEncrypting()
+			_ = state.IsDecrypting()
+			_ = state.IsWorking()
+			rsnap := state.Snapshot()
+			_ = rsnap.InputFile
+			_ = rsnap.OutputFile
+			_ = rsnap.Comments
+			_ = rsnap.Deniability
+			_ = rsnap.Keep
+			_ = state.WasKept()
 		}
 	}()
 
@@ -524,12 +526,12 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 
 	// Sanity: the accessors round-trip a written value consistently.
 	state.SetMode("decrypt")
-	if got := state.Mode(); got != "decrypt" {
-		t.Fatalf("Mode() = %q, want %q", got, "decrypt")
+	if !state.IsDecrypting() {
+		t.Fatal("IsDecrypting() = false after SetMode(\"decrypt\")")
 	}
 	state.SetWorking(true)
-	if !state.Working() {
-		t.Fatal("Working() = false after SetWorking(true)")
+	if !state.IsWorking() {
+		t.Fatal("IsWorking() = false after SetWorking(true)")
 	}
 }
 
