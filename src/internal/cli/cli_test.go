@@ -3,9 +3,13 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"Picocrypt-NG/internal/header"
 )
 
 func TestReporter(t *testing.T) {
@@ -287,6 +291,173 @@ func TestDecryptValidation(t *testing.T) {
 		// Reset
 		decKeyfiles = nil
 	})
+}
+
+func TestForceDecryptKeptExitCode(t *testing.T) {
+	binaryPath := buildCLITestBinary(t)
+	goldenPath := filepath.Join("..", "..", "testdata", "golden", "pico_test_v2.txt.pcv")
+	if _, err := os.Stat(goldenPath); err != nil {
+		t.Fatalf("golden volume missing: %v", err)
+	}
+
+	t.Run("clean decrypt exits zero without kept warning", func(t *testing.T) {
+		outputPath := filepath.Join(t.TempDir(), "clean.txt")
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", goldenPath,
+			"-o", outputPath,
+			"-p", "test",
+			"-q",
+			"-y",
+		)
+
+		if result.exitCode != 0 {
+			t.Fatalf("exit code = %d, want 0\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if strings.Contains(result.stderr, "kept") || strings.Contains(result.stderr, "MAC verification failed") {
+			t.Fatalf("clean decrypt emitted kept-output warning:\n%s", result.stderr)
+		}
+		if _, err := os.Stat(outputPath); err != nil {
+			t.Fatalf("clean output missing: %v", err)
+		}
+	})
+
+	t.Run("force decrypt kept output exits two with warning", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		corruptPath := filepath.Join(tmpDir, "corrupt.pcv")
+		copyCLITestFile(t, goldenPath, corruptPath)
+		corruptCLITestPayload(t, corruptPath)
+
+		outputPath := filepath.Join(tmpDir, "recovered.txt")
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", corruptPath,
+			"-o", outputPath,
+			"-p", "test",
+			"--force",
+			"-q",
+			"-y",
+		)
+
+		if result.exitCode != 2 {
+			t.Fatalf("exit code = %d, want 2\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "Warning:") || !strings.Contains(result.stderr, "MAC verification failed") {
+			t.Fatalf("kept-output warning missing from stderr:\n%s", result.stderr)
+		}
+		if _, err := os.Stat(outputPath); err != nil {
+			t.Fatalf("kept output missing: %v", err)
+		}
+	})
+
+	t.Run("unrecoverable force decrypt stays general failure", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		junkPath := filepath.Join(tmpDir, "junk.pcv")
+		if err := os.WriteFile(junkPath, []byte("not a valid Picocrypt volume"), 0600); err != nil {
+			t.Fatalf("write junk input: %v", err)
+		}
+		outputPath := filepath.Join(tmpDir, "unsafe.txt")
+
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", junkPath,
+			"-o", outputPath,
+			"-p", "test",
+			"--force",
+			"-q",
+			"-y",
+		)
+
+		if result.exitCode != 1 {
+			t.Fatalf("exit code = %d, want 1\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+			t.Fatalf("unsafe output should not remain, stat err: %v", err)
+		}
+		if _, err := os.Stat(outputPath + ".incomplete"); !os.IsNotExist(err) {
+			t.Fatalf("unsafe incomplete output should not remain, stat err: %v", err)
+		}
+	})
+}
+
+type cliTestResult struct {
+	exitCode int
+	stdout   string
+	stderr   string
+}
+
+func buildCLITestBinary(t *testing.T) string {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	binaryName := "picocrypt-test"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(tmpDir, binaryName)
+
+	srcDir, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("source dir: %v", err)
+	}
+
+	cmd := exec.Command("go", "build", "-tags", "cli", "-o", binaryPath, "./cmd/picocrypt")
+	cmd.Dir = srcDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build CLI binary: %v\n%s", err, output)
+	}
+	return binaryPath
+}
+
+func runCLITestCommand(t *testing.T, binaryPath string, args ...string) cliTestResult {
+	t.Helper()
+
+	cmd := exec.Command(binaryPath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		exitCode = 1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+	}
+
+	return cliTestResult{
+		exitCode: exitCode,
+		stdout:   stdout.String(),
+		stderr:   stderr.String(),
+	}
+}
+
+func copyCLITestFile(t *testing.T, src, dst string) {
+	t.Helper()
+
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read %s: %v", src, err)
+	}
+	if err := os.WriteFile(dst, data, 0600); err != nil {
+		t.Fatalf("write %s: %v", dst, err)
+	}
+}
+
+func corruptCLITestPayload(t *testing.T, path string) {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	payloadOffset := header.HeaderSize(0)
+	if payloadOffset >= len(data) {
+		t.Fatalf("payload offset %d exceeds file size %d", payloadOffset, len(data))
+	}
+	data[payloadOffset] ^= 0x80
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write corrupted %s: %v", path, err)
+	}
 }
 
 func TestSplitVolumeDetection(t *testing.T) {

@@ -365,10 +365,10 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	if kept {
-		reporter.PrintSuccess("Decryption completed with warnings (MAC verification failed): %s", outputFile)
-	} else {
-		reporter.PrintSuccess("Decryption completed successfully: %s", outputFile)
+		fmt.Fprintf(os.Stderr, "Warning: Force decrypt kept output after MAC verification failed; recovered data is untrusted: %s\n", outputFile)
+		return newExitCodeError(ExitForceDecryptKept, "force decrypt kept output after MAC verification failed")
 	}
+	reporter.PrintSuccess("Decryption completed successfully: %s", outputFile)
 	return nil
 }
 

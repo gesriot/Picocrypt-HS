@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,6 +15,53 @@ import (
 
 // Version is set by main.go
 var Version = "dev"
+
+const (
+	ExitGeneralError     = 1
+	ExitForceDecryptKept = 2
+)
+
+type ExitCodeError interface {
+	error
+	ExitCode() int
+}
+
+type exitCodeError struct {
+	message string
+	code    int
+}
+
+func newExitCodeError(code int, message string) error {
+	return exitCodeError{
+		message: message,
+		code:    code,
+	}
+}
+
+func (e exitCodeError) Error() string {
+	return e.message
+}
+
+func (e exitCodeError) ExitCode() int {
+	return e.code
+}
+
+func exitCodeForError(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	var exitErr ExitCodeError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return ExitGeneralError
+}
+
+func isExitCodeError(err error) bool {
+	var exitErr ExitCodeError
+	return errors.As(err, &exitErr)
+}
 
 // rootCmd is the base command when called without subcommands
 var rootCmd = &cobra.Command{
@@ -55,8 +103,10 @@ func Execute(version string) bool {
 	}()
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		if !isExitCodeError(err) {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+		}
+		os.Exit(exitCodeForError(err))
 	}
 	return true
 }
