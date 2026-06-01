@@ -44,7 +44,7 @@ func run() {
 // (no display) still see the message and the process still exits non-zero.
 //
 // The main application window does not exist when NewApp fails, so this builds a
-// minimal, throwaway Fyne app + window purely to host dialog.ShowError (D-05,
+// minimal, throwaway Fyne app + window purely to host dialog.NewError (D-05,
 // pre-window bootstrap per 05-RESEARCH Pitfall 3).
 func showFatalErrorDialog(err error) {
 	// Fallback for headless/CI: always emit to stderr before attempting a GUI.
@@ -57,8 +57,14 @@ func showFatalErrorDialog(err error) {
 	win.SetCloseIntercept(func() { a.Quit() })
 	a.Lifecycle().SetOnStarted(func() {
 		fyne.Do(func() {
-			dialog.ShowError(err, win)
+			newFatalErrorDialog(err, win, a.Quit).Show()
 		})
 	})
 	win.ShowAndRun()
+}
+
+func newFatalErrorDialog(err error, win fyne.Window, quit func()) dialog.Dialog {
+	d := dialog.NewError(err, win)
+	d.SetOnClosed(quit)
+	return d
 }
