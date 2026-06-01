@@ -211,7 +211,8 @@ func (a *App) Run(startupPaths []string) {
 
 	// Set close callback to prevent closing during operations
 	a.Window.SetCloseIntercept(func() {
-		if !a.State.Working && !a.State.ShowProgress {
+		snap := a.State.UISnapshot()
+		if !snap.Working && !snap.ShowProgress {
 			a.Window.Close()
 		}
 	})
@@ -450,8 +451,9 @@ func (a *App) refreshAdvanced() {
 // updateUIState updates the enabled/disabled state of all UI elements.
 // This mirrors the exact logic from the original giu implementation.
 func (a *App) updateUIState() {
-	hasFiles := len(a.State.AllFiles) > 0 || len(a.State.OnlyFiles) > 0 || len(a.State.OnlyFolders) > 0
-	isScanning := a.State.IsScanning()
+	snap := a.State.UISnapshot()
+	hasFiles := snap.AllFileCount > 0 || snap.OnlyFileCount > 0 || snap.OnlyFolderCount > 0
+	isScanning := snap.Scanning
 
 	// Main content disabled - matches giu: (len(allFiles) == 0 && len(onlyFiles) == 0) || scanning
 	// Note: we also check onlyFolders for consistency
@@ -467,25 +469,25 @@ func (a *App) updateUIState() {
 	}
 
 	// Password section state (from password_section.go)
-	a.updatePasswordUIState(mainDisabled)
+	a.updatePasswordUIState(mainDisabled, snap)
 
 	// Keyfile section state (from keyfile_section.go)
-	a.updateKeyfileUIState(mainDisabled)
+	a.updateKeyfileUIState(mainDisabled, snap)
 
 	// Comments section - complex nested logic
-	commentsOuterDisabled := (a.State.Mode != "decrypt" &&
-		((len(a.State.Keyfiles) == 0 && a.State.Password == "") ||
-			(a.State.Password != a.State.CPassword))) ||
-		a.State.Deniability
-	commentsInnerDisabled := a.State.Mode == "decrypt" &&
-		(a.State.Comments == "" || a.State.Comments == "Comments are corrupted")
+	commentsOuterDisabled := (snap.Mode != "decrypt" &&
+		((snap.KeyfileCount == 0 && snap.Password == "") ||
+			(snap.Password != snap.CPassword))) ||
+		snap.Deniability
+	commentsInnerDisabled := snap.Mode == "decrypt" &&
+		(snap.Comments == "" || snap.Comments == "Comments are corrupted")
 
 	if a.commentsEntry != nil {
 		// In decrypt mode with valid comments, keep entry enabled but read-only
 		// (OnChanged will prevent actual changes). This keeps text visible, not pale.
-		if a.State.Mode == "decrypt" && a.State.Comments != "" && a.State.Comments != "Comments are corrupted" {
+		if snap.Mode == "decrypt" && snap.Comments != "" && snap.Comments != "Comments are corrupted" {
 			a.commentsEntry.Enable() // Keep text visible (not pale)
-		} else if mainDisabled || commentsOuterDisabled || commentsInnerDisabled || a.State.CommentsDisabled {
+		} else if mainDisabled || commentsOuterDisabled || commentsInnerDisabled || snap.CommentsDisabled {
 			a.commentsEntry.Disable()
 		} else {
 			a.commentsEntry.Enable()
@@ -493,17 +495,17 @@ func (a *App) updateUIState() {
 	}
 
 	// Advanced section and Start button
-	hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
-	passwordsMatch := a.State.Mode != "encrypt" || a.State.Password == a.State.CPassword
+	hasCredentials := snap.KeyfileCount > 0 || snap.Password != ""
+	passwordsMatch := snap.Mode != "encrypt" || snap.Password == snap.CPassword
 	advancedAndStartDisabled := !hasCredentials || !passwordsMatch
 
 	// Update advanced section checkboxes/inputs (from advanced_section.go)
-	a.updateAdvancedDisableState()
+	a.updateAdvancedDisableStateFromSnapshot(snap)
 
 	// Start button - MUST be disabled when no credentials or passwords don't match
 	if a.startButton != nil {
-		label := a.State.StartLabel
-		if a.State.Recursively {
+		label := snap.StartLabel
+		if snap.Recursively {
 			label = "Process"
 		}
 		a.startButton.SetText(label)
@@ -518,12 +520,12 @@ func (a *App) updateUIState() {
 	// Update output display
 	if a.outputEntry != nil {
 		outputDisplay := ""
-		if a.State.OutputFile != "" {
-			outputDisplay = filepath.Base(a.State.OutputFile)
-			if a.State.Split {
+		if snap.OutputFile != "" {
+			outputDisplay = filepath.Base(snap.OutputFile)
+			if snap.Split {
 				outputDisplay += ".*"
 			}
-			if a.State.Recursively {
+			if snap.Recursively {
 				outputDisplay = "(multiple values)"
 			}
 		}
@@ -532,7 +534,7 @@ func (a *App) updateUIState() {
 
 	// Change button - disabled when recursively
 	if a.changeBtn != nil {
-		if mainDisabled || advancedAndStartDisabled || a.State.Recursively {
+		if mainDisabled || advancedAndStartDisabled || snap.Recursively {
 			a.changeBtn.Disable()
 		} else {
 			a.changeBtn.Enable()
@@ -541,41 +543,41 @@ func (a *App) updateUIState() {
 
 	// Update status
 	if a.statusLabel != nil {
-		statusText := a.State.MainStatus
-		if a.State.MainStatus == "Ready" && a.State.RequiredFreeSpace > 0 {
+		statusText := snap.MainStatus
+		if snap.MainStatus == "Ready" && snap.RequiredFreeSpace > 0 {
 			multiplier := 1
-			if len(a.State.AllFiles) > 1 || len(a.State.OnlyFolders) > 0 {
+			if snap.AllFileCount > 1 || snap.OnlyFolderCount > 0 {
 				multiplier++
 			}
-			if a.State.Deniability {
+			if snap.Deniability {
 				multiplier++
 			}
-			if a.State.Split {
+			if snap.Split {
 				multiplier++
 			}
-			if a.State.Recombine {
+			if snap.Recombine {
 				multiplier++
 			}
-			if a.State.AutoUnzip {
+			if snap.AutoUnzip {
 				multiplier++
 			}
-			statusText = "Ready (ensure >" + util.Sizeify(a.State.RequiredFreeSpace*int64(multiplier)) + " free)"
+			statusText = "Ready (ensure >" + util.Sizeify(snap.RequiredFreeSpace*int64(multiplier)) + " free)"
 		}
 		a.statusLabel.SetText(statusText)
-		a.statusLabel.SetColor(a.State.MainStatusColor)
+		a.statusLabel.SetColor(snap.MainStatusColor)
 	}
 
 	// Update labels
 	if a.inputLabel != nil {
-		a.inputLabel.SetText(a.State.InputLabel)
+		a.inputLabel.SetText(snap.InputLabel)
 	}
 
 	if a.keyfileLabel != nil {
-		a.keyfileLabel.SetText(a.State.KeyfileLabel)
+		a.keyfileLabel.SetText(snap.KeyfileLabel)
 	}
 
 	if a.commentsLabel != nil {
-		a.commentsLabel.SetText(a.State.CommentsLabel)
+		a.commentsLabel.SetText(snap.CommentsLabel)
 	}
 }
 

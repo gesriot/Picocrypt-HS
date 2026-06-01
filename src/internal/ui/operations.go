@@ -64,9 +64,9 @@ func (a *App) onClickStart() {
 // startWork begins the encryption/decryption operation.
 func (a *App) startWork() {
 	a.State.OutputChosenViaSaveDialog = false
-	a.State.ShowProgress = true
+	a.State.SetShowProgress(true)
 	a.State.FastDecode = true
-	a.State.CanCancel = true
+	a.State.SetCanCancel(true)
 	a.State.ModalID++
 	a.cancelled.Store(false)
 
@@ -82,7 +82,7 @@ func (a *App) startWork() {
 			}
 			fyne.Do(func() {
 				a.State.SetWorking(false)
-				a.State.ShowProgress = false
+				a.State.SetShowProgress(false)
 				if a.progressModal != nil {
 					a.progressModal.Hide()
 				}
@@ -105,7 +105,7 @@ func (a *App) doWork() bool {
 	})
 	reporter := a.CreateReporter()
 
-	if a.State.Mode == "encrypt" {
+	if a.State.IsEncrypting() {
 		return a.doEncrypt(reporter)
 	}
 	return a.doDecrypt(reporter)
@@ -116,7 +116,7 @@ func (a *App) startRecursiveWork() {
 	if len(a.State.AllFiles) == 0 {
 		a.State.SetStatus("No files to process", util.YELLOW)
 		a.State.SetWorking(false)
-		a.State.ShowProgress = false
+		a.State.SetShowProgress(false)
 		fyne.Do(func() {
 			if a.progressModal != nil {
 				a.progressModal.Hide()
@@ -172,7 +172,7 @@ func (a *App) startRecursiveWork() {
 				}
 				fyne.DoAndWait(func() {
 					a.State.SetWorking(false)
-					a.State.ShowProgress = false
+					a.State.SetShowProgress(false)
 					if a.progressModal != nil {
 						a.progressModal.Hide()
 					}
@@ -190,7 +190,7 @@ func (a *App) startRecursiveWork() {
 
 		fyne.DoAndWait(func() {
 			a.State.SetWorking(false)
-			a.State.ShowProgress = false
+			a.State.SetShowProgress(false)
 			if failedCount == 0 {
 				a.State.SetStatus(fmt.Sprintf("Completed (%d files)", successCount), util.GREEN)
 			} else if successCount == 0 {

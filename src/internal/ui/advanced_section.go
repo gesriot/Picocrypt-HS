@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 
+	"Picocrypt-NG/internal/app"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
@@ -216,14 +218,18 @@ func (a *App) buildDecryptOptions() {
 
 // updateAdvancedDisableState updates the disable state of advanced options.
 func (a *App) updateAdvancedDisableState() {
-	hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
-	passwordsMatch := a.State.Mode != "encrypt" || a.State.Password == a.State.CPassword
+	a.updateAdvancedDisableStateFromSnapshot(a.State.UISnapshot())
+}
+
+func (a *App) updateAdvancedDisableStateFromSnapshot(snap app.UISnapshot) {
+	hasCredentials := snap.KeyfileCount > 0 || snap.Password != ""
+	passwordsMatch := snap.Mode != "encrypt" || snap.Password == snap.CPassword
 	advancedDisabled := !hasCredentials || !passwordsMatch
 
-	if a.State.Mode != "decrypt" {
-		a.updateEncryptOptionsState(advancedDisabled)
+	if snap.Mode != "decrypt" {
+		a.updateEncryptOptionsState(advancedDisabled, snap)
 	} else {
-		a.updateDecryptOptionsState(advancedDisabled)
+		a.updateDecryptOptionsState(advancedDisabled, snap)
 	}
 }
 
@@ -242,14 +248,14 @@ func setWidgetDisabled(w fyne.Disableable, disabled bool) {
 }
 
 // updateEncryptOptionsState updates encrypt mode option states.
-func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
+func (a *App) updateEncryptOptionsState(advancedDisabled bool, snap app.UISnapshot) {
 	// All advanced options are disabled until user enters credentials (password or keyfiles)
 	// AND passwords must match in encrypt mode
 	// Additional conditions apply to some options
 
-	notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
+	notEnoughFiles := snap.AllFileCount <= 1 && snap.OnlyFolderCount == 0
 
-	setWidgetDisabled(a.compressCheck, advancedDisabled || a.State.Recursively)
+	setWidgetDisabled(a.compressCheck, advancedDisabled || snap.Recursively)
 	setWidgetDisabled(a.recursivelyCheck, advancedDisabled || notEnoughFiles)
 	setWidgetDisabled(a.paranoidCheck, advancedDisabled)
 	setWidgetDisabled(a.reedSolomonCheck, advancedDisabled)
@@ -261,14 +267,14 @@ func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
 }
 
 // updateDecryptOptionsState updates decrypt mode option states.
-func (a *App) updateDecryptOptionsState(advancedDisabled bool) {
-	setWidgetDisabled(a.forceDecryptCheck, advancedDisabled || a.State.Deniability)
+func (a *App) updateDecryptOptionsState(advancedDisabled bool, snap app.UISnapshot) {
+	setWidgetDisabled(a.forceDecryptCheck, advancedDisabled || snap.Deniability)
 	setWidgetDisabled(a.verifyFirstCheck, advancedDisabled)
 	setWidgetDisabled(a.deleteVolumeCheck, advancedDisabled)
 	// On mobile, deleteCheck is used instead of deleteVolumeCheck
 	setWidgetDisabled(a.deleteCheck, advancedDisabled)
-	setWidgetDisabled(a.autoUnzipCheck, advancedDisabled || !strings.HasSuffix(a.State.InputFile, ".zip.pcv"))
-	setWidgetDisabled(a.sameLevelCheck, advancedDisabled || !a.State.AutoUnzip)
+	setWidgetDisabled(a.autoUnzipCheck, advancedDisabled || !strings.HasSuffix(snap.InputFile, ".zip.pcv"))
+	setWidgetDisabled(a.sameLevelCheck, advancedDisabled || !snap.AutoUnzip)
 }
 
 // updateOutputFileForCompress toggles .zip suffix in output filename based on compress state.

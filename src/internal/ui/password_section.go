@@ -2,6 +2,8 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
+
 	"github.com/Picocrypt/zxcvbn-go"
 
 	"fyne.io/fyne/v2"
@@ -120,7 +122,7 @@ func (a *App) updateValidation() {
 }
 
 // updatePasswordUIState updates the enabled/disabled state of password controls.
-func (a *App) updatePasswordUIState(mainDisabled bool) {
+func (a *App) updatePasswordUIState(mainDisabled bool, snap app.UISnapshot) {
 	// Password section - all buttons/inputs disabled when mainDisabled
 	if a.passwordEntry != nil {
 		if mainDisabled {
@@ -164,7 +166,7 @@ func (a *App) updatePasswordUIState(mainDisabled bool) {
 
 	// Create password button - disabled in decrypt mode
 	if a.createBtn != nil {
-		if mainDisabled || a.State.Mode == "decrypt" {
+		if mainDisabled || snap.Mode == "decrypt" {
 			a.createBtn.Disable()
 		} else {
 			a.createBtn.Enable()
@@ -173,7 +175,7 @@ func (a *App) updatePasswordUIState(mainDisabled bool) {
 
 	// Confirm password - disabled when password == "" || mode == "decrypt"
 	if a.cPasswordEntry != nil {
-		if mainDisabled || a.State.Password == "" || a.State.Mode == "decrypt" {
+		if mainDisabled || snap.Password == "" || snap.Mode == "decrypt" {
 			a.cPasswordEntry.Disable()
 		} else {
 			a.cPasswordEntry.Enable()
@@ -182,14 +184,14 @@ func (a *App) updatePasswordUIState(mainDisabled bool) {
 
 	// Hide confirm password section entirely in decrypt mode
 	if a.confirmLabel != nil {
-		if a.State.Mode == "decrypt" {
+		if snap.Mode == "decrypt" {
 			a.confirmLabel.Hide()
 		} else {
 			a.confirmLabel.Show()
 		}
 	}
 	if a.confirmRow != nil {
-		if a.State.Mode == "decrypt" {
+		if snap.Mode == "decrypt" {
 			a.confirmRow.Hide()
 		} else {
 			a.confirmRow.Show()

@@ -596,6 +596,38 @@ func TestWorkerCallbackStateRace(t *testing.T) {
 	wg.Wait()
 }
 
+// TestUpdateUIStateReadsStateThroughSnapshot covers the render path that the
+// accessor-only worker test above does not touch. It keeps widgets nil so the
+// test isolates project State access rather than Fyne internals; under -race it
+// must stay clean while worker-style writers reset/update State concurrently.
+func TestUpdateUIStateReadsStateThroughSnapshot(t *testing.T) {
+	a := &App{State: mustNewState(t)}
+
+	const iterations = 500
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			a.State.ResetUI()
+			a.State.SetStatus("working", util.WHITE)
+			a.State.SetScanning(i%2 == 0)
+			a.State.SetWorking(i%2 == 1)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			a.updateUIState()
+		}
+	}()
+
+	wg.Wait()
+}
+
 func TestCancelButtonState(t *testing.T) {
 	state := mustNewState(t)
 

@@ -33,11 +33,10 @@ func (a *App) showProgressModal() {
 	a.progressStatus = widget.NewLabelWithData(a.boundStatus)
 
 	a.cancelButton = widget.NewButton("Cancel", func() {
-		a.State.Working = false
-		a.State.CanCancel = false
+		a.State.SetWorking(false)
+		a.State.SetCanCancel(false)
 		a.cancelled.Store(true)
-		a.State.MainStatus = "Operation cancelled by user"
-		a.State.MainStatusColor = util.WHITE
+		a.State.SetStatus("Operation cancelled by user", util.WHITE)
 		if a.cancelButton != nil {
 			a.cancelButton.Disable()
 		}

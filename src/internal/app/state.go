@@ -84,8 +84,8 @@ type State struct {
 	// until GC. Guaranteed password zeroing is intentionally out of scope (CONCERNS
 	// 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing"); only []byte key
 	// material derived from the password is zeroed (see OperationContext.Close).
-	Password           string
-	CPassword          string // Confirm password
+	Password  string
+	CPassword string // Confirm password
 
 	PasswordStrength   int
 	PasswordMode       PasswordInputMode
@@ -478,6 +478,41 @@ type Snapshot struct {
 	Delete bool
 }
 
+// UISnapshot is a value-copy of State fields the Fyne render path reads while
+// enabling/disabling widgets and refreshing labels. It deliberately contains no
+// widget references, so callers can release State.mu before touching Fyne.
+type UISnapshot struct {
+	Mode     string
+	Scanning bool
+	Working  bool
+
+	AllFileCount    int
+	OnlyFileCount   int
+	OnlyFolderCount int
+	KeyfileCount    int
+
+	Password          string
+	CPassword         string
+	Keyfile           bool
+	Deniability       bool
+	Comments          string
+	CommentsDisabled  bool
+	StartLabel        string
+	Recursively       bool
+	OutputFile        string
+	InputFile         string
+	Split             bool
+	MainStatus        string
+	MainStatusColor   color.RGBA
+	RequiredFreeSpace int64
+	ShowProgress      bool
+	Recombine         bool
+	AutoUnzip         bool
+	InputLabel        string
+	KeyfileLabel      string
+	CommentsLabel     string
+}
+
 // Snapshot returns a consistent value-copy of the request-building fields under
 // a single read lock. Slice fields are deep-copied so the worker never aliases
 // State's backing arrays after the lock is released (APP-02).
@@ -509,6 +544,49 @@ func (s *State) Snapshot() Snapshot {
 		SplitSelected:  s.SplitSelected,
 		Delete:         s.Delete,
 	}
+}
+
+// UISnapshot returns a consistent value-copy of render-path fields under a
+// single read lock. UI code must not hold State.mu while calling Fyne widgets.
+func (s *State) UISnapshot() UISnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return UISnapshot{
+		Mode:              s.Mode,
+		Scanning:          s.Scanning,
+		Working:           s.Working,
+		AllFileCount:      len(s.AllFiles),
+		OnlyFileCount:     len(s.OnlyFiles),
+		OnlyFolderCount:   len(s.OnlyFolders),
+		KeyfileCount:      len(s.Keyfiles),
+		Password:          s.Password,
+		CPassword:         s.CPassword,
+		Keyfile:           s.Keyfile,
+		Deniability:       s.Deniability,
+		Comments:          s.Comments,
+		CommentsDisabled:  s.CommentsDisabled,
+		StartLabel:        s.StartLabel,
+		Recursively:       s.Recursively,
+		OutputFile:        s.OutputFile,
+		InputFile:         s.InputFile,
+		Split:             s.Split,
+		MainStatus:        s.MainStatus,
+		MainStatusColor:   s.MainStatusColor,
+		RequiredFreeSpace: s.RequiredFreeSpace,
+		ShowProgress:      s.ShowProgress,
+		Recombine:         s.Recombine,
+		AutoUnzip:         s.AutoUnzip,
+		InputLabel:        s.InputLabel,
+		KeyfileLabel:      s.KeyfileLabel,
+		CommentsLabel:     s.CommentsLabel,
+	}
+}
+
+// SetShowProgress sets whether the progress dialog/state should be visible.
+func (s *State) SetShowProgress(show bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ShowProgress = show
 }
 
 // SetMode sets the current operation mode ("encrypt", "decrypt", or "").

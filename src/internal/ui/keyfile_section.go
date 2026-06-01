@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
@@ -176,9 +177,9 @@ func (a *App) createKeyfile() {
 }
 
 // updateKeyfileUIState updates the enabled/disabled state of keyfile controls.
-func (a *App) updateKeyfileUIState(mainDisabled bool) {
+func (a *App) updateKeyfileUIState(mainDisabled bool, snap app.UISnapshot) {
 	// Keyfile section - disabled when mode == "decrypt" && !keyfile && !deniability
-	keyfileDisabled := mainDisabled || (a.State.Mode == "decrypt" && !a.State.Keyfile && !a.State.Deniability)
+	keyfileDisabled := mainDisabled || (snap.Mode == "decrypt" && !snap.Keyfile && !snap.Deniability)
 	if a.keyfileEditBtn != nil {
 		if keyfileDisabled {
 			a.keyfileEditBtn.Disable()
@@ -188,7 +189,7 @@ func (a *App) updateKeyfileUIState(mainDisabled bool) {
 	}
 	// Keyfile Create - disabled in decrypt mode
 	if a.keyfileCreateBtn != nil {
-		if mainDisabled || a.State.Mode == "decrypt" {
+		if mainDisabled || snap.Mode == "decrypt" {
 			a.keyfileCreateBtn.Disable()
 		} else {
 			a.keyfileCreateBtn.Enable()
