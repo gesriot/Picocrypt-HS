@@ -542,6 +542,70 @@ func TestUnpackRejectsPreexistingSymlinkDirectory(t *testing.T) {
 	}
 }
 
+func TestUnpackRejectsParentSymlinkSwapBetweenValidationAndWrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	outsideDir := filepath.Join(tmpDir, "outside")
+	if err := os.MkdirAll(outsideDir, 0700); err != nil {
+		t.Fatalf("Create outside dir: %v", err)
+	}
+
+	extractDir := filepath.Join(tmpDir, "extract")
+	if err := os.MkdirAll(extractDir, 0700); err != nil {
+		t.Fatalf("Create extract dir: %v", err)
+	}
+
+	probeLink := filepath.Join(tmpDir, "symlink-probe")
+	if err := os.Symlink(outsideDir, probeLink); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "payload.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Create zip file: %v", err)
+	}
+	w := zip.NewWriter(f)
+	fw, err := w.Create("dir/payload.txt")
+	if err != nil {
+		t.Fatalf("Create entry: %v", err)
+	}
+	if _, err := fw.Write([]byte("payload")); err != nil {
+		t.Fatalf("Write entry: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close zip writer: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close zip file: %v", err)
+	}
+
+	swapped := false
+	err = Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+		AvailableSpace: func(string) (int64, error) {
+			if !swapped {
+				swapped = true
+				parent := filepath.Join(extractDir, "dir")
+				if err := os.RemoveAll(parent); err != nil {
+					t.Fatalf("Remove validated parent: %v", err)
+				}
+				if err := os.Symlink(outsideDir, parent); err != nil {
+					t.Fatalf("Swap parent for symlink: %v", err)
+				}
+			}
+			return 1 << 30, nil
+		},
+	})
+
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("Expected symlink rejection after parent swap, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outsideDir, "payload.txt")); !os.IsNotExist(err) {
+		t.Fatalf("Payload escaped extraction root after parent swap")
+	}
+}
+
 func TestUnpackRejectsSymlinkLeaf(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideFile := filepath.Join(tmpDir, "outside.txt")
