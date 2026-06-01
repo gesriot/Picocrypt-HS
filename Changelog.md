@@ -1,3 +1,11 @@
+# v2.10
+<ul>
+	<li>✓ <strong>Audit hardening</strong>: security and robustness hardening across release-critical validation paths after the completed milestone work</li>
+	<li>✓ <strong>Compatibility preservation</strong>: kept existing v2 volumes and historical v2.08/v2.09 behavior covered by compatibility checks without changing volume invariants</li>
+	<li>✓ <strong>WASM/platform/CLI closeout</strong>: finalized the reduced WASM support notes, platform guidance, and CLI closeout semantics from the audit-hardening milestone</li>
+	<li>✓ <strong>Release validation</strong>: added release-note and package-history guards so published metadata matches the v2.10 release</li>
+</ul>
+
 # v2.09
 <ul>
 	<li>✓ <strong>File associations</strong>: double-click <code>.pcv</code> files to open Picocrypt NG in decrypt mode on Windows / macOS / Linux</li>

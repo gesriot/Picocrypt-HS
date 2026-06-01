@@ -15,6 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const v210ReleaseDate = "2026-06-01"
+
 // repoRoot mirrors workflowpolicy/helpers_test.go pattern verbatim.
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -118,6 +120,85 @@ func TestOldVersionLiteralsAreAllowlisted(t *testing.T) {
 	}
 	if len(unexpected) > 0 {
 		t.Fatalf("unallowlisted old-version literals in active repository files:\n%s", strings.Join(unexpected, "\n"))
+	}
+}
+
+func TestChangelogV210ReleaseNotesContract(t *testing.T) {
+	text := string(mustReadFile(t, "Changelog.md"))
+	if !strings.HasPrefix(text, "# v2.10\n") {
+		t.Fatalf("Changelog.md must begin with top-level # v2.10 entry")
+	}
+
+	v210Headings := regexp.MustCompile(`(?m)^# v2\.10\r?$`).FindAllStringIndex(text, -1)
+	if len(v210Headings) != 1 {
+		t.Fatalf("Changelog.md v2.10 top-level heading count = %d, want 1", len(v210Headings))
+	}
+	idx210 := v210Headings[0][0]
+	idx209 := strings.Index(text, "# v2.09")
+	if idx209 == -1 {
+		t.Fatal("Changelog.md missing historical # v2.09 entry")
+	}
+	if idx210 >= idx209 {
+		t.Fatalf("Changelog.md # v2.10 entry must appear before # v2.09")
+	}
+	if !strings.Contains(text, "# v2.08") {
+		t.Fatal("Changelog.md missing historical # v2.08 entry")
+	}
+
+	section := changelogSection(t, text, "# v2.10")
+	assertReleaseTextContains(t, "Changelog.md v2.10", section, []string{
+		"security and robustness hardening",
+		"compatibility preservation",
+		"WASM/platform/CLI closeout",
+		"release validation",
+	})
+	assertReleaseTextAvoids(t, "Changelog.md v2.10", section, forbiddenV210ReleasePhrases())
+}
+
+func changelogSection(t *testing.T, text, heading string) string {
+	t.Helper()
+	start := strings.Index(text, heading)
+	if start == -1 {
+		t.Fatalf("missing changelog heading %q", heading)
+	}
+	rest := text[start+len(heading):]
+	nextHeading := regexp.MustCompile(`(?m)^# `).FindStringIndex(rest)
+	if nextHeading == nil {
+		return rest
+	}
+	return rest[:nextHeading[0]]
+}
+
+func assertReleaseTextContains(t *testing.T, label, text string, phrases []string) {
+	t.Helper()
+	lowerText := strings.ToLower(text)
+	for _, phrase := range phrases {
+		if !strings.Contains(lowerText, strings.ToLower(phrase)) {
+			t.Errorf("%s missing required release-note phrase %q", label, phrase)
+		}
+	}
+}
+
+func assertReleaseTextAvoids(t *testing.T, label, text string, phrases []string) {
+	t.Helper()
+	lowerText := strings.ToLower(text)
+	for _, phrase := range phrases {
+		if strings.Contains(lowerText, strings.ToLower(phrase)) {
+			t.Errorf("%s contains forbidden release-note phrase %q", label, phrase)
+		}
+	}
+}
+
+func forbiddenV210ReleasePhrases() []string {
+	return []string{
+		"new encryption format",
+		"new encrypted format",
+		"new file format",
+		"new cryptographic primitive",
+		"new crypto primitive",
+		"expanded wasm feature set",
+		"expanded wasm support",
+		"new wasm features",
 	}
 }
 
@@ -362,6 +443,77 @@ func TestMetainfoContract(t *testing.T) {
 	if strings.Contains(text, "<mimetypes>") {
 		t.Errorf("metainfo contains deprecated <mimetypes> tag; use <provides><mediatype> form per AppStream 1.0 spec")
 	}
+}
+
+type appstreamMetainfo struct {
+	Releases []appstreamRelease `xml:"releases>release"`
+}
+
+type appstreamRelease struct {
+	Version     string                      `xml:"version,attr"`
+	Date        string                      `xml:"date,attr"`
+	URLs        []appstreamURL              `xml:"url"`
+	Description appstreamReleaseDescription `xml:"description"`
+}
+
+type appstreamURL struct {
+	Type string `xml:"type,attr"`
+	Text string `xml:",chardata"`
+}
+
+type appstreamReleaseDescription struct {
+	Items []string `xml:"ul>li"`
+}
+
+func TestMetainfoV210ReleaseHistory(t *testing.T) {
+	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml")
+	var doc appstreamMetainfo
+	if err := xml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("unmarshal metainfo release history: %v", err)
+	}
+	if len(doc.Releases) == 0 {
+		t.Fatal("metainfo contains no release history")
+	}
+
+	current := doc.Releases[0]
+	if current.Version != "2.10" {
+		t.Fatalf("current metainfo release version = %q, want 2.10", current.Version)
+	}
+	if current.Date != v210ReleaseDate {
+		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v210ReleaseDate)
+	}
+	detailsURL := appstreamDetailsURL(current)
+	if !strings.HasSuffix(detailsURL, "Changelog.md#v210") {
+		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v210", detailsURL)
+	}
+
+	description := strings.Join(current.Description.Items, "\n")
+	assertReleaseTextContains(t, "metainfo v2.10", description, []string{
+		"security and robustness hardening",
+		"compatibility preservation",
+		"WASM/platform/CLI closeout",
+		"release validation",
+	})
+	assertReleaseTextAvoids(t, "metainfo v2.10", description, forbiddenV210ReleasePhrases())
+
+	versions := map[string]bool{}
+	for _, release := range doc.Releases {
+		versions[release.Version] = true
+	}
+	for _, want := range []string{"2.09", "2.08"} {
+		if !versions[want] {
+			t.Errorf("metainfo release history missing historical version %s", want)
+		}
+	}
+}
+
+func appstreamDetailsURL(release appstreamRelease) string {
+	for _, url := range release.URLs {
+		if url.Type == "details" {
+			return strings.TrimSpace(url.Text)
+		}
+	}
+	return ""
 }
 
 func TestSnapDesktopMimeType(t *testing.T) {
