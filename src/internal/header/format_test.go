@@ -2,6 +2,7 @@ package header
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
@@ -30,6 +31,66 @@ func TestHeaderSize(t *testing.T) {
 func TestCurrentVersionIsV210(t *testing.T) {
 	if CurrentVersion != "v2.10" {
 		t.Fatalf("CurrentVersion = %q; want %q", CurrentVersion, "v2.10")
+	}
+}
+
+func TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField(t *testing.T) {
+	const comments = "release guard"
+
+	oldHeader := deterministicFormatGuardHeader("v2.09", comments)
+	newHeader := deterministicFormatGuardHeader("v2.10", comments)
+
+	oldEncoded, oldWritten := writeFormatGuardHeader(t, oldHeader)
+	newEncoded, newWritten := writeFormatGuardHeader(t, newHeader)
+
+	expectedSize := HeaderSize(len(comments))
+	if oldWritten != expectedSize {
+		t.Fatalf("v2.09 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", oldWritten, len(comments), expectedSize)
+	}
+	if newWritten != expectedSize {
+		t.Fatalf("v2.10 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", newWritten, len(comments), expectedSize)
+	}
+	if len(oldEncoded) != expectedSize {
+		t.Fatalf("v2.09 encoded header length = %d; want %d", len(oldEncoded), expectedSize)
+	}
+	if len(newEncoded) != expectedSize {
+		t.Fatalf("v2.10 encoded header length = %d; want %d", len(newEncoded), expectedSize)
+	}
+
+	regions := encodedHeaderRegions(len(comments))
+	assertEncodedHeaderRegionLayout(t, regions, len(comments), expectedSize)
+	if err := versionOnlyHeaderDelta(oldEncoded, newEncoded, regions); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation(t *testing.T) {
+	const comments = "release guard"
+
+	oldEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.09", comments))
+	newEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.10", comments))
+
+	regions := encodedHeaderRegions(len(comments))
+	flagsStart := regionStart(t, regions, "flags")
+	newEncoded[flagsStart] ^= 0x01
+
+	if err := versionOnlyHeaderDelta(oldEncoded, newEncoded, regions); err == nil {
+		t.Fatal("versionOnlyHeaderDelta accepted a non-version-field mutation in the flags region")
+	}
+}
+
+func TestVersionFormatAcceptanceRemainsCurrentIndependent(t *testing.T) {
+	cases := []string{
+		"v2.10",
+		"v2.09",
+		"v3.11",
+	}
+	for _, version := range cases {
+		t.Run(version, func(t *testing.T) {
+			if !MatchVersion([]byte(version)) {
+				t.Fatalf("MatchVersion(%q) = false; want true", version)
+			}
+		})
 	}
 }
 
@@ -69,6 +130,147 @@ func TestFlags(t *testing.T) {
 			t.Errorf("Empty flags ToBytes()[%d] = %d; want 0", i, b[i])
 		}
 	}
+}
+
+type encodedHeaderRegion struct {
+	name       string
+	start, end int
+}
+
+func deterministicFormatGuardHeader(version, comments string) *VolumeHeader {
+	return &VolumeHeader{
+		Version:  version,
+		Comments: comments,
+		Flags: Flags{
+			Paranoid:       true,
+			UseKeyfiles:    true,
+			KeyfileOrdered: true,
+			ReedSolomon:    true,
+			Padded:         false,
+		},
+		Salt:        repeatingBytes(0x11, SaltSize),
+		HKDFSalt:    repeatingBytes(0x22, HKDFSaltSize),
+		SerpentIV:   repeatingBytes(0x33, SerpentIVSize),
+		Nonce:       repeatingBytes(0x44, NonceSize),
+		KeyHash:     repeatingBytes(0x55, KeyHashSize),
+		KeyfileHash: repeatingBytes(0x66, KeyfileHashSize),
+		AuthTag:     repeatingBytes(0x77, AuthTagSize),
+	}
+}
+
+func repeatingBytes(b byte, n int) []byte {
+	return bytes.Repeat([]byte{b}, n)
+}
+
+func writeFormatGuardHeader(t *testing.T, h *VolumeHeader) ([]byte, int) {
+	t.Helper()
+
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	n, err := NewWriter(&buf, rs).WriteHeader(h)
+	if err != nil {
+		t.Fatalf("WriteHeader(%q) failed: %v", h.Version, err)
+	}
+	return buf.Bytes(), n
+}
+
+func encodedHeaderRegions(commentsLen int) []encodedHeaderRegion {
+	pos := 0
+	next := func(name string, size int) encodedHeaderRegion {
+		region := encodedHeaderRegion{name: name, start: pos, end: pos + size}
+		pos += size
+		return region
+	}
+
+	return []encodedHeaderRegion{
+		next("version", VersionEncSize),
+		next("comment length", CommentLenEncSize),
+		next("comments", commentsLen*3),
+		next("flags", FlagsEncSize),
+		next("salt", SaltEncSize),
+		next("hkdf salt", HKDFSaltEncSize),
+		next("serpent iv", SerpentIVEncSize),
+		next("nonce", NonceEncSize),
+		next("key hash placeholder", KeyHashEncSize),
+		next("keyfile hash placeholder", KeyfileHashEncSize),
+		next("auth tag placeholder", AuthTagEncSize),
+	}
+}
+
+func assertEncodedHeaderRegionLayout(t *testing.T, regions []encodedHeaderRegion, commentsLen, expectedSize int) {
+	t.Helper()
+
+	expectedWidths := map[string]int{
+		"version":                  VersionEncSize,
+		"comment length":           CommentLenEncSize,
+		"comments":                 commentsLen * 3,
+		"flags":                    FlagsEncSize,
+		"salt":                     SaltEncSize,
+		"hkdf salt":                HKDFSaltEncSize,
+		"serpent iv":               SerpentIVEncSize,
+		"nonce":                    NonceEncSize,
+		"key hash placeholder":     KeyHashEncSize,
+		"keyfile hash placeholder": KeyfileHashEncSize,
+		"auth tag placeholder":     AuthTagEncSize,
+	}
+
+	pos := 0
+	for _, region := range regions {
+		if region.start != pos {
+			t.Fatalf("%s start = %d; want %d", region.name, region.start, pos)
+		}
+		width := region.end - region.start
+		if width != expectedWidths[region.name] {
+			t.Fatalf("%s width = %d; want %d", region.name, width, expectedWidths[region.name])
+		}
+		pos = region.end
+	}
+	if pos != expectedSize {
+		t.Fatalf("encoded header regions end at %d; want %d", pos, expectedSize)
+	}
+	if got := int(AuthValuesOffset(commentsLen)); got != regionStart(t, regions, "key hash placeholder") {
+		t.Fatalf("AuthValuesOffset(%d) = %d; want key hash placeholder start %d",
+			commentsLen, got, regionStart(t, regions, "key hash placeholder"))
+	}
+}
+
+func versionOnlyHeaderDelta(oldEncoded, newEncoded []byte, regions []encodedHeaderRegion) error {
+	if len(oldEncoded) != len(newEncoded) {
+		return fmt.Errorf("encoded header lengths differ: %d vs %d", len(oldEncoded), len(newEncoded))
+	}
+	if len(oldEncoded) < VersionEncSize {
+		return fmt.Errorf("encoded header length %d is shorter than VersionEncSize %d", len(oldEncoded), VersionEncSize)
+	}
+	if bytes.Equal(oldEncoded[:VersionEncSize], newEncoded[:VersionEncSize]) {
+		return fmt.Errorf("encoded version region [0:%d] is identical", VersionEncSize)
+	}
+	if !bytes.Equal(oldEncoded[VersionEncSize:], newEncoded[VersionEncSize:]) {
+		for _, region := range regions {
+			if region.name == "version" {
+				continue
+			}
+			if !bytes.Equal(oldEncoded[region.start:region.end], newEncoded[region.start:region.end]) {
+				return fmt.Errorf("%s region [%d:%d] changed outside encoded version field", region.name, region.start, region.end)
+			}
+		}
+		return fmt.Errorf("encoded bytes changed outside version region [%d:%d]", VersionEncSize, len(oldEncoded))
+	}
+	return nil
+}
+
+func regionStart(t *testing.T, regions []encodedHeaderRegion, name string) int {
+	t.Helper()
+	for _, region := range regions {
+		if region.name == name {
+			return region.start
+		}
+	}
+	t.Fatalf("region %q not found", name)
+	return 0
 }
 
 func TestFlagsFromBytesShort(t *testing.T) {
