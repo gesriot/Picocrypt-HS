@@ -39,6 +39,12 @@ const goldenPassword = "test"
 // Expected plaintext content
 const expectedContent = "There is a test file for Picocrypt validation.\n"
 
+const (
+	goldenV209Fixture      = "pico_test_v209.txt.pcv"
+	goldenV209SourceTag    = "v2.09"
+	goldenV209SourceCommit = "1cb431d279e0ec4d712bfcaf2f55c1e951837785"
+)
+
 var goldenKeyfileFixtures = []string{
 	"keyfile_alpha.bin",
 	"keyfile_beta.bin",
@@ -73,6 +79,15 @@ var goldenTestCases = []struct {
 		// format is frozen across versions (REL-01).
 		name:        "v208_basic",
 		file:        "pico_test_v208.txt.pcv",
+		deniability: false,
+		paranoid:    false,
+		reedSolomon: false,
+	},
+	{
+		// Cross-version interop fixture: authored by the human-authorized
+		// v2.09 tag snapshot, not by the current v2.10 writer.
+		name:        "v209_basic",
+		file:        goldenV209Fixture,
 		deniability: false,
 		paranoid:    false,
 		reedSolomon: false,
@@ -212,6 +227,14 @@ func TestGoldenKeyfileCorpusPresent(t *testing.T) {
 func TestGoldenV208CorpusPresent(t *testing.T) {
 	testdataPath := findTestdata(t)
 	path := filepath.Join(testdataPath, "pico_test_v208.txt.pcv")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("required golden asset missing: %s (%v)", path, err)
+	}
+}
+
+func TestGoldenV209CorpusPresent(t *testing.T) {
+	testdataPath := findTestdata(t)
+	path := filepath.Join(testdataPath, goldenV209Fixture)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("required golden asset missing: %s (%v)", path, err)
 	}
@@ -669,6 +692,43 @@ func TestGoldenV2Detection(t *testing.T) {
 
 	if version[0:2] != "v2" {
 		t.Errorf("Expected v2.x version, got: %s", version)
+	}
+}
+
+func TestGoldenV209Detection(t *testing.T) {
+	testdataPath := findTestdata(t)
+
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	path := filepath.Join(testdataPath, goldenV209Fixture)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("required golden asset missing: %s (%v)", path, err)
+	}
+
+	fin, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = fin.Close() }()
+
+	versionEnc := make([]byte, 15)
+	if _, err := io.ReadFull(fin, versionEnc); err != nil {
+		t.Fatalf("Failed to read version header: %v", err)
+	}
+
+	versionDec, err := encoding.Decode(rsCodecs.RS5, versionEnc, false)
+	if err != nil {
+		t.Fatalf("Failed to decode version: %v", err)
+	}
+
+	version := string(versionDec)
+	t.Logf("V2.09 file version: %s (source tag %s %s)", version, goldenV209SourceTag, goldenV209SourceCommit)
+
+	if version != "v2.09" {
+		t.Fatalf("Expected v2.09 version, got: %s", version)
 	}
 }
 
