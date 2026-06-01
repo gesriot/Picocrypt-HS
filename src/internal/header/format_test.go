@@ -27,6 +27,12 @@ func TestHeaderSize(t *testing.T) {
 	}
 }
 
+func TestCurrentVersionIsV210(t *testing.T) {
+	if CurrentVersion != "v2.10" {
+		t.Fatalf("CurrentVersion = %q; want %q", CurrentVersion, "v2.10")
+	}
+}
+
 func TestFlags(t *testing.T) {
 	// Test all flags set
 	flags := Flags{

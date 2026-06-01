@@ -579,10 +579,7 @@ func TestPasswordInputModeConstants(t *testing.T) {
 }
 
 func TestStateVersion(t *testing.T) {
-	if Version == "" {
-		t.Error("Version should not be empty")
-	}
-	if Version != "v2.02" {
-		t.Logf("Note: Version = %q", Version)
+	if Version != "v2.10" {
+		t.Fatalf("Version = %q; want %q", Version, "v2.10")
 	}
 }
