@@ -55,7 +55,10 @@ go test ./...
 # Golden compatibility checks with production KDF
 go test -run 'TestGoldenDecryption|TestGoldenCompressedDecryption|TestGoldenWrongPassword|TestGoldenV1WrongPassword' ./internal/volume
 
-# Opt-in CLI integration tests
+# CLI package tests, including default binary-regression coverage
+go test ./internal/cli
+
+# Opt-in stdin/stdout CLI integration tests
 PICOCRYPT_RUN_CLI_INTEGRATION=1 go test ./internal/cli
 ```
 
