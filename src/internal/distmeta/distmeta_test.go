@@ -5,10 +5,14 @@ import (
 	"encoding/xml"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v3"
 )
 
 // repoRoot mirrors workflowpolicy/helpers_test.go pattern verbatim.
@@ -38,6 +42,149 @@ func mustReadFile(t *testing.T, relPath string) []byte {
 		t.Fatalf("read %s: %v", relPath, err)
 	}
 	return data
+}
+
+func TestActiveReleaseMetadataVersions(t *testing.T) {
+	const want = "2.10"
+
+	t.Run("root_VERSION", func(t *testing.T) {
+		got := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
+		if got != want {
+			t.Fatalf("VERSION = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("fyne_details_version", func(t *testing.T) {
+		var app struct {
+			Details struct {
+				Version string
+			}
+		}
+		if err := toml.Unmarshal(mustReadFile(t, "src/FyneApp.toml"), &app); err != nil {
+			t.Fatalf("parse FyneApp.toml: %v", err)
+		}
+		if app.Details.Version != want {
+			t.Fatalf("FyneApp.toml Details.Version = %q, want %q", app.Details.Version, want)
+		}
+	})
+
+	t.Run("snap_version", func(t *testing.T) {
+		var snap struct {
+			Version string `yaml:"version"`
+		}
+		if err := yaml.Unmarshal(mustReadFile(t, "dist/snapcraft/snapcraft.yaml"), &snap); err != nil {
+			t.Fatalf("parse snapcraft.yaml: %v", err)
+		}
+		if snap.Version != want {
+			t.Fatalf("snapcraft.yaml version = %q, want %q", snap.Version, want)
+		}
+	})
+
+	t.Run("windows_versioninfo", func(t *testing.T) {
+		text := string(mustReadFile(t, "dist/windows/versioninfo.rc"))
+		required := []struct {
+			name string
+			re   *regexp.Regexp
+		}{
+			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,10,0,0\r?$`)},
+			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,10,0,0\r?$`)},
+			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.10"\r?$`)},
+		}
+		for _, req := range required {
+			t.Run(req.name, func(t *testing.T) {
+				if !req.re.MatchString(text) {
+					t.Fatalf("versioninfo.rc missing %s pattern %q", req.name, req.re.String())
+				}
+			})
+		}
+	})
+}
+
+func TestOldVersionLiteralsAreAllowlisted(t *testing.T) {
+	var unexpected []string
+	for _, relPath := range gitTrackedFiles(t) {
+		data := mustReadFile(t, relPath)
+		if !containsOldVersionLiteral(data) {
+			continue
+		}
+		category, ok := oldVersionLiteralCategory(relPath)
+		if !ok {
+			unexpected = append(unexpected, relPath)
+			continue
+		}
+		if category == "" {
+			t.Fatalf("old-version allowlist category for %s is empty", relPath)
+		}
+	}
+	if len(unexpected) > 0 {
+		t.Fatalf("unallowlisted old-version literals in active repository files:\n%s", strings.Join(unexpected, "\n"))
+	}
+}
+
+func gitTrackedFiles(t *testing.T) []string {
+	t.Helper()
+	cmd := exec.Command("git", "-C", repoRoot(t), "ls-files", "-z")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	parts := bytes.Split(out, []byte{0})
+	files := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if len(part) == 0 {
+			continue
+		}
+		files = append(files, string(part))
+	}
+	return files
+}
+
+func containsOldVersionLiteral(data []byte) bool {
+	for _, literal := range oldVersionLiterals {
+		if bytes.Contains(data, []byte(literal)) {
+			return true
+		}
+	}
+	return false
+}
+
+var oldVersionLiterals = []string{"2.09", "v2.09", "2.08", "v2.08"}
+
+func oldVersionLiteralCategory(relPath string) (string, bool) {
+	switch {
+	case relPath == "Changelog.md":
+		return "historical changelog/release history", true
+	case relPath == "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml":
+		return "historical changelog/release history", true
+	case relPath == "CLI.md":
+		return "legacy snapshot", true
+		return "legacy snapshot", true
+		return "legacy snapshot", true
+	case strings.HasPrefix(relPath, "src/testdata/golden/"):
+		return "compatibility fixture", true
+	case relPath == "src/internal/volume/golden_test.go":
+		return "compatibility fixture", true
+	case relPath == "src/internal/distmeta/distmeta_test.go":
+		return "old-version test input", true
+	case relPath == "src/cmd/picocrypt/version_test.go":
+		return "old-version test input", true
+	case relPath == "src/internal/cli/version_test.go":
+		return "old-version test input", true
+	case relPath == "src/internal/header/reader_test.go":
+		return "old-version test input", true
+	case relPath == "src/internal/ui/drop_test.go":
+		return "old-version test input", true
+	case relPath == "src/internal/ui/fyne_test_helpers_test.go":
+		return "old-version test input", true
+	case relPath == "src/internal/ui/preview_test.go":
+		return "old-version test input", true
+	case relPath == "src/internal/header/format.go", relPath == "src/internal/header/reader.go":
+		return "old-version test input", true
+	case relPath == "dist/windows/installer.nsi":
+		return "legacy snapshot", true
+	default:
+		return "", false
+	}
 }
 
 type mimeInfo struct {
