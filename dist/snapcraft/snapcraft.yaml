@@ -22,6 +22,14 @@ parts:
     source: .
     override-build: |
       craftctl default
+      install -d "$CRAFT_PART_INSTALL/bin"
+      if [ -x "$CRAFT_PART_INSTALL/bin/picocrypt" ]; then
+        mv "$CRAFT_PART_INSTALL/bin/picocrypt" "$CRAFT_PART_INSTALL/bin/Picocrypt-NG"
+      fi
+      if [ ! -x "$CRAFT_PART_INSTALL/bin/Picocrypt-NG" ]; then
+        cd "$CRAFT_PROJECT_DIR"
+        go build -v -ldflags="-s -w" -o "$CRAFT_PART_INSTALL/bin/Picocrypt-NG" ./cmd/picocrypt
+      fi
       # MIME XML — system-wide MIME registration declaration
       install -d "$CRAFT_PART_INSTALL/usr/share/mime/packages"
       install -m 0644 "$CRAFT_PROJECT_DIR/dist/mime/application-x-pcv.xml" \

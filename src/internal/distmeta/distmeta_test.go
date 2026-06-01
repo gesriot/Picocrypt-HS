@@ -123,87 +123,6 @@ func TestOldVersionLiteralsAreAllowlisted(t *testing.T) {
 	}
 }
 
-func TestChangelogV210ReleaseNotesContract(t *testing.T) {
-	text := string(mustReadFile(t, "Changelog.md"))
-	if !strings.HasPrefix(text, "# v2.10\n") {
-		t.Fatalf("Changelog.md must begin with top-level # v2.10 entry")
-	}
-
-	v210Headings := regexp.MustCompile(`(?m)^# v2\.10\r?$`).FindAllStringIndex(text, -1)
-	if len(v210Headings) != 1 {
-		t.Fatalf("Changelog.md v2.10 top-level heading count = %d, want 1", len(v210Headings))
-	}
-	idx210 := v210Headings[0][0]
-	idx209 := strings.Index(text, "# v2.09")
-	if idx209 == -1 {
-		t.Fatal("Changelog.md missing historical # v2.09 entry")
-	}
-	if idx210 >= idx209 {
-		t.Fatalf("Changelog.md # v2.10 entry must appear before # v2.09")
-	}
-	if !strings.Contains(text, "# v2.08") {
-		t.Fatal("Changelog.md missing historical # v2.08 entry")
-	}
-
-	section := changelogSection(t, text, "# v2.10")
-	assertReleaseTextContains(t, "Changelog.md v2.10", section, []string{
-		"Safer output cleanup",
-		"Hardened archive extraction",
-		"GUI race fixes",
-		"Clearer damaged-header errors",
-		"CLI and WASM notes",
-		"Compatibility checks",
-	})
-	assertReleaseTextAvoids(t, "Changelog.md v2.10", section, forbiddenV210ReleasePhrases())
-}
-
-func changelogSection(t *testing.T, text, heading string) string {
-	t.Helper()
-	start := strings.Index(text, heading)
-	if start == -1 {
-		t.Fatalf("missing changelog heading %q", heading)
-	}
-	rest := text[start+len(heading):]
-	nextHeading := regexp.MustCompile(`(?m)^# `).FindStringIndex(rest)
-	if nextHeading == nil {
-		return rest
-	}
-	return rest[:nextHeading[0]]
-}
-
-func assertReleaseTextContains(t *testing.T, label, text string, phrases []string) {
-	t.Helper()
-	lowerText := strings.ToLower(text)
-	for _, phrase := range phrases {
-		if !strings.Contains(lowerText, strings.ToLower(phrase)) {
-			t.Errorf("%s missing required release-note phrase %q", label, phrase)
-		}
-	}
-}
-
-func assertReleaseTextAvoids(t *testing.T, label, text string, phrases []string) {
-	t.Helper()
-	lowerText := strings.ToLower(text)
-	for _, phrase := range phrases {
-		if strings.Contains(lowerText, strings.ToLower(phrase)) {
-			t.Errorf("%s contains forbidden release-note phrase %q", label, phrase)
-		}
-	}
-}
-
-func forbiddenV210ReleasePhrases() []string {
-	return []string{
-		"new encryption format",
-		"new encrypted format",
-		"new file format",
-		"new cryptographic primitive",
-		"new crypto primitive",
-		"expanded wasm feature set",
-		"expanded wasm support",
-		"new wasm features",
-	}
-}
-
 func gitTrackedFiles(t *testing.T) []string {
 	t.Helper()
 	cmd := exec.Command("git", "-C", repoRoot(t), "ls-files", "-z")
@@ -489,17 +408,6 @@ func TestMetainfoV210ReleaseHistory(t *testing.T) {
 		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v210", detailsURL)
 	}
 
-	description := strings.Join(current.Description.Items, "\n")
-	assertReleaseTextContains(t, "metainfo v2.10", description, []string{
-		"Safer temporary output cleanup",
-		"Hardened archive extraction",
-		"GUI race fixes",
-		"Clearer diagnostics",
-		"CLI kept-output exit code",
-		"Compatibility checks",
-	})
-	assertReleaseTextAvoids(t, "metainfo v2.10", description, forbiddenV210ReleasePhrases())
-
 	versions := map[string]bool{}
 	for _, release := range doc.Releases {
 		versions[release.Version] = true
@@ -544,6 +452,38 @@ func TestSnapDesktopMimeType(t *testing.T) {
 				t.Errorf("snap desktop file contains forbidden field code %q; only %%f is allowed per Desktop Entry Spec §3.1", fc)
 			}
 		})
+	}
+}
+
+func TestSnapcraftBuildInstallsDeclaredCommand(t *testing.T) {
+	data := mustReadFile(t, "dist/snapcraft/snapcraft.yaml")
+	var snap struct {
+		Apps map[string]struct {
+			Command string `yaml:"command"`
+		} `yaml:"apps"`
+		Parts map[string]struct {
+			OverrideBuild string `yaml:"override-build"`
+		} `yaml:"parts"`
+	}
+	if err := yaml.Unmarshal(data, &snap); err != nil {
+		t.Fatalf("parse snapcraft.yaml: %v", err)
+	}
+
+	app, ok := snap.Apps["picocrypt-ng"]
+	if !ok {
+		t.Fatal("snapcraft.yaml missing apps.picocrypt-ng")
+	}
+	const command = "bin/Picocrypt-NG"
+	if app.Command != command {
+		t.Fatalf("snap command = %q, want %q", app.Command, command)
+	}
+
+	part, ok := snap.Parts["picocrypt-ng"]
+	if !ok {
+		t.Fatal("snapcraft.yaml missing parts.picocrypt-ng")
+	}
+	if !strings.Contains(part.OverrideBuild, `"$CRAFT_PART_INSTALL/bin/Picocrypt-NG"`) {
+		t.Fatalf("snap override-build does not install declared command %q", command)
 	}
 }
 

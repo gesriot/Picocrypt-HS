@@ -48,7 +48,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `operationState exposes OperationManager currentOperation`() = runTest {
+    fun `operationState exposes OperationManager currentOperation`() = runTest(mainDispatcherRule.testDispatcher) {
         val operationState = viewModel.operationState.first()
         
         // Initially should be null
@@ -60,7 +60,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `startEncrypt launches operation`() = runTest {
+    fun `startEncrypt launches operation`() = runTest(mainDispatcherRule.testDispatcher) {
         val formData = TestDataBuilders.createEncryptFormData(
             password = "test",
             confirmPassword = "test"
@@ -76,7 +76,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `startDecrypt launches operation`() = runTest {
+    fun `startDecrypt launches operation`() = runTest(mainDispatcherRule.testDispatcher) {
         val formData = TestDataBuilders.createDecryptFormData(
             password = "test"
         )
@@ -89,7 +89,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `cancelOperation stops polling and cancels operation`() = runTest {
+    fun `cancelOperation stops polling and cancels operation`() = runTest(mainDispatcherRule.testDispatcher) {
         viewModel.cancelOperation()
         
         advanceUntilIdle()
@@ -98,7 +98,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `clearOperation stops polling and clears operation`() = runTest {
+    fun `clearOperation stops polling and clears operation`() = runTest(mainDispatcherRule.testDispatcher) {
         setOperationState(
             OperationState(
                 id = "op_123",
@@ -120,7 +120,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `pausePolling switches to background mode`() = runTest {
+    fun `pausePolling switches to background mode`() = runTest(mainDispatcherRule.testDispatcher) {
         // pausePolling sets isForeground to false and starts background polling
         viewModel.pausePolling()
         
@@ -132,7 +132,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `resumePolling switches to foreground mode`() = runTest {
+    fun `resumePolling switches to foreground mode`() = runTest(mainDispatcherRule.testDispatcher) {
         // First pause
         viewModel.pausePolling()
         advanceUntilIdle()
@@ -145,7 +145,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `operationState updates when OperationManager state changes`() = runTest {
+    fun `operationState updates when OperationManager state changes`() = runTest(mainDispatcherRule.testDispatcher) {
         // Initially null
         var operationState = viewModel.operationState.first()
         assertNull("Should be null initially", operationState)
