@@ -330,8 +330,12 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 }
 
 // IsDeniable checks if a volume appears to have deniability protection.
-// This is done by attempting to read and decode the version - if it fails,
-// the volume likely has a deniability wrapper.
+//
+// The leading bytes of a deniable volume are random salt/nonce bytes, while a
+// regular volume starts with an RS5-encoded version. A version decode failure is
+// ambiguous: it can be a deniable wrapper or a damaged regular header. Resolve
+// that ambiguity by checking whether the following comment-length and flags
+// fields still look like a regular Picocrypt header.
 func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 	// #nosec G304 -- volumePath is user-provided .pcv file
 	fin, err := os.Open(volumePath)
@@ -361,8 +365,67 @@ func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 
 	versionDec, err := encoding.Decode(rs.RS5, versionEnc, false)
 	if err != nil {
-		return true // Decode failed, likely deniable
+		return !looksLikeRegularHeaderAfterDamagedVersion(fin, rs)
 	}
 
-	return !header.MatchVersion(versionDec) // Invalid version format means deniable
+	if header.MatchVersion(versionDec) {
+		return false
+	}
+
+	return !looksLikeRegularHeaderAfterDamagedVersion(fin, rs)
+}
+
+func looksLikeRegularHeaderAfterDamagedVersion(fin *os.File, rs *encoding.RSCodecs) bool {
+	commentLenEnc := make([]byte, header.CommentLenEncSize)
+	if _, err := fin.ReadAt(commentLenEnc, int64(header.VersionEncSize)); err != nil {
+		return false
+	}
+	commentLenDec, err := encoding.Decode(rs.RS5, commentLenEnc, false)
+	if err != nil {
+		return false
+	}
+	commentsLen, ok := parseHeaderCommentLen(commentLenDec)
+	if !ok {
+		return false
+	}
+
+	flagsOffset := int64(header.VersionEncSize + header.CommentLenEncSize + commentsLen*3)
+	flagsEnc := make([]byte, header.FlagsEncSize)
+	if _, err := fin.ReadAt(flagsEnc, flagsOffset); err != nil {
+		return false
+	}
+	flagsDec, err := encoding.Decode(rs.RS5, flagsEnc, false)
+	if err != nil {
+		return false
+	}
+	return headerFlagsBytesPlausible(flagsDec)
+}
+
+func parseHeaderCommentLen(b []byte) (int, bool) {
+	if len(b) != 5 {
+		return 0, false
+	}
+	var n int
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	if n > header.MaxCommentLen {
+		return 0, false
+	}
+	return n, true
+}
+
+func headerFlagsBytesPlausible(b []byte) bool {
+	if len(b) < 5 {
+		return false
+	}
+	for _, c := range b[:5] {
+		if c != 0 && c != 1 {
+			return false
+		}
+	}
+	return true
 }

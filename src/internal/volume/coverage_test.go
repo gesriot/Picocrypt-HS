@@ -866,7 +866,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build a genuine regular (non-deniable) volume to corrupt.
-	plaintext := []byte("Corruption test plaintext")
+	plaintext := bytes.Repeat([]byte("Corruption test plaintext."), 256)
 	inputPath := filepath.Join(tmpDir, "regular.txt")
 	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
 		t.Fatalf("write input: %v", err)
@@ -885,6 +885,10 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	full, err := os.ReadFile(regularPath)
 	if err != nil {
 		t.Fatalf("read regular volume: %v", err)
+	}
+	minDeniable := 16 + 24 + header.BaseHeaderSize
+	if len(full) < minDeniable {
+		t.Fatalf("regular volume size = %d; need >= deniable minimum %d to exercise full-size corrupt path", len(full), minDeniable)
 	}
 
 	// Variant (a): truncate below 15 bytes — old code hits the io.ReadFull error
@@ -918,7 +922,6 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 
 	// Variant (c): a file exactly one byte below the deniable minimum must be rejected
 	// by the length guard (boundary check).
-	minDeniable := 16 + 24 + header.BaseHeaderSize
 	belowMin := make([]byte, minDeniable-1)
 	copy(belowMin, full[:min(len(full), minDeniable-1)])
 	belowMinPath := filepath.Join(tmpDir, "belowmin.pcv")
@@ -929,9 +932,67 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 		t.Errorf("file one byte below deniable minimum (%d) misclassified as deniable (QUAL-02)", minDeniable)
 	}
 
+	// Variant (d): a full-size regular volume with an unrepairable RS5 version
+	// field decode error must still be treated as corrupted/non-deniable, not
+	// routed into deniability handling. The length pre-guard alone cannot catch
+	// this case because the file is large enough to look like a possible
+	// deniability wrapper.
+	fullSizeCorrupt := append([]byte(nil), full...)
+	copy(fullSizeCorrupt[:header.VersionEncSize], corruptRS5Block(t, rsCodecs))
+	fullSizeCorruptPath := filepath.Join(tmpDir, "full-size-corrupt-version.pcv")
+	if err := os.WriteFile(fullSizeCorruptPath, fullSizeCorrupt, 0644); err != nil {
+		t.Fatalf("write full-size corrupt volume: %v", err)
+	}
+	if IsDeniable(fullSizeCorruptPath, rsCodecs) {
+		t.Error("full-size regular volume with corrupted version field misclassified as deniable (QUAL-02)")
+	}
+
+	// Variant (e): a full-size regular volume whose damaged version field still
+	// RS-decodes to a non-version string must also be treated as corrupted/
+	// non-deniable when the following header fields are regular. This covers
+	// the sibling branch to the decode-error case above.
+	fullSizeNonVersion := append([]byte(nil), full...)
+	copy(fullSizeNonVersion[:header.VersionEncSize], validNonVersionRS5Block(t, rsCodecs))
+	fullSizeNonVersionPath := filepath.Join(tmpDir, "full-size-non-version.pcv")
+	if err := os.WriteFile(fullSizeNonVersionPath, fullSizeNonVersion, 0644); err != nil {
+		t.Fatalf("write full-size non-version volume: %v", err)
+	}
+	if IsDeniable(fullSizeNonVersionPath, rsCodecs) {
+		t.Error("full-size regular volume with non-version decoded version field misclassified as deniable (QUAL-02)")
+	}
+
 	// Over-correction guard: the existing reliably-green TestGoldenDeniabilityDetection
 	// and TestRoundTripDeniability assert that genuine deniable volumes (size >= the
 	// deniable minimum) are still detected as deniable after this guard lands.
+}
+
+func validNonVersionRS5Block(t *testing.T, rsCodecs *encoding.RSCodecs) []byte {
+	t.Helper()
+
+	block, err := encoding.Encode(rsCodecs.RS5, []byte("abcde"))
+	if err != nil {
+		t.Fatalf("encode non-version RS5 block: %v", err)
+	}
+	return block
+}
+
+func corruptRS5Block(t *testing.T, rsCodecs *encoding.RSCodecs) []byte {
+	t.Helper()
+
+	for seed := uint32(1); seed < 10000; seed++ {
+		candidate := make([]byte, header.VersionEncSize)
+		x := seed
+		for i := range candidate {
+			x = x*1664525 + 1013904223
+			candidate[i] = byte(x >> 24)
+		}
+		if _, err := encoding.Decode(rsCodecs.RS5, candidate, false); err != nil {
+			return candidate
+		}
+	}
+
+	t.Fatal("could not construct a deterministic RS5 decode-error block")
+	return nil
 }
 
 // =============================================================================
