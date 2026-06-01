@@ -326,7 +326,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	}
 	defer func() { _ = fin.Close() }()
 
-	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_WRONLY|os.O_APPEND, 0600)
+	fout, err := fileops.OpenExistingNoSymlink(req.OutputFile+".incomplete", os.O_WRONLY|os.O_APPEND)
 	if err != nil {
 		return fmt.Errorf("open output: %w", err)
 	}
@@ -415,7 +415,7 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 	ctx.SetStatus("Writing values...")
 
 	// Open output file for seeking
-	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_RDWR, 0600)
+	fout, err := fileops.OpenExistingNoSymlink(req.OutputFile+".incomplete", os.O_RDWR)
 	if err != nil {
 		return fmt.Errorf("open output for auth: %w", err)
 	}

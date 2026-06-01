@@ -69,6 +69,38 @@ func TestCreateSecureNoSymlinkRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestOpenExistingNoSymlinkRejectsSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	victimPath := filepath.Join(tmpDir, "victim.pcv")
+	if err := os.WriteFile(victimPath, []byte("victim"), 0600); err != nil {
+		t.Fatalf("Create victim file: %v", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "output.pcv.incomplete")
+	if err := os.Symlink(victimPath, outputPath); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	f, err := OpenExistingNoSymlink(outputPath, os.O_WRONLY|os.O_APPEND)
+	if f != nil {
+		_ = f.Close()
+	}
+	if err == nil {
+		t.Fatal("expected symlink rejection, got nil error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("error does not mention symlink: %v", err)
+	}
+
+	got, err := os.ReadFile(victimPath)
+	if err != nil {
+		t.Fatalf("Read victim file: %v", err)
+	}
+	if string(got) != "victim" {
+		t.Fatalf("Victim file content modified: got %q, want %q", got, "victim")
+	}
+}
+
 // TestTempFilesOverwrittenBeforeUnlink locks the SEC-04 invariant: when a
 // decrypt/abort cleanup path routes a sensitive temp artifact through
 // OverwriteAndRemove, the artifact's bytes are best-effort overwritten with
@@ -160,6 +192,38 @@ func TestTempFilesOverwrittenBeforeUnlink(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestOverwriteAndRemoveRemovesSymlinkWithoutOverwritingTarget locks the
+// cleanup invariant for hostile .incomplete paths: cleanup may remove the leaf
+// path, but it must never follow a symlink and overwrite the symlink target.
+func TestOverwriteAndRemoveRemovesSymlinkWithoutOverwritingTarget(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim.txt")
+	link := filepath.Join(dir, "output.pcv.incomplete")
+
+	original := []byte("do-not-zero")
+	if err := os.WriteFile(victim, original, 0600); err != nil {
+		t.Fatalf("write victim: %v", err)
+	}
+	if err := os.Symlink(victim, link); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	if err := OverwriteAndRemove(link); err != nil {
+		t.Fatalf("OverwriteAndRemove returned error: %v", err)
+	}
+
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("symlink still exists after cleanup: %v", err)
+	}
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("read victim: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatalf("victim content changed: got %x, want %x", got, original)
 	}
 }
 

@@ -5,24 +5,46 @@ import (
 	"os"
 )
 
-// CreateSecureNoSymlink creates or truncates a file unless the leaf already exists as a symlink.
+// CreateSecureNoSymlink creates or truncates a file unless the leaf is a symlink.
 // It is the only sanctioned write-creation primitive (SEC-02): the plain CreateSecure was retired
 // so an unguarded O_CREATE that follows a pre-planted symlink cannot be reintroduced.
 func CreateSecureNoSymlink(path string) (*os.File, error) {
-	info, err := os.Lstat(path)
+	f, err := openFileNoFollow(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err == nil {
+		return f, nil
+	}
+
+	if info, lerr := os.Lstat(path); lerr == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("refusing to open symlink: %s", path)
 		}
 		if info.IsDir() {
 			return nil, fmt.Errorf("path exists as directory: %s", path)
 		}
-	} else if !os.IsNotExist(err) {
-		return nil, err
+	}
+	return nil, err
+}
+
+// OpenExistingNoSymlink opens an existing file for writes without following a
+// symlink planted at the leaf path. Callers must pass only non-creating flags.
+func OpenExistingNoSymlink(path string, flag int) (*os.File, error) {
+	if flag&os.O_CREATE != 0 {
+		return nil, fmt.Errorf("OpenExistingNoSymlink called with O_CREATE: %s", path)
+	}
+	f, err := openFileNoFollow(path, flag, 0)
+	if err == nil {
+		return f, nil
 	}
 
-	// #nosec G304 -- path is user-provided input file, validated by caller
-	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if info, lerr := os.Lstat(path); lerr == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("refusing to open symlink: %s", path)
+		}
+		if info.IsDir() {
+			return nil, fmt.Errorf("path exists as directory: %s", path)
+		}
+	}
+	return nil, err
 }
 
 // overwriteChunkSize is the working-buffer size for the zero-overwrite pass.
@@ -59,8 +81,10 @@ var removeFile = os.Remove
 // cannot reach. Like crypto.SecureZero, this significantly reduces the recovery
 // window but cannot guarantee complete erasure.
 func OverwriteAndRemove(path string) error {
-	// #nosec G304 -- path is an internal temp file, validated by caller
-	if f, err := os.OpenFile(path, os.O_WRONLY, 0); err == nil {
+	// #nosec G304 -- path is an internal temp file, validated by caller.
+	// The no-follow open is load-bearing: cleanup must never overwrite a
+	// symlink target planted at a .incomplete/.tmp path.
+	if f, err := openFileNoFollow(path, os.O_WRONLY, 0); err == nil {
 		if info, statErr := f.Stat(); statErr == nil {
 			zeros := make([]byte, overwriteChunkSize)
 			remaining := info.Size()

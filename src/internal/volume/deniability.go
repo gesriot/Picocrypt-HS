@@ -16,6 +16,8 @@ import (
 	"golang.org/x/crypto/chacha20"
 )
 
+var wipeDeniabilityTemp = fileops.OverwriteAndRemove
+
 // AddDeniability wraps a volume with a deniability layer.
 // This encrypts the entire volume with XChaCha20 using a separate key derived from the password.
 //
@@ -216,7 +218,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	// Helper to cleanup on error
 	cleanup := func() {
 		_ = fout.Close()
-		_ = os.Remove(outputPath)
+		_ = wipeDeniabilityTemp(outputPath)
 	}
 
 	// Read salt and nonce
@@ -301,26 +303,26 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	// #nosec G304 -- outputPath is derived from user-provided volumePath
 	verifyFin, err := os.Open(outputPath)
 	if err != nil {
-		_ = os.Remove(outputPath)
+		_ = wipeDeniabilityTemp(outputPath)
 		return "", fmt.Errorf("open for verification: %w", err)
 	}
 
 	versionEnc := make([]byte, 15)
 	if _, err := io.ReadFull(verifyFin, versionEnc); err != nil {
 		_ = verifyFin.Close()
-		_ = os.Remove(outputPath)
+		_ = wipeDeniabilityTemp(outputPath)
 		return "", fmt.Errorf("read version: %w", err)
 	}
 	_ = verifyFin.Close()
 
 	versionDec, err := encoding.Decode(rs.RS5, versionEnc, false)
 	if err != nil {
-		_ = os.Remove(outputPath)
+		_ = wipeDeniabilityTemp(outputPath)
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
 
 	if !header.MatchVersion(versionDec) {
-		_ = os.Remove(outputPath)
+		_ = wipeDeniabilityTemp(outputPath)
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
 
