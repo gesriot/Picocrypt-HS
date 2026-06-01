@@ -165,6 +165,19 @@ func mustContain(t *testing.T, content, substring string) {
 	}
 }
 
+func mustContainInOrder(t *testing.T, content string, substrings ...string) {
+	t.Helper()
+
+	offset := 0
+	for _, substring := range substrings {
+		index := strings.Index(content[offset:], substring)
+		if index < 0 {
+			t.Fatalf("expected workflow to contain %q after byte offset %d", substring, offset)
+		}
+		offset += index + len(substring)
+	}
+}
+
 func mustNotContain(t *testing.T, content, substring string) {
 	t.Helper()
 

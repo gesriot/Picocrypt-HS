@@ -52,6 +52,27 @@ func TestBuildPermissionsStayLeastPrivilege(t *testing.T) {
 	mustEffectivePermission(t, buildSnapcraft, mustJob(t, buildSnapcraft, "release"), "contents", "write")
 }
 
+func TestMacOSReleaseWorkflowInjectsRootVersionIntoBundleMetadata(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-macos.yml")
+	buildJob := mustJob(t, workflow, "build")
+	packageStep := mustStepNamed(t, buildJob, "Package as .app in a .dmg")
+
+	mustContain(t, packageStep.Run, `plutil -replace CFBundleShortVersionString -string "$(cat VERSION)"`)
+	mustContain(t, packageStep.Run, `plutil -replace CFBundleVersion -string "$(cat VERSION)"`)
+}
+
+func TestWindowsReleaseWorkflowPassesRootVersionToNSIS(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-windows.yml")
+	buildJob := mustJob(t, workflow, "build")
+	nsisStep := mustStepNamed(t, buildJob, "Build NSIS installer")
+
+	mustContainInOrder(t, nsisStep.Run,
+		`$version = (Get-Content -Path "VERSION" -Raw).Trim()`,
+		`makensis.exe`,
+		`"-DVERSION=$version"`,
+	)
+}
+
 func TestLinuxUPXDownloadsRemainChecksumGated(t *testing.T) {
 	for _, path := range []string{
 		".github/workflows/build-linux.yml",
