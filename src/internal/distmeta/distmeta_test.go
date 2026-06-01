@@ -147,10 +147,12 @@ func TestChangelogV210ReleaseNotesContract(t *testing.T) {
 
 	section := changelogSection(t, text, "# v2.10")
 	assertReleaseTextContains(t, "Changelog.md v2.10", section, []string{
-		"security and robustness hardening",
-		"compatibility preservation",
-		"WASM/platform/CLI closeout",
-		"release validation",
+		"Safer output cleanup",
+		"Hardened archive extraction",
+		"GUI race fixes",
+		"Clearer damaged-header errors",
+		"CLI and WASM notes",
+		"Compatibility checks",
 	})
 	assertReleaseTextAvoids(t, "Changelog.md v2.10", section, forbiddenV210ReleasePhrases())
 }
@@ -489,10 +491,12 @@ func TestMetainfoV210ReleaseHistory(t *testing.T) {
 
 	description := strings.Join(current.Description.Items, "\n")
 	assertReleaseTextContains(t, "metainfo v2.10", description, []string{
-		"security and robustness hardening",
-		"compatibility preservation",
-		"WASM/platform/CLI closeout",
-		"release validation",
+		"Safer temporary output cleanup",
+		"Hardened archive extraction",
+		"GUI race fixes",
+		"Clearer diagnostics",
+		"CLI kept-output exit code",
+		"Compatibility checks",
 	})
 	assertReleaseTextAvoids(t, "metainfo v2.10", description, forbiddenV210ReleasePhrases())
 

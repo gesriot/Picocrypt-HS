@@ -1,9 +1,11 @@
 # v2.10
 <ul>
-	<li>✓ <strong>Audit hardening</strong>: security and robustness hardening across release-critical validation paths after the completed milestone work</li>
-	<li>✓ <strong>Compatibility preservation</strong>: kept existing v2 volumes and historical v2.08/v2.09 behavior covered by compatibility checks without changing volume invariants</li>
-	<li>✓ <strong>WASM/platform/CLI closeout</strong>: finalized the reduced WASM support notes, platform guidance, and CLI closeout semantics from the audit-hardening milestone</li>
-	<li>✓ <strong>Release validation</strong>: added release-note and package-history guards so published metadata matches the v2.10 release</li>
+	<li>✓ <strong>Safer output cleanup</strong>: temporary output files are created without following symlinks, and failed operation cleanup no longer wipes a symlink target</li>
+	<li>✓ <strong>Hardened archive extraction</strong>: unpacked paths are rechecked immediately before writing, closing a symlink/path-replacement race during unzip</li>
+	<li>✓ <strong>GUI race fixes</strong>: long-running operations now update the interface through locked state snapshots instead of unsynchronized field reads</li>
+	<li>✓ <strong>Clearer damaged-header errors</strong>: preview now reports which protected header field failed to decode instead of blaming every decode failure on comments</li>
+	<li>✓ <strong>CLI and WASM notes</strong>: documented the reduced WASM surface and the CLI exit code used when decrypt output is kept after a failure</li>
+	<li>✓ <strong>Compatibility checks</strong>: v2.08/v2.09 behavior and existing v2 volume invariants are covered by release tests</li>
 </ul>
 
 # v2.09

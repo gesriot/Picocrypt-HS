@@ -39,10 +39,12 @@
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v210</url>
       <description>
         <ul>
-          <li>Security and robustness hardening across release-critical validation paths</li>
-          <li>Compatibility preservation for existing v2 volumes and historical v2.08/v2.09 behavior</li>
-          <li>WASM/platform/CLI closeout for reduced WASM support notes, platform guidance, and CLI semantics</li>
-          <li>Release validation guards keep release notes and package history aligned with v2.10</li>
+          <li>Safer temporary output cleanup that does not follow symlinks</li>
+          <li>Hardened archive extraction with path rechecks before writing</li>
+          <li>GUI race fixes for long-running operations</li>
+          <li>Clearer diagnostics for damaged protected header fields</li>
+          <li>Documented CLI kept-output exit code and reduced WASM support surface</li>
+          <li>Compatibility checks for existing v2 volumes and v2.08/v2.09 behavior</li>
         </ul>
       </description>
     </release>
