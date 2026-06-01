@@ -51,6 +51,78 @@ func encodeField(t *testing.T, rs *encoding.RSCodecs, field []byte) []byte {
 	return enc
 }
 
+func testHeaderBytes(t *testing.T, rs *encoding.RSCodecs, comments string) []byte {
+	t.Helper()
+
+	h := NewVolumeHeader(
+		bytes.Repeat([]byte{0x11}, SaltSize),
+		bytes.Repeat([]byte{0x22}, HKDFSaltSize),
+		bytes.Repeat([]byte{0x33}, SerpentIVSize),
+		bytes.Repeat([]byte{0x44}, NonceSize),
+	)
+	h.Comments = comments
+
+	var buf bytes.Buffer
+	if _, err := NewWriter(&buf, rs).WriteHeader(h); err != nil {
+		t.Fatalf("WriteHeader failed: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestReadHeaderDecodeErrorProvenanceCommentBytes(t *testing.T) {
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	raw := testHeaderBytes(t, rs, "ok")
+	commentOffset := VersionEncSize + CommentLenEncSize
+	copy(raw[commentOffset:commentOffset+3], []byte{0x00, 0x01, 0x02})
+
+	reader := NewReader(bytes.NewReader(raw), rs)
+	res, err := reader.ReadHeader()
+	if err != nil {
+		t.Fatalf("ReadHeader returned hard error: %v", err)
+	}
+	if !errors.Is(res.DecodeError, ErrCorruptedHeader) {
+		t.Fatalf("DecodeError = %v; want ErrCorruptedHeader", res.DecodeError)
+	}
+	if !res.CommentDecodeError {
+		t.Fatal("CommentDecodeError = false; want true for corrupted comment bytes")
+	}
+	if res.NonCommentDecodeError {
+		t.Fatal("NonCommentDecodeError = true; want false when only comment bytes are corrupted")
+	}
+}
+
+func TestReadHeaderDecodeErrorProvenanceNonCommentField(t *testing.T) {
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	raw := testHeaderBytes(t, rs, "ok")
+	saltOffset := VersionEncSize + CommentLenEncSize + len("ok")*3 + FlagsEncSize
+	for i := range 17 {
+		raw[saltOffset+i] ^= 0xff
+	}
+
+	reader := NewReader(bytes.NewReader(raw), rs)
+	res, err := reader.ReadHeader()
+	if err != nil {
+		t.Fatalf("ReadHeader returned hard error: %v", err)
+	}
+	if !errors.Is(res.DecodeError, ErrCorruptedHeader) {
+		t.Fatalf("DecodeError = %v; want ErrCorruptedHeader", res.DecodeError)
+	}
+	if res.CommentDecodeError {
+		t.Fatal("CommentDecodeError = true; want false for non-comment corruption")
+	}
+	if !res.NonCommentDecodeError {
+		t.Fatal("NonCommentDecodeError = false; want true for corrupted non-comment header field")
+	}
+}
+
 // TestReadHeaderRejectsBadCommentLen verifies the comment-length guard rejects
 // a non-5-digit field and, per D-02, never over-allocates. A version field
 // followed by a comment-length field that is not exactly 5 digits must return

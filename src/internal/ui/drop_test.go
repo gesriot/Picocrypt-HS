@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"bytes"
 	"errors"
 	"net/url"
 	"os"
@@ -1109,6 +1110,63 @@ func snapshotDropState(t *testing.T, a *App) dropStateSnapshot {
 	return state
 }
 
+func craftFullHeaderBytes(t *testing.T, rs *encoding.RSCodecs, comments string) []byte {
+	t.Helper()
+
+	h := header.NewVolumeHeader(
+		bytes.Repeat([]byte{0x11}, header.SaltSize),
+		bytes.Repeat([]byte{0x22}, header.HKDFSaltSize),
+		bytes.Repeat([]byte{0x33}, header.SerpentIVSize),
+		bytes.Repeat([]byte{0x44}, header.NonceSize),
+	)
+	h.Comments = comments
+
+	var buf bytes.Buffer
+	if _, err := header.NewWriter(&buf, rs).WriteHeader(h); err != nil {
+		t.Fatalf("WriteHeader failed: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestHandleDecryptDropNonCommentDecodeErrorIsHeaderDamage(t *testing.T) {
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	raw := craftFullHeaderBytes(t, rs, "visible")
+	saltOffset := header.VersionEncSize + header.CommentLenEncSize + len("visible")*3 + header.FlagsEncSize
+	for i := range 17 {
+		raw[saltOffset+i] ^= 0xff
+	}
+
+	pcvPath := filepath.Join(t.TempDir(), "non-comment-corrupt.pcv")
+	if err := os.WriteFile(pcvPath, raw, 0644); err != nil {
+		t.Fatalf("write crafted .pcv: %v", err)
+	}
+
+	fyne.DoAndWait(func() {
+		a.onDrop([]string{pcvPath})
+	})
+	waitForDropProcessing(t, a)
+
+	var comments, mainStatus string
+	fyne.DoAndWait(func() {
+		comments = a.State.Comments
+		mainStatus = a.State.MainStatus
+	})
+
+	if comments == "Comments are corrupted" {
+		t.Fatalf("Comments = %q; non-comment header corruption must not be labeled as comment damage", comments)
+	}
+	if mainStatus != "The volume header is damaged" {
+		t.Fatalf("MainStatus = %q; want %q", mainStatus, "The volume header is damaged")
+	}
+}
+
 // TestHandleDecryptDropMalformedCommentLen drops a crafted .pcv whose 5-digit
 // comment-length RS5 field decodes to a non-digit / "negative"-looking value.
 // The original hand-rolled parse did strconv.Atoi then make([]byte, n*3), which
@@ -1165,16 +1223,11 @@ func TestHandleDecryptDropMalformedCommentLen(t *testing.T) {
 			if mode != "decrypt" {
 				t.Fatalf("Mode = %q; want decrypt", mode)
 			}
-			// A graceful outcome: either the comment-length-corrupted message or
-			// a header-level status (e.g. deniable / damaged). The key invariant
-			// is no panic and no over-allocation; status must be non-empty and
-			// must not be the success "comments shown" state.
-			graceful := comments == "Comment length is corrupted" ||
-				comments == "Comments are corrupted" ||
-				mainStatus == "The volume header is damaged" ||
-				mainStatus == "Cannot read header, volume may be deniable"
-			if !graceful {
-				t.Fatalf("expected graceful corrupt status; got Comments=%q MainStatus=%q", comments, mainStatus)
+			if comments == "Comment length is corrupted" || comments == "Comments are corrupted" {
+				t.Fatalf("Comments = %q; malformed comment length is non-comment header damage", comments)
+			}
+			if mainStatus != "The volume header is damaged" {
+				t.Fatalf("MainStatus = %q; want %q", mainStatus, "The volume header is damaged")
 			}
 		})
 	}

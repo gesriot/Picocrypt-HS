@@ -46,9 +46,11 @@ func NewReader(r io.Reader, rs *encoding.RSCodecs) *Reader {
 
 // ReadResult contains the parsed header and any decoding errors encountered
 type ReadResult struct {
-	Header      *VolumeHeader
-	DecodeError error // Non-nil if any RS decode errors occurred (header may still be usable)
-	BytesRead   int   // Total bytes consumed from the reader
+	Header                *VolumeHeader
+	DecodeError           error // Non-nil if any RS decode errors occurred (header may still be usable)
+	CommentDecodeError    bool  // True if one or more comment bytes failed RS decode
+	NonCommentDecodeError bool  // True if any non-comment header field failed RS decode
+	BytesRead             int   // Total bytes consumed from the reader
 }
 
 // ReadHeader reads and decodes a complete volume header.
@@ -72,6 +74,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	versionDec, err := encoding.Decode(r.rs.RS5, versionEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 	h.Version = string(versionDec)
 
@@ -91,6 +94,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	commentLenDec, err := encoding.Decode(r.rs.RS5, commentLenEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 
 	// Validate comment length format (5 digits)
@@ -122,6 +126,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 		cDec, err := encoding.Decode(r.rs.RS1, cEnc, false)
 		if err != nil {
 			decodeErrors = append(decodeErrors, err)
+			result.CommentDecodeError = true
 		}
 		comments = append(comments, cDec...)
 	}
@@ -138,6 +143,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	flagsDec, err := encoding.Decode(r.rs.RS5, flagsEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 	h.Flags = FlagsFromBytes(flagsDec)
 
@@ -152,6 +158,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	h.Salt, err = encoding.Decode(r.rs.RS16, saltEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 
 	// Read HKDF salt (96 bytes -> 32 bytes)
@@ -165,6 +172,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	h.HKDFSalt, err = encoding.Decode(r.rs.RS32, hkdfSaltEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 
 	// Read Serpent IV (48 bytes -> 16 bytes)
@@ -178,6 +186,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	h.SerpentIV, err = encoding.Decode(r.rs.RS16, serpentIVEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 
 	// Read nonce (72 bytes -> 24 bytes)
@@ -191,6 +200,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	h.Nonce, err = encoding.Decode(r.rs.RS24, nonceEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 
 	// Read key hash (192 bytes -> 64 bytes)
@@ -204,6 +214,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	h.KeyHash, err = encoding.Decode(r.rs.RS64, keyHashEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 
 	// Read keyfile hash (96 bytes -> 32 bytes)
@@ -217,6 +228,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	h.KeyfileHash, err = encoding.Decode(r.rs.RS32, keyfileHashEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 
 	// Read auth tag (192 bytes -> 64 bytes)
@@ -230,6 +242,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 	h.AuthTag, err = encoding.Decode(r.rs.RS64, authTagEnc, false)
 	if err != nil {
 		decodeErrors = append(decodeErrors, err)
+		result.NonCommentDecodeError = true
 	}
 
 	// Set combined decode error if any occurred

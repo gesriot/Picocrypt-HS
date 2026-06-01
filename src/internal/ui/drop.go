@@ -128,7 +128,7 @@ func (a *App) onDrop(names []string) {
 
 	// Prevent race condition: ignore new drops while scanning or working
 	// This prevents multiple goroutines from simultaneously modifying AllFiles
-	if a.State.IsScanning() || a.State.Working {
+	if a.State.IsScanning() || a.State.IsWorking() {
 		return
 	}
 
@@ -346,16 +346,26 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 			a.State.MainStatus = "Cannot read header, volume may be deniable"
 			return
 		case errors.Is(err, header.ErrInvalidCommentLength):
-			// Malformed comment-length field — graceful status, no over-alloc.
-			a.State.Comments = "Comment length is corrupted"
+			// Malformed comment length is a non-comment header-field failure:
+			// it must not leave the volume looking startable.
+			a.State.MainStatus = "The volume header is damaged"
+			a.State.MainStatusColor = util.RED
+			return
 		default:
 			a.State.MainStatus = "The volume header is damaged"
 			a.State.MainStatusColor = util.RED
 			return
 		}
-	} else if res.DecodeError != nil {
-		// Header is usable but the comment characters did not RS-decode cleanly.
+	} else if res.DecodeError != nil && res.NonCommentDecodeError {
+		a.State.MainStatus = "The volume header is damaged"
+		a.State.MainStatusColor = util.RED
+		return
+	} else if res.DecodeError != nil && res.CommentDecodeError {
 		a.State.Comments = "Comments are corrupted"
+	} else if res.DecodeError != nil {
+		a.State.MainStatus = "The volume header is damaged"
+		a.State.MainStatusColor = util.RED
+		return
 	} else {
 		a.State.Comments = res.Header.Comments
 	}
