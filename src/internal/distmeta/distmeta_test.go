@@ -239,8 +239,6 @@ func oldVersionLiteralCategory(relPath string) (string, bool) {
 		return "historical changelog/release history", true
 	case relPath == "CLI.md":
 		return "legacy snapshot", true
-		return "legacy snapshot", true
-		return "legacy snapshot", true
 	case strings.HasPrefix(relPath, "src/testdata/golden/"):
 		return "compatibility fixture", true
 	case relPath == "src/internal/volume/golden_test.go":
