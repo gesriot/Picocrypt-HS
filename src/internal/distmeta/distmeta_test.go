@@ -251,6 +251,8 @@ func oldVersionLiteralCategory(relPath string) (string, bool) {
 		return "old-version test input", true
 	case relPath == "src/internal/cli/version_test.go":
 		return "old-version test input", true
+	case relPath == "src/internal/header/format_test.go":
+		return "old-version test input", true
 	case relPath == "src/internal/header/reader_test.go":
 		return "old-version test input", true
 	case relPath == "src/internal/ui/drop_test.go":
