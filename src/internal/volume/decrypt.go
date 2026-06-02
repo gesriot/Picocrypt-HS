@@ -21,6 +21,10 @@ import (
 
 var unpackArchive = fileops.Unpack
 
+// newPayloadReader is identity in production; tests replace it to inject short
+// reads and check that the io.ReadFull loops reassemble full blocks.
+var newPayloadReader = func(r io.Reader) io.Reader { return r }
+
 // rsEncodedBlockSize is the on-disk byte size of a single Reed-Solomon-encoded
 // 1 MiB payload block: each 128-byte (RS128DataSize) plaintext chunk encodes to
 // 136 bytes (RS128EncodedSize), so a 1 MiB block expands to 1,114,112 bytes.
@@ -483,12 +487,14 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 	}
 	src := make([]byte, srcBufSize)
 
+	reader := newPayloadReader(io.Reader(fin))
+
 	for {
 		if ctx.IsCancelled() {
 			return ctx.CancellationError()
 		}
 
-		n, readErr := fin.Read(src)
+		n, readErr := io.ReadFull(reader, src)
 		if n > 0 {
 			srcData := src[:n]
 			var data []byte
@@ -528,7 +534,7 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 			// MAC across the 60 GiB rekey boundary without any rekeying.
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {
@@ -660,12 +666,14 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	dst := util.GetMiBBuffer()      // Decrypted data is always <= 1 MiB
 	defer util.PutMiBBuffer(dst)
 
+	reader := newPayloadReader(io.Reader(fin))
+
 	for {
 		if ctx.IsCancelled() {
 			return ctx.CancellationError()
 		}
 
-		n, readErr := fin.Read(src)
+		n, readErr := io.ReadFull(reader, src)
 		if n > 0 {
 			srcData := src[:n]
 			var data []byte
@@ -695,7 +703,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 			} else {
 				done += int64(n)
 			}
-			counter += int64(len(data))
+			counter += int64(util.MiB)
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress, fmt.Sprintf("%.2f%%", progress*100))
@@ -714,7 +722,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 			}
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {

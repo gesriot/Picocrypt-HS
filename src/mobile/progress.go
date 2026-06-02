@@ -19,15 +19,15 @@ type ProgressState struct {
 
 // progressMap stores progress state for all active operations
 type progressMap struct {
-	mu   sync.RWMutex
-	ops  map[string]*ProgressState
-	ctxs map[string]context.Context
+	mu      sync.RWMutex
+	ops     map[string]*ProgressState
+	ctxs    map[string]context.Context
 	cancels map[string]context.CancelFunc
 }
 
 var globalProgressMap = &progressMap{
-	ops:  make(map[string]*ProgressState),
-	ctxs:  make(map[string]context.Context),
+	ops:     make(map[string]*ProgressState),
+	ctxs:    make(map[string]context.Context),
 	cancels: make(map[string]context.CancelFunc),
 }
 
@@ -40,10 +40,10 @@ func newOperationID() string {
 func startOperation() (string, context.Context, context.CancelFunc) {
 	id := newOperationID()
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	globalProgressMap.mu.Lock()
 	defer globalProgressMap.mu.Unlock()
-	
+
 	globalProgressMap.ops[id] = &ProgressState{
 		ID:       id,
 		Status:   "Starting...",
@@ -54,7 +54,7 @@ func startOperation() (string, context.Context, context.CancelFunc) {
 	}
 	globalProgressMap.ctxs[id] = ctx
 	globalProgressMap.cancels[id] = cancel
-	
+
 	return id, ctx, cancel
 }
 
@@ -62,7 +62,7 @@ func startOperation() (string, context.Context, context.CancelFunc) {
 func updateProgress(id string, status string, progress float32, info string) {
 	globalProgressMap.mu.Lock()
 	defer globalProgressMap.mu.Unlock()
-	
+
 	if op, exists := globalProgressMap.ops[id]; exists {
 		op.Status = status
 		op.Progress = progress
@@ -74,7 +74,7 @@ func updateProgress(id string, status string, progress float32, info string) {
 func completeOperation(id string, err error) {
 	globalProgressMap.mu.Lock()
 	defer globalProgressMap.mu.Unlock()
-	
+
 	if op, exists := globalProgressMap.ops[id]; exists {
 		if op.Status == "Cancelled" {
 			op.Done = true
@@ -100,7 +100,7 @@ func getProgress(id string) (*ProgressState, error) {
 	if !exists {
 		return nil, fmt.Errorf("operation %s not found", id)
 	}
-	
+
 	// Return a copy to avoid race conditions
 	return &ProgressState{
 		ID:       op.ID,
@@ -116,18 +116,18 @@ func getProgress(id string) (*ProgressState, error) {
 func cancelOperation(id string) error {
 	globalProgressMap.mu.Lock()
 	defer globalProgressMap.mu.Unlock()
-	
+
 	cancel, exists := globalProgressMap.cancels[id]
 	if !exists {
 		return fmt.Errorf("operation %s not found", id)
 	}
-	
+
 	cancel()
 	if op, exists := globalProgressMap.ops[id]; exists {
 		op.Status = "Cancelled"
 		op.Done = true
 	}
-	
+
 	return nil
 }
 
@@ -135,7 +135,7 @@ func cancelOperation(id string) error {
 func getContext(id string) (context.Context, bool) {
 	globalProgressMap.mu.RLock()
 	defer globalProgressMap.mu.RUnlock()
-	
+
 	ctx, exists := globalProgressMap.ctxs[id]
 	return ctx, exists
 }
@@ -144,7 +144,7 @@ func getContext(id string) (context.Context, bool) {
 func cleanupOperation(id string) {
 	globalProgressMap.mu.Lock()
 	defer globalProgressMap.mu.Unlock()
-	
+
 	delete(globalProgressMap.ops, id)
 	delete(globalProgressMap.ctxs, id)
 	delete(globalProgressMap.cancels, id)

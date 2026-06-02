@@ -320,7 +320,21 @@ func (r *Reader) ReadHeaderRaw() (*ReadHeaderRawResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode comment length: %w", err)
 	}
+
+	// SEC-01/D-02: validate the comment-length field before it sizes the
+	// allocation below. This mirrors the guard in ReadHeader: the ^\d{5}$
+	// match caps the value to [0, 99999] and forbids '-', and the explicit
+	// MaxCommentLen bound is defense-in-depth. Without it a crafted/corrupt
+	// length (e.g. a decoded "-0001") reaches make([]byte, 0, commentsLen)
+	// with a negative value and panics — a pre-auth crash, since the length is
+	// trusted here before any header MAC is verified.
+	if !commentLenRE.Match(commentLenDec) {
+		return nil, ErrInvalidCommentLength
+	}
 	commentsLen, _ := strconv.Atoi(string(commentLenDec))
+	if commentsLen < 0 || commentsLen > MaxCommentLen {
+		return nil, ErrInvalidCommentLength
+	}
 	raw.CommentsLen = commentsLen
 
 	// Read comments (track corruption but continue reading)

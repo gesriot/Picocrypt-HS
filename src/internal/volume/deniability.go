@@ -18,6 +18,12 @@ import (
 
 var wipeDeniabilityTemp = fileops.OverwriteAndRemove
 
+// newDeniabilityReader is identity in production; tests replace it to inject
+// short reads and verify the io.ReadFull loops pin the rekey boundary to a
+// fixed block count regardless of read chunking. Mirrors newPayloadReader in
+// decrypt.go for the main payload path.
+var newDeniabilityReader = func(r io.Reader) io.Reader { return r }
+
 // AddDeniability wraps a volume with a deniability layer.
 // This encrypts the entire volume with XChaCha20 using a separate key derived from the password.
 //
@@ -106,8 +112,10 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	dst := util.GetMiBBuffer()
 	defer util.PutMiBBuffer(dst)
 
+	reader := newDeniabilityReader(io.Reader(fin))
+
 	for {
-		n, readErr := fin.Read(buf)
+		n, readErr := io.ReadFull(reader, buf)
 		if n > 0 {
 			cipher.XORKeyStream(dst[:n], buf[:n])
 
@@ -117,7 +125,12 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 			}
 
 			done += int64(n)
-			counter += int64(n)
+			// Pin the rekey boundary to a fixed block count regardless of read
+			// chunking: io.ReadFull delivers full MiB blocks, so the counter
+			// advances by util.MiB per block. The threshold is a MiB multiple
+			// and only crossable on a full block, so the final partial block's
+			// over-count is irrelevant (the loop breaks at EOF).
+			counter += int64(util.MiB)
 
 			if reporter != nil {
 				reporter.SetProgress(float32(done)/float32(total), "")
@@ -135,7 +148,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 			}
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {
@@ -252,8 +265,10 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	dst := util.GetMiBBuffer()
 	defer util.PutMiBBuffer(dst)
 
+	reader := newDeniabilityReader(io.Reader(fin))
+
 	for {
-		n, readErr := fin.Read(buf)
+		n, readErr := io.ReadFull(reader, buf)
 		if n > 0 {
 			cipher.XORKeyStream(dst[:n], buf[:n])
 
@@ -263,7 +278,10 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 			}
 
 			done += int64(n)
-			counter += int64(n)
+			// Pin the rekey boundary to a fixed block count (see AddDeniability):
+			// io.ReadFull delivers full MiB blocks, so the rekey offset is
+			// independent of how the underlying reader chunks its reads.
+			counter += int64(util.MiB)
 
 			if reporter != nil {
 				reporter.SetProgress(float32(done)/float32(total), "")
@@ -281,7 +299,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 			}
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {

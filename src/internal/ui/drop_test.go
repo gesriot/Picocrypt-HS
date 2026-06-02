@@ -719,6 +719,59 @@ func TestScheduleStartupPathsAlwaysWiresStartHook(t *testing.T) {
 	}
 }
 
+// TestScheduleStartupPathsAppliesWarmOpenedPaths covers issue #127: a path opened
+// while the app is already running (a warm application:openURLs: event, simulated
+// here by appendOpenedPath after the lifecycle start hook fired) must be drained
+// and applied through the normal drop handler. Before the event-driven wiring,
+// drainOpenedPaths ran exactly once inside the start hook, so any path arriving
+// afterward was silently lost — the app merely came to the foreground.
+func TestScheduleStartupPathsAppliesWarmOpenedPaths(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+
+	// Reset package-global bridge state: other tests fire the start hook and leave
+	// a notify handler registered.
+	setOpenedPathsNotify(nil)
+	drainOpenedPaths()
+	t.Cleanup(func() {
+		setOpenedPathsNotify(nil)
+		drainOpenedPaths()
+	})
+
+	fyneApp := newTestFyneApp(t)
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	inputFile := filepath.Join(t.TempDir(), "warm-open.txt")
+	if err := os.WriteFile(inputFile, []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	fake := newLifecycleCaptureApp(fyne.CurrentApp())
+	a.fyneApp = fake
+
+	a.scheduleStartupPaths(nil)
+	if fake.started == nil {
+		t.Fatal("expected startup hook to be registered")
+	}
+
+	// Fire the start hook with nothing buffered: still no input applied.
+	fake.started()
+	waitForDropProcessing(t, a)
+	if state := snapshotDropState(t, a); state.InputFile != "" {
+		t.Fatalf("InputFile = %q before any opened path; want empty", state.InputFile)
+	}
+
+	// A warm openURLs event arrives after launch.
+	appendOpenedPath(inputFile)
+	fyne.DoAndWait(func() {}) // barrier: let the notify-scheduled fyne.Do run
+	waitForDropProcessing(t, a)
+
+	if state := snapshotDropState(t, a); state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q after warm opened path; want %q", state.InputFile, inputFile)
+	}
+}
+
 // TestKeyfileDropHandling tests keyfile drop in keyfile modal.
 func TestKeyfileDropHandling(t *testing.T) {
 	t.Run("AddUniqueKeyfiles", func(t *testing.T) {

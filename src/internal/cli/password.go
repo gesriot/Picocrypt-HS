@@ -21,6 +21,15 @@ func isTerminal() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
+// captureTerminalState records the current tty mode so the signal handler can
+// restore it if SIGINT arrives during a no-echo password read. A GetState error
+// (e.g. fd is not a tty) stores nothing, leaving restore a no-op.
+func captureTerminalState() {
+	if st, err := term.GetState(int(os.Stdin.Fd())); err == nil {
+		savedTerminalState.Store(st)
+	}
+}
+
 func readPasswordLine(reader *bufio.Reader) (string, error) {
 	pw, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -47,6 +56,11 @@ func readPasswordSecure(prompt string) (string, error) {
 		return pw, nil
 	}
 
+	// Terminal mode: capture the current tty state so a SIGINT during the
+	// no-echo read can be restored by the signal handler (os.Exit skips
+	// term.ReadPassword's own deferred restore).
+	captureTerminalState()
+
 	// Terminal mode: disable echo
 	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr) // newline after hidden input
@@ -60,6 +74,10 @@ func readPasswordSecure(prompt string) (string, error) {
 // If confirm is true, asks for confirmation (for encryption).
 // If allowEmpty is true, empty password is allowed (useful when keyfiles provide credentials).
 func ReadPasswordInteractive(confirm, allowEmpty bool) (string, error) {
+	// Once the prompt(s) have returned normally, clear the saved tty state so a
+	// later unrelated signal does not re-poke the terminal.
+	defer savedTerminalState.Store(nil)
+
 	password, err := readPasswordSecure("Password: ")
 	if err != nil {
 		return "", err

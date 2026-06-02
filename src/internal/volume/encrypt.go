@@ -337,6 +337,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	if ctx.TempZipInUse && ctx.TempCiphers != nil {
 		reader = fileops.WrapReaderWithCipher(fin, ctx.TempCiphers)
 	}
+	reader = newPayloadReader(reader)
 
 	// Encrypt loop
 	ctx.SetCanCancel(true)
@@ -355,7 +356,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			return ctx.CancellationError()
 		}
 
-		n, readErr := reader.Read(src)
+		n, readErr := io.ReadFull(reader, src)
 		if n > 0 {
 			srcData := src[:n]
 			dstData := dst[:n]
@@ -380,7 +381,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			}
 
 			done += int64(n)
-			counter += int64(n)
+			counter += int64(util.MiB)
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress, fmt.Sprintf("%.2f%%", progress*100))
@@ -395,7 +396,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			}
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {

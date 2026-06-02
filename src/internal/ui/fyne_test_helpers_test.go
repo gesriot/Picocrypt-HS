@@ -22,19 +22,45 @@ func mustNewState(t *testing.T) *app.State {
 	return s
 }
 
-// TestMain pre-warms Fyne's process-global font-metric cache before any
-// parallel test goroutines start. Fyne v2.7.3's internal/cache/base.go
-// `setAlive` is racy on first writes (verified via -race detector during
-// concurrent test.NewApp + MeasureText calls), and the cache is shared
-// across all test.NewApp instances. Running one MeasureText in TestMain
-// populates the cache serially, so subsequent parallel tests only read.
+// asciiWarmup is every printable-ASCII rune (0x20..0x7e). Measuring it populates
+// one cmapCache bucket per rune&0xFF; since printable ASCII has distinct low
+// bytes, warming it covers every bucket the Latin UI text in these tests can
+// touch, so later measurements only read warmed buckets.
+func asciiWarmup() string {
+	b := make([]byte, 0, 0x7e-0x20+1)
+	for c := byte(0x20); c <= 0x7e; c++ {
+		b = append(b, c)
+	}
+	return string(b)
+}
+
+// TestMain pre-warms Fyne's process-global font Face cache before any test
+// measures text. The Face's cmapCache is a lock-free [256]uint32 keyed by
+// rune&0xFF (go-text typesetting cmap_cache.go) shared across every
+// test.NewApp; a first-write racing a concurrent read trips the -race detector
+// (the CI amd64 matrix). MeasureText and the harfbuzz shaping path used by
+// Entry/RichText both populate it via Face.NominalGlyph, so warming via
+// MeasureText covers both readers.
+//
+// The warmup must COMPLETE before m.Run starts. fyne.DoAndWait only blocks when
+// called off the main goroutine: the test driver's EnsureNotMain runs the func
+// inline when off-main, but on the main goroutine (where TestMain runs) it logs
+// a thread violation and fires the func on a new, un-awaited goroutine — which
+// leaves the warmup racing the first test (the exact G14-vs-G15 stack the
+// -race job reported). Running the warmup from a child goroutine forces the
+// synchronous inline path; <-done then guarantees it finished before any test.
 func TestMain(m *testing.M) {
 	app := test.NewApp()
-	fyne.DoAndWait(func() {
-		// Trigger font metric cache population on the common path.
-		_ = fyne.MeasureText("Picocrypt NG 2.09", 14, fyne.TextStyle{})
-		_ = fyne.MeasureText("Picocrypt NG 2.09", 14, fyne.TextStyle{Bold: true})
-	})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fyne.DoAndWait(func() {
+			ascii := asciiWarmup()
+			_ = fyne.MeasureText(ascii, 14, fyne.TextStyle{})
+			_ = fyne.MeasureText(ascii, 14, fyne.TextStyle{Bold: true})
+		})
+	}()
+	<-done
 	app.Quit()
 	os.Exit(m.Run())
 }
