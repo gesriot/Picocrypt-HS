@@ -61,6 +61,33 @@ func TestMacOSReleaseWorkflowInjectsRootVersionIntoBundleMetadata(t *testing.T) 
 	mustContain(t, packageStep.Run, `plutil -replace CFBundleVersion -string "$(cat VERSION)"`)
 }
 
+func TestMacOSReleaseWorkflowPublishesCLIFromFlatArtifact(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-macos.yml")
+	buildJob := mustJob(t, workflow, "build")
+	releaseJob := mustJob(t, workflow, "release")
+
+	stageStep := mustStepNamed(t, buildJob, "Stage release artifacts")
+	mustContain(t, stageStep.Run, "cp Picocrypt-NG.dmg release-staging/")
+	mustContain(t, stageStep.Run, "cp src/Picocrypt-NG-cli-macos release-staging/")
+	mustContain(t, stageStep.Run, "test -s release-staging/Picocrypt-NG-cli-macos")
+
+	uploadStep := mustStepNamed(t, buildJob, "Upload artifacts")
+	if uploadStep.With["path"] != "release-staging/" {
+		t.Fatalf("macOS upload artifact path = %#v, want flat release-staging/", uploadStep.With["path"])
+	}
+
+	checksumStep := mustStepNamed(t, releaseJob, "Generate checksums")
+	mustContain(t, checksumStep.Run, "set -euo pipefail")
+	mustContain(t, checksumStep.Run, "test -s artifacts/build-macos/Picocrypt-NG-cli-macos")
+
+	releaseStep := mustHaveStepUsingPrefix(t, releaseJob, "softprops/action-gh-release@")
+	files, ok := releaseStep.With["files"].(string)
+	if !ok {
+		t.Fatalf("macOS release files input = %#v, want string", releaseStep.With["files"])
+	}
+	mustContain(t, files, "artifacts/build-macos/Picocrypt-NG-cli-macos")
+}
+
 func TestWindowsReleaseWorkflowPassesRootVersionToNSIS(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-windows.yml")
 	buildJob := mustJob(t, workflow, "build")

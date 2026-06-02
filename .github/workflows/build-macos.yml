@@ -95,13 +95,19 @@ jobs:
         cp -R Picocrypt-NG.app out
         hdiutil create Picocrypt-NG.dmg -volname Picocrypt-NG -fs APFS -format UDZO -srcfolder out
 
+    - name: Stage release artifacts
+      run: |
+        mkdir release-staging
+        cp Picocrypt-NG.dmg release-staging/
+        cp src/Picocrypt-NG-cli-macos release-staging/
+        test -s release-staging/Picocrypt-NG.dmg
+        test -s release-staging/Picocrypt-NG-cli-macos
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v7
       with:
         name: build-macos
-        path: |
-          Picocrypt-NG.dmg
-          src/Picocrypt-NG-cli-macos
+        path: release-staging/
         if-no-files-found: error
         compression-level: 9
 
@@ -126,6 +132,9 @@ jobs:
 
     - name: Generate checksums
       run: |
+        set -euo pipefail
+        test -s artifacts/build-macos/Picocrypt-NG.dmg
+        test -s artifacts/build-macos/Picocrypt-NG-cli-macos
         HASH=$(sha256sum artifacts/build-macos/Picocrypt-NG.dmg | cut -d ' ' -f1)
         echo "CHECKSUM_PICOCRYPT_NG=$HASH" >> $GITHUB_ENV
         HASH_CLI=$(sha256sum artifacts/build-macos/Picocrypt-NG-cli-macos | cut -d ' ' -f1)
