@@ -107,6 +107,12 @@ func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-snapcraft.yml")
 	buildJob := mustJob(t, workflow, "build-snapcraft")
 	smokeStep := mustStepNamed(t, buildJob, "Smoke-test snap command")
+	if smokeStep.Env["LANG"] != "C.UTF-8" {
+		t.Fatalf("snap smoke-test LANG = %q, want C.UTF-8", smokeStep.Env["LANG"])
+	}
+	if smokeStep.Env["LC_ALL"] != "C.UTF-8" {
+		t.Fatalf("snap smoke-test LC_ALL = %q, want C.UTF-8", smokeStep.Env["LC_ALL"])
+	}
 	mustContain(t, smokeStep.Run, "sudo snap install --dangerous out/*.snap")
 	mustContain(t, smokeStep.Run, "snap run picocrypt-ng --version")
 }

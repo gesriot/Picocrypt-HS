@@ -52,6 +52,9 @@ jobs:
         mv src/*.snap out/
 
     - name: Smoke-test snap command
+      env:
+        LANG: C.UTF-8
+        LC_ALL: C.UTF-8
       run: |
         sudo snap install --dangerous out/*.snap
         snap run picocrypt-ng --version
