@@ -49,7 +49,7 @@ type encryptedReader struct {
 func (er *encryptedReader) Read(data []byte) (int, error) {
 	src := make([]byte, len(data))
 	n, err := er.r.Read(src)
-	if err == nil && n > 0 {
+	if n > 0 {
 		dst := make([]byte, n)
 		er.cipher.XORKeyStream(dst, src[:n])
 		copy(data, dst)
