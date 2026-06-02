@@ -3,7 +3,6 @@ package volume
 import (
 	"archive/zip"
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 )
 
 // GoldenTestReporter is a minimal reporter for testing
@@ -147,10 +147,10 @@ var goldenCompressedTestCases = []struct {
 }
 
 var goldenKeyfileTestCases = []struct {
-	name          string
-	file          string
-	password      string
-	keyfiles      []string
+	name           string
+	file           string
+	password       string
+	keyfiles       []string
 	keyfileOrdered bool
 }{
 	{
@@ -588,7 +588,7 @@ func TestGoldenKeyfileHeaderFlags(t *testing.T) {
 	}
 
 	testCases := []struct {
-		file          string
+		file           string
 		keyfileOrdered bool
 	}{
 		{file: "pico_test_v2_keyfile_single.txt.pcv", keyfileOrdered: false},
@@ -643,7 +643,9 @@ func TestGoldenV1Detection(t *testing.T) {
 
 	// Read version
 	versionEnc := make([]byte, 15)
-	_, _ = fin.Read(versionEnc)
+	if _, err := io.ReadFull(fin, versionEnc); err != nil {
+		t.Fatalf("Failed to read version header: %v", err)
+	}
 
 	versionDec, err := encoding.Decode(rsCodecs.RS5, versionEnc, false)
 	if err != nil {
@@ -653,7 +655,7 @@ func TestGoldenV1Detection(t *testing.T) {
 	version := string(versionDec)
 	t.Logf("V1 file version: %s", version)
 
-	if version[0:2] != "v1" {
+	if !strings.HasPrefix(version, "v1") {
 		t.Errorf("Expected v1.x version, got: %s", version)
 	}
 }
@@ -680,7 +682,9 @@ func TestGoldenV2Detection(t *testing.T) {
 
 	// Read version
 	versionEnc := make([]byte, 15)
-	_, _ = fin.Read(versionEnc)
+	if _, err := io.ReadFull(fin, versionEnc); err != nil {
+		t.Fatalf("Failed to read version header: %v", err)
+	}
 
 	versionDec, err := encoding.Decode(rsCodecs.RS5, versionEnc, false)
 	if err != nil {
@@ -690,7 +694,7 @@ func TestGoldenV2Detection(t *testing.T) {
 	version := string(versionDec)
 	t.Logf("V2 file version: %s", version)
 
-	if version[0:2] != "v2" {
+	if !strings.HasPrefix(version, "v2") {
 		t.Errorf("Expected v2.x version, got: %s", version)
 	}
 }
@@ -957,184 +961,9 @@ func goldenFixturePaths(testdataPath string, names []string) []string {
 	return paths
 }
 
-// NewHeaderReaderForTest creates a header reader for testing
-// This is a workaround to access header.Reader from the volume package
-func NewHeaderReaderForTest(r *os.File, rs *encoding.RSCodecs) *headerReaderWrapper {
-	return &headerReaderWrapper{r: r, rs: rs}
-}
-
-type headerReaderWrapper struct {
-	r  *os.File
-	rs *encoding.RSCodecs
-}
-
-type headerReadResult struct {
-	Header      *volumeHeader
-	DecodeError error
-}
-
-type volumeHeader struct {
-	Version     string
-	Comments    string
-	Flags       volumeFlags
-	Salt        []byte
-	HKDFSalt    []byte
-	SerpentIV   []byte
-	Nonce       []byte
-	KeyHash     []byte
-	KeyfileHash []byte
-	AuthTag     []byte
-}
-
-type volumeFlags struct {
-	Paranoid       bool
-	UseKeyfiles    bool
-	KeyfileOrdered bool
-	ReedSolomon    bool
-	Padded         bool
-}
-
-func (r *headerReaderWrapper) ReadHeader() (*headerReadResult, error) {
-	result := &headerReadResult{
-		Header: &volumeHeader{},
-	}
-	h := result.Header
-	var decodeErrors []error
-
-	// Read version (15 bytes -> 5 bytes)
-	versionEnc := make([]byte, 15)
-	if _, err := io.ReadFull(r.r, versionEnc); err != nil {
-		return nil, err
-	}
-	versionDec, err := encoding.Decode(r.rs.RS5, versionEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-	h.Version = string(versionDec)
-
-	// Read comment length (15 bytes -> 5 bytes)
-	commentLenEnc := make([]byte, 15)
-	if _, err := io.ReadFull(r.r, commentLenEnc); err != nil {
-		return nil, err
-	}
-	commentLenDec, err := encoding.Decode(r.rs.RS5, commentLenEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-
-	var commentsLen int
-	for _, b := range commentLenDec {
-		if b >= '0' && b <= '9' {
-			commentsLen = commentsLen*10 + int(b-'0')
-		}
-	}
-
-	// Read comments
-	comments := make([]byte, 0, commentsLen)
-	for i := 0; i < commentsLen; i++ {
-		cEnc := make([]byte, 3)
-		if _, err := io.ReadFull(r.r, cEnc); err != nil {
-			return nil, fmt.Errorf("read comment byte %d: %w", i, err)
-		}
-		cDec, err := encoding.Decode(r.rs.RS1, cEnc, false)
-		if err != nil {
-			decodeErrors = append(decodeErrors, err)
-		}
-		comments = append(comments, cDec...)
-	}
-	h.Comments = string(comments)
-
-	// Read flags (15 bytes -> 5 bytes)
-	flagsEnc := make([]byte, 15)
-	if _, err := io.ReadFull(r.r, flagsEnc); err != nil {
-		return nil, fmt.Errorf("read flags: %w", err)
-	}
-	flagsDec, err := encoding.Decode(r.rs.RS5, flagsEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-	if len(flagsDec) >= 5 {
-		h.Flags.Paranoid = flagsDec[0] == 1
-		h.Flags.UseKeyfiles = flagsDec[1] == 1
-		h.Flags.KeyfileOrdered = flagsDec[2] == 1
-		h.Flags.ReedSolomon = flagsDec[3] == 1
-		h.Flags.Padded = flagsDec[4] == 1
-	}
-
-	// Read salt (48 bytes -> 16 bytes)
-	saltEnc := make([]byte, 48)
-	if _, err := io.ReadFull(r.r, saltEnc); err != nil {
-		return nil, fmt.Errorf("read salt: %w", err)
-	}
-	h.Salt, err = encoding.Decode(r.rs.RS16, saltEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-
-	// Read HKDF salt (96 bytes -> 32 bytes)
-	hkdfSaltEnc := make([]byte, 96)
-	if _, err := io.ReadFull(r.r, hkdfSaltEnc); err != nil {
-		return nil, fmt.Errorf("read hkdf salt: %w", err)
-	}
-	h.HKDFSalt, err = encoding.Decode(r.rs.RS32, hkdfSaltEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-
-	// Read Serpent IV (48 bytes -> 16 bytes)
-	serpentIVEnc := make([]byte, 48)
-	if _, err := io.ReadFull(r.r, serpentIVEnc); err != nil {
-		return nil, fmt.Errorf("read serpent iv: %w", err)
-	}
-	h.SerpentIV, err = encoding.Decode(r.rs.RS16, serpentIVEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-
-	// Read nonce (72 bytes -> 24 bytes)
-	nonceEnc := make([]byte, 72)
-	if _, err := io.ReadFull(r.r, nonceEnc); err != nil {
-		return nil, fmt.Errorf("read nonce: %w", err)
-	}
-	h.Nonce, err = encoding.Decode(r.rs.RS24, nonceEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-
-	// Read key hash (192 bytes -> 64 bytes)
-	keyHashEnc := make([]byte, 192)
-	if _, err := io.ReadFull(r.r, keyHashEnc); err != nil {
-		return nil, fmt.Errorf("read key hash: %w", err)
-	}
-	h.KeyHash, err = encoding.Decode(r.rs.RS64, keyHashEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-
-	// Read keyfile hash (96 bytes -> 32 bytes)
-	keyfileHashEnc := make([]byte, 96)
-	if _, err := io.ReadFull(r.r, keyfileHashEnc); err != nil {
-		return nil, fmt.Errorf("read keyfile hash: %w", err)
-	}
-	h.KeyfileHash, err = encoding.Decode(r.rs.RS32, keyfileHashEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-
-	// Read auth tag (192 bytes -> 64 bytes)
-	authTagEnc := make([]byte, 192)
-	if _, err := io.ReadFull(r.r, authTagEnc); err != nil {
-		return nil, fmt.Errorf("read auth tag: %w", err)
-	}
-	h.AuthTag, err = encoding.Decode(r.rs.RS64, authTagEnc, false)
-	if err != nil {
-		decodeErrors = append(decodeErrors, err)
-	}
-
-	// Set combined decode error if any occurred
-	if len(decodeErrors) > 0 {
-		result.DecodeError = decodeErrors[0] // Report first error
-	}
-
-	return result, nil
+// NewHeaderReaderForTest returns the production header reader so golden tests
+// exercise the real, audited parser (with its D-02 comment-length bound and RS
+// field widths) instead of a hand-rolled copy that could silently drift from it.
+func NewHeaderReaderForTest(r io.Reader, rs *encoding.RSCodecs) *header.Reader {
+	return header.NewReader(r, rs)
 }
