@@ -459,10 +459,13 @@ func TestSnapcraftBuildInstallsDeclaredCommand(t *testing.T) {
 	data := mustReadFile(t, "dist/snapcraft/snapcraft.yaml")
 	var snap struct {
 		Apps map[string]struct {
-			Command string `yaml:"command"`
+			Command    string   `yaml:"command"`
+			Extensions []string `yaml:"extensions"`
 		} `yaml:"apps"`
-		Parts map[string]struct {
-			OverrideBuild string `yaml:"override-build"`
+		Compression string `yaml:"compression"`
+		Parts       map[string]struct {
+			OverrideBuild string   `yaml:"override-build"`
+			StagePackages []string `yaml:"stage-packages"`
 		} `yaml:"parts"`
 	}
 	if err := yaml.Unmarshal(data, &snap); err != nil {
@@ -477,6 +480,9 @@ func TestSnapcraftBuildInstallsDeclaredCommand(t *testing.T) {
 	if app.Command != command {
 		t.Fatalf("snap command = %q, want %q", app.Command, command)
 	}
+	if !containsString(app.Extensions, "gnome") {
+		t.Fatalf("snap app extensions = %v, want gnome extension for desktop runtime content snap", app.Extensions)
+	}
 
 	part, ok := snap.Parts["picocrypt-ng"]
 	if !ok {
@@ -485,6 +491,36 @@ func TestSnapcraftBuildInstallsDeclaredCommand(t *testing.T) {
 	if !strings.Contains(part.OverrideBuild, `"$CRAFT_PART_INSTALL/bin/Picocrypt-NG"`) {
 		t.Fatalf("snap override-build does not install declared command %q", command)
 	}
+
+	if snap.Compression != "xz" {
+		t.Fatalf("snap compression = %q, want explicit xz for release-size stability", snap.Compression)
+	}
+
+	heavyRuntimePackages := map[string]bool{
+		"adwaita-icon-theme":  true,
+		"humanity-icon-theme": true,
+		"libgl1":              true,
+		"libgl1-mesa-dri":     true,
+		"libglu1-mesa":        true,
+		"libgtk-3-0":          true,
+		"libicu70":            true,
+		"libllvm15":           true,
+		"ubuntu-mono":         true,
+	}
+	for _, pkg := range part.StagePackages {
+		if heavyRuntimePackages[pkg] {
+			t.Fatalf("snap stage-packages must not bundle heavy desktop runtime package %q; rely on the GNOME content snap", pkg)
+		}
+	}
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // plistValue is a parsed plist value: string, bool, int, []plistValue, or plistDict.

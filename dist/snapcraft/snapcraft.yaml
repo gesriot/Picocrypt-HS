@@ -5,6 +5,7 @@ version: "2.10"
 confinement: strict
 base: core22
 grade: stable
+compression: xz
 
 apps:
   picocrypt-ng:
@@ -57,12 +58,3 @@ parts:
       - libffi-dev
     build-snaps:
       - go
-    stage-packages:
-      - libc6
-      - libgcc-s1
-      - libgl1
-      - libglu1-mesa
-      - libgtk-3-0
-      - libstdc++6
-      - libx11-6
-      - libffi7
