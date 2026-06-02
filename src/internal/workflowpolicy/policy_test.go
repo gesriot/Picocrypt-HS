@@ -103,6 +103,14 @@ func TestSnapcraftActionPinnedToFullSHA(t *testing.T) {
 	mustMatch(t, buildStep.Uses, `snapcore/action-build@[0-9a-f]{40}`)
 }
 
+func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-snapcraft.yml")
+	buildJob := mustJob(t, workflow, "build-snapcraft")
+	smokeStep := mustStepNamed(t, buildJob, "Smoke-test snap command")
+	mustContain(t, smokeStep.Run, "sudo snap install --dangerous out/*.snap")
+	mustContain(t, smokeStep.Run, "snap run picocrypt-ng --version")
+}
+
 func TestAndroidPRWorkflowStaysFastAndCompileFocused(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/pr-test-build-android.yml")
 	mustContain(t, content, "Run Unit Tests")

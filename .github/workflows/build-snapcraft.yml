@@ -51,6 +51,11 @@ jobs:
         mkdir -p out
         mv src/*.snap out/
 
+    - name: Smoke-test snap command
+      run: |
+        sudo snap install --dangerous out/*.snap
+        snap run picocrypt-ng --version
+
     - name: Upload .snap artifacts
       uses: actions/upload-artifact@v7
       with:
