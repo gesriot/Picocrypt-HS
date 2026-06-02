@@ -5,8 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
+
+	"Picocrypt-NG/internal/fileops"
 )
 
 func TestIsStdin(t *testing.T) {
@@ -275,6 +278,113 @@ func TestStreamFileToStdoutNonexistent(t *testing.T) {
 	err := StreamFileToStdout("/nonexistent/file/path")
 	if err == nil {
 		t.Error("expected error for nonexistent file")
+	}
+}
+
+// TestWipeTempFileDefaultsToSecurePrimitive ensures the production default of the
+// wipeTempFile seam is the zero-overwrite primitive, not a bare os.Remove. The
+// routing tests below swap the seam, so without this check a regression that
+// rebound the default to a non-zeroing remove would still leave them green while
+// silently dropping the overwrite-before-unlink guarantee.
+func TestWipeTempFileDefaultsToSecurePrimitive(t *testing.T) {
+	got := reflect.ValueOf(wipeTempFile).Pointer()
+	want := reflect.ValueOf(fileops.OverwriteAndRemove).Pointer()
+	if got != want {
+		t.Fatal("wipeTempFile default is not fileops.OverwriteAndRemove; temp files may not be zero-overwritten before unlink")
+	}
+}
+
+// TestCleanupTempFilesRoutesThroughSecureWipe verifies that the stdin/stdout
+// staging temps are removed through the secure wipe path rather than a bare
+// os.Remove. Overwrite-before-unlink ordering itself is covered by
+// fileops.TestTempFilesOverwrittenBeforeUnlink; here we only check the routing.
+func TestCleanupTempFilesRoutesThroughSecureWipe(t *testing.T) {
+	cases := []struct {
+		name   string
+		prefix string
+	}{
+		{"decrypt-to-stdout plaintext temp", "picocrypt-out-"},
+		{"encrypt-from-stdin plaintext temp", "picocrypt-stdin-"},
+		{"ciphertext staging temp", "picocrypt-cipher-"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tmp := filepath.Join(dir, tc.prefix+"fixture")
+			content := bytes.Repeat([]byte{0xA5}, 300*1024) // > one 64 KiB overwrite chunk
+			if err := os.WriteFile(tmp, content, 0600); err != nil {
+				t.Fatalf("write temp: %v", err)
+			}
+
+			var routed []string
+			prev := wipeTempFile
+			wipeTempFile = func(p string) error {
+				routed = append(routed, p)
+				return prev(p) // delegate to the real primitive
+			}
+			defer func() { wipeTempFile = prev }()
+
+			cleanupTempFiles(tmp)
+
+			if len(routed) != 1 || routed[0] != tmp {
+				t.Fatalf("temp not routed through secure wipe seam (bare os.Remove?): routed=%v want=[%q]", routed, tmp)
+			}
+			if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+				t.Fatalf("temp still exists after cleanup: %v", err)
+			}
+		})
+	}
+}
+
+// TestCleanupTempFilesWipesAllProvidedTemps proves the shared helper handles the
+// real call shape from both runEncrypt and runDecrypt: a stdin staging temp AND
+// a stdout staging temp are both securely wiped in one cleanup pass.
+func TestCleanupTempFilesWipesAllProvidedTemps(t *testing.T) {
+	dir := t.TempDir()
+	stdinTemp := filepath.Join(dir, "picocrypt-stdin-a")
+	stdoutTemp := filepath.Join(dir, "picocrypt-out-b")
+	for _, p := range []string{stdinTemp, stdoutTemp} {
+		if err := os.WriteFile(p, []byte("plaintext fragment"), 0600); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+
+	var routed []string
+	prev := wipeTempFile
+	wipeTempFile = func(p string) error {
+		routed = append(routed, p)
+		return prev(p)
+	}
+	defer func() { wipeTempFile = prev }()
+
+	cleanupTempFiles(stdinTemp, stdoutTemp)
+
+	if len(routed) != 2 {
+		t.Fatalf("expected both temps routed through secure wipe, got %v", routed)
+	}
+	for _, p := range []string{stdinTemp, stdoutTemp} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("temp %s still exists after cleanup", p)
+		}
+	}
+}
+
+// TestCleanupTempFilesSkipsEmptyPaths guards the "no temp was created" case:
+// runEncrypt/runDecrypt pass "" when stdin/stdout buffering never ran, and the
+// helper must not invoke the wipe seam (which would error on an empty path).
+func TestCleanupTempFilesSkipsEmptyPaths(t *testing.T) {
+	calls := 0
+	prev := wipeTempFile
+	wipeTempFile = func(p string) error {
+		calls++
+		return nil
+	}
+	defer func() { wipeTempFile = prev }()
+
+	cleanupTempFiles("", "")
+
+	if calls != 0 {
+		t.Fatalf("cleanupTempFiles invoked wipe seam for empty paths: %d calls", calls)
 	}
 }
 
