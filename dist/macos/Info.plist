@@ -42,8 +42,6 @@
             <array>
                 <string>io.github.picocryptng.pcv</string>
             </array>
-            <key>CFBundleTypeIconFile</key>
-            <string>icon.icns</string>
         </dict>
     </array>
 
@@ -55,8 +53,6 @@
             <string>io.github.picocryptng.pcv</string>
             <key>UTTypeDescription</key>
             <string>Picocrypt-NG encrypted volume</string>
-            <key>UTTypeIconFile</key>
-            <string>icon.icns</string>
             <key>UTTypeConformsTo</key>
             <array>
                 <string>public.data</string>
