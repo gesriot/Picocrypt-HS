@@ -92,8 +92,13 @@ func preprocessInputFiles(req *EncryptRequest) []string {
 func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 	inputFiles := preprocessInputFiles(req)
 
-	// If multiple files, or single file with compression requested, create a zip
-	if len(inputFiles) > 1 || (len(inputFiles) == 1 && req.Compress) {
+	// Create a zip when the selection is anything other than a single bare file:
+	// multiple files, a single file with compression requested, or any folder
+	// selection (even one containing a single file). A dropped folder is labelled
+	// "Zip and Encrypt" by the UI and named "<name>.zip.pcv", so it must decrypt to
+	// a real zip that preserves the folder structure — see issue #130. OnlyFolders
+	// is the signal that a folder (not a bare file) was selected.
+	if len(inputFiles) > 1 || (len(inputFiles) == 1 && (req.Compress || len(req.OnlyFolders) > 0)) {
 		ctx.SetStatus("Compressing files...")
 
 		// Create temp zip ciphers for encrypting the temporary file
