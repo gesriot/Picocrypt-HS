@@ -21,6 +21,7 @@
 // This also lets paths that arrive while the app is already running (issue #127:
 // warm openURLs events, and cold-launch events delivered after the first drain)
 // reach the UI instead of sitting in the buffer indefinitely.
+
 package ui
 
 import "sync"

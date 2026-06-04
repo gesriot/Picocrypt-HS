@@ -219,30 +219,30 @@ func (ctx *OperationContext) SetCanCancel(can bool) {
 
 // IsCancelled checks if the operation has been cancelled.
 // Returns true if either the context is done or the reporter indicates cancellation.
-func (opCtx *OperationContext) IsCancelled() bool {
+func (ctx *OperationContext) IsCancelled() bool {
 	// Check context cancellation first (standard Go pattern)
-	if opCtx.Ctx != nil {
+	if ctx.Ctx != nil {
 		select {
-		case <-opCtx.Ctx.Done():
+		case <-ctx.Ctx.Done():
 			return true
 		default:
 		}
 	}
 
 	// Also check reporter-based cancellation (for UI cancel button)
-	if opCtx.Reporter != nil {
-		return opCtx.Reporter.IsCancelled()
+	if ctx.Reporter != nil {
+		return ctx.Reporter.IsCancelled()
 	}
 	return false
 }
 
 // CancellationError returns the appropriate error when cancelled.
 // Returns context error if context is done, otherwise returns ErrCancelled.
-func (opCtx *OperationContext) CancellationError() error {
-	if opCtx.Ctx != nil {
+func (ctx *OperationContext) CancellationError() error {
+	if ctx.Ctx != nil {
 		select {
-		case <-opCtx.Ctx.Done():
-			return opCtx.Ctx.Err()
+		case <-ctx.Ctx.Done():
+			return ctx.Ctx.Err()
 		default:
 		}
 	}

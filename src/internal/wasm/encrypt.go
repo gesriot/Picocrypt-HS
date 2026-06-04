@@ -164,7 +164,6 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 		}
 	}()
 	zeroWASMSensitiveBuffer(wasmZeroingHeaderSubkey, subkeyHeader)
-	subkeyHeader = nil
 	hdr.KeyfileHash = keyfileHash
 
 	// Read remaining subkeys
@@ -181,7 +180,6 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	// Create MAC (normal mode = BLAKE2b)
 	mac, err := crypto.NewMAC(macSubkey, false)
 	zeroWASMSensitiveBuffer(wasmZeroingMACSubkey, macSubkey)
-	macSubkey = nil
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
@@ -197,7 +195,6 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 		false, // not paranoid
 	)
 	zeroWASMSensitiveBuffer(wasmZeroingSerpentKey, serpentKey)
-	serpentKey = nil
 	if err != nil {
 		return nil, ErrRandomFailure
 	}

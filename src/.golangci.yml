@@ -4,7 +4,7 @@ run:
   timeout: 5m
   build-tags:
     - cli
-  modules-download-mode: vendor
+  modules-download-mode: readonly
   tests: false
 
 linters:
@@ -29,6 +29,34 @@ linters:
       - path: internal/ui/
         linters:
           - typecheck
+      # gosec G115 false positives — mirrors root .golangci.yml policy:
+      # fd/syscall/size/color conversions bounded well below 2^63.
+      - path: internal/fileops/
+        linters:
+          - gosec
+        text: G115
+      - path: internal/cli/
+        linters:
+          - gosec
+        text: G115
+      - path: internal/header/
+        linters:
+          - gosec
+        text: G115
+      # G302: log file is intentionally readable by monitoring tools
+      # (documented at internal/log/log.go EnableFileLogging).
+      - path: internal/log/
+        linters:
+          - gosec
+        text: G302
+      # Platform false positive: appendOpenedPath/flushOpenedPaths and the
+      # openedPathsNotify handler are called only from macos_open_darwin.go
+      # (//go:build darwin), which the linux lint host never compiles, so the
+      # unused linter cannot see their callers. The symbols are live on macOS
+      # and are exercised by drop_test.go.
+      - path: internal/ui/macos_open\.go
+        linters:
+          - unused
   settings:
     gosec:
       excludes:
