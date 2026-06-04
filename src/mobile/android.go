@@ -1,3 +1,5 @@
+// Package mobile is the gomobile bridge between the Go crypto core and the
+// Android (Kotlin/Compose) host application.
 package mobile
 
 import (

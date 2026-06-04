@@ -11,7 +11,8 @@
 // (Go file naming convention applies to .m, .c, .s, etc.).
 //
 // We #include the cgo-generated _cgo_export.h to pick up the auto-declared
-// signature `void goAppendOpenedPath(char *cpath)` — no manual extern needed.
+// signatures `void goAppendOpenedPath(char *cpath)` and `void
+// goFlushOpenedPaths(void)` — no manual extern needed.
 
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
@@ -57,6 +58,11 @@
 }
 
 - (void)pcngApplication:(NSApplication *)sender openURLs:(NSArray<NSURL *> *)urls {
+    // AppKit delivers an entire multi-file open gesture (e.g. several files
+    // dragged onto the app/dock icon) as one openURLs: call. Buffer every file
+    // URL, then flush once, so the whole selection reaches the UI as a single
+    // drop. Flushing per URL instead lost files (issue #127): each single-path
+    // drop replaced the previous one or was dropped by onDrop's scanning guard.
     for (NSURL *url in urls) {
         if (![url isFileURL]) continue;
         const char *path = [[url path] UTF8String];
@@ -67,6 +73,7 @@
             goAppendOpenedPath((char *)path);
         }
     }
+    goFlushOpenedPaths();
 }
 
 @end

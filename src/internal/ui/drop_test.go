@@ -762,13 +762,60 @@ func TestScheduleStartupPathsAppliesWarmOpenedPaths(t *testing.T) {
 		t.Fatalf("InputFile = %q before any opened path; want empty", state.InputFile)
 	}
 
-	// A warm openURLs event arrives after launch.
+	// A warm openURLs event arrives after launch: the bridge appends the
+	// path(s) for the event, then flushes once, which fires the notify handler.
 	appendOpenedPath(inputFile)
+	flushOpenedPaths()
 	fyne.DoAndWait(func() {}) // barrier: let the notify-scheduled fyne.Do run
 	waitForDropProcessing(t, a)
 
 	if state := snapshotDropState(t, a); state.InputFile != inputFile {
 		t.Fatalf("InputFile = %q after warm opened path; want %q", state.InputFile, inputFile)
+	}
+}
+
+// TestOpenedPathsBatchDeliversWholeGestureAsOneDrop covers the #127 follow-up:
+// dragging several files onto the app/dock icon is delivered by AppKit as a
+// single application:openURLs: event, and the bridge must surface it as ONE drop
+// carrying every path. The previous code notified after every appended path, so
+// a three-file gesture produced three single-path drops — each replacing the
+// prior selection or hitting onDrop's scanning guard, losing files. The darwin
+// bridge now appends all paths and flushes once; this asserts that contract at
+// the platform-neutral layer so it guards the regression on every CI platform,
+// including the amd64 -race job (it touches no Fyne rendering, so it is not
+// -race-skipped).
+func TestOpenedPathsBatchDeliversWholeGestureAsOneDrop(t *testing.T) {
+	// Reset package-global bridge state other tests may have left behind.
+	setOpenedPathsNotify(nil)
+	drainOpenedPaths()
+	t.Cleanup(func() {
+		setOpenedPathsNotify(nil)
+		drainOpenedPaths()
+	})
+
+	var batches [][]string
+	setOpenedPathsNotify(func() {
+		batches = append(batches, drainOpenedPaths())
+	})
+
+	// One openURLs: event carrying three files: append each, then flush once.
+	paths := []string{"/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt"}
+	for _, p := range paths {
+		appendOpenedPath(p)
+	}
+	flushOpenedPaths()
+
+	if len(batches) != 1 {
+		t.Fatalf("notify fired %d time(s) for one openURLs gesture; want exactly 1 (per-path notifying loses files, #127)", len(batches))
+	}
+	got := batches[0]
+	if len(got) != len(paths) {
+		t.Fatalf("drained %d path(s); want all %d delivered in one drop: got %v", len(got), len(paths), got)
+	}
+	for i := range paths {
+		if got[i] != paths[i] {
+			t.Fatalf("path[%d] = %q; want %q (order and completeness must be preserved)", i, got[i], paths[i])
+		}
 	}
 }
 

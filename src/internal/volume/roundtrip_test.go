@@ -1339,6 +1339,92 @@ func TestRoundTripMultiFile(t *testing.T) {
 	t.Log("Round-trip multi-file: SUCCESS")
 }
 
+// TestRoundTripSingleFileFolderProducesZip is a regression test for issue #130:
+// "Zip and Encrypt" of a folder containing a single file must still produce a zip
+// archive. The GUI labels a dropped folder "Zip and Encrypt" and names the output
+// "<name>.zip.pcv", so decryption must yield a real zip — not the raw inner file.
+// Before the fix, a folder with exactly one file (compress off) skipped zipping
+// because the decision only looked at file count, so decryption produced a
+// ".zip"-named file whose bytes were the raw inner file and which no unzip tool
+// (nor Auto unzip) could extract.
+func TestRoundTripSingleFileFolderProducesZip(t *testing.T) {
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	// A folder ("test_dir") containing exactly one file, mirroring the issue.
+	folder := filepath.Join(tmpDir, "test_dir")
+	if err := os.MkdirAll(folder, 0755); err != nil {
+		t.Fatalf("Failed to create folder: %v", err)
+	}
+	innerContent := []byte("hello world\n")
+	innerPath := filepath.Join(folder, "hello.txt")
+	if err := os.WriteFile(innerPath, innerContent, 0644); err != nil {
+		t.Fatalf("Failed to write inner file: %v", err)
+	}
+
+	encryptedPath := filepath.Join(tmpDir, "encrypted.zip.pcv")
+	decryptedPath := filepath.Join(tmpDir, "encrypted.zip")
+
+	reporter := &GoldenTestReporter{}
+
+	// Folder selection: one input file, folder recorded in OnlyFolders, compress off.
+	encReq := &EncryptRequest{
+		InputFiles:  []string{innerPath},
+		OnlyFolders: []string{folder},
+		OutputFile:  encryptedPath,
+		Password:    "pw",
+		Reporter:    reporter,
+		RSCodecs:    rsCodecs,
+	}
+	if err := Encrypt(context.Background(), encReq); err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	// Decrypt WITHOUT auto-unzip: the on-disk output must itself be a valid zip.
+	decReq := &DecryptRequest{
+		InputFile:  encryptedPath,
+		OutputFile: decryptedPath,
+		Password:   "pw",
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
+	}
+	if err := Decrypt(context.Background(), decReq); err != nil {
+		t.Fatalf("Decrypt failed: %v", err)
+	}
+
+	// The decrypted output must be a real zip archive containing test_dir/hello.txt.
+	zr, err := zip.OpenReader(decryptedPath)
+	if err != nil {
+		t.Fatalf("decrypted output is not a valid zip archive (issue #130): %v", err)
+	}
+	defer func() { _ = zr.Close() }()
+
+	if len(zr.File) != 1 {
+		t.Fatalf("expected 1 zip entry, got %d", len(zr.File))
+	}
+	entry := zr.File[0]
+	if entry.Name != "test_dir/hello.txt" {
+		t.Fatalf("expected entry name %q, got %q", "test_dir/hello.txt", entry.Name)
+	}
+
+	rc, err := entry.Open()
+	if err != nil {
+		t.Fatalf("Failed to open zip entry: %v", err)
+	}
+	got, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil {
+		t.Fatalf("Failed to read zip entry: %v", err)
+	}
+	if string(got) != string(innerContent) {
+		t.Fatalf("zip entry content mismatch: got %q want %q", got, innerContent)
+	}
+}
+
 // TestRoundTripSplitWithDeniability tests split + deniability combination
 func TestRoundTripSplitWithDeniability(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
