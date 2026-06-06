@@ -1,3 +1,10 @@
+# v2.11
+<ul>
+	<li>✓ <strong>macOS open batching</strong>: Finder/Dock open events from one drag gesture are coalesced before the UI handles them, so split deliveries no longer drop files</li>
+	<li>✓ <strong>Linux desktop identity</strong>: desktop metadata now aligns with the packaged application identity used by Linux launchers and file associations</li>
+	<li>✓ <strong>Static-analysis cleanup</strong>: Go quality gates were refreshed for the v2.11 release surface</li>
+</ul>
+
 # v2.10
 <ul>
 	<li>✓ <strong>Safer output cleanup</strong>: temporary output files are created without following symlinks, and failed operation cleanup no longer wipes a symlink target</li>

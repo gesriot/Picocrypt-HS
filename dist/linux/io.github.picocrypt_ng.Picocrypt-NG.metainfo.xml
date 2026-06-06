@@ -35,6 +35,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.11" date="2026-06-06">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v211</url>
+      <description>
+        <ul>
+          <li>macOS Finder and Dock open events from one drag gesture are coalesced before the UI handles them</li>
+          <li>Linux desktop metadata now aligns with the packaged application identity</li>
+          <li>Go static-analysis cleanup for the v2.11 release surface</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.10" date="2026-06-01">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v210</url>
       <description>
