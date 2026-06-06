@@ -176,7 +176,7 @@ func NewApp(version string) (*App, error) {
 // Run starts the UI application and optionally loads files passed at startup.
 func (a *App) Run(startupPaths []string) {
 	// Create Fyne app with unique ID for preferences API support
-	a.fyneApp = fyneApp.NewWithID("io.github.picocryptng.PicocryptNG")
+	a.fyneApp = fyneApp.NewWithID(runtimeAppID())
 
 	// Clean up any leftover temp files from previous sessions (mobile only)
 	// Must be called AFTER Fyne app is initialized (isMobile() requires it)
@@ -193,6 +193,8 @@ func (a *App) Run(startupPaths []string) {
 
 	// Create main window
 	a.Window = a.fyneApp.NewWindow("Picocrypt NG " + a.Version[1:])
+	// NewWindow initializes the GLFW driver; native window creation happens on Show.
+	prepareWindowIdentity()
 	a.Window.SetIcon(appIcon)
 
 	// On desktop: fixed size window; on mobile: flexible size

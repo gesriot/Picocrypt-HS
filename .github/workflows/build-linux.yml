@@ -108,9 +108,10 @@ jobs:
         install -d "$package_root/DEBIAN"
         install -d "$package_root/usr/bin"
         install -d "$package_root/usr/share/applications"
-        install -d "$package_root/usr/share/icons/hicolor/256x256/apps"
+        install -d "$package_root/usr/share/icons/hicolor/scalable/apps"
         install -m 0755 "src/${{ matrix.gui_binary }}" "$package_root/usr/bin/picocrypt-ng-gui"
-        install -m 0644 src/internal/ui/key.png "$package_root/usr/share/icons/hicolor/256x256/apps/picocrypt-ng.png"
+        install -m 0644 images/key.svg \
+            "$package_root/usr/share/icons/hicolor/scalable/apps/io.github.picocrypt_ng.Picocrypt-NG.svg"
         VERSION=$(cat VERSION)
         cat > "$package_root/DEBIAN/control" <<EOF
         Package: picocrypt-ng
@@ -190,6 +191,7 @@ jobs:
         sh -n "$package_root/DEBIAN/postrm"
         dpkg-deb -Zxz --build --root-owner-group "$package_root"
         dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/applications/io\.github\.picocrypt_ng\.Picocrypt-NG\.desktop' >/dev/null
+        dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/icons/hicolor/scalable/apps/io\.github\.picocrypt_ng\.Picocrypt-NG\.svg' >/dev/null
         dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/mime/packages/application-x-pcv\.xml' >/dev/null
         dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/icons/hicolor/[0-9]+x[0-9]+/mimetypes/application-x-pcv\.png' >/dev/null
         dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/icons/hicolor/scalable/mimetypes/application-x-pcv\.svg' >/dev/null
