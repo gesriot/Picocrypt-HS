@@ -3,6 +3,7 @@ package io.github.picocrypt_ng.picocrypt_ng.testutils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -11,7 +12,7 @@ import org.junit.runner.Description
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainDispatcherRule(
-    private val dispatcherFactory: () -> TestDispatcher = { StandardTestDispatcher() },
+    private val dispatcherFactory: () -> TestDispatcher = { StandardTestDispatcher(TestCoroutineScheduler()) },
 ) : TestWatcher() {
     private var _testDispatcher: TestDispatcher? = null
     val testDispatcher: TestDispatcher
