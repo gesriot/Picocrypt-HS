@@ -27,39 +27,38 @@ When referencing Picocrypt NG, please always include the "NG" suffix to ensure d
 Make sure to only download Picocrypt NG from this repository to ensure that you get the authentic and backdoor-free Picocrypt NG. When sharing Picocrypt NG with others, be sure to link to this repository to prevent any confusion.
 
 ## Windows
-**Windows 10/11:** Download the latest, standalone, and portable executable <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.exe">here</a>.
+**Windows 10/11:** Download the latest <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-Setup.exe">installer</a> or <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-portable.exe">portable executable</a>. A CLI-only Windows build is available <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-cli.exe">here</a>.
 
-**Windows 7/8 (Legacy Systems):** If you're running Windows 7, Windows 8, or systems without OpenGL support, download the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-Legacy-Windows.zip">Legacy Build</a> instead. This version includes:
+**Windows 7/8 (Legacy Systems):** The legacy release is CLI-only. If you're running Windows 7 or Windows 8, download the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-cli-Legacy.exe">legacy CLI build</a> instead. This version includes:
 - Compiled with [go-legacy-win7](https://github.com/thongtech/go-legacy-win7) for Windows 7/8 compatibility
-- Bundled Mesa3D software OpenGL renderer (no GPU or graphics drivers required)
-- Keep all files in the extracted folder together
+- No GUI or OpenGL dependencies
 
-⚠️ **Note:** The legacy build uses CPU-based software rendering and may be slower than the standard build. Only use it if you're on Windows 7/8 or experiencing graphics-related issues on older systems.
+⚠️ **Note:** The legacy build is for command-line use only. Use the standard installer or portable executable on Windows 10/11.
 
 If your antivirus flags Picocrypt NG as a virus, please report it as a false positive to help everyone.
 
 ## macOS
 Download Picocrypt NG <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.dmg">here</a>, open the container, and drag Picocrypt NG to your Applications.
 
-**Apple Silicon vs Intel:** The macOS app is built for Apple Silicon (M1/M2/M3/M4/M5+) only. Intel Mac users need to <a href="src/README.md">build from source</a> or use the CLI-only version.
+**Apple Silicon vs Intel:** The released macOS app is built for Apple Silicon and targets macOS 15.0+. Intel Mac users and users on older macOS releases need to <a href="src/README.md">build from source</a> or use the CLI-only version where appropriate.
 
-**Gatekeeper Warning:** macOS may block the app with a "forbidden" icon or "incompatible with this version of macOS" message. This is a Gatekeeper issue (unsigned app), not a compatibility problem. Picocrypt NG supports macOS 10.11+.
+**Gatekeeper Warning:** macOS may block the app with a "forbidden" icon because the release is unsigned. If you're on supported Apple Silicon hardware and macOS 15.0+, this is a Gatekeeper warning rather than a Picocrypt NG runtime error.
 
 To fix, use one of these methods:
 - **Right-click → Open** (instead of double-clicking), then confirm
 - **System Settings → Privacy & Security** → scroll down → "Open Anyway"
 - **Terminal:** `xattr -cr /Applications/Picocrypt-NG.app`
 
-The CLI-only build doesn't trigger Gatekeeper warnings.
+The CLI-only build avoids the `.app` bundle path and is useful for terminal-only use.
 
 ## Linux
-Download the raw binary <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG">here</a> (you may need the packages below). Alternatively, try the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.deb">.deb</a> or <a href="https://flathub.org/en/apps/io.github.picocrypt_ng.Picocrypt-NG">Flatpak</a>.
+Download the raw binary for <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG">amd64</a> or <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-arm64">arm64</a> (you may need the packages below). CLI-only builds are also available for <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-cli">amd64</a> and <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-cli-arm64">arm64</a>. Alternatively, try the <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.deb">.deb</a> or <a href="https://flathub.org/en/apps/io.github.picocrypt_ng.Picocrypt-NG">Flatpak</a>.
 ```
 sudo apt install -y libc6 libgcc-s1 libgl1 libgtk-3-0 libstdc++6 libx11-6
 ```
 
 ## Android
-The Android build is now a native app built from the `android/` project in this repository rather than a `fyne-cross` package. GitHub releases publish a signed release APK, while PR artifacts remain debug/testing-only.
+The Android build is now a native app built from the `android/` project in this repository rather than a `fyne-cross` package. Download the signed release APK <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-android-release.apk">here</a>. PR artifacts remain debug/testing-only.
 
 For local Android builds and architecture details, see <a href="android/README.md">android/README.md</a>.
 
@@ -80,7 +79,7 @@ Here's how Picocrypt NG compares to other popular encryption tools.
 | Free           |✅ Yes         |✅ Yes          |✅ Yes         |✅ Bundled      |✅ Yes         |
 | Open Source    |✅ GPLv3       |✅ Multi        |✅ LGPL        |❌ No           |✅ GPLv3       |
 | Cross-Platform |✅ Yes         |✅ Yes          |❌ No          |❌ No           |✅ Yes         |
-| Size           |✅ 3 MiB       |❌ 20 MiB       |✅ 2 MiB       |✅ N/A          |❌ 50 MiB      |
+| Size           |✅ 9-10 MiB    |❌ 20 MiB       |✅ 2 MiB       |✅ N/A          |❌ 50 MiB      |
 | Portable       |✅ Yes         |✅ Yes          |❌ No          |✅ Yes          |❌ No          |
 | Permissions    |✅ None        |❌ Admin        |❌ Admin       |❌ Admin        |❌ Admin       |
 | Ease-Of-Use    |✅ Easy        |❌ Hard         |✅ Easy        |✅ Easy         |🟧 Medium      |
