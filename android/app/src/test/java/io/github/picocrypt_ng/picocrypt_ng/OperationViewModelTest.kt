@@ -68,32 +68,32 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `startEncrypt launches operation`() = runTest(mainDispatcherRule.testDispatcher) {
+    fun `startEncrypt handles validation failure without leaking work`() = runTest(mainDispatcherRule.testDispatcher) {
         val formData = TestDataBuilders.createEncryptFormData(
+            copiedFilePath = "",
             password = "test",
             confirmPassword = "test"
         )
-        
-        // This will fail validation or require GoBridge, but we test the method call
+
         viewModel.startEncrypt(mockContext, formData)
-        
+
         advanceUntilIdle()
-        
-        // Operation may or may not start depending on validation/GoBridge availability
-        // But the method should not throw
+
+        assertNull("Invalid encrypt input should not start an operation", viewModel.operationState.value)
     }
-    
+
     @Test
-    fun `startDecrypt launches operation`() = runTest(mainDispatcherRule.testDispatcher) {
+    fun `startDecrypt handles validation failure without leaking work`() = runTest(mainDispatcherRule.testDispatcher) {
         val formData = TestDataBuilders.createDecryptFormData(
+            copiedFilePath = "",
             password = "test"
         )
-        
+
         viewModel.startDecrypt(mockContext, formData)
-        
+
         advanceUntilIdle()
-        
-        // Method should not throw
+
+        assertNull("Invalid decrypt input should not start an operation", viewModel.operationState.value)
     }
     
     @Test
