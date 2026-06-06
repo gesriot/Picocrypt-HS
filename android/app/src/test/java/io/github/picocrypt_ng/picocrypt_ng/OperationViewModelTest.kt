@@ -2,7 +2,10 @@ package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -44,6 +47,11 @@ class OperationViewModelTest {
     
     @After
     fun tearDown() {
+        if (::viewModel.isInitialized) {
+            runTest(mainDispatcherRule.testDispatcher) {
+                viewModel.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
+            }
+        }
         resetOperationState()
     }
     
