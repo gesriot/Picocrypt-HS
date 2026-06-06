@@ -1,10 +1,11 @@
 package crypto
 
 import (
+	"crypto/sha3"
+
 	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/chacha20"
-	"golang.org/x/crypto/sha3"
 )
 
 // RekeyThreshold is the number of bytes after which rekeying must occur.
@@ -54,9 +55,8 @@ func (c *Counter) Count() int64 {
 // Regular: nonce from HKDF stream
 // Deniability: nonce = SHA3-256(old_nonce)[:24]
 func DeniabilityRekey(key, oldNonce []byte) (*chacha20.Cipher, []byte, error) {
-	h := sha3.New256()
-	h.Write(oldNonce)
-	newNonce := h.Sum(nil)[:24]
+	sum := sha3.Sum256(oldNonce)
+	newNonce := append([]byte(nil), sum[:24]...)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, newNonce)
 	if err != nil {

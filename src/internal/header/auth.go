@@ -2,10 +2,10 @@ package header
 
 import (
 	"crypto/hmac"
+	"crypto/sha3"
 	"crypto/subtle"
 	"fmt"
-
-	"golang.org/x/crypto/sha3"
+	"hash"
 )
 
 // AuthResult contains the result of header authentication
@@ -39,7 +39,7 @@ type AuthResult struct {
 //  8. nonce
 //  9. keyfileHash
 func ComputeV2HeaderMAC(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte) []byte {
-	mac := hmac.New(sha3.New512, subkeyHeader)
+	mac := hmac.New(newSHA3512, subkeyHeader)
 
 	// Write all header fields in exact order
 	mac.Write([]byte(h.Version))
@@ -58,7 +58,7 @@ func ComputeV2HeaderMAC(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte
 // ComputeV2HeaderMACRaw computes the HMAC-SHA3-512 using raw header field bytes.
 // This is used during decryption where we need to use the exact decoded bytes.
 func ComputeV2HeaderMACRaw(subkeyHeader []byte, raw *RawHeaderFields, h *VolumeHeader, keyfileHash []byte) []byte {
-	mac := hmac.New(sha3.New512, subkeyHeader)
+	mac := hmac.New(newSHA3512, subkeyHeader)
 
 	// Write all header fields in exact order using raw bytes where available
 	mac.Write(raw.Version)
@@ -74,12 +74,15 @@ func ComputeV2HeaderMACRaw(subkeyHeader []byte, raw *RawHeaderFields, h *VolumeH
 	return mac.Sum(nil)
 }
 
+func newSHA3512() hash.Hash {
+	return sha3.New512()
+}
+
 // ComputeV1KeyHash computes SHA3-512(key) for v1 legacy volumes.
 // In v1, the header stored SHA3-512 of the derived key for password verification.
 func ComputeV1KeyHash(key []byte) []byte {
-	h := sha3.New512()
-	h.Write(key)
-	return h.Sum(nil)
+	sum := sha3.Sum512(key)
+	return append([]byte(nil), sum[:]...)
 }
 
 // VerifyV2Header verifies a v2 volume header using HMAC-SHA3-512.

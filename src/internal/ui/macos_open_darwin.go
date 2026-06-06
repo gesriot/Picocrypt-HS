@@ -16,8 +16,9 @@ import "C"
 // macos_open_darwin.m uses class_addMethod to inject application:openURLs:
 // into GLFW's existing application delegate at +(void)load time. For each
 // openURLs: event it calls goAppendOpenedPath below once per file URL, then
-// goFlushOpenedPaths once after the loop so the whole gesture is delivered as a
-// single drop. Buffering, flush, and drain logic lives in the platform-neutral
+// goFlushOpenedPaths once after the loop. The platform-neutral side coalesces
+// nearby events before delivery, because Finder/Dock may split one user gesture
+// into multiple openURLs: callbacks. Buffering, flush, and drain logic lives in
 // macos_open.go so it is testable on every CI platform.
 
 //export goAppendOpenedPath

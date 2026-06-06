@@ -3,14 +3,13 @@
 package keyfile
 
 import (
+	"crypto/sha3"
 	"fmt"
 	"io"
 	"os"
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/util"
-
-	"golang.org/x/crypto/sha3"
 )
 
 // Result contains the computed keyfile key and its hash for verification.
@@ -75,10 +74,9 @@ func Process(paths []string, ordered bool, progress ProgressFunc) (*Result, erro
 		return nil, err
 	}
 
-	// Compute hash of keyfile key for verification
-	h := sha3.New256()
-	h.Write(key)
-	hash := h.Sum(nil)
+	// Compute hash of keyfile key for verification.
+	sum := sha3.Sum256(key)
+	hash := append([]byte(nil), sum[:]...)
 
 	return &Result{
 		Key:  key,

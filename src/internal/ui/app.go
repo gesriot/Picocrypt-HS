@@ -253,9 +253,8 @@ func (a *App) Run(startupPaths []string) {
 
 func (a *App) scheduleStartupPaths(startupPaths []string) {
 	// applyOpened drains paths buffered by the macOS open-file bridge and feeds
-	// them through the normal drop handler. It is the notify handler for paths
-	// that arrive while the app is already running (issue #127: warm openURLs
-	// events and late cold-launch events delivered after the initial drain).
+	// them through the normal drop handler. It is the notify handler for cold and
+	// warm openURLs events after the bridge debounce window goes idle.
 	applyOpened := func() {
 		fyne.Do(func() {
 			opened := drainOpenedPaths()
@@ -270,18 +269,15 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 	// from a Finder cold launch may have been buffered by the cgo handler before
 	// Go's main() ran (drainOpenedPaths returns nothing on non-darwin).
 	a.fyneApp.Lifecycle().SetOnStarted(func() {
-		// Register the notify handler *before* the initial drain so any path that
-		// arrives during or after startup is applied — closing the race that made
-		// cold launches drop files and warm launches drop everything.
+		// Register the notify handler before queueing startup paths so cold-launch
+		// AppleEvent batches and later warm batches share the same debounce window.
 		setOpenedPathsNotify(applyOpened)
-		fyne.Do(func() {
-			merged := append([]string(nil), startupPaths...)
-			merged = append(merged, drainOpenedPaths()...)
-			if len(merged) == 0 {
-				return
-			}
-			a.applyStartupPaths(merged)
-		})
+		for _, path := range startupPaths {
+			appendOpenedPath(path)
+		}
+		if hasOpenedPaths() {
+			flushOpenedPaths()
+		}
 	})
 }
 
