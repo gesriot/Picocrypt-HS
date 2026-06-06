@@ -39,9 +39,9 @@
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v211</url>
       <description>
         <ul>
-          <li>macOS Finder and Dock open events from one drag gesture are coalesced before the UI handles them</li>
-          <li>Linux desktop metadata now aligns with the packaged application identity</li>
-          <li>Go static-analysis cleanup for the v2.11 release surface</li>
+          <li>Opening multiple files from Finder or the Dock on macOS no longer drops files when the system delivers the same action in several batches</li>
+          <li>The Linux desktop file now uses the same application identity as the packaged app</li>
+          <li>Desktop, Snap, Windows, AppStream, CLI, and volume-header metadata now report v2.11 consistently</li>
         </ul>
       </description>
     </release>

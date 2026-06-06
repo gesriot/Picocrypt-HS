@@ -1,8 +1,8 @@
 # v2.11
 <ul>
-	<li>✓ <strong>macOS open batching</strong>: Finder/Dock open events from one drag gesture are coalesced before the UI handles them, so split deliveries no longer drop files</li>
-	<li>✓ <strong>Linux desktop identity</strong>: desktop metadata now aligns with the packaged application identity used by Linux launchers and file associations</li>
-	<li>✓ <strong>Static-analysis cleanup</strong>: Go quality gates were refreshed for the v2.11 release surface</li>
+	<li>✓ <strong>macOS file opening</strong>: opening multiple files from Finder or the Dock no longer drops files when macOS delivers the same action in several batches</li>
+	<li>✓ <strong>Linux launchers</strong>: the desktop file now uses the same application identity as the packaged app, improving launcher matching and file-association behavior</li>
+	<li>✓ <strong>Release metadata</strong>: desktop, Snap, Windows, AppStream, CLI, and volume-header version metadata now report v2.11 consistently</li>
 </ul>
 
 # v2.10
