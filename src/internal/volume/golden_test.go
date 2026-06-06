@@ -85,7 +85,7 @@ var goldenTestCases = []struct {
 	},
 	{
 		// Cross-version interop fixture: authored by the human-authorized
-		// v2.09 tag snapshot, not by the current v2.10 writer.
+		// v2.09 tag snapshot, not by the current v2.11 writer.
 		name:        "v209_basic",
 		file:        goldenV209Fixture,
 		deniability: false,

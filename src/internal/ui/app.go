@@ -176,7 +176,7 @@ func NewApp(version string) (*App, error) {
 // Run starts the UI application and optionally loads files passed at startup.
 func (a *App) Run(startupPaths []string) {
 	// Create Fyne app with unique ID for preferences API support
-	a.fyneApp = fyneApp.NewWithID("io.github.picocryptng.PicocryptNG")
+	a.fyneApp = fyneApp.NewWithID(runtimeAppID())
 
 	// Clean up any leftover temp files from previous sessions (mobile only)
 	// Must be called AFTER Fyne app is initialized (isMobile() requires it)
@@ -193,6 +193,8 @@ func (a *App) Run(startupPaths []string) {
 
 	// Create main window
 	a.Window = a.fyneApp.NewWindow("Picocrypt NG " + a.Version[1:])
+	// NewWindow initializes the GLFW driver; native window creation happens on Show.
+	prepareWindowIdentity()
 	a.Window.SetIcon(appIcon)
 
 	// On desktop: fixed size window; on mobile: flexible size
@@ -251,9 +253,8 @@ func (a *App) Run(startupPaths []string) {
 
 func (a *App) scheduleStartupPaths(startupPaths []string) {
 	// applyOpened drains paths buffered by the macOS open-file bridge and feeds
-	// them through the normal drop handler. It is the notify handler for paths
-	// that arrive while the app is already running (issue #127: warm openURLs
-	// events and late cold-launch events delivered after the initial drain).
+	// them through the normal drop handler. It is the notify handler for cold and
+	// warm openURLs events after the bridge debounce window goes idle.
 	applyOpened := func() {
 		fyne.Do(func() {
 			opened := drainOpenedPaths()
@@ -268,18 +269,15 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 	// from a Finder cold launch may have been buffered by the cgo handler before
 	// Go's main() ran (drainOpenedPaths returns nothing on non-darwin).
 	a.fyneApp.Lifecycle().SetOnStarted(func() {
-		// Register the notify handler *before* the initial drain so any path that
-		// arrives during or after startup is applied — closing the race that made
-		// cold launches drop files and warm launches drop everything.
+		// Register the notify handler before queueing startup paths so cold-launch
+		// AppleEvent batches and later warm batches share the same debounce window.
 		setOpenedPathsNotify(applyOpened)
-		fyne.Do(func() {
-			merged := append([]string(nil), startupPaths...)
-			merged = append(merged, drainOpenedPaths()...)
-			if len(merged) == 0 {
-				return
-			}
-			a.applyStartupPaths(merged)
-		})
+		for _, path := range startupPaths {
+			appendOpenedPath(path)
+		}
+		if hasOpenedPaths() {
+			flushOpenedPaths()
+		}
 	})
 }
 

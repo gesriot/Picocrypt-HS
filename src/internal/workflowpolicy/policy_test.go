@@ -116,10 +116,15 @@ func TestLinuxDebPackagingDoesNotUseExternalScaffold(t *testing.T) {
 		".github/workflows/build-linux.yml",
 		".github/workflows/pr-test-build-linux.yml",
 	} {
-		content := mustReadWorkflow(t, path)
-		mustNotContain(t, content, "github.com/user-attachments/files/21703014/Picocrypt-NG.zip")
-		mustContain(t, content, `install -m 0644 src/internal/ui/key.png`)
-		mustContain(t, content, `cat > "$package_root/DEBIAN/control"`)
+		t.Run(path, func(t *testing.T) {
+			content := mustReadWorkflow(t, path)
+			mustNotContain(t, content, "github.com/user-attachments/files/21703014/Picocrypt-NG.zip")
+			mustContain(t, content, `cat > "$package_root/DEBIAN/control"`)
+			mustContain(t, content, `install -d "$package_root/usr/share/icons/hicolor/scalable/apps"`)
+			mustContain(t, content, `install -m 0644 images/key.svg`)
+			mustContain(t, content, `"$package_root/usr/share/icons/hicolor/scalable/apps/io.github.picocrypt_ng.Picocrypt-NG.svg"`)
+			mustContain(t, content, `dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/icons/hicolor/scalable/apps/io\.github\.picocrypt_ng\.Picocrypt-NG\.svg' >/dev/null`)
+		})
 	}
 }
 

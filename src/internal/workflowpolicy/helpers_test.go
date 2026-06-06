@@ -197,17 +197,3 @@ func mustMatch(t *testing.T, content, pattern string) {
 		t.Fatalf("expected workflow to match %q", pattern)
 	}
 }
-
-func mustExtractSection(t *testing.T, content, pattern string) string {
-	t.Helper()
-
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		t.Fatalf("compile pattern %q: %v", pattern, err)
-	}
-	matches := re.FindStringSubmatch(content)
-	if len(matches) < 2 {
-		t.Fatalf("expected workflow to contain section matching %q", pattern)
-	}
-	return matches[1]
-}

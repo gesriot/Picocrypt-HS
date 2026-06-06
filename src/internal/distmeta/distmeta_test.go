@@ -15,7 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const v210ReleaseDate = "2026-06-01"
+const v211ReleaseDate = "2026-06-06"
+const linuxDesktopAppID = "io.github.picocrypt_ng.Picocrypt-NG"
 
 // repoRoot mirrors workflowpolicy/helpers_test.go pattern verbatim.
 func repoRoot(t *testing.T) string {
@@ -47,7 +48,7 @@ func mustReadFile(t *testing.T, relPath string) []byte {
 }
 
 func TestActiveReleaseMetadataVersions(t *testing.T) {
-	const want = "2.10"
+	const want = "2.11"
 
 	t.Run("root_VERSION", func(t *testing.T) {
 		got := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
@@ -88,9 +89,9 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 			name string
 			re   *regexp.Regexp
 		}{
-			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,10,0,0\r?$`)},
-			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,10,0,0\r?$`)},
-			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.10"\r?$`)},
+			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,11,0,0\r?$`)},
+			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,11,0,0\r?$`)},
+			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.11"\r?$`)},
 		}
 		for _, req := range required {
 			t.Run(req.name, func(t *testing.T) {
@@ -150,7 +151,7 @@ func containsOldVersionLiteral(data []byte) bool {
 	return false
 }
 
-var oldVersionLiterals = []string{"2.09", "v2.09", "2.08", "v2.08"}
+var oldVersionLiterals = []string{"2.10", "v2.10", "2.09", "v2.09", "2.08", "v2.08"}
 
 func oldVersionLiteralCategory(relPath string) (string, bool) {
 	switch {
@@ -313,7 +314,8 @@ func TestDesktopEntryContract(t *testing.T) {
 		{name: "header", line: "[Desktop Entry]"},
 		{name: "type", line: "Type=Application"},
 		{name: "mimetype", line: "MimeType=application/x-pcv;"},
-		{name: "icon", line: "Icon=io.github.picocrypt_ng.Picocrypt-NG"},
+		{name: "icon", line: "Icon=" + linuxDesktopAppID},
+		{name: "startup_wm_class", line: "StartupWMClass=" + linuxDesktopAppID},
 	}
 	for _, tc := range requiredLines {
 		t.Run(tc.name, func(t *testing.T) {
@@ -345,6 +347,110 @@ func TestDesktopEntryContract(t *testing.T) {
 	if strings.Contains(text, "Encoding=") {
 		t.Errorf("desktop file contains deprecated Encoding= key; remove per Desktop Entry Spec 1.4")
 	}
+}
+
+func TestDesktopIconHasMatchingHicolorAppIconContract(t *testing.T) {
+	iconName := desktopEntryValue(t, mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.desktop"), "Icon")
+	if iconName != linuxDesktopAppID {
+		t.Fatalf("desktop Icon = %q, want %q", iconName, linuxDesktopAppID)
+	}
+
+	appIconSVG := string(mustReadFile(t, "images/key.svg"))
+	if !strings.Contains(appIconSVG, `xmlns="http://www.w3.org/2000/svg"`) {
+		t.Fatal("images/key.svg missing svg namespace")
+	}
+
+	const iconInstallTarget = `"$package_root/usr/share/icons/hicolor/scalable/apps/` + linuxDesktopAppID + `.svg"`
+	for _, relPath := range []string{
+		".github/workflows/build-linux.yml",
+		".github/workflows/pr-test-build-linux.yml",
+	} {
+		t.Run(relPath, func(t *testing.T) {
+			workflow := string(mustReadFile(t, relPath))
+			if !strings.Contains(workflow, `install -m 0644 images/key.svg`) {
+				t.Fatalf("%s does not install images/key.svg as the app icon source", relPath)
+			}
+			if !strings.Contains(workflow, iconInstallTarget) {
+				t.Fatalf("%s does not install the app icon under the desktop Icon basename %q", relPath, iconName)
+			}
+		})
+	}
+}
+
+func TestLinuxAppIdentityContract(t *testing.T) {
+	const desktopRelPath = "dist/linux/" + linuxDesktopAppID + ".desktop"
+
+	desktop := mustReadFile(t, desktopRelPath)
+	if desktopEntryValue(t, desktop, "Icon") != linuxDesktopAppID {
+		t.Fatalf("%s Icon must match app ID %q", desktopRelPath, linuxDesktopAppID)
+	}
+
+	var metainfo struct {
+		ID         string `xml:"id"`
+		Launchable struct {
+			Type string `xml:"type,attr"`
+			Text string `xml:",chardata"`
+		} `xml:"launchable"`
+	}
+	if err := xml.Unmarshal(mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml"), &metainfo); err != nil {
+		t.Fatalf("unmarshal metainfo identity: %v", err)
+	}
+	if strings.TrimSpace(metainfo.ID) != linuxDesktopAppID {
+		t.Fatalf("metainfo id = %q, want %q", strings.TrimSpace(metainfo.ID), linuxDesktopAppID)
+	}
+	if metainfo.Launchable.Type != "desktop-id" {
+		t.Fatalf("metainfo launchable type = %q, want desktop-id", metainfo.Launchable.Type)
+	}
+	if got, want := strings.TrimSpace(metainfo.Launchable.Text), linuxDesktopAppID+".desktop"; got != want {
+		t.Fatalf("metainfo launchable desktop-id = %q, want %q", got, want)
+	}
+
+	if got := linuxRuntimeIdentitySourceID(t); got != linuxDesktopAppID {
+		t.Fatalf("Linux runtime app ID = %q, want %q", got, linuxDesktopAppID)
+	}
+}
+
+func desktopEntryValue(t *testing.T, data []byte, key string) string {
+	t.Helper()
+	prefix := key + "="
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	t.Fatalf("desktop entry missing %s key", key)
+	return ""
+}
+
+func linuxRuntimeIdentitySourceID(t *testing.T) string {
+	t.Helper()
+
+	var uiSource strings.Builder
+	for _, relPath := range gitTrackedFiles(t) {
+		if strings.HasPrefix(relPath, "src/internal/ui/") && strings.HasSuffix(relPath, ".go") {
+			uiSource.Write(mustReadFile(t, relPath))
+			uiSource.WriteByte('\n')
+		}
+	}
+	source := uiSource.String()
+
+	patterns := []struct {
+		name string
+		re   *regexp.Regexp
+	}{
+		{name: "NewWithID literal", re: regexp.MustCompile(`NewWithID\("([^"]+)"\)`)},
+		{name: "linuxAppID function", re: regexp.MustCompile(`(?s)func\s+linuxAppID\(\)\s+string\s*\{\s*return\s+"([^"]+)"\s*\}`)},
+		{name: "linuxAppID const", re: regexp.MustCompile(`(?m)^\s*const\s+linuxAppID\s*=\s*"([^"]+)"\s*$`)},
+	}
+	for _, pattern := range patterns {
+		matches := pattern.re.FindStringSubmatch(source)
+		if len(matches) == 2 {
+			return matches[1]
+		}
+	}
+
+	t.Fatal("could not find a Fyne NewWithID literal or linuxAppID identity seam in src/internal/ui")
+	return ""
 }
 
 func TestMetainfoContract(t *testing.T) {
@@ -386,7 +492,7 @@ type appstreamReleaseDescription struct {
 	Items []string `xml:"ul>li"`
 }
 
-func TestMetainfoV210ReleaseHistory(t *testing.T) {
+func TestMetainfoV211ReleaseHistory(t *testing.T) {
 	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml")
 	var doc appstreamMetainfo
 	if err := xml.Unmarshal(data, &doc); err != nil {
@@ -397,22 +503,22 @@ func TestMetainfoV210ReleaseHistory(t *testing.T) {
 	}
 
 	current := doc.Releases[0]
-	if current.Version != "2.10" {
-		t.Fatalf("current metainfo release version = %q, want 2.10", current.Version)
+	if current.Version != "2.11" {
+		t.Fatalf("current metainfo release version = %q, want 2.11", current.Version)
 	}
-	if current.Date != v210ReleaseDate {
-		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v210ReleaseDate)
+	if current.Date != v211ReleaseDate {
+		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v211ReleaseDate)
 	}
 	detailsURL := appstreamDetailsURL(current)
-	if !strings.HasSuffix(detailsURL, "Changelog.md#v210") {
-		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v210", detailsURL)
+	if !strings.HasSuffix(detailsURL, "Changelog.md#v211") {
+		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v211", detailsURL)
 	}
 
 	versions := map[string]bool{}
 	for _, release := range doc.Releases {
 		versions[release.Version] = true
 	}
-	for _, want := range []string{"2.09", "2.08"} {
+	for _, want := range []string{"2.10", "2.09", "2.08"} {
 		if !versions[want] {
 			t.Errorf("metainfo release history missing historical version %s", want)
 		}
@@ -858,11 +964,9 @@ func TestWindowsICO(t *testing.T) {
 	//   bytes 0-1: 00 00  (reserved, must be 0)
 	//   bytes 2-3: 01 00  (type=1, ICO; 02 00 = CUR)
 	if len(data) < 4 || !bytes.Equal(data[:4], []byte{0x00, 0x00, 0x01, 0x00}) {
-		got := []byte{}
-		if len(data) >= 4 {
-			got = data[:4]
-		} else {
-			got = data
+		got := data
+		if len(got) > 4 {
+			got = got[:4]
 		}
 		t.Errorf("pcv-icon.ico magic bytes = % x, want 00 00 01 00", got)
 	}

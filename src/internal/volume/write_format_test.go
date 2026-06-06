@@ -23,7 +23,7 @@ import (
 //
 // Assertions are written against the header.*Size constants and
 // header.CurrentVersion (the CONSTANT), not string/number literals, so this
-// test survives the REL-02 v2.10 version-string bump unchanged while still
+// test survives the REL-02 v2.11 version-string bump unchanged while still
 // turning RED on any genuine field-width / version / flag-layout drift.
 func TestWriteFormatRegression(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()

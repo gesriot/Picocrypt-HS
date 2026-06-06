@@ -7,15 +7,13 @@
 // darwin file — so the delivery logic is unit-testable on every CI platform, not
 // only macOS.
 //
-// Delivery is event-driven and batched. AppKit hands an entire multi-file open
-// gesture to application:openURLs: as a single [URL] array — one delegate call,
-// per Apple's NSApplicationDelegate contract — so the bridge buffers every path
-// in that array and fires the notify handler once, via flushOpenedPaths, after
-// the whole array has been appended. That guarantees one drain -> one onDrop
-// carrying the entire selection. The previous behaviour notified after every
-// single path, which shredded one gesture into N single-path onDrop calls: each
-// replaced the prior selection or was discarded by onDrop's scanning guard,
-// losing files (issue #127).
+// Delivery is event-driven and batched. The darwin bridge buffers every path in
+// one application:openURLs: callback and calls flushOpenedPaths after the array
+// has been appended. flushOpenedPaths then coalesces any nearby callbacks before
+// notifying the UI, because Finder/Dock can split one user drag into smaller
+// openURLs: batches. That guarantees one drain -> one onDrop carrying the full
+// observed selection instead of replacing earlier batches or discarding later
+// ones through onDrop's scanning guard (issue #127).
 //
 // The notify handler is registered by the running App via setOpenedPathsNotify.
 // This also lets paths that arrive while the app is already running (issue #127:
@@ -24,18 +22,23 @@
 
 package ui
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 var (
-	openedPathsMu     sync.Mutex
-	openedPaths       []string
-	openedPathsNotify func()
+	openedPathsMu         sync.Mutex
+	openedPaths           []string
+	openedPathsNotify     func()
+	openedPathsFlushTimer *time.Timer
+	openedPathsFlushDelay = 200 * time.Millisecond
+	openedPathsGeneration uint64
 )
 
 // appendOpenedPath buffers a path opened via the OS (AppleEvents on darwin). It
-// deliberately does not notify: a single openURLs: event delivers several paths,
-// so the darwin bridge appends them all and then calls flushOpenedPaths once,
-// ensuring the whole gesture reaches the UI as one drop rather than one per path.
+// deliberately does not notify: the darwin bridge appends every URL from the
+// current openURLs: callback first, then calls flushOpenedPaths once.
 func appendOpenedPath(path string) {
 	if path == "" {
 		return
@@ -45,27 +48,63 @@ func appendOpenedPath(path string) {
 	openedPathsMu.Unlock()
 }
 
-// flushOpenedPaths invokes the registered notify handler once, after a batch of
-// appendOpenedPath calls, so the buffered paths are drained and applied together.
+// flushOpenedPaths schedules the registered notify handler after a short quiet
+// window. Finder/Dock may split one human drag onto the app icon into several
+// openURLs: deliveries, so every delivery resets the timer and the UI drains the
+// accumulated paths once the stream goes idle.
+//
 // It is a no-op when no handler is registered yet (a cold launch whose openURLs
-// event arrives before the App wires its handler) — those paths are picked up by
-// the initial drain performed right after setOpenedPathsNotify registers. The
-// handler is invoked outside the lock to avoid re-entrancy on openedPathsMu.
+// event arrives before the App wires its handler) — those paths stay buffered
+// until startup registers the handler and arms the debounce timer.
 func flushOpenedPaths() {
 	openedPathsMu.Lock()
-	notify := openedPathsNotify
+	if openedPathsNotify == nil {
+		openedPathsMu.Unlock()
+		return
+	}
+	if openedPathsFlushTimer != nil {
+		openedPathsFlushTimer.Stop()
+	}
+	openedPathsGeneration++
+	generation := openedPathsGeneration
+	openedPathsFlushTimer = time.AfterFunc(openedPathsFlushDelay, func() {
+		notifyOpenedPaths(generation)
+	})
 	openedPathsMu.Unlock()
+}
 
+func notifyOpenedPaths(generation uint64) {
+	openedPathsMu.Lock()
+	if generation != openedPathsGeneration {
+		openedPathsMu.Unlock()
+		return
+	}
+	notify := openedPathsNotify
+	openedPathsFlushTimer = nil
+	openedPathsMu.Unlock()
 	if notify != nil {
 		notify()
 	}
 }
 
+func hasOpenedPaths() bool {
+	openedPathsMu.Lock()
+	defer openedPathsMu.Unlock()
+	return len(openedPaths) > 0
+}
+
 // setOpenedPathsNotify registers (or clears, when fn is nil) the handler invoked
-// by flushOpenedPaths. Callers should drain once immediately after registering so
-// paths buffered before registration are not missed.
+// by flushOpenedPaths. Callers should call flushOpenedPaths after registering if
+// paths were buffered before registration.
 func setOpenedPathsNotify(fn func()) {
 	openedPathsMu.Lock()
+	if fn == nil && openedPathsFlushTimer != nil {
+		openedPathsFlushTimer.Stop()
+		openedPathsFlushTimer = nil
+	}
+	if fn == nil {
+		openedPathsGeneration++
+	}
 	openedPathsNotify = fn
 	openedPathsMu.Unlock()
 }

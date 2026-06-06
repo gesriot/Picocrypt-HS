@@ -1,3 +1,10 @@
+# v2.11
+<ul>
+	<li>✓ <strong>macOS file opening</strong>: opening multiple files from Finder or the Dock no longer drops files when macOS delivers the same action in several batches</li>
+	<li>✓ <strong>Linux launchers</strong>: the desktop file now uses the same application identity as the packaged app, improving launcher matching and file-association behavior</li>
+	<li>✓ <strong>Release metadata</strong>: desktop, Snap, Windows, AppStream, CLI, and volume-header version metadata now report v2.11 consistently</li>
+</ul>
+
 # v2.10
 <ul>
 	<li>✓ <strong>Safer output cleanup</strong>: temporary output files are created without following symlinks, and failed operation cleanup no longer wipes a symlink target</li>

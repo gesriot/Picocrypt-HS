@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestVersionFlagOutputsV210(t *testing.T) {
-	const want = "v2.10"
+func TestVersionFlagOutputsV211(t *testing.T) {
+	const want = "v2.11"
 
 	oldVersion := Version
 	oldRootVersion := rootCmd.Version
@@ -35,7 +35,7 @@ func TestVersionFlagOutputsV210(t *testing.T) {
 	if !strings.Contains(got, want) {
 		t.Fatalf("--version output = %q; want it to contain %q", got, want)
 	}
-	if strings.Contains(got, "v2.09") {
-		t.Fatalf("--version output = %q; must not contain stale v2.09", got)
+	if strings.Contains(got, "v2.10") {
+		t.Fatalf("--version output = %q; must not contain stale v2.10", got)
 	}
 }

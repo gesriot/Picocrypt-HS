@@ -349,6 +349,7 @@ func GetDecryptionInfo(filePath string) (string, error) {
 	}
 
 	// Open file and read header
+	// #nosec G304 -- filePath is the user-selected encrypted volume to inspect.
 	fin, err := os.Open(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)

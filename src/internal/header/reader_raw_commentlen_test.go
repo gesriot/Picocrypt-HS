@@ -17,7 +17,7 @@ func rawHeaderWithCommentLenField(t *testing.T, rs *encoding.RSCodecs, commentLe
 	if len(commentLen5) != 5 {
 		t.Fatalf("comment-length field must be exactly 5 bytes, got %q", commentLen5)
 	}
-	versionEnc, err := encoding.Encode(rs.RS5, []byte("v2.10"))
+	versionEnc, err := encoding.Encode(rs.RS5, []byte(CurrentVersion))
 	if err != nil {
 		t.Fatalf("encode version: %v", err)
 	}

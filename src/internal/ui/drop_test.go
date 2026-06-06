@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -654,6 +655,7 @@ func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
 		// (Linux arm64). Re-evaluate when Fyne ships a fix upstream.
 		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
 	}
+	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 
 	fyneApp := newTestFyneApp(t)
 
@@ -677,7 +679,7 @@ func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
 	}
 
 	fake.started()
-	waitForDropProcessing(t, a)
+	waitForInputFile(t, a, inputFile)
 	state = snapshotDropState(t, a)
 
 	if state.InputFile != inputFile {
@@ -729,6 +731,7 @@ func TestScheduleStartupPathsAppliesWarmOpenedPaths(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
 	}
+	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 
 	// Reset package-global bridge state: other tests fire the start hook and leave
 	// a notify handler registered.
@@ -766,25 +769,69 @@ func TestScheduleStartupPathsAppliesWarmOpenedPaths(t *testing.T) {
 	// path(s) for the event, then flushes once, which fires the notify handler.
 	appendOpenedPath(inputFile)
 	flushOpenedPaths()
-	fyne.DoAndWait(func() {}) // barrier: let the notify-scheduled fyne.Do run
-	waitForDropProcessing(t, a)
+	waitForInputFile(t, a, inputFile)
 
 	if state := snapshotDropState(t, a); state.InputFile != inputFile {
 		t.Fatalf("InputFile = %q after warm opened path; want %q", state.InputFile, inputFile)
 	}
 }
 
-// TestOpenedPathsBatchDeliversWholeGestureAsOneDrop covers the #127 follow-up:
-// dragging several files onto the app/dock icon is delivered by AppKit as a
-// single application:openURLs: event, and the bridge must surface it as ONE drop
-// carrying every path. The previous code notified after every appended path, so
-// a three-file gesture produced three single-path drops — each replacing the
-// prior selection or hitting onDrop's scanning guard, losing files. The darwin
-// bridge now appends all paths and flushes once; this asserts that contract at
-// the platform-neutral layer so it guards the regression on every CI platform,
-// including the amd64 -race job (it touches no Fyne rendering, so it is not
-// -race-skipped).
+func TestScheduleStartupPathsCoalescesColdAndLateOpenedBatches(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	withOpenedPathsFlushDelay(t, 25*time.Millisecond)
+
+	setOpenedPathsNotify(nil)
+	drainOpenedPaths()
+	t.Cleanup(func() {
+		setOpenedPathsNotify(nil)
+		drainOpenedPaths()
+	})
+
+	fyneApp := newTestFyneApp(t)
+
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	paths := []string{
+		filepath.Join(tempDir, "a.txt"),
+		filepath.Join(tempDir, "b.txt"),
+		filepath.Join(tempDir, "c.txt"),
+	}
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	appendOpenedPath(paths[0])
+	appendOpenedPath(paths[1])
+
+	fake := newLifecycleCaptureApp(fyne.CurrentApp())
+	a.fyneApp = fake
+	a.scheduleStartupPaths(nil)
+	if fake.started == nil {
+		t.Fatal("expected startup hook to be registered")
+	}
+	fake.started()
+
+	appendOpenedPath(paths[2])
+	flushOpenedPaths()
+
+	waitForAllFiles(t, a, paths)
+}
+
+// TestOpenedPathsBatchDeliversWholeGestureAsOneDrop covers the first #127
+// batching fix: when one application:openURLs: callback contains several files,
+// the bridge must surface it as ONE drop carrying every path. The previous code
+// notified after every appended path, so a three-file callback produced three
+// single-path drops — each replacing the prior selection or hitting onDrop's
+// scanning guard, losing files. The darwin bridge appends all paths and flushes
+// once; this asserts that contract at the platform-neutral layer so it guards
+// the regression on every CI platform, including the amd64 -race job (it touches
+// no Fyne rendering, so it is not -race-skipped).
 func TestOpenedPathsBatchDeliversWholeGestureAsOneDrop(t *testing.T) {
+	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 	// Reset package-global bridge state other tests may have left behind.
 	setOpenedPathsNotify(nil)
 	drainOpenedPaths()
@@ -793,9 +840,9 @@ func TestOpenedPathsBatchDeliversWholeGestureAsOneDrop(t *testing.T) {
 		drainOpenedPaths()
 	})
 
-	var batches [][]string
+	batches := make(chan []string, 1)
 	setOpenedPathsNotify(func() {
-		batches = append(batches, drainOpenedPaths())
+		batches <- drainOpenedPaths()
 	})
 
 	// One openURLs: event carrying three files: append each, then flush once.
@@ -805,10 +852,18 @@ func TestOpenedPathsBatchDeliversWholeGestureAsOneDrop(t *testing.T) {
 	}
 	flushOpenedPaths()
 
-	if len(batches) != 1 {
-		t.Fatalf("notify fired %d time(s) for one openURLs gesture; want exactly 1 (per-path notifying loses files, #127)", len(batches))
+	var got []string
+	select {
+	case got = <-batches:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for opened paths notification")
 	}
-	got := batches[0]
+
+	select {
+	case extra := <-batches:
+		t.Fatalf("notify fired more than once for one openURLs gesture; extra batch: %#v", extra)
+	default:
+	}
 	if len(got) != len(paths) {
 		t.Fatalf("drained %d path(s); want all %d delivered in one drop: got %v", len(got), len(paths), got)
 	}
@@ -1182,6 +1237,38 @@ func waitForDropProcessing(t *testing.T, a *App) {
 	if a.State.IsScanning() {
 		t.Fatal("drop processing did not finish")
 	}
+}
+
+func waitForInputFile(t *testing.T, a *App, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state := snapshotDropState(t, a)
+		if state.InputFile == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	state := snapshotDropState(t, a)
+	t.Fatalf("InputFile = %q; want %q", state.InputFile, want)
+}
+
+func waitForAllFiles(t *testing.T, a *App, want []string) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state := snapshotDropState(t, a)
+		if reflect.DeepEqual(state.AllFiles, want) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	state := snapshotDropState(t, a)
+	t.Fatalf("AllFiles = %#v; want %#v", state.AllFiles, want)
 }
 
 type dropStateSnapshot struct {

@@ -6,7 +6,7 @@ import "Picocrypt-NG/internal/encoding"
 
 // Version constants
 const (
-	CurrentVersion = "v2.10"
+	CurrentVersion = "v2.11"
 	MaxCommentLen  = 99999
 )
 
