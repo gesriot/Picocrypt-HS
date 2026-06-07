@@ -367,11 +367,27 @@ func TestDesktopIconHasMatchingHicolorAppIconContract(t *testing.T) {
 	} {
 		t.Run(relPath, func(t *testing.T) {
 			workflow := string(mustReadFile(t, relPath))
+			if !strings.Contains(workflow, `xmllint --noout images/key.svg`) {
+				t.Fatalf("%s does not validate images/key.svg before packaging the app icon", relPath)
+			}
+			if !strings.Contains(workflow, `librsvg2-bin`) {
+				t.Fatalf("%s does not install librsvg2-bin for app icon PNG generation", relPath)
+			}
 			if !strings.Contains(workflow, `install -m 0644 images/key.svg`) {
 				t.Fatalf("%s does not install images/key.svg as the app icon source", relPath)
 			}
 			if !strings.Contains(workflow, iconInstallTarget) {
 				t.Fatalf("%s does not install the app icon under the desktop Icon basename %q", relPath, iconName)
+			}
+			if !strings.Contains(workflow, `for size in 16 32 48 64 128 256; do`) {
+				t.Fatalf("%s does not generate app icon PNG fallbacks for all hicolor sizes", relPath)
+			}
+			const pngInstallTarget = `app_icon_png="$package_root/usr/share/icons/hicolor/${size}x${size}/apps/` + linuxDesktopAppID + `.png"`
+			if !strings.Contains(workflow, pngInstallTarget) {
+				t.Fatalf("%s does not install PNG app icons under the desktop Icon basename %q", relPath, iconName)
+			}
+			if !strings.Contains(workflow, `rsvg-convert --format png --width "$size" --height "$size" --output "$app_icon_png" images/key.svg`) {
+				t.Fatalf("%s does not render PNG app icons from images/key.svg with rsvg-convert", relPath)
 			}
 		})
 	}
