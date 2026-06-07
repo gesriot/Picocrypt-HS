@@ -777,6 +777,48 @@ func TestScheduleStartupPathsAppliesWarmOpenedPaths(t *testing.T) {
 	}
 }
 
+func TestSeparateWarmOpenedPathReplacesSelectionAfterFirstSessionApplied(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
+	setOpenedPathsNotify(nil)
+	drainOpenedPaths()
+	t.Cleanup(func() {
+		setOpenedPathsNotify(nil)
+		drainOpenedPaths()
+	})
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "first.txt")
+	second := filepath.Join(tempDir, "second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	fake := newLifecycleCaptureApp(fyne.CurrentApp())
+	a.fyneApp = fake
+	a.scheduleStartupPaths(nil)
+	fake.started()
+
+	appendOpenedPath(first)
+	flushOpenedPaths()
+	waitForInputFile(t, a, first)
+
+	appendOpenedPath(second)
+	flushOpenedPaths()
+	waitForInputFile(t, a, second)
+
+	state := snapshotDropState(t, a)
+	if !reflect.DeepEqual(state.AllFiles, []string{second}) {
+		t.Fatalf("AllFiles = %#v; want separate later open to replace with [%q]", state.AllFiles, second)
+	}
+}
+
 func TestScheduleStartupPathsCoalescesColdAndLateOpenedBatches(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
