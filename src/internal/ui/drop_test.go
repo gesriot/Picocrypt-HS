@@ -688,6 +688,80 @@ func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
 	}
 }
 
+func TestScheduleStartupPathsSkipsMissingArgvWhenValidPathsRemain(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	missingPath := filepath.Join(tempDir, "missing.txt")
+	inputFile := filepath.Join(tempDir, "report.txt")
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	fake := newLifecycleCaptureApp(fyne.CurrentApp())
+	a.fyneApp = fake
+	a.scheduleStartupPaths([]string{missingPath, inputFile})
+	if fake.started == nil {
+		t.Fatal("expected startup hook to be registered")
+	}
+
+	fake.started()
+	waitForInputFile(t, a, inputFile)
+	state := snapshotDropState(t, a)
+	if state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
+	}
+}
+
+func TestScheduleStartupPathsPreservesPartialAccessWarningForArgv(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	inputFile := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	originalStat := startupPathStat
+	startupPathStat = func(path string) (os.FileInfo, error) {
+		if path == "blocked.txt" {
+			return nil, os.ErrPermission
+		}
+		return originalStat(path)
+	}
+	defer func() {
+		startupPathStat = originalStat
+	}()
+
+	fake := newLifecycleCaptureApp(fyne.CurrentApp())
+	a.fyneApp = fake
+	a.scheduleStartupPaths([]string{"blocked.txt", inputFile})
+	if fake.started == nil {
+		t.Fatal("expected startup hook to be registered")
+	}
+
+	fake.started()
+	waitForInputFile(t, a, inputFile)
+	state := snapshotDropState(t, a)
+	if state.InputFile != inputFile {
+		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
+	}
+	if state.MainStatus != startupPathPartialAccessStatus {
+		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathPartialAccessStatus)
+	}
+}
+
 // TestScheduleStartupPathsAlwaysWiresStartHook verifies that scheduleStartupPaths
 // registers the OnStarted callback even when startupPaths is empty. On darwin,
 // Apple-Event-buffered paths from a Finder cold launch may be the only source
@@ -864,10 +938,11 @@ func TestScheduleStartupPathsCoalescesColdAndLateOpenedBatches(t *testing.T) {
 	waitForAllFiles(t, a, paths)
 }
 
-func TestScheduleStartupPathsWaitsForOpenedPathReadiness(t *testing.T) {
+func TestOpenedPathsWaitForReadinessBeforeApply(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
 	}
+	resetOpenedPathsForTest(t)
 	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -895,8 +970,10 @@ func TestScheduleStartupPathsWaitsForOpenedPathReadiness(t *testing.T) {
 
 	fake := newLifecycleCaptureApp(fyne.CurrentApp())
 	a.fyneApp = fake
-	a.scheduleStartupPaths([]string{inputFile})
+	a.scheduleStartupPaths(nil)
 	fake.started()
+	appendOpenedPath(inputFile)
+	flushOpenedPaths()
 
 	waitForInputFile(t, a, inputFile)
 	if checks < 2 {

@@ -279,14 +279,16 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 	// from a Finder cold launch may have been buffered by the cgo handler before
 	// Go's main() ran (drainOpenedPaths returns nothing on non-darwin).
 	a.fyneApp.Lifecycle().SetOnStarted(func() {
-		// Register the notify handler before queueing startup paths so cold-launch
-		// AppleEvent batches and later warm batches share the same debounce window.
+		// Register the notify handler before checking for cold-launch AppleEvent
+		// batches so Finder/Dock opens use the same debounce window as warm opens.
 		setOpenedPathsNotify(applyOpened)
-		for _, path := range startupPaths {
-			appendOpenedPath(path)
-		}
 		if hasOpenedPaths() {
 			flushOpenedPaths()
+		}
+		if len(startupPaths) > 0 {
+			fyne.Do(func() {
+				a.applyStartupPaths(startupPaths)
+			})
 		}
 	})
 }
