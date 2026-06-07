@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"errors"
-	"os"
 	"time"
 
 	"Picocrypt-NG/internal/util"
@@ -29,6 +28,15 @@ const (
 	openedPathError
 )
 
+const (
+	pcngOpenedPathReady = iota
+	pcngOpenedPathDownloading
+	pcngOpenedPathNotDownloaded
+	pcngOpenedPathStale
+	pcngOpenedPathMissing
+	pcngOpenedPathError
+)
+
 type openedPathReadiness struct {
 	Path  string
 	State openedPathReadinessState
@@ -40,6 +48,19 @@ type openedPathReadinessResult []openedPathReadiness
 type openedPathReadinessCheck func(context.Context, []string) openedPathReadinessResult
 
 var checkOpenedPathReadiness openedPathReadinessCheck = defaultOpenedPathReadiness
+
+func openedPathStateFromDarwinCode(code int) openedPathReadinessState {
+	switch code {
+	case pcngOpenedPathReady:
+		return openedPathReady
+	case pcngOpenedPathDownloading, pcngOpenedPathNotDownloaded, pcngOpenedPathStale:
+		return openedPathPending
+	case pcngOpenedPathMissing:
+		return openedPathMissing
+	default:
+		return openedPathError
+	}
+}
 
 func normalizeOpenedPaths(paths []string) []string {
 	out := make([]string, 0, len(paths))
@@ -101,27 +122,6 @@ func sleepOrCancel(ctx context.Context, d time.Duration) bool {
 	case <-timer.C:
 		return false
 	}
-}
-
-func defaultOpenedPathReadiness(ctx context.Context, paths []string) openedPathReadinessResult {
-	result := make(openedPathReadinessResult, 0, len(paths))
-	for _, path := range paths {
-		if ctx.Err() != nil {
-			return result
-		}
-
-		if _, err := os.Stat(path); err != nil {
-			if os.IsNotExist(err) {
-				result = append(result, openedPathReadiness{Path: path, State: openedPathMissing, Err: err})
-			} else {
-				result = append(result, openedPathReadiness{Path: path, State: openedPathError, Err: err})
-			}
-			continue
-		}
-
-		result = append(result, openedPathReadiness{Path: path, State: openedPathReady})
-	}
-	return result
 }
 
 func (a *App) cancelOpenedPathReadiness() {
