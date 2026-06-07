@@ -173,6 +173,19 @@ func (a *App) finishOpenedPathReadiness(generation uint64) {
 	}
 }
 
+func (a *App) openedPathReadinessCanUpdateUI(generation uint64) bool {
+	if !a.isOpenedPathReadinessCurrent(generation) {
+		return false
+	}
+
+	snap := a.State.UISnapshot()
+	if snap.Working || snap.Scanning {
+		a.finishOpenedPathReadiness(generation)
+		return false
+	}
+	return true
+}
+
 func (a *App) applyOpenedPaths(paths []string) {
 	normalized := normalizeOpenedPaths(paths)
 	if len(normalized) == 0 {
@@ -219,7 +232,7 @@ func (a *App) waitForOpenedPathsAndApply(ctx context.Context, generation uint64,
 		}
 
 		fyne.Do(func() {
-			if !a.isOpenedPathReadinessCurrent(generation) {
+			if !a.openedPathReadinessCanUpdateUI(generation) {
 				return
 			}
 			a.State.MainStatus = openedPathsPreparingStatus
@@ -238,13 +251,7 @@ func (a *App) waitForOpenedPathsAndApply(ctx context.Context, generation uint64,
 
 func (a *App) applyReadyOpenedPaths(generation uint64, paths []string) {
 	fyne.Do(func() {
-		if !a.isOpenedPathReadinessCurrent(generation) {
-			return
-		}
-
-		snap := a.State.UISnapshot()
-		if snap.Working || snap.Scanning {
-			a.finishOpenedPathReadiness(generation)
+		if !a.openedPathReadinessCanUpdateUI(generation) {
 			return
 		}
 
@@ -255,7 +262,7 @@ func (a *App) applyReadyOpenedPaths(generation uint64, paths []string) {
 
 func (a *App) applyOpenedPathReadinessError(generation uint64) {
 	fyne.Do(func() {
-		if !a.isOpenedPathReadinessCurrent(generation) {
+		if !a.openedPathReadinessCanUpdateUI(generation) {
 			return
 		}
 
@@ -268,7 +275,7 @@ func (a *App) applyOpenedPathReadinessError(generation uint64) {
 
 func (a *App) applyOpenedPathReadinessTimeout(generation uint64) {
 	fyne.Do(func() {
-		if !a.isOpenedPathReadinessCurrent(generation) {
+		if !a.openedPathReadinessCanUpdateUI(generation) {
 			return
 		}
 

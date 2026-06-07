@@ -908,6 +908,110 @@ func TestOpenedPathReadinessCancellationPreventsStaleApply(t *testing.T) {
 	}
 }
 
+func TestInvalidStartCancelsOpenedPathReadiness(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	pendingFile := filepath.Join(t.TempDir(), "pending-start.txt")
+	if err := os.WriteFile(pendingFile, []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	checkStarted := make(chan struct{})
+	release := make(chan struct{})
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		select {
+		case <-checkStarted:
+		default:
+			close(checkStarted)
+		}
+		select {
+		case <-ctx.Done():
+			return openedPathReadinessResult{{Path: pendingFile, State: openedPathPending}}
+		case <-release:
+			return openedPathReadinessResult{{Path: pendingFile, State: openedPathReady}}
+		}
+	}
+
+	a.applyOpenedPaths([]string{pendingFile})
+	defer a.cancelOpenedPathReadiness()
+	select {
+	case <-checkStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for readiness check to start")
+	}
+
+	fyne.DoAndWait(func() {
+		a.onClickStart()
+	})
+	close(release)
+
+	assertInputFileDoesNotBecome(t, a, pendingFile, 200*time.Millisecond)
+}
+
+func TestOpenedPathReadinessPendingStatusDoesNotOverwriteBusyStatus(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	pendingFile := filepath.Join(t.TempDir(), "pending-status.txt")
+	if err := os.WriteFile(pendingFile, []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	checkStarted := make(chan struct{})
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		select {
+		case <-checkStarted:
+		default:
+			close(checkStarted)
+		}
+		return openedPathReadinessResult{{Path: pendingFile, State: openedPathPending}}
+	}
+
+	const busyStatus = "Encrypting active file"
+	fyne.DoAndWait(func() {
+		a.State.SetWorking(true)
+		a.State.MainStatus = busyStatus
+		a.State.MainStatusColor = util.WHITE
+		a.refreshUI()
+	})
+	defer func() {
+		a.cancelOpenedPathReadiness()
+		fyne.DoAndWait(func() {
+			a.State.SetWorking(false)
+		})
+	}()
+
+	a.applyOpenedPaths([]string{pendingFile})
+	select {
+	case <-checkStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for readiness check to start")
+	}
+
+	assertMainStatusStays(t, a, busyStatus, 200*time.Millisecond)
+}
+
 // TestOpenedPathsBatchDeliversWholeGestureAsOneDrop covers the first #127
 // batching fix: when one application:openURLs: callback contains several files,
 // the bridge must surface it as ONE drop carrying every path. The previous code
@@ -1342,6 +1446,19 @@ func waitForInputFile(t *testing.T, a *App, want string) {
 	t.Fatalf("InputFile = %q; want %q", state.InputFile, want)
 }
 
+func assertInputFileDoesNotBecome(t *testing.T, a *App, unwanted string, duration time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
+		state := snapshotDropState(t, a)
+		if state.InputFile == unwanted {
+			t.Fatalf("InputFile became stale opened path %q", unwanted)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func waitForAllFiles(t *testing.T, a *App, want []string) {
 	t.Helper()
 
@@ -1356,6 +1473,19 @@ func waitForAllFiles(t *testing.T, a *App, want []string) {
 
 	state := snapshotDropState(t, a)
 	t.Fatalf("AllFiles = %#v; want %#v", state.AllFiles, want)
+}
+
+func assertMainStatusStays(t *testing.T, a *App, want string, duration time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
+		state := snapshotDropState(t, a)
+		if state.MainStatus != want {
+			t.Fatalf("MainStatus = %q; want it to stay %q", state.MainStatus, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 type dropStateSnapshot struct {

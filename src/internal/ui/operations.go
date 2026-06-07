@@ -37,6 +37,8 @@ type recursiveSettings struct {
 
 // onClickStart handles the Start button click.
 func (a *App) onClickStart() {
+	a.cancelOpenedPathReadiness()
+
 	// Validate
 	if a.State.Mode == "" {
 		return
@@ -54,12 +56,10 @@ func (a *App) onClickStart() {
 	// Check if output exists (skip check for recursive mode - each file has different output)
 	_, outputExists := os.Stat(a.State.OutputFile)
 	if showOverwriteModalForOutput(outputExists == nil, a.State.Recursively, a.State.OutputChosenViaSaveDialog) {
-		a.cancelOpenedPathReadiness()
 		a.showOverwriteModal()
 		return
 	}
 
-	a.cancelOpenedPathReadiness()
 	a.startWork()
 }
 
