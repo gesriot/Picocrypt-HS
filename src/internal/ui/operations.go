@@ -54,10 +54,12 @@ func (a *App) onClickStart() {
 	// Check if output exists (skip check for recursive mode - each file has different output)
 	_, outputExists := os.Stat(a.State.OutputFile)
 	if showOverwriteModalForOutput(outputExists == nil, a.State.Recursively, a.State.OutputChosenViaSaveDialog) {
+		a.cancelOpenedPathReadiness()
 		a.showOverwriteModal()
 		return
 	}
 
+	a.cancelOpenedPathReadiness()
 	a.startWork()
 }
 

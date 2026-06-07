@@ -5,15 +5,20 @@ import (
 	"errors"
 	"os"
 	"time"
+
+	"Picocrypt-NG/internal/util"
+
+	"fyne.io/fyne/v2"
 )
 
 const (
-	openedPathPollInterval = 200 * time.Millisecond
 	openedPathReadyTimeout = 45 * time.Second
 
 	openedPathsPreparingStatus = "Preparing iCloud files"
 	openedPathsTimeoutStatus   = "Some iCloud files are not downloaded"
 )
+
+var openedPathPollInterval = 200 * time.Millisecond
 
 type openedPathReadinessState int
 
@@ -117,4 +122,159 @@ func defaultOpenedPathReadiness(ctx context.Context, paths []string) openedPathR
 		result = append(result, openedPathReadiness{Path: path, State: openedPathReady})
 	}
 	return result
+}
+
+func (a *App) cancelOpenedPathReadiness() {
+	a.openReadinessMu.Lock()
+	cancel := a.openReadinessCancel
+	a.openReadinessGeneration++
+	a.openReadinessCancel = nil
+	a.openReadinessMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (a *App) beginOpenedPathReadiness() (context.Context, uint64) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	a.openReadinessMu.Lock()
+	previousCancel := a.openReadinessCancel
+	a.openReadinessGeneration++
+	generation := a.openReadinessGeneration
+	a.openReadinessCancel = cancel
+	a.openReadinessMu.Unlock()
+
+	if previousCancel != nil {
+		previousCancel()
+	}
+	return ctx, generation
+}
+
+func (a *App) isOpenedPathReadinessCurrent(generation uint64) bool {
+	a.openReadinessMu.Lock()
+	defer a.openReadinessMu.Unlock()
+	return a.openReadinessGeneration == generation && a.openReadinessCancel != nil
+}
+
+func (a *App) finishOpenedPathReadiness(generation uint64) {
+	a.openReadinessMu.Lock()
+	cancel := a.openReadinessCancel
+	if a.openReadinessGeneration == generation {
+		a.openReadinessCancel = nil
+	} else {
+		cancel = nil
+	}
+	a.openReadinessMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (a *App) applyOpenedPaths(paths []string) {
+	normalized := normalizeOpenedPaths(paths)
+	if len(normalized) == 0 {
+		return
+	}
+
+	ctx, generation := a.beginOpenedPathReadiness()
+	go a.waitForOpenedPathsAndApply(ctx, generation, normalized)
+}
+
+func (a *App) waitForOpenedPathsAndApply(ctx context.Context, generation uint64, paths []string) {
+	ctx, cancel := context.WithTimeout(ctx, openedPathReadyTimeout)
+	defer cancel()
+
+	for {
+		if !a.isOpenedPathReadinessCurrent(generation) {
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				a.applyOpenedPathReadinessTimeout(generation)
+			}
+			return
+		}
+
+		result := checkOpenedPathReadiness(ctx, paths)
+
+		if !a.isOpenedPathReadinessCurrent(generation) {
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				a.applyOpenedPathReadinessTimeout(generation)
+			}
+			return
+		}
+		if err := result.terminalError(); err != nil {
+			a.applyOpenedPathReadinessError(generation)
+			return
+		}
+		if result.allReady() {
+			a.applyReadyOpenedPaths(generation, paths)
+			return
+		}
+
+		fyne.Do(func() {
+			if !a.isOpenedPathReadinessCurrent(generation) {
+				return
+			}
+			a.State.MainStatus = openedPathsPreparingStatus
+			a.State.MainStatusColor = util.YELLOW
+			a.refreshUI()
+		})
+
+		if sleepOrCancel(ctx, openedPathPollInterval) {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				a.applyOpenedPathReadinessTimeout(generation)
+			}
+			return
+		}
+	}
+}
+
+func (a *App) applyReadyOpenedPaths(generation uint64, paths []string) {
+	fyne.Do(func() {
+		if !a.isOpenedPathReadinessCurrent(generation) {
+			return
+		}
+
+		snap := a.State.UISnapshot()
+		if snap.Working || snap.Scanning {
+			a.finishOpenedPathReadiness(generation)
+			return
+		}
+
+		a.finishOpenedPathReadiness(generation)
+		a.applyStartupPaths(paths)
+	})
+}
+
+func (a *App) applyOpenedPathReadinessError(generation uint64) {
+	fyne.Do(func() {
+		if !a.isOpenedPathReadinessCurrent(generation) {
+			return
+		}
+
+		a.finishOpenedPathReadiness(generation)
+		a.State.MainStatus = startupPathAccessStatus
+		a.State.MainStatusColor = util.RED
+		a.refreshUI()
+	})
+}
+
+func (a *App) applyOpenedPathReadinessTimeout(generation uint64) {
+	fyne.Do(func() {
+		if !a.isOpenedPathReadinessCurrent(generation) {
+			return
+		}
+
+		a.finishOpenedPathReadiness(generation)
+		a.State.MainStatus = openedPathsTimeoutStatus
+		a.State.MainStatusColor = util.YELLOW
+		a.refreshUI()
+	})
 }

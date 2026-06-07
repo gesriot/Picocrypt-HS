@@ -28,9 +28,11 @@
 package ui
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 
 	"Picocrypt-NG/internal/app"
@@ -77,6 +79,13 @@ type App struct {
 
 	// Cancellation flag (atomic for thread safety across goroutines)
 	cancelled atomic.Bool
+
+	// macOS opened-path readiness session. It is used for Finder/Dock-opened
+	// paths that may point at iCloud placeholders. It is separate from the global
+	// AppleEvent buffer in macos_open.go.
+	openReadinessMu         sync.Mutex
+	openReadinessGeneration uint64
+	openReadinessCancel     context.CancelFunc
 
 	// UI widgets that need to be updated
 	inputLabel        *widget.Label
@@ -232,6 +241,7 @@ func (a *App) Run(startupPaths []string) {
 			for i, uri := range uris {
 				paths[i] = uri.Path()
 			}
+			a.cancelOpenedPathReadiness()
 			a.onDrop(paths)
 		})
 	}
@@ -261,7 +271,7 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 			if len(opened) == 0 {
 				return
 			}
-			a.applyStartupPaths(opened)
+			a.applyOpenedPaths(opened)
 		})
 	}
 
@@ -340,7 +350,10 @@ func (a *App) buildUI() fyne.CanvasObject {
 	// Input label with Clear button
 	a.inputLabel = widget.NewLabel(a.State.InputLabel)
 	a.inputLabel.Wrapping = fyne.TextWrapWord
-	a.clearButton = widget.NewButton("Clear", a.resetUI)
+	a.clearButton = widget.NewButton("Clear", func() {
+		a.cancelOpenedPathReadiness()
+		a.resetUI()
+	})
 	// MediumImportance gives the button a visible border
 	a.clearButton.Importance = widget.MediumImportance
 
