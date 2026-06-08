@@ -1146,7 +1146,7 @@ func TestManualDropCancelsCloudOpenCollectionAndSuppressesLateFiles(t *testing.T
 	}()
 	openedPathPollInterval = 5 * time.Millisecond
 	openedPathCloudSettleDelay = 20 * time.Millisecond
-	openedPathCloudCancelSuppressDelay = 80 * time.Millisecond
+	openedPathCloudCancelSuppressDelay = 500 * time.Millisecond
 
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
@@ -1160,14 +1160,8 @@ func TestManualDropCancelsCloudOpenCollectionAndSuppressesLateFiles(t *testing.T
 		}
 	}
 
-	checkStarted := make(chan struct{})
 	release := make(chan struct{})
 	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
-		select {
-		case <-checkStarted:
-		default:
-			close(checkStarted)
-		}
 		result := make(openedPathReadinessResult, 0, len(paths))
 		for _, path := range paths {
 			item := openedPathReadiness{Path: path, State: openedPathPending, IsUbiquitous: true}
@@ -1182,11 +1176,7 @@ func TestManualDropCancelsCloudOpenCollectionAndSuppressesLateFiles(t *testing.T
 	}
 
 	a.applyOpenedPaths([]string{cloudFirst})
-	select {
-	case <-checkStarted:
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timed out waiting for readiness check to start")
-	}
+	waitForOpenedPathLateCollection(t, a)
 
 	fyne.DoAndWait(func() {
 		a.cancelOpenedPathReadiness()
@@ -1213,7 +1203,7 @@ func TestManualDropCancelsReadinessBeforeCloudMetadataAndSuppressesLateFiles(t *
 		openedPathCloudCancelSuppressDelay = oldSuppress
 	}()
 	openedPathPollInterval = 5 * time.Millisecond
-	openedPathCloudCancelSuppressDelay = 80 * time.Millisecond
+	openedPathCloudCancelSuppressDelay = 500 * time.Millisecond
 
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
