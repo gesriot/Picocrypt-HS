@@ -24,18 +24,22 @@ void pcngFreeCString(char *s) {
     if (s != NULL) free(s);
 }
 
-int pcngCheckOpenedPathReadiness(char *path, char **errorOut) {
+int pcngCheckOpenedPathReadiness(char *path, int *ubiquitousOut, int *dirOut, char **errorOut) {
     @autoreleasepool {
         if (errorOut != NULL) *errorOut = NULL;
+        if (ubiquitousOut != NULL) *ubiquitousOut = 0;
+        if (dirOut != NULL) *dirOut = 0;
         if (path == NULL || strlen(path) == 0) return PCNGOpenedPathMissing;
 
         NSString *nsPath = [NSString stringWithUTF8String:path];
         if (nsPath == nil) return PCNGOpenedPathError;
 
         NSFileManager *fm = [NSFileManager defaultManager];
-        if (![fm fileExistsAtPath:nsPath]) {
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:nsPath isDirectory:&isDir]) {
             return PCNGOpenedPathMissing;
         }
+        if (dirOut != NULL) *dirOut = isDir ? 1 : 0;
 
         NSURL *url = [NSURL fileURLWithPath:nsPath];
         NSError *error = nil;
@@ -47,6 +51,10 @@ int pcngCheckOpenedPathReadiness(char *path, char **errorOut) {
 
         if (![isUbiquitous boolValue]) {
             return [fm isReadableFileAtPath:nsPath] ? PCNGOpenedPathReady : PCNGOpenedPathError;
+        }
+        if (ubiquitousOut != NULL) *ubiquitousOut = 1;
+        if (isDir) {
+            return PCNGOpenedPathReady;
         }
 
         NSString *status = nil;

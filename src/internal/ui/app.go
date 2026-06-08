@@ -34,6 +34,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/encoding"
@@ -83,9 +84,13 @@ type App struct {
 	// macOS opened-path readiness session. It is used for Finder/Dock-opened
 	// paths that may point at iCloud placeholders. It is separate from the global
 	// AppleEvent buffer in macos_open.go.
-	openReadinessMu         sync.Mutex
-	openReadinessGeneration uint64
-	openReadinessCancel     context.CancelFunc
+	openReadinessMu            sync.Mutex
+	openReadinessGeneration    uint64
+	openReadinessCancel        context.CancelFunc
+	openReadinessPaths         []string
+	openReadinessCollectLate   bool
+	openReadinessLastAppend    time.Time
+	openReadinessSuppressUntil time.Time
 
 	// UI widgets that need to be updated
 	inputLabel        *widget.Label

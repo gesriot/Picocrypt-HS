@@ -981,6 +981,380 @@ func TestOpenedPathsWaitForReadinessBeforeApply(t *testing.T) {
 	}
 }
 
+func TestOpenedPathsMergeLateICloudFileDeliveriesDuringReadiness(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 40 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "icloud-first.txt")
+	second := filepath.Join(tempDir, "icloud-second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkStarted := make(chan struct{})
+	release := make(chan struct{})
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		select {
+		case <-checkStarted:
+		default:
+			close(checkStarted)
+		}
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			item := openedPathReadiness{Path: path, State: openedPathPending, IsUbiquitous: true}
+			select {
+			case <-release:
+				item.State = openedPathReady
+			default:
+			}
+			result = append(result, item)
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{first})
+	select {
+	case <-checkStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for first readiness check")
+	}
+
+	a.applyOpenedPaths([]string{second})
+	close(release)
+
+	waitForAllFiles(t, a, []string{first, second})
+}
+
+func TestOpenedPathsCollectsReadyUbiquitousFilesAcrossSlowCallbacks(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 80 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "ready-icloud-first.txt")
+	second := filepath.Join(tempDir, "ready-icloud-second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkStarted := make(chan struct{})
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		select {
+		case <-checkStarted:
+		default:
+			close(checkStarted)
+		}
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{first})
+	select {
+	case <-checkStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for first readiness check")
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	a.applyOpenedPaths([]string{second})
+
+	waitForAllFiles(t, a, []string{first, second})
+}
+
+func TestICloudFolderOpenDoesNotWaitForLateFileCollection(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = time.Hour
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	folder := filepath.Join(t.TempDir(), "icloud-folder")
+	if err := os.Mkdir(folder, 0755); err != nil {
+		t.Fatalf("Create test folder: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "child.txt"), []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create child file: %v", err)
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{
+				Path:         path,
+				State:        openedPathReady,
+				IsUbiquitous: true,
+				IsDir:        true,
+			})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{folder})
+	waitForOnlyFolders(t, a, []string{folder})
+}
+
+func TestManualDropCancelsCloudOpenCollectionAndSuppressesLateFiles(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	oldSuppress := openedPathCloudCancelSuppressDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+		openedPathCloudCancelSuppressDelay = oldSuppress
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 20 * time.Millisecond
+	openedPathCloudCancelSuppressDelay = 80 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	cloudFirst := filepath.Join(tempDir, "cloud-first.txt")
+	cloudLate := filepath.Join(tempDir, "cloud-late.txt")
+	manual := filepath.Join(tempDir, "manual.txt")
+	for _, path := range []string{cloudFirst, cloudLate, manual} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkStarted := make(chan struct{})
+	release := make(chan struct{})
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		select {
+		case <-checkStarted:
+		default:
+			close(checkStarted)
+		}
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			item := openedPathReadiness{Path: path, State: openedPathPending, IsUbiquitous: true}
+			select {
+			case <-release:
+				item.State = openedPathReady
+			default:
+			}
+			result = append(result, item)
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{cloudFirst})
+	select {
+	case <-checkStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for readiness check to start")
+	}
+
+	fyne.DoAndWait(func() {
+		a.cancelOpenedPathReadiness()
+		a.onDrop([]string{manual})
+	})
+	a.applyOpenedPaths([]string{cloudLate})
+	close(release)
+
+	waitForInputFile(t, a, manual)
+	assertInputFileDoesNotBecome(t, a, cloudLate, 200*time.Millisecond)
+}
+
+func TestManualDropCancelsReadinessBeforeCloudMetadataAndSuppressesLateFiles(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSuppress := openedPathCloudCancelSuppressDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudCancelSuppressDelay = oldSuppress
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudCancelSuppressDelay = 80 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	cloudFirst := filepath.Join(tempDir, "cloud-before-metadata.txt")
+	cloudLate := filepath.Join(tempDir, "cloud-late-before-metadata.txt")
+	manual := filepath.Join(tempDir, "manual-before-metadata.txt")
+	for _, path := range []string{cloudFirst, cloudLate, manual} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkStarted := make(chan struct{})
+	release := make(chan struct{})
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		select {
+		case <-checkStarted:
+		default:
+			close(checkStarted)
+		}
+		select {
+		case <-ctx.Done():
+			return openedPathReadinessResult{{Path: paths[0], State: openedPathPending}}
+		case <-release:
+		}
+
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{cloudFirst})
+	select {
+	case <-checkStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for readiness check to start")
+	}
+
+	fyne.DoAndWait(func() {
+		a.cancelOpenedPathReadiness()
+		a.onDrop([]string{manual})
+	})
+	a.applyOpenedPaths([]string{cloudLate})
+	close(release)
+
+	waitForInputFile(t, a, manual)
+	assertInputFileDoesNotBecome(t, a, cloudLate, 200*time.Millisecond)
+}
+
+func TestLateICloudFileDuringQueuedReadyApplyExtendsSameSelection(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	oldBeforeApply := beforeOpenedPathReadyApply
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+		beforeOpenedPathReadyApply = oldBeforeApply
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "queued-ready-first.txt")
+	second := filepath.Join(tempDir, "queued-ready-second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	readyApplyStarted := make(chan struct{})
+	releaseReadyApply := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseReadyApply:
+		default:
+			close(releaseReadyApply)
+		}
+	}()
+	beforeOpenedPathReadyApply = func() {
+		select {
+		case <-readyApplyStarted:
+		default:
+			close(readyApplyStarted)
+		}
+		<-releaseReadyApply
+	}
+
+	checkStarted := make(chan struct{})
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		select {
+		case <-checkStarted:
+		default:
+			close(checkStarted)
+		}
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{first})
+	select {
+	case <-checkStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for readiness check to start")
+	}
+	select {
+	case <-readyApplyStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for ready apply to start")
+	}
+
+	a.applyOpenedPaths([]string{second})
+	close(releaseReadyApply)
+
+	waitForAllFiles(t, a, []string{first, second})
+}
+
 func TestOpenedPathReadinessCancellationPreventsStaleApply(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
@@ -1608,12 +1982,13 @@ func assertMainStatusStays(t *testing.T, a *App, want string, duration time.Dura
 }
 
 type dropStateSnapshot struct {
-	Mode       string
-	MainStatus string
-	InputFile  string
-	OutputFile string
-	OnlyFiles  []string
-	AllFiles   []string
+	Mode        string
+	MainStatus  string
+	InputFile   string
+	OutputFile  string
+	OnlyFiles   []string
+	OnlyFolders []string
+	AllFiles    []string
 }
 
 func snapshotDropState(t *testing.T, a *App) dropStateSnapshot {
@@ -1622,15 +1997,32 @@ func snapshotDropState(t *testing.T, a *App) dropStateSnapshot {
 	var state dropStateSnapshot
 	fyne.DoAndWait(func() {
 		state = dropStateSnapshot{
-			Mode:       a.State.Mode,
-			MainStatus: a.State.MainStatus,
-			InputFile:  a.State.InputFile,
-			OutputFile: a.State.OutputFile,
-			OnlyFiles:  append([]string(nil), a.State.OnlyFiles...),
-			AllFiles:   append([]string(nil), a.State.AllFiles...),
+			Mode:        a.State.Mode,
+			MainStatus:  a.State.MainStatus,
+			InputFile:   a.State.InputFile,
+			OutputFile:  a.State.OutputFile,
+			OnlyFiles:   append([]string(nil), a.State.OnlyFiles...),
+			OnlyFolders: append([]string(nil), a.State.OnlyFolders...),
+			AllFiles:    append([]string(nil), a.State.AllFiles...),
 		}
 	})
 	return state
+}
+
+func waitForOnlyFolders(t *testing.T, a *App, want []string) {
+	t.Helper()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		state := snapshotDropState(t, a)
+		if reflect.DeepEqual(state.OnlyFolders, want) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	state := snapshotDropState(t, a)
+	t.Fatalf("OnlyFolders = %#v; want %#v", state.OnlyFolders, want)
 }
 
 func craftFullHeaderBytes(t *testing.T, rs *encoding.RSCodecs, comments string) []byte {

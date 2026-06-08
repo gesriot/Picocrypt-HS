@@ -14,7 +14,8 @@ func defaultOpenedPathReadiness(ctx context.Context, paths []string) openedPathR
 			return result
 		}
 
-		if _, err := os.Stat(path); err != nil {
+		stat, err := os.Stat(path)
+		if err != nil {
 			if os.IsNotExist(err) {
 				result = append(result, openedPathReadiness{Path: path, State: openedPathMissing, Err: err})
 			} else {
@@ -23,7 +24,7 @@ func defaultOpenedPathReadiness(ctx context.Context, paths []string) openedPathR
 			continue
 		}
 
-		result = append(result, openedPathReadiness{Path: path, State: openedPathReady})
+		result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsDir: stat.IsDir()})
 	}
 	return result
 }
