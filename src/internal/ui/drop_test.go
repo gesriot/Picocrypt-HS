@@ -1008,14 +1008,8 @@ func TestOpenedPathsMergeLateICloudFileDeliveriesDuringReadiness(t *testing.T) {
 		}
 	}
 
-	checkStarted := make(chan struct{})
 	release := make(chan struct{})
 	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
-		select {
-		case <-checkStarted:
-		default:
-			close(checkStarted)
-		}
 		result := make(openedPathReadinessResult, 0, len(paths))
 		for _, path := range paths {
 			item := openedPathReadiness{Path: path, State: openedPathPending, IsUbiquitous: true}
@@ -1030,11 +1024,7 @@ func TestOpenedPathsMergeLateICloudFileDeliveriesDuringReadiness(t *testing.T) {
 	}
 
 	a.applyOpenedPaths([]string{first})
-	select {
-	case <-checkStarted:
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timed out waiting for first readiness check")
-	}
+	waitForOpenedPathLateCollection(t, a)
 
 	a.applyOpenedPaths([]string{second})
 	close(release)
@@ -1966,6 +1956,28 @@ func waitForAllFiles(t *testing.T, a *App, want []string) {
 
 	state := snapshotDropState(t, a)
 	t.Fatalf("AllFiles = %#v; want %#v", state.AllFiles, want)
+}
+
+func waitForOpenedPathLateCollection(t *testing.T, a *App) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		a.openReadinessMu.Lock()
+		collecting := a.openReadinessCancel != nil && a.openReadinessCollectLate
+		a.openReadinessMu.Unlock()
+		if collecting {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	a.openReadinessMu.Lock()
+	paths := append([]string(nil), a.openReadinessPaths...)
+	collecting := a.openReadinessCollectLate
+	active := a.openReadinessCancel != nil
+	a.openReadinessMu.Unlock()
+	t.Fatalf("opened path readiness late collection did not start: active=%v collectLate=%v paths=%#v", active, collecting, paths)
 }
 
 func assertMainStatusStays(t *testing.T, a *App, want string, duration time.Duration) {
