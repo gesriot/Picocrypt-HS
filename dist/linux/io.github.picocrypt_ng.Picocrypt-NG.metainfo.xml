@@ -35,6 +35,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.12" date="2026-06-08">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v212</url>
+      <description>
+        <ul>
+          <li>Finder/Dock-opened iCloud files on macOS are collected across slow callbacks and applied after the selected files are ready</li>
+          <li>The Linux desktop entry keeps the reverse-DNS app identity while using a readable X11 window class for MATE/XFCE task grouping</li>
+          <li>Desktop, Snap, Windows, AppStream, CLI, and volume-header metadata now report v2.12 consistently</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.11" date="2026-06-06">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v211</url>
       <description>
