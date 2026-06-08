@@ -17,6 +17,7 @@ import (
 
 const v211ReleaseDate = "2026-06-06"
 const linuxDesktopAppID = "io.github.picocrypt_ng.Picocrypt-NG"
+const linuxX11WMClass = "Picocrypt-NG"
 
 // repoRoot mirrors workflowpolicy/helpers_test.go pattern verbatim.
 func repoRoot(t *testing.T) string {
@@ -315,7 +316,7 @@ func TestDesktopEntryContract(t *testing.T) {
 		{name: "type", line: "Type=Application"},
 		{name: "mimetype", line: "MimeType=application/x-pcv;"},
 		{name: "icon", line: "Icon=" + linuxDesktopAppID},
-		{name: "startup_wm_class", line: "StartupWMClass=" + linuxDesktopAppID},
+		{name: "startup_wm_class", line: "StartupWMClass=" + linuxX11WMClass},
 	}
 	for _, tc := range requiredLines {
 		t.Run(tc.name, func(t *testing.T) {
@@ -400,6 +401,9 @@ func TestLinuxAppIdentityContract(t *testing.T) {
 	if desktopEntryValue(t, desktop, "Icon") != linuxDesktopAppID {
 		t.Fatalf("%s Icon must match app ID %q", desktopRelPath, linuxDesktopAppID)
 	}
+	if got := desktopEntryValue(t, desktop, "StartupWMClass"); got != linuxX11WMClass {
+		t.Fatalf("%s StartupWMClass = %q, want X11 display class %q", desktopRelPath, got, linuxX11WMClass)
+	}
 
 	var metainfo struct {
 		ID         string `xml:"id"`
@@ -423,6 +427,9 @@ func TestLinuxAppIdentityContract(t *testing.T) {
 
 	if got := linuxRuntimeIdentitySourceID(t); got != linuxDesktopAppID {
 		t.Fatalf("Linux runtime app ID = %q, want %q", got, linuxDesktopAppID)
+	}
+	if got := linuxRuntimeX11WMClassSourceID(t); got != linuxX11WMClass {
+		t.Fatalf("Linux runtime X11 WM_CLASS = %q, want %q", got, linuxX11WMClass)
 	}
 }
 
@@ -467,6 +474,35 @@ func linuxRuntimeIdentitySourceID(t *testing.T) string {
 
 	t.Fatal("could not find a Fyne NewWithID literal or linuxAppID identity seam in src/internal/ui")
 	return ""
+}
+
+func linuxRuntimeX11WMClassSourceID(t *testing.T) string {
+	t.Helper()
+
+	var uiSource strings.Builder
+	for _, relPath := range gitTrackedFiles(t) {
+		if strings.HasPrefix(relPath, "src/internal/ui/") && strings.HasSuffix(relPath, ".go") {
+			uiSource.Write(mustReadFile(t, relPath))
+			uiSource.WriteByte('\n')
+		}
+	}
+	source := uiSource.String()
+
+	for _, required := range []string{
+		"glfw.WindowHintString(glfw.X11ClassName, linuxX11WMClass)",
+		"glfw.WindowHintString(glfw.X11InstanceName, linuxX11WMClass)",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("Linux window identity source missing %q", required)
+		}
+	}
+
+	re := regexp.MustCompile(`(?m)^\s*const\s+linuxX11WMClass\s*=\s*"([^"]+)"\s*$`)
+	matches := re.FindStringSubmatch(source)
+	if len(matches) != 2 {
+		t.Fatal("could not find linuxX11WMClass const in src/internal/ui")
+	}
+	return matches[1]
 }
 
 func TestMetainfoContract(t *testing.T) {
