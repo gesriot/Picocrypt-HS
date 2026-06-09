@@ -10,9 +10,9 @@ import (
 	"Picocrypt-NG/internal/cli"
 )
 
-func TestRuntimeVersionIsV211(t *testing.T) {
-	if version != "v2.11" {
-		t.Fatalf("version = %q; want %q", version, "v2.11")
+func TestRuntimeVersionIsV212(t *testing.T) {
+	if version != "v2.12" {
+		t.Fatalf("version = %q; want %q", version, "v2.12")
 	}
 }
 
@@ -48,10 +48,10 @@ func TestRuntimeVersionFeedsCLIVersionOutput(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "v2.11") {
-		t.Fatalf("CLI --version output = %q; want it to contain %q", got, "v2.11")
+	if !strings.Contains(got, "v2.12") {
+		t.Fatalf("CLI --version output = %q; want it to contain %q", got, "v2.12")
 	}
-	if strings.Contains(got, "v2.10") {
-		t.Fatalf("CLI --version output = %q; must not contain stale v2.10", got)
+	if strings.Contains(got, "v2.11") {
+		t.Fatalf("CLI --version output = %q; must not contain stale v2.11", got)
 	}
 }

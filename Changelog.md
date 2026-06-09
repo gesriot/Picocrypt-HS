@@ -1,3 +1,10 @@
+# v2.12
+<ul>
+	<li>✓ <strong>macOS iCloud file opening</strong>: Finder/Dock-opened iCloud files are collected across slow callbacks and applied after the selected files are ready</li>
+	<li>✓ <strong>Linux desktop integration</strong>: the desktop entry keeps the reverse-DNS app identity while using a readable X11 window class for MATE/XFCE task grouping</li>
+	<li>✓ <strong>Release metadata</strong>: desktop, Snap, Windows, AppStream, CLI, and volume-header version metadata now report v2.12 consistently</li>
+</ul>
+
 # v2.11
 <ul>
 	<li>✓ <strong>macOS file opening</strong>: opening multiple files from Finder or the Dock no longer drops files when macOS delivers the same action in several batches</li>

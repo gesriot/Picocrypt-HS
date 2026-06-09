@@ -28,10 +28,13 @@
 package ui
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/encoding"
@@ -77,6 +80,17 @@ type App struct {
 
 	// Cancellation flag (atomic for thread safety across goroutines)
 	cancelled atomic.Bool
+
+	// macOS opened-path readiness session. It is used for Finder/Dock-opened
+	// paths that may point at iCloud placeholders. It is separate from the global
+	// AppleEvent buffer in macos_open.go.
+	openReadinessMu            sync.Mutex
+	openReadinessGeneration    uint64
+	openReadinessCancel        context.CancelFunc
+	openReadinessPaths         []string
+	openReadinessCollectLate   bool
+	openReadinessLastAppend    time.Time
+	openReadinessSuppressUntil time.Time
 
 	// UI widgets that need to be updated
 	inputLabel        *widget.Label
@@ -232,6 +246,7 @@ func (a *App) Run(startupPaths []string) {
 			for i, uri := range uris {
 				paths[i] = uri.Path()
 			}
+			a.cancelOpenedPathReadiness()
 			a.onDrop(paths)
 		})
 	}
@@ -261,7 +276,7 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 			if len(opened) == 0 {
 				return
 			}
-			a.applyStartupPaths(opened)
+			a.applyOpenedPaths(opened)
 		})
 	}
 
@@ -269,14 +284,16 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 	// from a Finder cold launch may have been buffered by the cgo handler before
 	// Go's main() ran (drainOpenedPaths returns nothing on non-darwin).
 	a.fyneApp.Lifecycle().SetOnStarted(func() {
-		// Register the notify handler before queueing startup paths so cold-launch
-		// AppleEvent batches and later warm batches share the same debounce window.
+		// Register the notify handler before checking for cold-launch AppleEvent
+		// batches so Finder/Dock opens use the same debounce window as warm opens.
 		setOpenedPathsNotify(applyOpened)
-		for _, path := range startupPaths {
-			appendOpenedPath(path)
-		}
 		if hasOpenedPaths() {
 			flushOpenedPaths()
+		}
+		if len(startupPaths) > 0 {
+			fyne.Do(func() {
+				a.applyStartupPaths(startupPaths)
+			})
 		}
 	})
 }
@@ -340,7 +357,10 @@ func (a *App) buildUI() fyne.CanvasObject {
 	// Input label with Clear button
 	a.inputLabel = widget.NewLabel(a.State.InputLabel)
 	a.inputLabel.Wrapping = fyne.TextWrapWord
-	a.clearButton = widget.NewButton("Clear", a.resetUI)
+	a.clearButton = widget.NewButton("Clear", func() {
+		a.cancelOpenedPathReadiness()
+		a.resetUI()
+	})
 	// MediumImportance gives the button a visible border
 	a.clearButton.Importance = widget.MediumImportance
 

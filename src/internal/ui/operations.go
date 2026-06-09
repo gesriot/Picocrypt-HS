@@ -37,6 +37,8 @@ type recursiveSettings struct {
 
 // onClickStart handles the Start button click.
 func (a *App) onClickStart() {
+	a.cancelOpenedPathReadiness()
+
 	// Validate
 	if a.State.Mode == "" {
 		return

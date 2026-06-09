@@ -21,6 +21,7 @@ func TestMatchVersionAnchored(t *testing.T) {
 		{"valid v2.09", "v2.09", true},
 		{"valid v2.10", "v2.10", true},
 		{"valid v2.11", "v2.11", true},
+		{"valid v2.12", "v2.12", true},
 		{"valid non-current v3.11", "v3.11", true},
 		{"valid v1.49", "v1.49", true},
 		{"trailing garbage", "v2.0X", false},

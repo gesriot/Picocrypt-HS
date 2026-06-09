@@ -119,11 +119,21 @@ func TestLinuxDebPackagingDoesNotUseExternalScaffold(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			content := mustReadWorkflow(t, path)
 			mustNotContain(t, content, "github.com/user-attachments/files/21703014/Picocrypt-NG.zip")
+			mustContain(t, content, "librsvg2-bin")
+			mustContain(t, content, "xmllint --noout images/key.svg")
 			mustContain(t, content, `cat > "$package_root/DEBIAN/control"`)
 			mustContain(t, content, `install -d "$package_root/usr/share/icons/hicolor/scalable/apps"`)
 			mustContain(t, content, `install -m 0644 images/key.svg`)
 			mustContain(t, content, `"$package_root/usr/share/icons/hicolor/scalable/apps/io.github.picocrypt_ng.Picocrypt-NG.svg"`)
+			mustContain(t, content, `install -m 0644 dist/linux/io.github.picocrypt_ng.Picocrypt-NG.desktop`)
+			mustContain(t, content, `sed -i 's|^Exec=.*|Exec=/usr/bin/picocrypt-ng-gui %f|'`)
+			mustNotContain(t, content, `s|^Icon=`)
+			mustNotContain(t, content, `s|^StartupWMClass=`)
+			mustContain(t, content, `rsvg-convert --format png --width "$size" --height "$size" --output "$app_icon_png" images/key.svg`)
 			mustContain(t, content, `dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/icons/hicolor/scalable/apps/io\.github\.picocrypt_ng\.Picocrypt-NG\.svg' >/dev/null`)
+			for _, size := range []string{"16", "32", "48", "64", "128", "256"} {
+				mustContain(t, content, `dpkg-deb -c "${package_root}.deb" | grep -E 'usr/share/icons/hicolor/`+size+`x`+size+`/apps/io\.github\.picocrypt_ng\.Picocrypt-NG\.png' >/dev/null`)
+			}
 		})
 	}
 }

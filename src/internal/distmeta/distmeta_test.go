@@ -15,8 +15,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const v211ReleaseDate = "2026-06-06"
+const v212ReleaseDate = "2026-06-08"
 const linuxDesktopAppID = "io.github.picocrypt_ng.Picocrypt-NG"
+const linuxX11WMClass = "Picocrypt-NG"
 
 // repoRoot mirrors workflowpolicy/helpers_test.go pattern verbatim.
 func repoRoot(t *testing.T) string {
@@ -48,7 +49,7 @@ func mustReadFile(t *testing.T, relPath string) []byte {
 }
 
 func TestActiveReleaseMetadataVersions(t *testing.T) {
-	const want = "2.11"
+	const want = "2.12"
 
 	t.Run("root_VERSION", func(t *testing.T) {
 		got := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
@@ -89,9 +90,9 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 			name string
 			re   *regexp.Regexp
 		}{
-			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,11,0,0\r?$`)},
-			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,11,0,0\r?$`)},
-			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.11"\r?$`)},
+			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,12,0,0\r?$`)},
+			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,12,0,0\r?$`)},
+			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.12"\r?$`)},
 		}
 		for _, req := range required {
 			t.Run(req.name, func(t *testing.T) {
@@ -151,7 +152,7 @@ func containsOldVersionLiteral(data []byte) bool {
 	return false
 }
 
-var oldVersionLiterals = []string{"2.10", "v2.10", "2.09", "v2.09", "2.08", "v2.08"}
+var oldVersionLiterals = []string{"2.11", "v2.11", "2.10", "v2.10", "2.09", "v2.09", "2.08", "v2.08"}
 
 func oldVersionLiteralCategory(relPath string) (string, bool) {
 	switch {
@@ -315,7 +316,7 @@ func TestDesktopEntryContract(t *testing.T) {
 		{name: "type", line: "Type=Application"},
 		{name: "mimetype", line: "MimeType=application/x-pcv;"},
 		{name: "icon", line: "Icon=" + linuxDesktopAppID},
-		{name: "startup_wm_class", line: "StartupWMClass=" + linuxDesktopAppID},
+		{name: "startup_wm_class", line: "StartupWMClass=" + linuxX11WMClass},
 	}
 	for _, tc := range requiredLines {
 		t.Run(tc.name, func(t *testing.T) {
@@ -367,11 +368,27 @@ func TestDesktopIconHasMatchingHicolorAppIconContract(t *testing.T) {
 	} {
 		t.Run(relPath, func(t *testing.T) {
 			workflow := string(mustReadFile(t, relPath))
+			if !strings.Contains(workflow, `xmllint --noout images/key.svg`) {
+				t.Fatalf("%s does not validate images/key.svg before packaging the app icon", relPath)
+			}
+			if !strings.Contains(workflow, `librsvg2-bin`) {
+				t.Fatalf("%s does not install librsvg2-bin for app icon PNG generation", relPath)
+			}
 			if !strings.Contains(workflow, `install -m 0644 images/key.svg`) {
 				t.Fatalf("%s does not install images/key.svg as the app icon source", relPath)
 			}
 			if !strings.Contains(workflow, iconInstallTarget) {
 				t.Fatalf("%s does not install the app icon under the desktop Icon basename %q", relPath, iconName)
+			}
+			if !strings.Contains(workflow, `for size in 16 32 48 64 128 256; do`) {
+				t.Fatalf("%s does not generate app icon PNG fallbacks for all hicolor sizes", relPath)
+			}
+			const pngInstallTarget = `app_icon_png="$package_root/usr/share/icons/hicolor/${size}x${size}/apps/` + linuxDesktopAppID + `.png"`
+			if !strings.Contains(workflow, pngInstallTarget) {
+				t.Fatalf("%s does not install PNG app icons under the desktop Icon basename %q", relPath, iconName)
+			}
+			if !strings.Contains(workflow, `rsvg-convert --format png --width "$size" --height "$size" --output "$app_icon_png" images/key.svg`) {
+				t.Fatalf("%s does not render PNG app icons from images/key.svg with rsvg-convert", relPath)
 			}
 		})
 	}
@@ -383,6 +400,9 @@ func TestLinuxAppIdentityContract(t *testing.T) {
 	desktop := mustReadFile(t, desktopRelPath)
 	if desktopEntryValue(t, desktop, "Icon") != linuxDesktopAppID {
 		t.Fatalf("%s Icon must match app ID %q", desktopRelPath, linuxDesktopAppID)
+	}
+	if got := desktopEntryValue(t, desktop, "StartupWMClass"); got != linuxX11WMClass {
+		t.Fatalf("%s StartupWMClass = %q, want X11 display class %q", desktopRelPath, got, linuxX11WMClass)
 	}
 
 	var metainfo struct {
@@ -407,6 +427,9 @@ func TestLinuxAppIdentityContract(t *testing.T) {
 
 	if got := linuxRuntimeIdentitySourceID(t); got != linuxDesktopAppID {
 		t.Fatalf("Linux runtime app ID = %q, want %q", got, linuxDesktopAppID)
+	}
+	if got := linuxRuntimeX11WMClassSourceID(t); got != linuxX11WMClass {
+		t.Fatalf("Linux runtime X11 WM_CLASS = %q, want %q", got, linuxX11WMClass)
 	}
 }
 
@@ -453,6 +476,35 @@ func linuxRuntimeIdentitySourceID(t *testing.T) string {
 	return ""
 }
 
+func linuxRuntimeX11WMClassSourceID(t *testing.T) string {
+	t.Helper()
+
+	var uiSource strings.Builder
+	for _, relPath := range gitTrackedFiles(t) {
+		if strings.HasPrefix(relPath, "src/internal/ui/") && strings.HasSuffix(relPath, ".go") {
+			uiSource.Write(mustReadFile(t, relPath))
+			uiSource.WriteByte('\n')
+		}
+	}
+	source := uiSource.String()
+
+	for _, required := range []string{
+		"glfw.WindowHintString(glfw.X11ClassName, linuxX11WMClass)",
+		"glfw.WindowHintString(glfw.X11InstanceName, linuxX11WMClass)",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("Linux window identity source missing %q", required)
+		}
+	}
+
+	re := regexp.MustCompile(`(?m)^\s*const\s+linuxX11WMClass\s*=\s*"([^"]+)"\s*$`)
+	matches := re.FindStringSubmatch(source)
+	if len(matches) != 2 {
+		t.Fatal("could not find linuxX11WMClass const in src/internal/ui")
+	}
+	return matches[1]
+}
+
 func TestMetainfoContract(t *testing.T) {
 	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml")
 
@@ -492,7 +544,7 @@ type appstreamReleaseDescription struct {
 	Items []string `xml:"ul>li"`
 }
 
-func TestMetainfoV211ReleaseHistory(t *testing.T) {
+func TestMetainfoV212ReleaseHistory(t *testing.T) {
 	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml")
 	var doc appstreamMetainfo
 	if err := xml.Unmarshal(data, &doc); err != nil {
@@ -503,22 +555,22 @@ func TestMetainfoV211ReleaseHistory(t *testing.T) {
 	}
 
 	current := doc.Releases[0]
-	if current.Version != "2.11" {
-		t.Fatalf("current metainfo release version = %q, want 2.11", current.Version)
+	if current.Version != "2.12" {
+		t.Fatalf("current metainfo release version = %q, want 2.12", current.Version)
 	}
-	if current.Date != v211ReleaseDate {
-		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v211ReleaseDate)
+	if current.Date != v212ReleaseDate {
+		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v212ReleaseDate)
 	}
 	detailsURL := appstreamDetailsURL(current)
-	if !strings.HasSuffix(detailsURL, "Changelog.md#v211") {
-		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v211", detailsURL)
+	if !strings.HasSuffix(detailsURL, "Changelog.md#v212") {
+		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v212", detailsURL)
 	}
 
 	versions := map[string]bool{}
 	for _, release := range doc.Releases {
 		versions[release.Version] = true
 	}
-	for _, want := range []string{"2.10", "2.09", "2.08"} {
+	for _, want := range []string{"2.11", "2.10", "2.09", "2.08"} {
 		if !versions[want] {
 			t.Errorf("metainfo release history missing historical version %s", want)
 		}
