@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"Picocrypt-NG/internal/util"
 
@@ -211,15 +212,28 @@ func CreateZip(opts ZipOptions) error {
 	}
 
 	var done int64
+	startTime := time.Now()
+
+	// report drives the progress bar and the speed/ETA status line, mirroring
+	// split.go/recombine.go so the compression pass shows an ETA like the others.
+	report := func(fileIndex int) {
+		if opts.Progress == nil {
+			return
+		}
+		progress, speed, eta := util.Statify(done, totalSize, startTime)
+		opts.Progress(progress, fmt.Sprintf("%d/%d", fileIndex+1, len(opts.Files)))
+		if opts.Status != nil {
+			opts.Status(fmt.Sprintf("Compressing at %.2f MiB/s (ETA: %s)", speed, eta))
+		}
+	}
+
 	for i, path := range opts.Files {
 		if opts.Cancel != nil && opts.Cancel() {
 			cleanup()
 			return errors.New("operation cancelled")
 		}
 
-		if opts.Progress != nil {
-			opts.Progress(float32(done)/float32(totalSize), fmt.Sprintf("%d/%d", i+1, len(opts.Files)))
-		}
+		report(i)
 
 		stat, err := os.Stat(path)
 		if err != nil {
@@ -275,10 +289,7 @@ func CreateZip(opts ZipOptions) error {
 					return fmt.Errorf("write to zip: %w", err)
 				}
 				done += int64(n)
-
-				if opts.Progress != nil {
-					opts.Progress(float32(done)/float32(totalSize), fmt.Sprintf("%d/%d", i+1, len(opts.Files)))
-				}
+				report(i)
 			}
 
 			if readErr == io.EOF {

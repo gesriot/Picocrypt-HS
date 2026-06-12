@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -201,6 +202,37 @@ func TestCreateZip(t *testing.T) {
 	}
 
 	t.Log("Zip creation successful")
+}
+
+// TestCreateZipReportsSpeedAndETA verifies the compression pass reports a status
+// with throughput and ETA (like split/recombine/encrypt), not just a percentage.
+func TestCreateZipReportsSpeedAndETA(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input.bin")
+	// Enough bytes to drive at least one in-loop progress tick.
+	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("x"), 2*1024*1024), 0644); err != nil {
+		t.Fatalf("Create input: %v", err)
+	}
+
+	var statuses []string
+	err := CreateZip(ZipOptions{
+		Files:      []string{inputPath},
+		RootDir:    tmpDir,
+		OutputPath: filepath.Join(tmpDir, "out.zip"),
+		Compress:   true,
+		Progress:   func(p float32, info string) {},
+		Status:     func(s string) { statuses = append(statuses, s) },
+	})
+	if err != nil {
+		t.Fatalf("CreateZip failed: %v", err)
+	}
+
+	for _, s := range statuses {
+		if strings.Contains(s, "MiB/s") && strings.Contains(s, "ETA:") {
+			return
+		}
+	}
+	t.Errorf("expected a compression status reporting speed+ETA, got %v", statuses)
 }
 
 func TestCreateZipWithCompression(t *testing.T) {
