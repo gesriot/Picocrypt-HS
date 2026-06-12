@@ -83,18 +83,29 @@ func Split(opts SplitOptions) ([]string, error) {
 
 	// Calculate actual chunk size in bytes
 	chunkSize := int64(opts.ChunkSize)
+	var unitBytes int64
 	switch opts.Unit {
 	case SplitUnitKiB:
-		chunkSize *= util.KiB
+		unitBytes = util.KiB
 	case SplitUnitMiB:
-		chunkSize *= util.MiB
+		unitBytes = util.MiB
 	case SplitUnitGiB:
-		chunkSize *= util.GiB
+		unitBytes = util.GiB
 	case SplitUnitTiB:
-		chunkSize *= util.TiB
+		unitBytes = util.TiB
 	case SplitUnitTotal:
 		// Divide into N equal parts
 		chunkSize = int64(math.Ceil(float64(totalSize) / float64(opts.ChunkSize)))
+	}
+	if unitBytes > 0 {
+		// Reject sizes that overflow int64 when scaled to bytes. The wrapped
+		// (negative) product would make numChunks 0, so Split would silently
+		// return no chunks with a nil error and the caller would treat the
+		// no-op as success — destroying the just-written volume.
+		if chunkSize > math.MaxInt64/unitBytes {
+			return nil, fmt.Errorf("chunk size too large: %d would overflow when converted to bytes", opts.ChunkSize)
+		}
+		chunkSize *= unitBytes
 	}
 
 	numChunks := int(math.Ceil(float64(totalSize) / float64(chunkSize)))

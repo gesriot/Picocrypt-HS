@@ -520,6 +520,55 @@ func TestSplitRejectsNonPositiveChunkSize(t *testing.T) {
 	}
 }
 
+// TestSplitRejectsOverflowingChunkSize verifies that a chunk size which overflows
+// int64 when scaled to bytes fails loudly instead of silently producing zero chunks.
+//
+// Silent failure is dangerous: volume.Encrypt treats a nil error from Split as success
+// and then removes the just-written .pcv, so an unguarded overflow destroys the
+// encrypted output (data loss). The conversion overflows when ChunkSize*unit exceeds
+// math.MaxInt64; for TiB (2^40) that is any ChunkSize >= 2^23.
+func TestSplitRejectsOverflowingChunkSize(t *testing.T) {
+	cases := []struct {
+		name      string
+		chunkSize int
+		unit      SplitUnit
+	}{
+		{"TiB_boundary", 1 << 23, SplitUnitTiB},    // 2^23 * 2^40 = 2^63, wraps to negative
+		{"TiB_large", 1_000_000_000, SplitUnitTiB}, // far past the overflow threshold
+		{"GiB_boundary", 1 << 33, SplitUnitGiB},    // 2^33 * 2^30 = 2^63, wraps to negative
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			inputPath := filepath.Join(tmpDir, "overflow.pcv")
+			content := bytes.Repeat([]byte("Z"), 4096)
+			if err := os.WriteFile(inputPath, content, 0644); err != nil {
+				t.Fatalf("Create input: %v", err)
+			}
+
+			chunks, err := Split(SplitOptions{
+				InputPath: inputPath,
+				ChunkSize: tc.chunkSize,
+				Unit:      tc.unit,
+			})
+			if err == nil {
+				t.Fatalf("expected overflow error, got nil (chunks=%v)", chunks)
+			}
+			if len(chunks) != 0 {
+				t.Errorf("expected no chunks on error, got %d", len(chunks))
+			}
+
+			// The original input must be left intact so the caller can handle the error.
+			if got, readErr := os.ReadFile(inputPath); readErr != nil {
+				t.Fatalf("input file should remain readable: %v", readErr)
+			} else if !bytes.Equal(got, content) {
+				t.Error("input file was modified despite the error")
+			}
+		})
+	}
+}
+
 // TestRecombineLargeChunks tests recombining larger chunks.
 func TestRecombineLargeChunks(t *testing.T) {
 	tmpDir := t.TempDir()
