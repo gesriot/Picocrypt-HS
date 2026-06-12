@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -49,6 +50,26 @@ func (a *App) showProgressModal() {
 
 	a.progressModal = dialog.NewCustomWithoutButtons("Progress:", progressContent, a.Window)
 	a.progressModal.Show()
+}
+
+// showAboutModal shows the About dialog. It is the GUI's only version
+// indicator: the window title intentionally carries none (#133).
+func (a *App) showAboutModal() {
+	a.aboutVersionLabel = widget.NewLabelWithStyle(
+		"Picocrypt NG "+a.Version, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	repo := widget.NewHyperlink("Picocrypt-NG on GitHub", &url.URL{
+		Scheme: "https",
+		Host:   "github.com",
+		Path:   "/Picocrypt-NG/Picocrypt-NG",
+	})
+
+	content := container.NewVBox(
+		a.aboutVersionLabel,
+		container.NewCenter(repo),
+	)
+
+	a.aboutModal = dialog.NewCustom("About:", "Close", content, a.Window)
+	a.aboutModal.Show()
 }
 
 // showPassgenModal shows the password generator dialog.

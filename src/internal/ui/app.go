@@ -97,6 +97,8 @@ type App struct {
 	// UI widgets that need to be updated
 	inputLabel        *widget.Label
 	clearButton       *widget.Button
+	aboutButton       *widget.Button
+	aboutVersionLabel *widget.Label
 	mainContent       *fyne.Container
 	passwordEntry     *PasswordEntry
 	cPasswordEntry    *PasswordEntry
@@ -152,6 +154,7 @@ type App struct {
 	keyfileModal   dialog.Dialog
 	overwriteModal dialog.Dialog
 	progressModal  dialog.Dialog
+	aboutModal     dialog.Dialog
 
 	// Keyfile modal widgets (moved from package-level to avoid global state)
 	keyfileListContainer *fyne.Container
@@ -369,7 +372,14 @@ func (a *App) buildUI() fyne.CanvasObject {
 	// MediumImportance gives the button a visible border
 	a.clearButton.Importance = widget.MediumImportance
 
-	headerRow := container.NewBorder(nil, nil, nil, a.clearButton, a.inputLabel)
+	// Icon-only About button: keeps the fixed-size window unchanged while
+	// giving the GUI a version indicator (the title carries none, #133).
+	a.aboutButton = widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
+		a.showAboutModal()
+	})
+	a.aboutButton.Importance = widget.LowImportance
+
+	headerRow := container.NewBorder(nil, nil, a.aboutButton, a.clearButton, a.inputLabel)
 
 	// Password section (from password_section.go)
 	passwordSection := a.buildPasswordSection()
