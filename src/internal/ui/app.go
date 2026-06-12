@@ -91,6 +91,8 @@ type App struct {
 	openReadinessCollectLate   bool
 	openReadinessLastAppend    time.Time
 	openReadinessSuppressUntil time.Time
+	openReadinessAppliedPaths  []string
+	openReadinessAppliedAt     time.Time
 
 	// UI widgets that need to be updated
 	inputLabel        *widget.Label
