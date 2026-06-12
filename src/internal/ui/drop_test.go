@@ -1805,6 +1805,75 @@ func TestManualDropAfterCloudApplySuppressesLateBatchUntilMergeWindowEnds(t *tes
 	assertInputFileDoesNotBecome(t, a, cloudLate, 200*time.Millisecond)
 }
 
+// TestStragglersCannotShortenManualDropSuppressionWindow guards the suppress
+// window arithmetic: a suppressed straggler must never SHORTEN the window that
+// cancelOpenedPathReadiness armed for the rest of the merge window — otherwise
+// a second straggler arriving in the gap would stomp the manual selection.
+func TestStragglersCannotShortenManualDropSuppressionWindow(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	oldSuppress := openedPathCloudCancelSuppressDelay
+	oldMergeWindow := openedPathCloudPostApplyMergeDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+		openedPathCloudCancelSuppressDelay = oldSuppress
+		openedPathCloudPostApplyMergeDelay = oldMergeWindow
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+	openedPathCloudCancelSuppressDelay = 50 * time.Millisecond
+	openedPathCloudPostApplyMergeDelay = 600 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	cloudFirst := filepath.Join(tempDir, "cloud-shorten-applied.txt")
+	cloudLate1 := filepath.Join(tempDir, "cloud-shorten-late1.txt")
+	cloudLate2 := filepath.Join(tempDir, "cloud-shorten-late2.txt")
+	manual := filepath.Join(tempDir, "manual-shorten.txt")
+	for _, path := range []string{cloudFirst, cloudLate1, cloudLate2, manual} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{cloudFirst})
+	waitForAllFiles(t, a, []string{cloudFirst})
+
+	fyne.DoAndWait(func() {
+		a.cancelOpenedPathReadiness()
+		a.onDrop([]string{manual})
+	})
+
+	// First straggler inside the armed window: must be suppressed without
+	// collapsing the window down to the short cancel-suppress delay.
+	time.Sleep(100 * time.Millisecond)
+	a.applyOpenedPaths([]string{cloudLate1})
+
+	// Second straggler past the short delay but still inside the merge window.
+	time.Sleep(150 * time.Millisecond)
+	a.applyOpenedPaths([]string{cloudLate2})
+
+	waitForInputFile(t, a, manual)
+	assertInputFileDoesNotBecome(t, a, cloudLate1, 200*time.Millisecond)
+	assertInputFileDoesNotBecome(t, a, cloudLate2, 200*time.Millisecond)
+}
+
 func TestOpenedPathReadinessCancellationPreventsStaleApply(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")

@@ -375,7 +375,12 @@ func (a *App) suppressesOpenedPaths() bool {
 	}
 	now := time.Now()
 	if now.Before(a.openReadinessSuppressUntil) {
-		a.openReadinessSuppressUntil = now.Add(openedPathCloudCancelSuppressDelay)
+		// A straggler stream keeps the window alive, but re-arming must only
+		// ever EXTEND it: cancelOpenedPathReadiness may have armed a longer
+		// window covering the rest of the post-apply merge period.
+		if until := now.Add(openedPathCloudCancelSuppressDelay); until.After(a.openReadinessSuppressUntil) {
+			a.openReadinessSuppressUntil = until
+		}
 		return true
 	}
 	a.openReadinessSuppressUntil = time.Time{}
