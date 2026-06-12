@@ -7,7 +7,7 @@ import (
 )
 
 func TestVersionFlagOutputsV212(t *testing.T) {
-	const want = "v2.12"
+	const want = "v2.13"
 
 	oldVersion := Version
 	oldRootVersion := rootCmd.Version

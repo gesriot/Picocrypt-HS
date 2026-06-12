@@ -35,6 +35,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.13" date="2026-06-12">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v213</url>
+      <description>
+        <ul>
+          <li>Late Finder/AppKit batches of one open gesture on macOS extend the already-applied iCloud selection instead of replacing it</li>
+          <li>The window title no longer embeds the version, keeping one consistent application name across desktop environments</li>
+          <li>A compact About dialog now shows the application version and project link</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.12" date="2026-06-08">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v212</url>
       <description>

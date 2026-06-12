@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const v212ReleaseDate = "2026-06-08"
+const v213ReleaseDate = "2026-06-12"
 const linuxDesktopAppID = "io.github.picocrypt_ng.Picocrypt-NG"
 const linuxX11WMClass = "Picocrypt-NG"
 
@@ -49,7 +49,7 @@ func mustReadFile(t *testing.T, relPath string) []byte {
 }
 
 func TestActiveReleaseMetadataVersions(t *testing.T) {
-	const want = "2.12"
+	const want = "2.13"
 
 	t.Run("root_VERSION", func(t *testing.T) {
 		got := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
@@ -90,9 +90,9 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 			name string
 			re   *regexp.Regexp
 		}{
-			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,12,0,0\r?$`)},
-			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,12,0,0\r?$`)},
-			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.12"\r?$`)},
+			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,13,0,0\r?$`)},
+			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,13,0,0\r?$`)},
+			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.13"\r?$`)},
 		}
 		for _, req := range required {
 			t.Run(req.name, func(t *testing.T) {
@@ -152,7 +152,7 @@ func containsOldVersionLiteral(data []byte) bool {
 	return false
 }
 
-var oldVersionLiterals = []string{"2.11", "v2.11", "2.10", "v2.10", "2.09", "v2.09", "2.08", "v2.08"}
+var oldVersionLiterals = []string{"2.12", "v2.12", "2.11", "v2.11", "2.10", "v2.10", "2.09", "v2.09", "2.08", "v2.08"}
 
 func oldVersionLiteralCategory(relPath string) (string, bool) {
 	switch {
@@ -162,6 +162,8 @@ func oldVersionLiteralCategory(relPath string) (string, bool) {
 		return "historical changelog/release history", true
 	case relPath == "CLI.md":
 		return "legacy snapshot", true
+	case relPath == "docs/ONBOARDING.md":
+		return "onboarding documentation referencing compatibility versions", true
 	case strings.HasPrefix(relPath, "src/testdata/golden/"):
 		return "compatibility fixture", true
 	case relPath == "src/internal/volume/golden_test.go":
@@ -544,7 +546,7 @@ type appstreamReleaseDescription struct {
 	Items []string `xml:"ul>li"`
 }
 
-func TestMetainfoV212ReleaseHistory(t *testing.T) {
+func TestMetainfoV213ReleaseHistory(t *testing.T) {
 	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml")
 	var doc appstreamMetainfo
 	if err := xml.Unmarshal(data, &doc); err != nil {
@@ -555,22 +557,22 @@ func TestMetainfoV212ReleaseHistory(t *testing.T) {
 	}
 
 	current := doc.Releases[0]
-	if current.Version != "2.12" {
-		t.Fatalf("current metainfo release version = %q, want 2.12", current.Version)
+	if current.Version != "2.13" {
+		t.Fatalf("current metainfo release version = %q, want 2.13", current.Version)
 	}
-	if current.Date != v212ReleaseDate {
-		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v212ReleaseDate)
+	if current.Date != v213ReleaseDate {
+		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v213ReleaseDate)
 	}
 	detailsURL := appstreamDetailsURL(current)
-	if !strings.HasSuffix(detailsURL, "Changelog.md#v212") {
-		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v212", detailsURL)
+	if !strings.HasSuffix(detailsURL, "Changelog.md#v213") {
+		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v213", detailsURL)
 	}
 
 	versions := map[string]bool{}
 	for _, release := range doc.Releases {
 		versions[release.Version] = true
 	}
-	for _, want := range []string{"2.11", "2.10", "2.09", "2.08"} {
+	for _, want := range []string{"2.12", "2.11", "2.10", "2.09", "2.08"} {
 		if !versions[want] {
 			t.Errorf("metainfo release history missing historical version %s", want)
 		}

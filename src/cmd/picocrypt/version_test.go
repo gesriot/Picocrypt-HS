@@ -11,8 +11,8 @@ import (
 )
 
 func TestRuntimeVersionIsV212(t *testing.T) {
-	if version != "v2.12" {
-		t.Fatalf("version = %q; want %q", version, "v2.12")
+	if version != "v2.13" {
+		t.Fatalf("version = %q; want %q", version, "v2.13")
 	}
 }
 
@@ -48,8 +48,8 @@ func TestRuntimeVersionFeedsCLIVersionOutput(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "v2.12") {
-		t.Fatalf("CLI --version output = %q; want it to contain %q", got, "v2.12")
+	if !strings.Contains(got, "v2.13") {
+		t.Fatalf("CLI --version output = %q; want it to contain %q", got, "v2.13")
 	}
 	if strings.Contains(got, "v2.11") {
 		t.Fatalf("CLI --version output = %q; must not contain stale v2.11", got)
