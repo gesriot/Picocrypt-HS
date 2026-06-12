@@ -21,6 +21,7 @@ var (
 	openedPathPollInterval             = 200 * time.Millisecond
 	openedPathCloudSettleDelay         = 1500 * time.Millisecond
 	openedPathCloudCancelSuppressDelay = 1500 * time.Millisecond
+	openedPathCloudPostApplyMergeDelay = 5 * time.Second
 	beforeOpenedPathReadyApply         = func() {}
 )
 
@@ -97,6 +98,19 @@ func (r openedPathReadinessResult) hasUbiquitousFile() bool {
 	return false
 }
 
+// hasUbiquitousItem reports whether any opened item (file or folder) lives in
+// iCloud. Cloud-backed gestures are the ones Finder/AppKit may split into
+// several openURLs: batches, so applying them keeps a merge window open for
+// late batches of the same gesture (issue #127).
+func (r openedPathReadinessResult) hasUbiquitousItem() bool {
+	for _, item := range r {
+		if item.IsUbiquitous {
+			return true
+		}
+	}
+	return false
+}
+
 func sleepOrCancel(ctx context.Context, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -112,13 +126,25 @@ func (a *App) cancelOpenedPathReadiness() {
 	a.openReadinessMu.Lock()
 	cancel := a.openReadinessCancel
 	activePaths := len(a.openReadinessPaths) > 0
+	freshCloudApply := a.cloudApplyMergeableLocked()
+	appliedAt := a.openReadinessAppliedAt
 	a.openReadinessGeneration++
 	a.openReadinessCancel = nil
 	a.openReadinessPaths = nil
 	a.openReadinessCollectLate = false
 	a.openReadinessLastAppend = time.Time{}
-	if cancel != nil && activePaths {
-		a.openReadinessSuppressUntil = time.Now().Add(openedPathCloudCancelSuppressDelay)
+	a.clearCloudApplyRecordLocked()
+	if (cancel != nil && activePaths) || freshCloudApply {
+		until := time.Now().Add(openedPathCloudCancelSuppressDelay)
+		if freshCloudApply {
+			// Stragglers of the cancelled gesture may keep arriving for the
+			// rest of the post-apply merge window; suppress them for that long
+			// so they cannot stomp the selection the user just made.
+			if cloudUntil := appliedAt.Add(openedPathCloudPostApplyMergeDelay); cloudUntil.After(until) {
+				until = cloudUntil
+			}
+		}
+		a.openReadinessSuppressUntil = until
 	}
 	a.openReadinessMu.Unlock()
 
@@ -170,6 +196,32 @@ func (a *App) finishOpenedPathReadiness(generation uint64) {
 	}
 }
 
+// openedPathReadinessUIGuard reports whether the readiness session may touch
+// the UI right now. Working always finishes the session: the user started an
+// operation and opened paths must not interfere. Scanning finishes it too,
+// unless a recent cloud apply marks the scan as belonging to an earlier batch
+// of the same open gesture — then the session stays alive so the caller can
+// retry after the scan settles. A manual drop, Clear, or Start clears that
+// record via cancelOpenedPathReadiness, so foreign scans always finish the
+// session, preserving the user's selection.
+func (a *App) openedPathReadinessUIGuard(generation uint64) bool {
+	if !a.isOpenedPathReadinessCurrent(generation) {
+		return false
+	}
+	snap := a.State.UISnapshot()
+	if snap.Working {
+		a.finishOpenedPathReadiness(generation)
+		return false
+	}
+	if snap.Scanning {
+		if !a.hasRecentCloudApply() {
+			a.finishOpenedPathReadiness(generation)
+		}
+		return false
+	}
+	return true
+}
+
 func (a *App) openedPathReadinessCanUpdateUI(generation uint64) bool {
 	if !a.isOpenedPathReadinessCurrent(generation) {
 		return false
@@ -192,6 +244,9 @@ func (a *App) openedPathReadinessSnapshot(generation uint64) ([]string, bool) {
 	return append([]string(nil), a.openReadinessPaths...), true
 }
 
+// enableLateOpenedPathCollection marks the session as cloud-backed so that
+// openedPathCloudSettleRemaining holds the apply open for trailing batches.
+// It does NOT gate merging: mergeLateOpenedPaths extends any active session.
 func (a *App) enableLateOpenedPathCollection(generation uint64) {
 	a.openReadinessMu.Lock()
 	defer a.openReadinessMu.Unlock()
@@ -201,10 +256,13 @@ func (a *App) enableLateOpenedPathCollection(generation uint64) {
 	a.openReadinessCollectLate = true
 }
 
+// mergeLateOpenedPaths extends the active readiness session with paths from a
+// later openURLs: batch of the same gesture. Merging before apply is always
+// safe: the session re-checks readiness for the combined set before applying.
 func (a *App) mergeLateOpenedPaths(paths []string) bool {
 	a.openReadinessMu.Lock()
 	defer a.openReadinessMu.Unlock()
-	if a.openReadinessCancel == nil || !a.openReadinessCollectLate {
+	if a.openReadinessCancel == nil {
 		return false
 	}
 
@@ -223,7 +281,64 @@ func (a *App) mergeLateOpenedPaths(paths []string) bool {
 	return true
 }
 
-func (a *App) finishOpenedPathReadinessIfPathsCurrent(generation uint64, paths []string) bool {
+// cloudApplyMergeableLocked reports whether a cloud-backed opened selection was
+// applied recently enough that a late batch of the same gesture must extend it.
+// Callers must hold openReadinessMu.
+func (a *App) cloudApplyMergeableLocked() bool {
+	if len(a.openReadinessAppliedPaths) == 0 {
+		return false
+	}
+	return time.Since(a.openReadinessAppliedAt) <= openedPathCloudPostApplyMergeDelay
+}
+
+// clearCloudApplyRecordLocked drops the post-apply merge record. Callers must
+// hold openReadinessMu.
+func (a *App) clearCloudApplyRecordLocked() {
+	a.openReadinessAppliedPaths = nil
+	a.openReadinessAppliedAt = time.Time{}
+}
+
+// hasRecentCloudApply is the lock-acquiring form of cloudApplyMergeableLocked.
+func (a *App) hasRecentCloudApply() bool {
+	a.openReadinessMu.Lock()
+	defer a.openReadinessMu.Unlock()
+	return a.cloudApplyMergeableLocked()
+}
+
+// mergeWithRecentCloudApply prepends the recently applied cloud selection to a
+// late batch of the same open gesture (issue #127: Finder/AppKit can deliver
+// one gesture as several openURLs: batches, some of them after the first batch
+// was already applied). It returns nil when the batch carries nothing new.
+// Outside the merge window the record is dropped and the batch is a separate
+// gesture that replaces the selection as usual.
+func (a *App) mergeWithRecentCloudApply(paths []string) []string {
+	a.openReadinessMu.Lock()
+	defer a.openReadinessMu.Unlock()
+	if !a.cloudApplyMergeableLocked() {
+		a.clearCloudApplyRecordLocked()
+		return paths
+	}
+
+	seen := make(map[string]struct{}, len(a.openReadinessAppliedPaths)+len(paths))
+	merged := make([]string, 0, len(a.openReadinessAppliedPaths)+len(paths))
+	for _, path := range a.openReadinessAppliedPaths {
+		seen[path] = struct{}{}
+		merged = append(merged, path)
+	}
+	for _, path := range paths {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		merged = append(merged, path)
+	}
+	if len(merged) == len(a.openReadinessAppliedPaths) {
+		return nil
+	}
+	return merged
+}
+
+func (a *App) finishOpenedPathReadinessIfPathsCurrent(generation uint64, paths []string, hadCloudItem bool) bool {
 	a.openReadinessMu.Lock()
 	if a.openReadinessGeneration != generation || a.openReadinessCancel == nil {
 		a.openReadinessMu.Unlock()
@@ -238,6 +353,12 @@ func (a *App) finishOpenedPathReadinessIfPathsCurrent(generation uint64, paths [
 	a.openReadinessPaths = nil
 	a.openReadinessCollectLate = false
 	a.openReadinessLastAppend = time.Time{}
+	if hadCloudItem {
+		a.openReadinessAppliedPaths = append([]string(nil), paths...)
+		a.openReadinessAppliedAt = time.Now()
+	} else {
+		a.clearCloudApplyRecordLocked()
+	}
 	a.openReadinessMu.Unlock()
 
 	if cancel != nil {
@@ -254,7 +375,12 @@ func (a *App) suppressesOpenedPaths() bool {
 	}
 	now := time.Now()
 	if now.Before(a.openReadinessSuppressUntil) {
-		a.openReadinessSuppressUntil = now.Add(openedPathCloudCancelSuppressDelay)
+		// A straggler stream keeps the window alive, but re-arming must only
+		// ever EXTEND it: cancelOpenedPathReadiness may have armed a longer
+		// window covering the rest of the post-apply merge period.
+		if until := now.Add(openedPathCloudCancelSuppressDelay); until.After(a.openReadinessSuppressUntil) {
+			a.openReadinessSuppressUntil = until
+		}
 		return true
 	}
 	a.openReadinessSuppressUntil = time.Time{}
@@ -279,7 +405,7 @@ func (a *App) openedPathCloudSettleRemaining(generation uint64) time.Duration {
 
 func applyOpenedPathPreparingStatus(a *App, generation uint64) {
 	fyne.Do(func() {
-		if !a.openedPathReadinessCanUpdateUI(generation) {
+		if !a.openedPathReadinessUIGuard(generation) {
 			return
 		}
 		a.State.MainStatus = openedPathsPreparingStatus
@@ -297,6 +423,10 @@ func (a *App) applyOpenedPaths(paths []string) {
 		return
 	}
 	if a.mergeLateOpenedPaths(normalized) {
+		return
+	}
+	normalized = a.mergeWithRecentCloudApply(normalized)
+	if len(normalized) == 0 {
 		return
 	}
 
@@ -317,6 +447,19 @@ func (a *App) waitForOpenedPathsAndApply(ctx context.Context, generation uint64)
 				a.applyOpenedPathReadinessTimeout(generation)
 			}
 			return
+		}
+
+		if a.State.IsScanning() && a.hasRecentCloudApply() {
+			// A folder scan from an earlier apply of the same gesture is
+			// running; skip the readiness checks (cgo per-path queries on
+			// darwin) and the UI round-trip until it settles.
+			if sleepOrCancel(ctx, openedPathPollInterval) {
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					a.applyOpenedPathReadinessTimeout(generation)
+				}
+				return
+			}
+			continue
 		}
 
 		paths, ok := a.openedPathReadinessSnapshot(generation)
@@ -352,10 +495,16 @@ func (a *App) waitForOpenedPathsAndApply(ctx context.Context, generation uint64)
 				}
 				continue
 			}
-			if a.applyReadyOpenedPaths(generation, paths) {
+			if a.applyReadyOpenedPaths(generation, paths, result.hasUbiquitousItem()) {
 				return
 			}
 			if !a.isOpenedPathReadinessCurrent(generation) {
+				return
+			}
+			if sleepOrCancel(ctx, openedPathPollInterval) {
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					a.applyOpenedPathReadinessTimeout(generation)
+				}
 				return
 			}
 			continue
@@ -391,14 +540,14 @@ func sameStringSlices(a, b []string) bool {
 	return true
 }
 
-func (a *App) applyReadyOpenedPaths(generation uint64, paths []string) bool {
+func (a *App) applyReadyOpenedPaths(generation uint64, paths []string, hadCloudItem bool) bool {
 	applied := false
 	beforeOpenedPathReadyApply()
 	fyne.DoAndWait(func() {
-		if !a.openedPathReadinessCanUpdateUI(generation) {
+		if !a.openedPathReadinessUIGuard(generation) {
 			return
 		}
-		if !a.finishOpenedPathReadinessIfPathsCurrent(generation, paths) {
+		if !a.finishOpenedPathReadinessIfPathsCurrent(generation, paths, hadCloudItem) {
 			return
 		}
 

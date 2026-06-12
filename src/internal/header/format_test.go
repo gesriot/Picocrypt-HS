@@ -28,33 +28,33 @@ func TestHeaderSize(t *testing.T) {
 	}
 }
 
-func TestCurrentVersionIsV212(t *testing.T) {
-	if CurrentVersion != "v2.12" {
-		t.Fatalf("CurrentVersion = %q; want %q", CurrentVersion, "v2.12")
+func TestCurrentVersionIsV213(t *testing.T) {
+	if CurrentVersion != "v2.13" {
+		t.Fatalf("CurrentVersion = %q; want %q", CurrentVersion, "v2.13")
 	}
 }
 
 func TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField(t *testing.T) {
 	const comments = "release guard"
 
-	oldHeader := deterministicFormatGuardHeader("v2.11", comments)
-	newHeader := deterministicFormatGuardHeader("v2.12", comments)
+	oldHeader := deterministicFormatGuardHeader("v2.12", comments)
+	newHeader := deterministicFormatGuardHeader("v2.13", comments)
 
 	oldEncoded, oldWritten := writeFormatGuardHeader(t, oldHeader)
 	newEncoded, newWritten := writeFormatGuardHeader(t, newHeader)
 
 	expectedSize := HeaderSize(len(comments))
 	if oldWritten != expectedSize {
-		t.Fatalf("v2.11 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", oldWritten, len(comments), expectedSize)
+		t.Fatalf("v2.12 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", oldWritten, len(comments), expectedSize)
 	}
 	if newWritten != expectedSize {
-		t.Fatalf("v2.12 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", newWritten, len(comments), expectedSize)
+		t.Fatalf("v2.13 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", newWritten, len(comments), expectedSize)
 	}
 	if len(oldEncoded) != expectedSize {
-		t.Fatalf("v2.11 encoded header length = %d; want %d", len(oldEncoded), expectedSize)
+		t.Fatalf("v2.12 encoded header length = %d; want %d", len(oldEncoded), expectedSize)
 	}
 	if len(newEncoded) != expectedSize {
-		t.Fatalf("v2.12 encoded header length = %d; want %d", len(newEncoded), expectedSize)
+		t.Fatalf("v2.13 encoded header length = %d; want %d", len(newEncoded), expectedSize)
 	}
 
 	regions := encodedHeaderRegions(len(comments))
@@ -67,8 +67,8 @@ func TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField(t *testing.T) {
 func TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation(t *testing.T) {
 	const comments = "release guard"
 
-	oldEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.11", comments))
-	newEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.12", comments))
+	oldEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.12", comments))
+	newEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.13", comments))
 
 	regions := encodedHeaderRegions(len(comments))
 	flagsStart := regionStart(t, regions, "flags")
@@ -81,11 +81,12 @@ func TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation(t *testing.T
 
 func TestVersionFormatAcceptanceRemainsCurrentIndependent(t *testing.T) {
 	cases := []string{
+		"v2.13",
 		"v2.12",
 		"v2.11",
 		"v2.10",
 		"v2.09",
-		"v3.12",
+		"v3.13",
 	}
 	for _, version := range cases {
 		t.Run(version, func(t *testing.T) {

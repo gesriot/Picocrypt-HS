@@ -32,4 +32,6 @@ src/wasm_exec.js
 # Logs
 *.log
 
-/docs/
+/docs/*
+!/docs/ONBOARDING.md
+.understand-anything

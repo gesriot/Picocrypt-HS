@@ -1335,6 +1335,545 @@ func TestLateICloudFileDuringQueuedReadyApplyExtendsSameSelection(t *testing.T) 
 	waitForAllFiles(t, a, []string{first, second})
 }
 
+// TestOpenedPathsMergeSecondBatchDuringFirstReadinessCheck covers the #127
+// loss window before late collection is enabled: a second openURLs batch that
+// arrives while the very first readiness check is still running must extend
+// the active session instead of replacing it.
+func TestOpenedPathsMergeSecondBatchDuringFirstReadinessCheck(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 20 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "during-check-first.txt")
+	second := filepath.Join(tempDir, "during-check-second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	firstCheckToken := make(chan struct{}, 1)
+	firstCheckToken <- struct{}{}
+	firstCheckStarted := make(chan struct{})
+	releaseFirstCheck := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseFirstCheck:
+		default:
+			close(releaseFirstCheck)
+		}
+	}()
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		select {
+		case <-firstCheckToken:
+			close(firstCheckStarted)
+			<-releaseFirstCheck
+		default:
+		}
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{first})
+	select {
+	case <-firstCheckStarted:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for first readiness check to start")
+	}
+
+	a.applyOpenedPaths([]string{second})
+	close(releaseFirstCheck)
+
+	waitForAllFiles(t, a, []string{first, second})
+}
+
+// TestLateICloudBatchAfterReadyApplyExtendsSameSelection covers the #127 loss
+// window after apply: when a cloud-backed opened selection was already applied
+// and Finder delivers another batch of the same gesture, the late batch must
+// extend the applied selection instead of replacing it.
+func TestLateICloudBatchAfterReadyApplyExtendsSameSelection(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "post-apply-first.txt")
+	second := filepath.Join(tempDir, "post-apply-second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{first})
+	waitForAllFiles(t, a, []string{first})
+
+	a.applyOpenedPaths([]string{second})
+	waitForAllFiles(t, a, []string{first, second})
+}
+
+// TestLateICloudFileBatchAfterFolderApplyExtendsSameSelection covers the #127
+// folder variant: an iCloud folder applies immediately (it never enables late
+// collection), so a file batch from the same gesture lands after apply and must
+// extend the folder selection instead of replacing it.
+func TestLateICloudFileBatchAfterFolderApplyExtendsSameSelection(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 20 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	folder := filepath.Join(tempDir, "icloud-late-folder")
+	if err := os.Mkdir(folder, 0755); err != nil {
+		t.Fatalf("Create test folder: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "child.txt"), []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create child file: %v", err)
+	}
+	file := filepath.Join(tempDir, "icloud-late-file.txt")
+	if err := os.WriteFile(file, []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			stat, err := os.Stat(path)
+			result = append(result, openedPathReadiness{
+				Path:         path,
+				State:        openedPathReady,
+				IsUbiquitous: true,
+				IsDir:        err == nil && stat.IsDir(),
+			})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{folder})
+	waitForOnlyFolders(t, a, []string{folder})
+
+	a.applyOpenedPaths([]string{file})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		state := snapshotDropState(t, a)
+		if reflect.DeepEqual(state.OnlyFolders, []string{folder}) && reflect.DeepEqual(state.OnlyFiles, []string{file}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("selection = folders %#v, files %#v; want folder %q extended with file %q",
+				state.OnlyFolders, state.OnlyFiles, folder, file)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestSeparateICloudOpenAfterMergeWindowReplacesSelection pins the gesture
+// boundary: once the post-apply merge window has expired, a later cloud open is
+// a separate gesture and replaces the selection — matching the local-file
+// semantics in TestSeparateWarmOpenedPathReplacesSelectionAfterFirstSessionApplied.
+func TestSeparateICloudOpenAfterMergeWindowReplacesSelection(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	oldMergeWindow := openedPathCloudPostApplyMergeDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+		openedPathCloudPostApplyMergeDelay = oldMergeWindow
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+	openedPathCloudPostApplyMergeDelay = 30 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "expired-window-first.txt")
+	second := filepath.Join(tempDir, "expired-window-second.txt")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{first})
+	waitForAllFiles(t, a, []string{first})
+
+	time.Sleep(80 * time.Millisecond)
+
+	a.applyOpenedPaths([]string{second})
+	waitForAllFiles(t, a, []string{second})
+}
+
+// TestManualDropAfterCloudApplySuppressesLateBatch ensures a manual drop that
+// replaces an already-applied cloud open selection also suppresses late
+// batches of that gesture: they must not overwrite what the user just chose.
+func TestManualDropAfterCloudApplySuppressesLateBatch(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	oldSuppress := openedPathCloudCancelSuppressDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+		openedPathCloudCancelSuppressDelay = oldSuppress
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+	openedPathCloudCancelSuppressDelay = 500 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	cloudFirst := filepath.Join(tempDir, "cloud-applied.txt")
+	cloudLate := filepath.Join(tempDir, "cloud-late-after-apply.txt")
+	manual := filepath.Join(tempDir, "manual-after-apply.txt")
+	for _, path := range []string{cloudFirst, cloudLate, manual} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{cloudFirst})
+	waitForAllFiles(t, a, []string{cloudFirst})
+
+	fyne.DoAndWait(func() {
+		a.cancelOpenedPathReadiness()
+		a.onDrop([]string{manual})
+	})
+	a.applyOpenedPaths([]string{cloudLate})
+
+	waitForInputFile(t, a, manual)
+	assertInputFileDoesNotBecome(t, a, cloudLate, 200*time.Millisecond)
+}
+
+// TestForeignScanFinishesOpenedPathReadinessSession pins manual-drop priority:
+// when a scan that does NOT belong to an opened-path gesture is running (no
+// recent cloud apply record), a readiness session must finish at the apply
+// gate instead of waiting out the scan and stomping the user's selection.
+func TestForeignScanFinishesOpenedPathReadinessSession(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	cloudFile := filepath.Join(t.TempDir(), "cloud-during-foreign-scan.txt")
+	if err := os.WriteFile(cloudFile, []byte("payload"), 0644); err != nil {
+		t.Fatalf("Create test file: %v", err)
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	fyne.DoAndWait(func() {
+		a.State.SetScanning(true)
+	})
+	defer fyne.DoAndWait(func() {
+		a.State.SetScanning(false)
+	})
+
+	a.applyOpenedPaths([]string{cloudFile})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		a.openReadinessMu.Lock()
+		active := a.openReadinessCancel != nil
+		a.openReadinessMu.Unlock()
+		if !active {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("readiness session survived a foreign scan instead of finishing")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	fyne.DoAndWait(func() {
+		a.State.SetScanning(false)
+	})
+	assertInputFileDoesNotBecome(t, a, cloudFile, 200*time.Millisecond)
+}
+
+// TestOpenedPathSessionSurvivesOwnGestureScan pins the opposite case: while a
+// scan from an earlier apply of the SAME gesture runs (fresh cloud apply
+// record), the late-batch session must stay alive and apply the union once the
+// scan settles.
+func TestOpenedPathSessionSurvivesOwnGestureScan(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "own-scan-first.txt")
+	late := filepath.Join(tempDir, "own-scan-late.txt")
+	for _, path := range []string{first, late} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{first})
+	waitForAllFiles(t, a, []string{first})
+
+	fyne.DoAndWait(func() {
+		a.State.SetScanning(true)
+	})
+	a.applyOpenedPaths([]string{late})
+	time.Sleep(50 * time.Millisecond)
+	fyne.DoAndWait(func() {
+		a.State.SetScanning(false)
+	})
+
+	waitForAllFiles(t, a, []string{first, late})
+}
+
+// TestManualDropAfterCloudApplySuppressesLateBatchUntilMergeWindowEnds covers
+// the suppress/merge window gap: gesture batches may straggle for the whole
+// post-apply merge window, so a manual drop that cancels a fresh cloud apply
+// must suppress stragglers for that window too — not only for the shorter
+// cancel-suppress delay.
+func TestManualDropAfterCloudApplySuppressesLateBatchUntilMergeWindowEnds(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	oldSuppress := openedPathCloudCancelSuppressDelay
+	oldMergeWindow := openedPathCloudPostApplyMergeDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+		openedPathCloudCancelSuppressDelay = oldSuppress
+		openedPathCloudPostApplyMergeDelay = oldMergeWindow
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+	openedPathCloudCancelSuppressDelay = 50 * time.Millisecond
+	openedPathCloudPostApplyMergeDelay = 600 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	cloudFirst := filepath.Join(tempDir, "cloud-gap-applied.txt")
+	cloudLate := filepath.Join(tempDir, "cloud-gap-late.txt")
+	manual := filepath.Join(tempDir, "manual-gap.txt")
+	for _, path := range []string{cloudFirst, cloudLate, manual} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{cloudFirst})
+	waitForAllFiles(t, a, []string{cloudFirst})
+
+	fyne.DoAndWait(func() {
+		a.cancelOpenedPathReadiness()
+		a.onDrop([]string{manual})
+	})
+
+	// Past the cancel-suppress delay but still inside the merge window.
+	time.Sleep(150 * time.Millisecond)
+	a.applyOpenedPaths([]string{cloudLate})
+
+	waitForInputFile(t, a, manual)
+	assertInputFileDoesNotBecome(t, a, cloudLate, 200*time.Millisecond)
+}
+
+// TestStragglersCannotShortenManualDropSuppressionWindow guards the suppress
+// window arithmetic: a suppressed straggler must never SHORTEN the window that
+// cancelOpenedPathReadiness armed for the rest of the merge window — otherwise
+// a second straggler arriving in the gap would stomp the manual selection.
+func TestStragglersCannotShortenManualDropSuppressionWindow(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
+	}
+	resetOpenedPathsForTest(t)
+	oldCheck := checkOpenedPathReadiness
+	oldPoll := openedPathPollInterval
+	oldSettle := openedPathCloudSettleDelay
+	oldSuppress := openedPathCloudCancelSuppressDelay
+	oldMergeWindow := openedPathCloudPostApplyMergeDelay
+	defer func() {
+		checkOpenedPathReadiness = oldCheck
+		openedPathPollInterval = oldPoll
+		openedPathCloudSettleDelay = oldSettle
+		openedPathCloudCancelSuppressDelay = oldSuppress
+		openedPathCloudPostApplyMergeDelay = oldMergeWindow
+	}()
+	openedPathPollInterval = 5 * time.Millisecond
+	openedPathCloudSettleDelay = 0
+	openedPathCloudCancelSuppressDelay = 50 * time.Millisecond
+	openedPathCloudPostApplyMergeDelay = 600 * time.Millisecond
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+	tempDir := t.TempDir()
+	cloudFirst := filepath.Join(tempDir, "cloud-shorten-applied.txt")
+	cloudLate1 := filepath.Join(tempDir, "cloud-shorten-late1.txt")
+	cloudLate2 := filepath.Join(tempDir, "cloud-shorten-late2.txt")
+	manual := filepath.Join(tempDir, "manual-shorten.txt")
+	for _, path := range []string{cloudFirst, cloudLate1, cloudLate2, manual} {
+		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+			t.Fatalf("Create test file %q: %v", path, err)
+		}
+	}
+
+	checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+		result := make(openedPathReadinessResult, 0, len(paths))
+		for _, path := range paths {
+			result = append(result, openedPathReadiness{Path: path, State: openedPathReady, IsUbiquitous: true})
+		}
+		return result
+	}
+
+	a.applyOpenedPaths([]string{cloudFirst})
+	waitForAllFiles(t, a, []string{cloudFirst})
+
+	fyne.DoAndWait(func() {
+		a.cancelOpenedPathReadiness()
+		a.onDrop([]string{manual})
+	})
+
+	// First straggler inside the armed window: must be suppressed without
+	// collapsing the window down to the short cancel-suppress delay.
+	time.Sleep(100 * time.Millisecond)
+	a.applyOpenedPaths([]string{cloudLate1})
+
+	// Second straggler past the short delay but still inside the merge window.
+	time.Sleep(150 * time.Millisecond)
+	a.applyOpenedPaths([]string{cloudLate2})
+
+	waitForInputFile(t, a, manual)
+	assertInputFileDoesNotBecome(t, a, cloudLate1, 200*time.Millisecond)
+	assertInputFileDoesNotBecome(t, a, cloudLate2, 200*time.Millisecond)
+}
+
 func TestOpenedPathReadinessCancellationPreventsStaleApply(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")

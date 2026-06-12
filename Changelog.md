@@ -1,3 +1,10 @@
+# v2.13
+<ul>
+	<li>✓ <strong>macOS iCloud file opening</strong>: late Finder/AppKit batches of one open gesture now extend the already-applied iCloud selection instead of replacing it; manual drops keep priority over gesture stragglers</li>
+	<li>✓ <strong>Window title</strong>: the title no longer embeds the version, so docks and taskbars show one consistent application name across desktop environments</li>
+	<li>✓ <strong>About dialog</strong>: a compact About dialog (info button next to the file selection) now shows the application version and project link</li>
+</ul>
+
 # v2.12
 <ul>
 	<li>✓ <strong>macOS iCloud file opening</strong>: Finder/Dock-opened iCloud files are collected across slow callbacks and applied after the selected files are ready</li>

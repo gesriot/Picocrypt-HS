@@ -91,10 +91,14 @@ type App struct {
 	openReadinessCollectLate   bool
 	openReadinessLastAppend    time.Time
 	openReadinessSuppressUntil time.Time
+	openReadinessAppliedPaths  []string
+	openReadinessAppliedAt     time.Time
 
 	// UI widgets that need to be updated
 	inputLabel        *widget.Label
 	clearButton       *widget.Button
+	aboutButton       *widget.Button
+	aboutVersionLabel *widget.Label
 	mainContent       *fyne.Container
 	passwordEntry     *PasswordEntry
 	cPasswordEntry    *PasswordEntry
@@ -150,6 +154,7 @@ type App struct {
 	keyfileModal   dialog.Dialog
 	overwriteModal dialog.Dialog
 	progressModal  dialog.Dialog
+	aboutModal     dialog.Dialog
 
 	// Keyfile modal widgets (moved from package-level to avoid global state)
 	keyfileListContainer *fyne.Container
@@ -205,8 +210,11 @@ func (a *App) Run(startupPaths []string) {
 	appIcon := fyne.NewStaticResource("key.png", appIconData)
 	a.fyneApp.SetIcon(appIcon)
 
-	// Create main window
-	a.Window = a.fyneApp.NewWindow("Picocrypt NG " + a.Version[1:])
+	// Create main window. The title intentionally carries no version (#133):
+	// taskbars/docks show the .desktop Name or WM_CLASS, and mixing in the
+	// version made the user-visible name inconsistent across DEs. The version
+	// stays available via the CLI and the packaged file metadata.
+	a.Window = a.fyneApp.NewWindow("Picocrypt NG")
 	// NewWindow initializes the GLFW driver; native window creation happens on Show.
 	prepareWindowIdentity()
 	a.Window.SetIcon(appIcon)
@@ -364,7 +372,14 @@ func (a *App) buildUI() fyne.CanvasObject {
 	// MediumImportance gives the button a visible border
 	a.clearButton.Importance = widget.MediumImportance
 
-	headerRow := container.NewBorder(nil, nil, nil, a.clearButton, a.inputLabel)
+	// Icon-only About button: keeps the fixed-size window unchanged while
+	// giving the GUI a version indicator (the title carries none, #133).
+	a.aboutButton = widget.NewButtonWithIcon("", theme.InfoIcon(), func() {
+		a.showAboutModal()
+	})
+	a.aboutButton.Importance = widget.LowImportance
+
+	headerRow := container.NewBorder(nil, nil, a.aboutButton, a.clearButton, a.inputLabel)
 
 	// Password section (from password_section.go)
 	passwordSection := a.buildPasswordSection()
