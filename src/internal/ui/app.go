@@ -207,8 +207,11 @@ func (a *App) Run(startupPaths []string) {
 	appIcon := fyne.NewStaticResource("key.png", appIconData)
 	a.fyneApp.SetIcon(appIcon)
 
-	// Create main window
-	a.Window = a.fyneApp.NewWindow("Picocrypt NG " + a.Version[1:])
+	// Create main window. The title intentionally carries no version (#133):
+	// taskbars/docks show the .desktop Name or WM_CLASS, and mixing in the
+	// version made the user-visible name inconsistent across DEs. The version
+	// stays available via the CLI and the packaged file metadata.
+	a.Window = a.fyneApp.NewWindow("Picocrypt NG")
 	// NewWindow initializes the GLFW driver; native window creation happens on Show.
 	prepareWindowIdentity()
 	a.Window.SetIcon(appIcon)
