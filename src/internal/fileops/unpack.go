@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"Picocrypt-NG/internal/diskspace"
 	"Picocrypt-NG/internal/util"
 )
 
@@ -308,7 +309,7 @@ func Unpack(opts UnpackOptions) (retErr error) {
 	}
 	probe := opts.AvailableSpace
 	if probe == nil {
-		probe = availableSpace
+		probe = diskspace.Available
 	}
 	if available, err := probe(extractDir); err == nil && requiredAdditionalBytes > available {
 		return fmt.Errorf("insufficient disk space for extraction: need %d bytes, have %d", requiredAdditionalBytes, available)
