@@ -569,6 +569,44 @@ func TestSplitRejectsOverflowingChunkSize(t *testing.T) {
 	}
 }
 
+// TestChunkSizeToBytes verifies the shared checked unit->bytes conversion: valid
+// sizes scale correctly and overflowing sizes are rejected rather than wrapping.
+func TestChunkSizeToBytes(t *testing.T) {
+	cases := []struct {
+		name      string
+		chunkSize int
+		unit      SplitUnit
+		want      int64
+		wantErr   bool
+	}{
+		{"KiB", 4, SplitUnitKiB, 4 << 10, false},
+		{"MiB", 2, SplitUnitMiB, 2 << 20, false},
+		{"GiB", 1, SplitUnitGiB, 1 << 30, false},
+		{"TiB", 1, SplitUnitTiB, 1 << 40, false},
+		{"Total_passthrough", 7, SplitUnitTotal, 7, false}, // size-relative: unscaled, cannot overflow
+		{"TiB_overflow", 1 << 23, SplitUnitTiB, 0, true},   // 2^23 * 2^40 = 2^63 > MaxInt64
+		{"GiB_overflow", 1 << 33, SplitUnitGiB, 0, true},   // 2^33 * 2^30 = 2^63 > MaxInt64
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ChunkSizeToBytes(tc.chunkSize, tc.unit)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ChunkSizeToBytes(%d, %v) = %d, nil; want error", tc.chunkSize, tc.unit, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ChunkSizeToBytes(%d, %v) unexpected error: %v", tc.chunkSize, tc.unit, err)
+			}
+			if got != tc.want {
+				t.Errorf("ChunkSizeToBytes(%d, %v) = %d; want %d", tc.chunkSize, tc.unit, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestRecombineLargeChunks tests recombining larger chunks.
 func TestRecombineLargeChunks(t *testing.T) {
 	tmpDir := t.TempDir()

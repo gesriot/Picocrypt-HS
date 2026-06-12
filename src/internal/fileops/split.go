@@ -59,6 +59,32 @@ type SplitOptions struct {
 	Cancel    CancelFunc   // Cancellation check callback (optional)
 }
 
+// ChunkSizeToBytes converts a chunk size expressed in unit to a byte count,
+// rejecting values that overflow int64. It is defined for the fixed-size units
+// (KiB/MiB/GiB/TiB); SplitUnitTotal and any unknown unit are size-relative and
+// returned unscaled (they cannot overflow here). Callers must reject the error:
+// an unchecked overflow wraps negative, making Split a silent no-op.
+func ChunkSizeToBytes(chunkSize int, unit SplitUnit) (int64, error) {
+	size := int64(chunkSize)
+	var unitBytes int64
+	switch unit {
+	case SplitUnitKiB:
+		unitBytes = util.KiB
+	case SplitUnitMiB:
+		unitBytes = util.MiB
+	case SplitUnitGiB:
+		unitBytes = util.GiB
+	case SplitUnitTiB:
+		unitBytes = util.TiB
+	default:
+		return size, nil
+	}
+	if size > math.MaxInt64/unitBytes {
+		return 0, fmt.Errorf("chunk size too large: %d would overflow when converted to bytes", chunkSize)
+	}
+	return size * unitBytes, nil
+}
+
 // Split divides a file into multiple sequential chunks for easier storage/transfer.
 //
 // Output files are named with numeric suffixes: inputPath.0, inputPath.1, inputPath.2, etc.
@@ -82,30 +108,15 @@ func Split(opts SplitOptions) ([]string, error) {
 	totalSize := stat.Size()
 
 	// Calculate actual chunk size in bytes
-	chunkSize := int64(opts.ChunkSize)
-	var unitBytes int64
-	switch opts.Unit {
-	case SplitUnitKiB:
-		unitBytes = util.KiB
-	case SplitUnitMiB:
-		unitBytes = util.MiB
-	case SplitUnitGiB:
-		unitBytes = util.GiB
-	case SplitUnitTiB:
-		unitBytes = util.TiB
-	case SplitUnitTotal:
+	var chunkSize int64
+	if opts.Unit == SplitUnitTotal {
 		// Divide into N equal parts
 		chunkSize = int64(math.Ceil(float64(totalSize) / float64(opts.ChunkSize)))
-	}
-	if unitBytes > 0 {
-		// Reject sizes that overflow int64 when scaled to bytes. The wrapped
-		// (negative) product would make numChunks 0, so Split would silently
-		// return no chunks with a nil error and the caller would treat the
-		// no-op as success — destroying the just-written volume.
-		if chunkSize > math.MaxInt64/unitBytes {
-			return nil, fmt.Errorf("chunk size too large: %d would overflow when converted to bytes", opts.ChunkSize)
+	} else {
+		chunkSize, err = ChunkSizeToBytes(opts.ChunkSize, opts.Unit)
+		if err != nil {
+			return nil, err
 		}
-		chunkSize *= unitBytes
 	}
 
 	numChunks := int(math.Ceil(float64(totalSize) / float64(chunkSize)))

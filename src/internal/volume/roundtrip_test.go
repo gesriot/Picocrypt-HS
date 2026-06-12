@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
+	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/fileops"
 )
 
@@ -81,6 +82,36 @@ func TestRoundTripBasic(t *testing.T) {
 	}
 
 	t.Log("Round-trip basic: SUCCESS")
+}
+
+// TestEncryptRejectsOverflowingChunkSizeEarly proves volume.Encrypt rejects an
+// overflowing split chunk size at the pipeline entry — before preprocessing, key
+// derivation, or writing any output — so the just-encrypted volume can never be
+// silently destroyed by the final split step (the fileops.Split data-loss path).
+func TestEncryptRejectsOverflowingChunkSizeEarly(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(inputPath, []byte("payload"), 0644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	outputPath := filepath.Join(tmpDir, "test.txt.pcv")
+
+	req := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: outputPath,
+		Password:   "testpassword123",
+		Split:      true,
+		ChunkSize:  1 << 23, // 2^23 TiB overflows int64 when scaled to bytes
+		ChunkUnit:  fileops.SplitUnitTiB,
+	}
+
+	err := Encrypt(context.Background(), req)
+	if !errors.Is(err, perrors.ErrChunkSizeTooLarge) {
+		t.Fatalf("Encrypt() error = %v, want ErrChunkSizeTooLarge", err)
+	}
+	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
+		t.Errorf("output must not exist after early rejection, stat err = %v", statErr)
+	}
 }
 
 // TestRoundTripParanoid tests encrypt -> decrypt with paranoid mode

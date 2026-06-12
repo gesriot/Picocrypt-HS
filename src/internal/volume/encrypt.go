@@ -22,6 +22,13 @@ import (
 // This is the main entry point for encryption.
 // If ctx is nil, a background context is used.
 func Encrypt(ctx context.Context, req *EncryptRequest) error {
+	// Reject an unusable split chunk size before any preprocessing or key
+	// derivation, so an overflowing size fails fast here instead of at the final
+	// split step — where the silent no-op would delete the just-written volume.
+	if err := req.validateSplit(); err != nil {
+		return err
+	}
+
 	opCtx := NewEncryptContext(ctx, req)
 	defer opCtx.Close() // Secure zeroing of key material
 
