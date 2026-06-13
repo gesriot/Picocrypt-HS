@@ -306,6 +306,11 @@ func TestStartEncryptZeroesPasswordBytes(t *testing.T) {
 	}
 	outputPath := filepath.Join(t.TempDir(), "plain.txt.pcv")
 	id := StartOperation()
+
+	orig := runEncrypt
+	runEncrypt = func(context.Context, *volume.EncryptRequest) error { return nil }
+	defer func() { runEncrypt = orig }()
+
 	reqJSON, err := json.Marshal(EncryptRequestJSON{OperationID: id, InputFile: inputPath, OutputFile: outputPath})
 	if err != nil {
 		t.Fatal(err)
