@@ -12,6 +12,7 @@ import io.mockk.mockk
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import io.mockk.verify
 import kotlin.io.path.createTempDirectory
 
 /**
@@ -175,7 +176,7 @@ class OperationManagerTest {
 
         mockkObject(GoBridge)
         try {
-            every { GoBridge.startOperation() } returns "op_test"
+            every { GoBridge.startOperation() } returns Result.success("op_test")
             every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
             // Establish an active (non-done) operation.
@@ -295,6 +296,70 @@ class OperationManagerTest {
         }
     }
     
+    @Test
+    fun `retryDecryptWithForce fails loud when stored formData has an empty password`() = runTest {
+        // Force-decrypt BYPASSES integrity/RS checks, so running it with an empty
+        // password (a CharArray(0) the form layer installs on clear -- see
+        // MainViewModel.clearSensitiveData / resetFormToDefaults) would silently run
+        // and produce garbage. Reproduce that exact state: a DECRYPT operation whose
+        // stored formData carries CharArray(0). startDecrypt validates the password,
+        // so it can't seed an empty-password operation directly; establish it with a
+        // valid password through the public seam, then swap in the empty-password
+        // formData via the private _currentOperation MutableStateFlow (white-box;
+        // there is no public setter). GoBridge is the Go mobile AAR (absent on the JVM
+        // classpath), so mock it -- the guard must short-circuit BEFORE
+        // GoBridge.startOperation/startDecrypt are reached on the retry.
+        val tmpDir = createTempDirectory(prefix = "opmgr_force_test").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_force")
+            every { GoBridge.startDecrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+            // Establish an active DECRYPT operation with a valid password.
+            val started = OperationManager.startDecrypt(
+                mockContext,
+                TestDataBuilders.createDecryptFormData()
+            )
+            assertTrue("startDecrypt should succeed", started.isSuccess)
+
+            // Swap the stored formData for one with an empty password (CharArray(0)),
+            // mirroring a post-clear form state, keeping the DECRYPT operation.
+            val established = OperationManager.currentOperation.value
+            assertNotNull("operation should be established", established)
+            val emptyPwForm = established!!.formData!!.copy(
+                passwordInput = CharArray(0),
+                confirmPasswordInput = CharArray(0)
+            )
+            assertFalse("seeded formData must be invalid", emptyPwForm.isPasswordValid)
+            val stateField = OperationManager::class.java.getDeclaredField("_currentOperation")
+            stateField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val flow = stateField.get(OperationManager)
+                as kotlinx.coroutines.flow.MutableStateFlow<OperationState?>
+            flow.value = established.copy(formData = emptyPwForm)
+
+            val result = OperationManager.retryDecryptWithForce()
+
+            assertTrue("Force-decrypt with an empty password must fail loud", result.isFailure)
+            result.onFailure { error ->
+                assertTrue(
+                    "Error should be InvalidPassword",
+                    error is AppError.ValidationError.InvalidPassword
+                )
+            }
+
+            // The guard must short-circuit before touching the Go bridge on the retry:
+            // exactly one startOperation + one startDecrypt, both from the setup call.
+            verify(exactly = 1) { GoBridge.startOperation() }
+            verify(exactly = 1) { GoBridge.startDecrypt(any(), any(), any(), any(), any()) }
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
     @Test
     fun `retryDecryptWithForce returns error when operation is not decrypt`() = runTest {
         // We can't easily set up an encrypt operation, but we can test the logic

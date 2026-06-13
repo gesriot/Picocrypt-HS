@@ -40,10 +40,10 @@ object OperationManager {
         
         // Generate output file path using FileCopyService
         val outputFilePath = FileCopyService.getOutputFilePath(context, formData.copiedFilePath, isEncrypt = true)
-        
+
         // Start operation
-        val operationID = GoBridge.startOperation()
-        
+        val operationID = GoBridge.startOperation().getOrElse { return@withContext Result.failure(it) }
+
         val options = EncryptOptions(
             comments = formData.comments,
             paranoid = formData.paranoid,
@@ -99,10 +99,10 @@ object OperationManager {
         
         // Generate output file path using FileCopyService
         val outputFilePath = FileCopyService.getOutputFilePath(context, formData.copiedFilePath, isEncrypt = false)
-        
+
         // Start operation
-        val operationID = GoBridge.startOperation()
-        
+        val operationID = GoBridge.startOperation().getOrElse { return@withContext Result.failure(it) }
+
         val options = DecryptOptions(
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             forceDecrypt = false,
@@ -271,12 +271,19 @@ object OperationManager {
         val formData = operation.formData ?: return@withContext Result.failure(
             AppError.OperationError.GenericOperation("Operation data not available for retry")
         )
-        
+
+        // Force-decrypt BYPASSES integrity/RS checks, so an empty password (e.g. a
+        // CharArray zeroed by a prior clear) would silently run. Mirror startDecrypt's
+        // guard and fail loud before encoding the password or starting the op.
+        if (!formData.isPasswordValid) {
+            return@withContext Result.failure(AppError.ValidationError.InvalidPassword)
+        }
+
         // Clear the current operation state
         _currentOperation.value = null
-        
+
         // Start new operation with force decrypt enabled
-        val operationID = GoBridge.startOperation()
+        val operationID = GoBridge.startOperation().getOrElse { return@withContext Result.failure(it) }
         
         val options = DecryptOptions(
             keyfiles = formData.keyfileFilenames.map { it.internalPath },

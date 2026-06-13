@@ -80,15 +80,19 @@ object GoBridge {
     /**
      * Starts a new operation and returns its ID.
      * This should be called before StartEncrypt or StartDecrypt.
+     *
+     * @return Result containing the operation ID, or an AppError if the Go binding
+     *   fails. A failure is never masked with a fabricated ID: a fake ID would not
+     *   exist in the Go operation map, so the next call would fail with a misleading
+     *   "operation not found" and hide the real cause.
      */
-    fun startOperation(): String {
+    fun startOperation(): Result<String> {
         return try {
-            Mobile.startOperation()
+            Result.success(Mobile.startOperation())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Generate a fallback ID if Go binding fails
-            "op_${System.currentTimeMillis()}"
+            Result.failure(AppError.fromException(e))
         }
     }
     

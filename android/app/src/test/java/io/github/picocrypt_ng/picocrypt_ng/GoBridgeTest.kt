@@ -37,11 +37,13 @@ class GoBridgeTest {
     fun `startOperation returns operation ID on success`() {
         // This test requires the Go mobile bindings to be available
         // In a real scenario, this would be an instrumented test
-        // For unit tests, we verify the fallback behavior or handle missing bindings
+        // For unit tests, we verify the Result wrapping or handle missing bindings
         try {
-            val operationId = GoBridge.startOperation()
-            assertNotNull("Operation ID should not be null", operationId)
-            assertTrue("Operation ID should not be empty", operationId.isNotEmpty())
+            val result = GoBridge.startOperation()
+            assertNotNull("Result should not be null", result)
+            result.onSuccess { operationId ->
+                assertTrue("Operation ID should not be empty", operationId.isNotEmpty())
+            }
         } catch (e: UnsatisfiedLinkError) {
             // Go mobile bindings not available - this is expected in unit tests
             // Skip this test when bindings aren't available
@@ -50,15 +52,19 @@ class GoBridgeTest {
             // Skip this test when bindings aren't available
         }
     }
-    
+
     @Test
-    fun `startOperation provides fallback ID on exception`() {
-        // The fallback ID format is "op_${System.currentTimeMillis()}"
-        // We can't easily test this without mocking Mobile, but we verify
-        // the method doesn't throw exceptions (except for missing bindings)
+    fun `startOperation returns failure (no fabricated ID) on exception`() {
+        // The fabricated-ID fallback was removed: a Go binding failure must surface
+        // as Result.failure, never a fake "op_..." ID that the Go map does not hold.
+        // We can't force Mobile to throw without mocking, but we verify the method
+        // never throws (except for missing bindings) and, if it fails, wraps an AppError.
         try {
-            val operationId = GoBridge.startOperation()
-            assertNotNull(operationId)
+            val result = GoBridge.startOperation()
+            assertNotNull(result)
+            result.onFailure { error ->
+                assertTrue("Error should be AppError", error is AppError)
+            }
         } catch (e: UnsatisfiedLinkError) {
             // Go mobile bindings not available - this is expected in unit tests
         } catch (e: NoClassDefFoundError) {
@@ -248,7 +254,7 @@ class GoBridgeTest {
     @Test
     fun `startEncrypt zeroes the password ByteArray`() {
         if (!isGoMobileAvailable()) return
-        val id = GoBridge.startOperation()
+        val id = GoBridge.startOperation().getOrElse { return }
         val password = "hunter2".toByteArray(Charsets.UTF_8)
         GoBridge.startEncrypt(id, "/no/such/input", "/tmp/out.pcv", password, EncryptOptions())
         assertTrue("password bytes must be zeroed", password.all { it == 0.toByte() })
