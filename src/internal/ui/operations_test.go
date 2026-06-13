@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"Picocrypt-NG/internal/app"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
@@ -203,30 +204,45 @@ func TestCreateReporterCallbacksUpdateStateAndCancelButton(t *testing.T) {
 	}
 }
 
-// TestSplitUnitConversion tests the split unit selection logic in doEncrypt.
+// TestSplitUnitConversion verifies the doEncrypt split-unit index mapping
+// (splitUnitFromIndex) turns each State.SplitSelected value into the correct
+// fileops.SplitUnit constant the encrypt request carries.
 func TestSplitUnitConversion(t *testing.T) {
 	testCases := []struct {
-		selected int
-		expected string
+		name  string
+		index int32
+		want  fileops.SplitUnit
 	}{
-		{0, "KiB"},
-		{1, "MiB"},
-		{2, "GiB"},
-		{3, "TiB"},
-		{4, "Total"},
+		{"KiB", 0, fileops.SplitUnitKiB},
+		{"MiB", 1, fileops.SplitUnitMiB},
+		{"GiB", 2, fileops.SplitUnitGiB},
+		{"TiB", 3, fileops.SplitUnitTiB},
+		{"Total", 4, fileops.SplitUnitTotal},
+		{"OutOfRangeFallsBackToKiB", 99, fileops.SplitUnitKiB},
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.expected, func(t *testing.T) {
-			// This tests the State.SplitUnits array alignment
-			state := mustNewState(t)
-			if tc.selected < len(state.SplitUnits) {
-				if state.SplitUnits[tc.selected] != tc.expected {
-					t.Errorf("SplitUnits[%d] = %q; want %q",
-						tc.selected, state.SplitUnits[tc.selected], tc.expected)
-				}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := splitUnitFromIndex(tc.index); got != tc.want {
+				t.Errorf("splitUnitFromIndex(%d) = %d; want %d", tc.index, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestSplitUnitsLabelsAlignWithIndices keeps the GUI dropdown labels aligned
+// with the index meanings splitUnitFromIndex encodes: SplitUnits[i] must name
+// the unit splitUnitFromIndex(i) returns.
+func TestSplitUnitsLabelsAlignWithIndices(t *testing.T) {
+	state := mustNewState(t)
+	want := []string{"KiB", "MiB", "GiB", "TiB", "Total"}
+	if len(state.SplitUnits) != len(want) {
+		t.Fatalf("len(SplitUnits) = %d; want %d", len(state.SplitUnits), len(want))
+	}
+	for i, w := range want {
+		if state.SplitUnits[i] != w {
+			t.Errorf("SplitUnits[%d] = %q; want %q", i, state.SplitUnits[i], w)
+		}
 	}
 }
 

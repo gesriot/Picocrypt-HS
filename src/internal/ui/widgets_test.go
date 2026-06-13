@@ -3,10 +3,12 @@ package ui
 
 import (
 	"image/color"
+	"strings"
 	"testing"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	fynetheme "fyne.io/fyne/v2/theme"
 )
 
 // TestPasswordStrengthIndicator tests the password strength indicator widget.
@@ -248,9 +250,27 @@ func TestColoredLabel(t *testing.T) {
 		label := NewColoredLabel("Test", color.White)
 		minSize := label.MinSize()
 
-		// Should have non-zero size for text
-		if minSize.Width <= 0 {
-			t.Error("Expected positive width")
+		// Width/height must equal the measured text size at the theme text size.
+		want := fyne.MeasureText("Test", fynetheme.TextSize(), fyne.TextStyle{})
+		if minSize.Width != want.Width {
+			t.Errorf("Expected width %f, got %f", want.Width, minSize.Width)
+		}
+		if minSize.Height != want.Height {
+			t.Errorf("Expected height %f, got %f", want.Height, minSize.Height)
+		}
+	})
+
+	t.Run("MinSize_TruncationCap", func(t *testing.T) {
+		// Default truncation is ellipsis (see NewColoredLabel), so a long string
+		// must be capped at 600px to avoid forcing window resizing.
+		long := strings.Repeat("A", 500)
+		raw := fyne.MeasureText(long, fynetheme.TextSize(), fyne.TextStyle{})
+		if raw.Width <= 600 {
+			t.Fatalf("precondition: long string must exceed 600px, got %f", raw.Width)
+		}
+		label := NewColoredLabel(long, color.White)
+		if got := label.MinSize().Width; got != 600 {
+			t.Errorf("Expected capped width 600, got %f", got)
 		}
 	})
 
@@ -405,10 +425,17 @@ func TestCompactTheme(t *testing.T) {
 	t.Run("Color", func(t *testing.T) {
 		theme := NewCompactTheme().(*CompactTheme)
 
-		// Should return a valid color (passes through to default theme)
-		col := theme.Color("foreground", 0)
-		if col == nil {
-			t.Error("Expected non-nil color")
+		// Enhanced-contrast foreground: near-white in dark mode, near-black in light mode.
+		dark := theme.Color(fynetheme.ColorNameForeground, fynetheme.VariantDark)
+		wantDark := color.RGBA{R: 0xF5, G: 0xF5, B: 0xF5, A: 0xFF}
+		if dark != wantDark {
+			t.Errorf("dark foreground: expected %v, got %v", wantDark, dark)
+		}
+
+		light := theme.Color(fynetheme.ColorNameForeground, fynetheme.VariantLight)
+		wantLight := color.RGBA{R: 0x10, G: 0x10, B: 0x10, A: 0xFF}
+		if light != wantLight {
+			t.Errorf("light foreground: expected %v, got %v", wantLight, light)
 		}
 	})
 

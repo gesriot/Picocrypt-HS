@@ -2020,85 +2020,54 @@ func TestOpenedPathsBatchDeliversWholeGestureAsOneDrop(t *testing.T) {
 	}
 }
 
-// TestKeyfileDropHandling tests keyfile drop in keyfile modal.
+// TestKeyfileDropHandling drives the real handleKeyfileDrop with on-disk
+// keyfiles, a duplicate path, and a directory, asserting the resulting
+// State.Keyfiles. The dedup + directory guard (drop.go:482) is production
+// logic, so the test must never recompute it inline.
 func TestKeyfileDropHandling(t *testing.T) {
-	t.Run("AddUniqueKeyfiles", func(t *testing.T) {
-		state := mustNewState(t)
-		state.ShowKeyfile = true
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
 
-		// Add keyfiles
-		keyfiles := []string{"/path/key1.bin", "/path/key2.bin"}
-		for _, kf := range keyfiles {
-			// Check for duplicates
-			duplicate := false
-			for _, existing := range state.Keyfiles {
-				if kf == existing {
-					duplicate = true
-					break
-				}
-			}
-			if !duplicate {
-				state.Keyfiles = append(state.Keyfiles, kf)
-			}
+	dir := t.TempDir()
+	key1 := filepath.Join(dir, "key1.bin")
+	key2 := filepath.Join(dir, "key2.bin")
+	subdir := filepath.Join(dir, "adir")
+	for _, p := range []string{key1, key2} {
+		if err := os.WriteFile(p, []byte("k"), 0644); err != nil {
+			t.Fatalf("write keyfile %q: %v", p, err)
 		}
+	}
+	if err := os.Mkdir(subdir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
 
-		if len(state.Keyfiles) != 2 {
-			t.Errorf("Keyfiles count = %d; want 2", len(state.Keyfiles))
-		}
+	// key1 is dropped twice (duplicate) and a directory is included; both must
+	// be skipped by the !duplicate && !stat.IsDir() guard in handleKeyfileDrop.
+	var handled bool
+	fyne.DoAndWait(func() {
+		a.State.ShowKeyfile = true
+		handled = a.handleKeyfileDrop([]string{key1, key2, key1, subdir})
+	})
+	if !handled {
+		t.Fatalf("handleKeyfileDrop returned false; want true (modal open, no stat error)")
+	}
+
+	var got []string
+	var label string
+	fyne.DoAndWait(func() {
+		got = append([]string(nil), a.State.Keyfiles...)
+		label = a.State.KeyfileLabel
 	})
 
-	t.Run("PreventDuplicateKeyfiles", func(t *testing.T) {
-		state := mustNewState(t)
-		state.ShowKeyfile = true
-		state.Keyfiles = []string{"/path/key1.bin"}
-
-		// Try to add duplicate
-		newKeyfile := "/path/key1.bin"
-		duplicate := false
-		for _, existing := range state.Keyfiles {
-			if newKeyfile == existing {
-				duplicate = true
-				break
-			}
-		}
-
-		if !duplicate {
-			state.Keyfiles = append(state.Keyfiles, newKeyfile)
-		}
-
-		if len(state.Keyfiles) != 1 {
-			t.Errorf("Keyfiles count = %d; want 1 (no duplicates)", len(state.Keyfiles))
-		}
-	})
-
-	t.Run("KeyfileLabelUpdates", func(t *testing.T) {
-		testCases := []struct {
-			count    int
-			required bool
-			expected string
-		}{
-			{0, false, "None selected"},
-			{0, true, "Keyfiles required"},
-			{1, false, "Using 1 keyfile"},
-			{3, false, "Using multiple keyfiles"},
-		}
-
-		for _, tc := range testCases {
-			state := mustNewState(t)
-			state.Keyfile = tc.required
-			state.Keyfiles = make([]string, tc.count)
-			for i := 0; i < tc.count; i++ {
-				state.Keyfiles[i] = "/path/key" + string(rune('0'+i)) + ".bin"
-			}
-
-			state.UpdateKeyfileLabel()
-
-			if state.KeyfileLabel != tc.expected {
-				t.Errorf("count=%d, required=%v: label = %q; want %q",
-					tc.count, tc.required, state.KeyfileLabel, tc.expected)
-			}
-		}
-	})
+	if len(got) != 2 {
+		t.Fatalf("Keyfiles = %#v; want 2 entries (duplicate and directory skipped)", got)
+	}
+	if got[0] != key1 || got[1] != key2 {
+		t.Fatalf("Keyfiles = %#v; want [%q %q] in order", got, key1, key2)
+	}
+	if label != "Using 2 keyfiles" {
+		t.Fatalf("KeyfileLabel = %q; want %q", label, "Using 2 keyfiles")
+	}
 }
 
 // TestStatusFreeSpaceMultiplier drives the real updateUIState free-space

@@ -209,25 +209,34 @@ func (a *App) clearCredentialEntries() {
 	a.updateValidation()
 }
 
+// splitUnitFromIndex maps a GUI split-unit dropdown index (State.SplitSelected,
+// aligned with State.SplitUnits) to the fileops.SplitUnit the encrypt request
+// uses. An unknown index falls back to SplitUnitKiB (the prior switch's
+// zero-value default), keeping behavior byte-identical to the inlined switch.
+func splitUnitFromIndex(index int32) fileops.SplitUnit {
+	switch index {
+	case 0:
+		return fileops.SplitUnitKiB
+	case 1:
+		return fileops.SplitUnitMiB
+	case 2:
+		return fileops.SplitUnitGiB
+	case 3:
+		return fileops.SplitUnitTiB
+	case 4:
+		return fileops.SplitUnitTotal
+	default:
+		return fileops.SplitUnitKiB
+	}
+}
+
 // doEncrypt performs encryption using the volume package.
 func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	// APP-02: read every request-building field once, consistently, under a
 	// single RLock instead of ~15 bare cross-goroutine field reads.
 	snap := a.State.Snapshot()
 
-	var chunkUnit fileops.SplitUnit
-	switch snap.SplitSelected {
-	case 0:
-		chunkUnit = fileops.SplitUnitKiB
-	case 1:
-		chunkUnit = fileops.SplitUnitMiB
-	case 2:
-		chunkUnit = fileops.SplitUnitGiB
-	case 3:
-		chunkUnit = fileops.SplitUnitTiB
-	case 4:
-		chunkUnit = fileops.SplitUnitTotal
-	}
+	chunkUnit := splitUnitFromIndex(snap.SplitSelected)
 
 	chunkSize := 1
 	if snap.SplitSize != "" {
