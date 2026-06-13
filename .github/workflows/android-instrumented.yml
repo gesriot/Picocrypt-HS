@@ -117,13 +117,10 @@ jobs:
         arch: x86_64
         disable-animations: true
         emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
-        script: |
-          cd android
-          TEST_CLASSES="io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest"
-          if [ "${{ inputs.test_scope }}" = "extended" ]; then
-            TEST_CLASSES="$TEST_CLASSES,io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest"
-          fi
-          ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="$TEST_CLASSES"
+        # Single-line: the runner executes each script line in its own `sh -c`,
+        # so multi-line `cd`/`if`/`fi` constructs do not persist across lines.
+        working-directory: android
+        script: TEST_CLASSES="io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest"; { [ "${{ inputs.test_scope }}" = "extended" ] && TEST_CLASSES="$TEST_CLASSES,io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest"; } || true; ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="$TEST_CLASSES"
 
     - name: Prepare artifacts
       run: |
