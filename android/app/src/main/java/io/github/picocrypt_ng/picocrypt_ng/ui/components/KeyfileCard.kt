@@ -130,6 +130,8 @@ fun NewKeyfile(viewModel: MainViewModel) {
     var createdFileName by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showErrorDialog by rememberSaveable { mutableStateOf(false) }
+    val keyfileWriteFailedMsg = stringResource(R.string.keyfile_write_failed)
+    val keyfileCreateFailedMsg = stringResource(R.string.keyfile_create_failed)
     
     // Generate default filename with timestamp
     val defaultFileName = remember {
@@ -164,7 +166,7 @@ fun NewKeyfile(viewModel: MainViewModel) {
             }
             
             if (!writeSuccess) {
-                errorMessage = "Failed to write keyfile to selected location"
+                errorMessage = keyfileWriteFailedMsg
                 showErrorDialog = true
                 isCreating = false
                 createdUri = null
@@ -200,7 +202,7 @@ fun NewKeyfile(viewModel: MainViewModel) {
                 showErrorDialog = true
             }
         } catch (e: Exception) {
-            errorMessage = "Failed to create keyfile: ${e.message ?: "Unknown error"}"
+            errorMessage = keyfileCreateFailedMsg.format(e.message ?: "Unknown error")
             showErrorDialog = true
         } finally {
             isCreating = false

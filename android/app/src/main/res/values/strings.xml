@@ -30,6 +30,8 @@
     <string name="creating">Creating…</string>
     <string name="require_this_order">Require this order</string>
     <string name="error_creating_keyfile">Error Creating Keyfile</string>
+    <string name="keyfile_write_failed">Failed to write keyfile to selected location</string>
+    <string name="keyfile_create_failed">Failed to create keyfile: %1$s</string>
     <string name="keyfiles_required_warning">⚠️ Keyfiles required for this file</string>
     <string name="keyfile_order_matters">⚠️ Keyfile order matters</string>
     
