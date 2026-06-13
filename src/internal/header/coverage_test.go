@@ -65,22 +65,18 @@ func TestPeekVersionInvalidRSData(t *testing.T) {
 		t.Fatalf("NewRSCodecs failed: %v", err)
 	}
 
-	// Create 15 bytes of data that decodes to invalid version format
-	// RS5 can decode almost anything, so we test that the version format validation works
-	// by providing data that decodes to something that doesn't match v\d.\d{2}
-	// Use alternating pattern that RS will decode to non-version text
+	// 15 bytes too far from any RS5 codeword to reconstruct: PeekVersion must surface
+	// the decode failure as an error and return an empty version — never silently hand
+	// back a bogus version string.
 	invalidData := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E}
 
 	version, err := PeekVersion(bytes.NewReader(invalidData), rs)
-	// The result should either be an error OR an invalid version string
-	// PeekVersion only returns error if RS decode fails, not for invalid format
 	if err == nil {
-		// Check that the version doesn't match valid format
-		if len(version) == 5 && version[0] == 'v' {
-			t.Log("PeekVersion returned valid-looking version from random data (unlikely but possible)")
-		}
+		t.Errorf("PeekVersion on undecodable RS data must return an error; got version %q", version)
 	}
-	// This test mainly ensures PeekVersion doesn't panic on arbitrary data
+	if version != "" {
+		t.Errorf("PeekVersion returned %q on a decode failure; want empty string", version)
+	}
 }
 
 func TestPeekVersionEmptyReader(t *testing.T) {
@@ -249,14 +245,14 @@ func TestEncodedSizeConstants(t *testing.T) {
 }
 
 func TestBaseHeaderSizeCalculation(t *testing.T) {
-	// Base header = version(15) + commentLen(15) + flags(15) + salt(48) + hkdfSalt(96) +
-	//               serpentIV(48) + nonce(72) + keyHash(192) + keyfileHash(96) + authTag(192)
-	expected := VersionEncSize + CommentLenEncSize + FlagsEncSize +
-		SaltEncSize + HKDFSaltEncSize + SerpentIVEncSize + NonceEncSize +
-		KeyHashEncSize + KeyfileHashEncSize + AuthTagEncSize
-
-	if BaseHeaderSize != expected {
-		t.Errorf("BaseHeaderSize = %d; want %d", BaseHeaderSize, expected)
+	// Drift guard: the base header (no comments) is version(15) + commentLen(15) +
+	// flags(15) + salt(48) + hkdfSalt(96) + serpentIV(48) + nonce(72) + keyHash(192) +
+	// keyfileHash(96) + authTag(192) = 789 bytes. Asserting the hardcoded total — NOT a
+	// re-sum of the same EncSize constants that define BaseHeaderSize — makes this fail
+	// if any field width drifts.
+	const want = 789
+	if BaseHeaderSize != want {
+		t.Errorf("BaseHeaderSize = %d; want %d", BaseHeaderSize, want)
 	}
 }
 

@@ -166,22 +166,19 @@ func TestFilepathFromSlashLimitations(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := filepath.FromSlash(tc.input)
-			t.Logf("Platform: %s", runtime.GOOS)
-			t.Logf("Input: %q", tc.input)
-			t.Logf("Output: %q", result)
-			t.Logf("Description: %s", tc.description)
-
-			// Verify our normalizeZipPath handles this correctly
+			// normalizeZipPath neutralizes backslashes so a Windows zip entry cannot
+			// smuggle a path separator past extraction-root validation (its security
+			// purpose). The normalized path must never retain a raw backslash.
 			normalized := normalizeZipPath(tc.input)
-			t.Logf("After normalizeZipPath: %q", normalized)
-
-			// On Windows, backslashes should be removed before FromSlash
-			if runtime.GOOS == "windows" && strings.Contains(tc.input, "\\") {
-				// Our normalizeZipPath should have converted backslashes to forward slashes first
-				// Then FromSlash converts them to platform separator
-				if !strings.Contains(normalized, string(filepath.Separator)) {
-					t.Logf("Note: Input had backslashes, normalized correctly")
+			if strings.Contains(normalized, "\\") {
+				t.Errorf("normalizeZipPath(%q) = %q must not retain backslashes (%s)",
+					tc.input, normalized, tc.description)
+			}
+			// On Windows, FromSlash of the normalized path uses the OS separator and
+			// must not leave a stray forward slash behind.
+			if runtime.GOOS == "windows" {
+				if got := filepath.FromSlash(normalized); strings.Contains(got, "/") {
+					t.Errorf("filepath.FromSlash(%q) = %q should use the OS separator", normalized, got)
 				}
 			}
 		})

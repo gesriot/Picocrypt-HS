@@ -682,17 +682,9 @@ func TestReporterOutput(t *testing.T) {
 	})
 }
 
-func TestVersionFlag(t *testing.T) {
-	// Test that version is set correctly
-	Version = "v1.0.0"
-	if rootCmd.Version != "v1.0.0" {
-		// Version is set by Execute(), so we need to call the setter
-		rootCmd.Version = Version
-	}
-	if rootCmd.Version != "v1.0.0" {
-		t.Errorf("expected version v1.0.0, got %s", rootCmd.Version)
-	}
-}
+// Version wiring is covered behaviorally by TestVersionFlagOutputsV213 (version_test.go),
+// which drives the real Execute()/rootCmd and asserts the version reaches CLI output;
+// a tautological "set rootCmd.Version then assert it" test was removed here.
 
 func TestDetectCLIMode(t *testing.T) {
 	testCases := []struct {
