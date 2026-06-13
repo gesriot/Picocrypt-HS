@@ -143,7 +143,10 @@ object OperationManager {
      */
     suspend fun pollProgress(): OperationState? = withContext(Dispatchers.IO) {
         val operation = _currentOperation.value ?: return@withContext null
-        
+        // Once terminal, do not let a slow/concurrent poll (UI 500ms + FGS 1000ms run
+        // simultaneously) overwrite the freshly-final state with stale progress.
+        if (operation.done) return@withContext operation
+
         val result = GoBridge.getProgress(operation.id)
         result.getOrNull()?.let { progressState ->
             val error = if (progressState.done && progressState.status == "Error") {

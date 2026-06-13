@@ -10,6 +10,9 @@ import org.junit.Test
 import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
 import io.mockk.mockk
 import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
+import kotlin.io.path.createTempDirectory
 
 /**
  * Unit tests for OperationManager.
@@ -158,6 +161,65 @@ class OperationManagerTest {
         assertNull("Should return null when no operation", result)
     }
     
+    @Test
+    fun `pollProgress does not overwrite a terminal (done) state with a stale poll`() = runTest {
+        // GoBridge is an object backed by the Go mobile AAR, which is absent on the JVM
+        // unit-test classpath. Mock it so we can (a) drive _currentOperation to a real
+        // done=true state via the only public seam (startEncrypt + pollProgress), then
+        // (b) prove the done-guard rejects a later stale poll. This is the narrowest
+        // reachable level: there is no public setter for _currentOperation.
+        // startEncrypt resolves an output path under context.filesDir; the relaxed mock
+        // returns null for it, so back it with a real temp dir.
+        val tmpDir = createTempDirectory(prefix = "opmgr_test").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns "op_test"
+            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+            // Establish an active (non-done) operation.
+            val started = OperationManager.startEncrypt(
+                mockContext,
+                TestDataBuilders.createEncryptFormData()
+            )
+            assertTrue("startEncrypt should succeed", started.isSuccess)
+
+            // First poll transitions the operation to a terminal done=true state.
+            every { GoBridge.getProgress("op_test") } returns Result.success(
+                ProgressState(status = "Completed", progress = 1f, info = "", done = true)
+            )
+            val terminal = OperationManager.pollProgress()
+            assertNotNull("Poll should return the terminal state", terminal)
+            assertTrue("State should be done after terminal poll", terminal!!.done)
+
+            // A later (slow/concurrent) poll reports a stale, non-terminal progress.
+            every { GoBridge.getProgress("op_test") } returns Result.success(
+                ProgressState(status = "Working...", progress = 0.42f, info = "stale", done = false)
+            )
+            val afterStale = OperationManager.pollProgress()
+
+            // The done-guard must keep the terminal state intact, not regress it.
+            assertNotNull(afterStale)
+            assertTrue("Done flag must remain true", afterStale!!.done)
+            assertEquals("Status must not regress", "Completed", afterStale.status)
+            assertEquals("Progress must not regress", 1f, afterStale.progress, 0.001f)
+            assertSame(
+                "Terminal state must be returned unchanged",
+                terminal,
+                afterStale
+            )
+            assertSame(
+                "currentOperation must still hold the terminal state",
+                terminal,
+                OperationManager.currentOperation.value
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
     @Test
     fun `clearOperation clears current operation`() = runTest {
         // First, we'd need to set up an operation, but since we can't easily mock GoBridge,

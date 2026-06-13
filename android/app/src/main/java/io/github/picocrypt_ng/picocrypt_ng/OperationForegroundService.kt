@@ -18,8 +18,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -38,17 +40,9 @@ class OperationForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureChannel()
-    }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val op = OperationManager.currentOperation.value
-        startForegroundCompat(
-            buildNotification(
-                op?.type,
-                op?.status ?: getString(R.string.fgs_working),
-                op?.progress ?: 0f
-            )
-        )
+        // Register exactly once for the service's lifetime (onCreate runs once;
+        // onStartCommand runs on every start() and would otherwise stack collectors).
         OperationManager.currentOperation
             .onEach { state ->
                 if (state == null || state.done) {
@@ -61,6 +55,27 @@ class OperationForegroundService : Service() {
                 }
             }
             .launchIn(scope)
+
+        // Self-driving poll loop: advances OperationManager state even when no UI
+        // ViewModel is alive (e.g. the app was swiped from recents mid-operation),
+        // so the collector above eventually observes `done` and self-stops.
+        scope.launch {
+            while (isActive) {
+                OperationManager.pollProgress()
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val op = OperationManager.currentOperation.value
+        startForegroundCompat(
+            buildNotification(
+                op?.type,
+                op?.status ?: getString(R.string.fgs_working),
+                op?.progress ?: 0f
+            )
+        )
         return START_NOT_STICKY
     }
 
@@ -141,6 +156,7 @@ class OperationForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "operation_progress"
         private const val NOTIFICATION_ID = 1
+        private const val POLL_INTERVAL_MS = 1000L
 
         /**
          * Starts the service in the foreground. Must be called while the app is in the
