@@ -21,7 +21,7 @@ import (
 // and XOR is commutative — applying Serpent-then-XChaCha20 yields byte-identical
 // output to XChaCha20-then-Serpent. The application *order* therefore cannot be,
 // and need not be, distinguished from the ciphertext (a swap is a no-op for the
-// output, the MAC, and 2.08/2.09 interop). What this vector DOES pin is the
+// output, the MAC, and cross-version interop). What this vector DOES pin is the
 // combined keystream: it fails if either cipher's keystream drifts — a cipher
 // library swap, a wrong key/nonce/IV wiring, or a parameter change — none of which
 // the existing reversible roundtrip test (TestCipherSuiteEncryptDecrypt) can catch.
