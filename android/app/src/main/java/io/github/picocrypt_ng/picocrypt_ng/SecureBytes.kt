@@ -1,5 +1,6 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
+import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
 
@@ -14,12 +15,16 @@ import java.nio.charset.CodingErrorAction
  */
 internal fun CharArray.toUtf8BytesSecure(): ByteArray {
     val charBuffer = CharBuffer.wrap(this)
-    val byteBuffer = Charsets.UTF_8.newEncoder()
+    val encoder = Charsets.UTF_8.newEncoder()
         .onMalformedInput(CodingErrorAction.REPLACE)
         .onUnmappableCharacter(CodingErrorAction.REPLACE)
-        .encode(charBuffer)
+    val maxBytes = (charBuffer.remaining() * encoder.maxBytesPerChar()).toInt()
+    val byteBuffer = ByteBuffer.allocate(maxBytes) // single buffer we own; no internal regrow
+    encoder.encode(charBuffer, byteBuffer, true)
+    encoder.flush(byteBuffer)
+    byteBuffer.flip()
     val out = ByteArray(byteBuffer.remaining())
     byteBuffer.get(out)
-    if (byteBuffer.hasArray()) byteBuffer.array().fill(0)
+    byteBuffer.array().fill(0) // zero the entire backing array (full capacity)
     return out
 }

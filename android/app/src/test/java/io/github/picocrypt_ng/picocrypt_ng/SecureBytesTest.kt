@@ -21,4 +21,21 @@ class SecureBytesTest {
     fun `empty password encodes to empty array`() {
         assertArrayEquals(ByteArray(0), CharArray(0).toUtf8BytesSecure())
     }
+
+    @Test
+    fun `long multibyte password matches legacy String UTF-8 path (regrow path)`() {
+        // 1000 three-byte chars (3000 bytes) exercises the path where the old
+        // convenience encoder could internally grow (and orphan) its working
+        // buffer. Proves byte-for-byte equivalence on the large/multibyte path.
+        val pw = CharArray(1000) { 'あ' }
+        assertArrayEquals(String(pw).toByteArray(Charsets.UTF_8), pw.toUtf8BytesSecure())
+    }
+
+    @Test
+    fun `surrogate-pair password matches legacy String UTF-8 path`() {
+        // Repeated 4-byte emoji (each a high+low surrogate pair) confirms
+        // worst-case sizing via maxBytesPerChar handles surrogate pairs.
+        val pw = "😀".repeat(500).toCharArray()
+        assertArrayEquals(String(pw).toByteArray(Charsets.UTF_8), pw.toUtf8BytesSecure())
+    }
 }
