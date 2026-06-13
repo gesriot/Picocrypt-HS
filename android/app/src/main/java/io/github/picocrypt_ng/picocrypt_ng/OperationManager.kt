@@ -54,12 +54,12 @@ object OperationManager {
             keyfileOrdered = formData.keyfileOrdered
         )
         
-        // Pass CharArray directly to GoBridge (it will convert to String internally only when needed)
+        // Encode the password to UTF-8 bytes without a String; GoBridge zeroes them.
         val result = GoBridge.startEncrypt(
             operationID,
             formData.copiedFilePath,
             outputFilePath,
-            formData.passwordInput, // Pass CharArray directly
+            formData.passwordInput.toUtf8BytesSecure(),
             options
         )
         
@@ -113,12 +113,12 @@ object OperationManager {
             deniability = formData.decryptionInfo?.deniability ?: false
         )
         
-        // Pass CharArray directly to GoBridge (it will convert to String internally only when needed)
+        // Encode the password to UTF-8 bytes without a String; GoBridge zeroes them.
         val result = GoBridge.startDecrypt(
             operationID,
             formData.copiedFilePath,
             outputFilePath,
-            formData.passwordInput, // Pass CharArray directly
+            formData.passwordInput.toUtf8BytesSecure(),
             options
         )
         
@@ -285,12 +285,12 @@ object OperationManager {
             deniability = formData.decryptionInfo?.deniability ?: false
         )
         
-        // Pass CharArray directly to GoBridge (it will convert to String internally only when needed)
+        // Encode the password to UTF-8 bytes without a String; GoBridge zeroes them.
         val result = GoBridge.startDecrypt(
             operationID,
             operation.inputFile,
             operation.outputFile,
-            formData.passwordInput, // Pass CharArray directly
+            formData.passwordInput.toUtf8BytesSecure(),
             options
         )
         

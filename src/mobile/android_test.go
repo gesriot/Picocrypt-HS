@@ -95,13 +95,12 @@ func TestStartEncryptFailsWhenOperationContextIsMissing(t *testing.T) {
 		OperationID: id,
 		InputFile:   inputPath,
 		OutputFile:  outputPath,
-		Password:    "password",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := StartEncrypt(string(reqJSON)); got != "" {
+	if got := StartEncrypt(string(reqJSON), []byte("password")); got != "" {
 		t.Fatalf("StartEncrypt(...) returned %q, want empty string", got)
 	}
 
@@ -122,13 +121,12 @@ func TestStartEncryptValidationFailureCleansUpOperation(t *testing.T) {
 		OperationID: id,
 		InputFile:   "",
 		OutputFile:  "out.pcv",
-		Password:    "password",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := StartEncrypt(string(reqJSON)); !strings.Contains(got, "input file is required") {
+	if got := StartEncrypt(string(reqJSON), []byte("password")); !strings.Contains(got, "input file is required") {
 		t.Fatalf("StartEncrypt(...) = %q", got)
 	}
 
@@ -151,13 +149,12 @@ func TestStartDecryptValidationFailureCleansUpOperation(t *testing.T) {
 		OperationID: id,
 		InputFile:   "",
 		OutputFile:  "out",
-		Password:    "password",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := StartDecrypt(string(reqJSON)); !strings.Contains(got, "input file is required") {
+	if got := StartDecrypt(string(reqJSON), []byte("password")); !strings.Contains(got, "input file is required") {
 		t.Fatalf("StartDecrypt(...) = %q", got)
 	}
 
@@ -191,13 +188,12 @@ func TestStartDecryptFailsWhenOperationContextIsMissing(t *testing.T) {
 		OperationID: id,
 		InputFile:   inputPath,
 		OutputFile:  outputPath,
-		Password:    "password",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := StartDecrypt(string(reqJSON)); got != "" {
+	if got := StartDecrypt(string(reqJSON), []byte("password")); got != "" {
 		t.Fatalf("StartDecrypt(...) returned %q, want empty string", got)
 	}
 
@@ -231,13 +227,12 @@ func TestStartDecryptRecoversPanic(t *testing.T) {
 		OperationID: id,
 		InputFile:   inputPath,
 		OutputFile:  outputPath,
-		Password:    "password",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := StartDecrypt(string(reqJSON)); got != "" {
+	if got := StartDecrypt(string(reqJSON), []byte("password")); got != "" {
 		t.Fatalf("StartDecrypt(...) returned %q, want empty string", got)
 	}
 
@@ -248,6 +243,30 @@ func TestStartDecryptRecoversPanic(t *testing.T) {
 	if !strings.Contains(state.Error, "panic: boom") {
 		t.Fatalf("state.Error = %q, want panic error", state.Error)
 	}
+}
+
+func TestStartEncryptZeroesPasswordBytes(t *testing.T) {
+	resetProgressMap()
+	inputPath := filepath.Join(t.TempDir(), "plain.txt")
+	if err := os.WriteFile(inputPath, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(t.TempDir(), "plain.txt.pcv")
+	id := StartOperation()
+	reqJSON, err := json.Marshal(EncryptRequestJSON{OperationID: id, InputFile: inputPath, OutputFile: outputPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	password := []byte("hunter2")
+	if got := StartEncrypt(string(reqJSON), password); got != "" {
+		t.Fatalf("StartEncrypt(...) = %q, want empty", got)
+	}
+	for i, b := range password {
+		if b != 0 {
+			t.Fatalf("password[%d] = %d, want 0", i, b)
+		}
+	}
+	_ = waitForDone(t, id)
 }
 
 func waitForDone(t *testing.T, id string) *ProgressState {

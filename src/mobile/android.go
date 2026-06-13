@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
@@ -54,7 +55,6 @@ type EncryptRequestJSON struct {
 	OperationID    string   `json:"operationID"`
 	InputFile      string   `json:"inputFile"`
 	OutputFile     string   `json:"outputFile"`
-	Password       string   `json:"password"`
 	Comments       string   `json:"comments"`
 	Keyfiles       []string `json:"keyfiles"`
 	Paranoid       bool     `json:"paranoid"`
@@ -69,7 +69,6 @@ type DecryptRequestJSON struct {
 	OperationID  string   `json:"operationID"`
 	InputFile    string   `json:"inputFile"`
 	OutputFile   string   `json:"outputFile"`
-	Password     string   `json:"password"`
 	Keyfiles     []string `json:"keyfiles"`
 	ForceDecrypt bool     `json:"forceDecrypt"`
 	VerifyFirst  bool     `json:"verifyFirst"`
@@ -84,7 +83,10 @@ type DecryptRequestJSON struct {
 // Returns an error message (empty string on success).
 // Errors during execution are also reported through the progress system (GetProgress).
 // requestJSON is a JSON string containing all encryption parameters.
-func StartEncrypt(requestJSON string) string {
+// password carries the plaintext password as raw bytes (kept out of the JSON so
+// it never becomes an un-zeroable JVM String); it is zeroed before this returns.
+func StartEncrypt(requestJSON string, password []byte) string {
+	defer crypto.SecureZero(password)
 
 	var req EncryptRequestJSON
 	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
@@ -107,9 +109,14 @@ func StartEncrypt(requestJSON string) string {
 	if req.OutputFile == "" {
 		return failOperation(req.OperationID, fmt.Errorf("output file is required"))
 	}
-	if req.Password == "" && len(req.Keyfiles) == 0 {
+	if len(password) == 0 && len(req.Keyfiles) == 0 {
 		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
 	}
+
+	// Convert to the core string at the bridge boundary; the deferred SecureZero
+	// above zeros the caller's bytes when this function returns. The goroutine
+	// captures pw (a copy), so deferring the zero here is safe.
+	pw := string(password)
 
 	// Start the operation in a goroutine
 	go func() {
@@ -143,7 +150,7 @@ func StartEncrypt(requestJSON string) string {
 		encryptReq := &volume.EncryptRequest{
 			InputFile:      req.InputFile,
 			OutputFile:     req.OutputFile,
-			Password:       req.Password,
+			Password:       pw,
 			Keyfiles:       req.Keyfiles,
 			KeyfileOrdered: req.KeyfileOrdered,
 			Comments:       req.Comments,
@@ -180,7 +187,11 @@ func StartEncrypt(requestJSON string) string {
 // Returns an error message (empty string on success).
 // Errors during execution are also reported through the progress system (GetProgress).
 // requestJSON is a JSON string containing all decryption parameters.
-func StartDecrypt(requestJSON string) string {
+// password carries the plaintext password as raw bytes (kept out of the JSON so
+// it never becomes an un-zeroable JVM String); it is zeroed before this returns.
+func StartDecrypt(requestJSON string, password []byte) string {
+	defer crypto.SecureZero(password)
+
 	var req DecryptRequestJSON
 	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
 		return fmt.Sprintf("failed to parse request JSON: %v", err)
@@ -202,9 +213,14 @@ func StartDecrypt(requestJSON string) string {
 	if req.OutputFile == "" {
 		return failOperation(req.OperationID, fmt.Errorf("output file is required"))
 	}
-	if req.Password == "" && len(req.Keyfiles) == 0 {
+	if len(password) == 0 && len(req.Keyfiles) == 0 {
 		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
 	}
+
+	// Convert to the core string at the bridge boundary; the deferred SecureZero
+	// above zeros the caller's bytes when this function returns. The goroutine
+	// captures pw (a copy), so deferring the zero here is safe.
+	pw := string(password)
 
 	// Start the operation in a goroutine
 	go func() {
@@ -236,7 +252,7 @@ func StartDecrypt(requestJSON string) string {
 		decryptReq := &volume.DecryptRequest{
 			InputFile:    req.InputFile,
 			OutputFile:   req.OutputFile,
-			Password:     req.Password,
+			Password:     pw,
 			Keyfiles:     req.Keyfiles,
 			ForceDecrypt: req.ForceDecrypt,
 			VerifyFirst:  req.VerifyFirst,
