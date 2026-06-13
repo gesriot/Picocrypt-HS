@@ -71,13 +71,29 @@ func TestSecureZeroMultipleEmpty(t *testing.T) {
 }
 
 func TestSecureZeroHash(t *testing.T) {
-	// SecureZeroHash should not panic on nil
+	// SecureZeroHash should not panic on nil.
 	SecureZeroHash(nil)
 
-	// Test with actual hash (just check it doesn't panic)
-	mac, _ := NewMAC(make([]byte, 32), false)
+	// SecureZeroHash must Reset the hash so partial data does not linger.
+	// Reset is externally observable: a keyed BLAKE2b restores its keyed
+	// initial state, so after Reset the running digest must equal that of a
+	// fresh MAC with the same key and no input written. An empty-bodied
+	// SecureZeroHash (no Reset) would leave "test data" folded into the state
+	// and the two sums would differ.
+	subkey := make([]byte, 32)
+	for i := range subkey {
+		subkey[i] = byte(i)
+	}
+
+	mac, _ := NewMAC(subkey, false)
 	mac.Write([]byte("test data"))
 	SecureZeroHash(mac)
+
+	fresh, _ := NewMAC(subkey, false)
+	if !bytes.Equal(mac.Sum(nil), fresh.Sum(nil)) {
+		t.Errorf("SecureZeroHash did not reset MAC state: got %x, want %x (empty-input state)",
+			mac.Sum(nil), fresh.Sum(nil))
+	}
 }
 
 func TestKeyMaterial(t *testing.T) {
