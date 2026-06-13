@@ -21,6 +21,7 @@ var (
 	ErrNoCredentials     = errors.New("no password or keyfiles provided")
 	ErrPasswordMismatch  = errors.New("passwords do not match")
 	ErrInvalidChunkSize  = errors.New("invalid chunk size")
+	ErrChunkSizeTooLarge = errors.New("chunk size exceeds maximum")
 	ErrDuplicateKeyfiles = errors.New("duplicate keyfiles detected")
 	ErrCommentTooLong    = errors.New("comment exceeds maximum length")
 

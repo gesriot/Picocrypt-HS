@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"Picocrypt-NG/internal/errors"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 )
 
@@ -33,10 +34,8 @@ func (req *EncryptRequest) Validate() error {
 	}
 
 	// Validate split options
-	if req.Split {
-		if req.ChunkSize <= 0 {
-			return errors.ErrInvalidChunkSize
-		}
+	if err := req.validateSplit(); err != nil {
+		return err
 	}
 
 	// Validate input files exist
@@ -59,6 +58,24 @@ func (req *EncryptRequest) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateSplit checks the split configuration. It is shared by Validate and by
+// the Encrypt pipeline entry so an unusable chunk size is rejected once, on every
+// path. An over-large size must be caught here: scaled to bytes it overflows
+// int64 and silently wraps, turning fileops.Split into a no-op the pipeline
+// would mistake for success and then delete the just-written volume.
+func (req *EncryptRequest) validateSplit() error {
+	if !req.Split {
+		return nil
+	}
+	if req.ChunkSize <= 0 {
+		return errors.ErrInvalidChunkSize
+	}
+	if _, err := fileops.ChunkSizeToBytes(req.ChunkSize, req.ChunkUnit); err != nil {
+		return errors.ErrChunkSizeTooLarge
+	}
 	return nil
 }
 

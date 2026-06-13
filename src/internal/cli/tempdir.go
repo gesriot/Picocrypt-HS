@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"Picocrypt-NG/internal/diskspace"
 )
 
 // TempDirOverride is set by --temp-dir flag
@@ -36,7 +38,7 @@ func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
 	// Check explicit override first
 	if TempDirOverride != "" {
 		if isWritable(TempDirOverride) {
-			space, err := availableSpace(TempDirOverride)
+			space, err := diskspace.Available(TempDirOverride)
 			if err == nil && space >= required {
 				return TempDirOverride, nil
 			}
@@ -65,7 +67,7 @@ func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
 		if !isWritable(dir) {
 			continue
 		}
-		space, err := availableSpace(dir)
+		space, err := diskspace.Available(dir)
 		if err != nil || space < required {
 			continue
 		}

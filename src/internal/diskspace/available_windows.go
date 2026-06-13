@@ -1,6 +1,6 @@
 //go:build windows
 
-package fileops
+package diskspace
 
 import (
 	"errors"
@@ -9,7 +9,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func availableSpace(path string) (int64, error) {
+// Available returns available bytes at the given path.
+func Available(path string) (int64, error) {
 	var freeBytesAvailable, totalBytes, totalFreeBytes uint64
 	pathPtr, err := windows.UTF16PtrFromString(path)
 	if err != nil {
@@ -19,6 +20,7 @@ func availableSpace(path string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Safe conversion: check for overflow before cast
 	if freeBytesAvailable > uint64(math.MaxInt64) {
 		return 0, errors.New("available space exceeds int64 max")
 	}

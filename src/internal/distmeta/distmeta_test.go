@@ -188,6 +188,8 @@ func oldVersionLiteralCategory(relPath string) (string, bool) {
 		return "old-version test input", true
 	case relPath == "dist/windows/installer.nsi":
 		return "legacy snapshot", true
+	case relPath == ".github/workflows/pr-static-checks.yml":
+		return "third-party tool version pin (golangci-lint), not an app version", true
 	default:
 		return "", false
 	}

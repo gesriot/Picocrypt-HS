@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
@@ -113,6 +114,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	defer util.PutMiBBuffer(dst)
 
 	reader := newDeniabilityReader(io.Reader(fin))
+	startTime := time.Now()
 
 	for {
 		n, readErr := io.ReadFull(reader, buf)
@@ -133,7 +135,9 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 			counter += int64(util.MiB)
 
 			if reporter != nil {
-				reporter.SetProgress(float32(done)/float32(total), "")
+				progress, speed, eta := util.Statify(done, total, startTime)
+				reporter.SetProgress(progress, "")
+				reporter.SetStatus(fmt.Sprintf("Adding deniability at %.2f MiB/s (ETA: %s)", speed, eta))
 				reporter.Update()
 			}
 
@@ -266,6 +270,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	defer util.PutMiBBuffer(dst)
 
 	reader := newDeniabilityReader(io.Reader(fin))
+	startTime := time.Now()
 
 	for {
 		n, readErr := io.ReadFull(reader, buf)
@@ -284,7 +289,9 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 			counter += int64(util.MiB)
 
 			if reporter != nil {
-				reporter.SetProgress(float32(done)/float32(total), "")
+				progress, speed, eta := util.Statify(done, total, startTime)
+				reporter.SetProgress(progress, "")
+				reporter.SetStatus(fmt.Sprintf("Removing deniability at %.2f MiB/s (ETA: %s)", speed, eta))
 				reporter.Update()
 			}
 

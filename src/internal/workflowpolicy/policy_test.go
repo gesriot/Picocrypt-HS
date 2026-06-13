@@ -2,6 +2,35 @@ package workflowpolicy
 
 import "testing"
 
+func TestStaticChecksWorkflowEnforcesFormatVetLintAndVuln(t *testing.T) {
+	const path = ".github/workflows/pr-static-checks.yml"
+	workflow := mustReadWorkflowDoc(t, path)
+
+	// Least-privilege, like every other PR workflow.
+	mustPermission(t, workflow.Permissions, "contents", "read")
+
+	job := mustJob(t, workflow, "static-checks")
+
+	gofmtStep := mustStepNamed(t, job, "Check formatting (gofmt)")
+	mustContain(t, gofmtStep.Run, "gofmt -l")
+
+	vetStep := mustStepNamed(t, job, "Vet")
+	mustContain(t, vetStep.Run, "go vet ./...")
+
+	lintStep := mustStepNamed(t, job, "Lint (golangci-lint)")
+	mustContain(t, lintStep.Run, "run ./...")
+	// golangci-lint must be pinned to an explicit version (the v2 config is
+	// version-sensitive); @latest would make CI non-reproducible.
+	mustMatch(t, lintStep.Run, `golangci-lint/v2/cmd/golangci-lint@v[0-9]+\.[0-9]+\.[0-9]+`)
+	mustNotContain(t, lintStep.Run, "golangci-lint/v2/cmd/golangci-lint@latest")
+
+	vulnStep := mustStepNamed(t, job, "Vulnerability scan (govulncheck)")
+	mustContain(t, vulnStep.Run, "govulncheck ./...")
+
+	content := mustReadWorkflow(t, path)
+	mustContain(t, content, "pull_request:")
+}
+
 func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 	testCases := []struct {
 		name string

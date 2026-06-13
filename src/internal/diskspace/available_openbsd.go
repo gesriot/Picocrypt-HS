@@ -1,6 +1,6 @@
 //go:build openbsd
 
-package cli
+package diskspace
 
 import (
 	"errors"
@@ -9,9 +9,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// availableSpace returns available bytes at the given path.
+// Available returns available bytes at the given path.
 // OpenBSD uses F_ prefixed field names in Statfs_t.
-func availableSpace(path string) (int64, error) {
+func Available(path string) (int64, error) {
 	var stat unix.Statfs_t
 	if err := unix.Statfs(path, &stat); err != nil {
 		return 0, err

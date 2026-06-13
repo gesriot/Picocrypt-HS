@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/errors"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 )
 
@@ -83,6 +84,31 @@ func TestEncryptRequestValidate(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestValidateRejectsOverflowingChunkSize proves the split upper bound: a chunk
+// size whose byte product overflows int64 is rejected by Validate with
+// errors.ErrChunkSizeTooLarge instead of silently wrapping. Mirrors the QUAL-05
+// early-rejection pattern (the wrap would otherwise surface only at the final
+// split step, after the volume is already written).
+func TestValidateRejectsOverflowingChunkSize(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := &EncryptRequest{
+		InputFile:  testFile,
+		OutputFile: filepath.Join(tmpDir, "out.pcv"),
+		Password:   "test",
+		Split:      true,
+		ChunkSize:  1 << 23, // 2^23 TiB * 2^40 = 2^63, overflows int64
+		ChunkUnit:  fileops.SplitUnitTiB,
+	}
+	if err := req.Validate(); !errors.Is(err, errors.ErrChunkSizeTooLarge) {
+		t.Fatalf("Validate() error = %v, want errors.ErrChunkSizeTooLarge", err)
 	}
 }
 

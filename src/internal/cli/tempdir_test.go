@@ -169,24 +169,6 @@ func TestUserCacheDir(t *testing.T) {
 	}
 }
 
-func TestAvailableSpace(t *testing.T) {
-	tmpDir := t.TempDir()
-	space, err := availableSpace(tmpDir)
-	if err != nil {
-		t.Fatalf("availableSpace() error = %v", err)
-	}
-	if space <= 0 {
-		t.Errorf("expected positive space, got %d", space)
-	}
-}
-
-func TestAvailableSpace_NonExistent(t *testing.T) {
-	_, err := availableSpace("/nonexistent/path/that/does/not/exist")
-	if err == nil {
-		t.Error("expected error for non-existent path")
-	}
-}
-
 func TestBuildCandidatesForStdin(t *testing.T) {
 	testPath := filepath.Join("some", "output", "path.pcv")
 	candidates := buildCandidatesForStdin(testPath)

@@ -22,6 +22,13 @@ import (
 // This is the main entry point for encryption.
 // If ctx is nil, a background context is used.
 func Encrypt(ctx context.Context, req *EncryptRequest) error {
+	// Reject an unusable split chunk size before any preprocessing or key
+	// derivation, so an overflowing size fails fast here instead of at the final
+	// split step — where the silent no-op would delete the just-written volume.
+	if err := req.validateSplit(); err != nil {
+		return err
+	}
+
 	opCtx := NewEncryptContext(ctx, req)
 	defer opCtx.Close() // Secure zeroing of key material
 
@@ -514,14 +521,21 @@ func encodeWithRS(data []byte, rs *encoding.RSCodecs) ([]byte, error) {
 	}
 	result := make([]byte, 0, chunks*encoding.RS128EncodedSize)
 
+	// encodeChunk RS-encodes one 128-byte input chunk directly into the tail of
+	// the pre-sized result buffer, avoiding a per-chunk allocation and copy.
+	// Output is byte-identical to encoding.Encode + append (golden-vector gated).
+	encodeChunk := func(chunk []byte) error {
+		start := len(result)
+		result = result[:start+encoding.RS128EncodedSize]
+		return encoding.EncodeInto(result[start:], rs.RS128, chunk)
+	}
+
 	// Full 1 MiB block - no padding needed within the block
 	if len(data) == util.MiB {
 		for i := 0; i < util.MiB; i += encoding.RS128DataSize {
-			enc, err := encoding.Encode(rs.RS128, data[i:i+encoding.RS128DataSize])
-			if err != nil {
+			if err := encodeChunk(data[i : i+encoding.RS128DataSize]); err != nil {
 				return nil, err
 			}
-			result = append(result, enc...)
 		}
 		return result, nil
 	}
@@ -530,21 +544,17 @@ func encodeWithRS(data []byte, rs *encoding.RSCodecs) ([]byte, error) {
 	// Encode full 128-byte chunks
 	fullChunks := len(data) / encoding.RS128DataSize
 	for i := 0; i < fullChunks; i++ {
-		enc, err := encoding.Encode(rs.RS128, data[i*encoding.RS128DataSize:(i+1)*encoding.RS128DataSize])
-		if err != nil {
+		if err := encodeChunk(data[i*encoding.RS128DataSize : (i+1)*encoding.RS128DataSize]); err != nil {
 			return nil, err
 		}
-		result = append(result, enc...)
 	}
 
 	// ALWAYS add a padded chunk for partial blocks (matches original line 2071-2072)
 	// This is because decryption always unpads the last chunk of partial blocks
 	remaining := data[fullChunks*encoding.RS128DataSize:]
-	enc, err := encoding.Encode(rs.RS128, encoding.Pad(remaining))
-	if err != nil {
+	if err := encodeChunk(encoding.Pad(remaining)); err != nil {
 		return nil, err
 	}
-	result = append(result, enc...)
 
 	return result, nil
 }
