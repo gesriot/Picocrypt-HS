@@ -1,8 +1,6 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
 
-import android.app.Application
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -29,14 +27,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.picocrypt_ng.picocrypt_ng.FileCopyService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.AdvancedCard
@@ -52,8 +49,6 @@ import io.github.picocrypt_ng.picocrypt_ng.ui.components.WorkButton
 import io.github.picocrypt_ng.picocrypt_ng.ui.theme.PicocryptNGTheme
 
 class MainActivity : ComponentActivity() {
-    private var operationViewModel: OperationViewModel? = null
-
     // Static flag to track if cleanup has been done in this process lifecycle
     // This ensures cleanup only happens once per app process, not on every activity recreation
     companion object {
@@ -96,58 +91,32 @@ class MainActivity : ComponentActivity() {
             PicocryptNGTheme {
                 Scaffold { innerPadding ->
                     Column(modifier = Modifier.padding(innerPadding)) {
-                        MainLayout { viewModel ->
-                            // Store ViewModel reference for lifecycle hooks
-                            operationViewModel = viewModel
-                        }
+                        MainLayout()
                     }
                 }
             }
         }
-    }
-    
-    override fun onPause() {
-        super.onPause()
-        // Reduce polling frequency in the background; the foreground service keeps the
-        // process alive and owns the progress notification.
-        operationViewModel?.pausePolling()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Resume foreground-frequency polling.
-        operationViewModel?.resumePolling()
     }
 }
 
 
 
 @Composable
-fun MainLayout(
-    onOperationViewModelCreated: (OperationViewModel) -> Unit = {}
-) {
-    val context = LocalContext.current
-    
-    // Create ViewModels
-    val mainViewModel: MainViewModel = viewModel(
-        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                val savedStateHandle = SavedStateHandle()
-                return MainViewModel(
-                    context.applicationContext as Application,
-                    savedStateHandle
-                ) as T
-            }
-        }
-    )
+fun MainLayout() {
+    // Create ViewModels. The default SavedStateViewModelFactory (the Activity's
+    // defaultViewModelProviderFactory) injects both the Application and a registry-backed
+    // SavedStateHandle into MainViewModel's (Application, SavedStateHandle) constructor, so
+    // its saved fields survive process death.
+    val mainViewModel: MainViewModel = viewModel()
     val operationViewModel: OperationViewModel = viewModel()
-    
-    // Notify Activity about ViewModel creation
-    LaunchedEffect(operationViewModel) {
-        onOperationViewModelCreated(operationViewModel)
+
+    // Drive the operation polling cadence from the Compose lifecycle: poll at foreground
+    // frequency while RESUMED, drop to background frequency on pause/dispose.
+    LifecycleResumeEffect(operationViewModel) {
+        operationViewModel.resumePolling()
+        onPauseOrDispose { operationViewModel.pausePolling() }
     }
-    
+
     // Observe form state from ViewModel
     val formData by mainViewModel.formState.collectAsState()
     
