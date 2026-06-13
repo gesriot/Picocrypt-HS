@@ -154,14 +154,44 @@ func TestReadHeaderRejectsBadCommentLen(t *testing.T) {
 	}
 }
 
-// TestReadHeaderCommentLenBoundConstant ensures the D-02 bound references the
-// MaxCommentLen constant (defense-in-depth, not a literal). A well-formed
-// 5-digit field at the constant's max (99999) is permitted by the digit guard;
-// the bound only adds rejection for out-of-range values that the digit guard
-// could miss on guard-less paths. Here we assert MaxCommentLen is the canonical
-// cap so the bound and the guard agree.
+// TestReadHeaderCommentLenBoundConstant verifies the D-02 comment-length bound
+// (reader.go: `commentsLen > MaxCommentLen`) accepts values up to AND including
+// MaxCommentLen, the documented cap. The numeric upper branch is otherwise
+// unreachable through ReadHeader because the ^\d{5}$ guard already clamps the
+// decoded length to [0,99999]==[0,MaxCommentLen]; this drives the reachable
+// boundary (exactly MaxCommentLen) so an off-by-one in the bound (`>=` instead
+// of `>`) or a downward drift of MaxCommentLen turns the test red. The constant
+// pin keeps MaxCommentLen the single source of truth for that cap.
+//
+// Coverage split: the digit-guard rejection is covered by
+// TestReadHeaderRejectsBadCommentLen and the writer-side cap by
+// TestMaxCommentLength; this test uniquely pins the reader-side ACCEPTANCE
+// boundary at exactly MaxCommentLen.
 func TestReadHeaderCommentLenBoundConstant(t *testing.T) {
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
 	if MaxCommentLen != 99999 {
 		t.Fatalf("MaxCommentLen = %d; want 99999 (D-02 bound source of truth)", MaxCommentLen)
+	}
+
+	// A comment-length field equal to exactly MaxCommentLen must pass the bound
+	// (it is the documented maximum). We stop the input right after the length
+	// field: acceptance vs rejection is decided before any comment byte is read,
+	// so a downstream EOF on the first comment char proves the bound accepted it.
+	version := encodeField(t, rs, []byte("v2.09"))
+	atMax := encodeField(t, rs, []byte("99999"))
+
+	var buf bytes.Buffer
+	buf.Write(version)
+	buf.Write(atMax)
+
+	reader := NewReader(bytes.NewReader(buf.Bytes()), rs)
+	_, err = reader.ReadHeader()
+	if errors.Is(err, ErrInvalidCommentLength) {
+		t.Fatalf("ReadHeader rejected a comment length of exactly MaxCommentLen (%d) with %v; "+
+			"the D-02 bound must accept values up to and including MaxCommentLen", MaxCommentLen, err)
 	}
 }

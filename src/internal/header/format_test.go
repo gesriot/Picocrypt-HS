@@ -64,18 +64,66 @@ func TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField(t *testing.T) {
 	}
 }
 
+// TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation drives the REAL
+// WriteHeader for two headers that differ ONLY in a source field (Flags.Padded),
+// so the non-version delta is produced by production rather than fabricated. It
+// pins the live flags-encoding path (writer.go: encoding.Encode(RS5,
+// Flags.ToBytes())) by asserting the encoded flags region equals a recomputed
+// RS5(Flags.ToBytes()) — zeroing that path is rejected — then confirms the
+// version-delta guard rejects a header whose flags changed while the version did
+// not. The sibling TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField
+// covers the complementary version-only direction.
 func TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation(t *testing.T) {
 	const comments = "release guard"
 
-	oldEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.12", comments))
-	newEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.13", comments))
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	// Base header and a copy that differs ONLY in a source field (Flags.Padded).
+	// Both go through the REAL WriteHeader so the non-version delta is produced by
+	// production, not fabricated by the test.
+	baseHeader := deterministicFormatGuardHeader("v2.13", comments)
+	baseEncoded, _ := writeFormatGuardHeader(t, baseHeader)
+
+	mutatedHeader := deterministicFormatGuardHeader("v2.13", comments)
+	mutatedHeader.Flags.Padded = !mutatedHeader.Flags.Padded
+	mutatedEncoded, _ := writeFormatGuardHeader(t, mutatedHeader)
 
 	regions := encodedHeaderRegions(len(comments))
 	flagsStart := regionStart(t, regions, "flags")
-	newEncoded[flagsStart] ^= 0x01
 
-	if err := versionOnlyHeaderDelta(oldEncoded, newEncoded, regions); err == nil {
-		t.Fatal("versionOnlyHeaderDelta accepted a non-version-field mutation in the flags region")
+	// WriteHeader must encode the flags region from h.Flags.ToBytes(). This pins
+	// the live flags path: zeroing it (writer.go -> encoding.Encode(RS5, make([]byte,5)))
+	// is rejected. Recompute the expectation so it self-pins if Flags layout changes.
+	wantFlags, err := encoding.Encode(rs.RS5, baseHeader.Flags.ToBytes())
+	if err != nil {
+		t.Fatalf("Encode base flags failed: %v", err)
+	}
+	gotFlags := baseEncoded[flagsStart : flagsStart+FlagsEncSize]
+	if !bytes.Equal(gotFlags, wantFlags) {
+		t.Fatalf("encoded flags region = %v; want RS5(Flags.ToBytes()) = %v", gotFlags, wantFlags)
+	}
+
+	// A Flags-only source change must move bytes in the flags region and nowhere else.
+	for _, region := range regions {
+		same := bytes.Equal(baseEncoded[region.start:region.end], mutatedEncoded[region.start:region.end])
+		if region.name == "flags" {
+			if same {
+				t.Fatalf("flags region [%d:%d] unchanged after flipping Flags.Padded source field", region.start, region.end)
+			}
+			continue
+		}
+		if !same {
+			t.Fatalf("%s region [%d:%d] changed from a Flags-only source mutation", region.name, region.start, region.end)
+		}
+	}
+
+	// The version-delta guard must reject a header whose NON-version field changed
+	// while the version stayed constant.
+	if err := versionOnlyHeaderDelta(baseEncoded, mutatedEncoded, regions); err == nil {
+		t.Fatal("versionOnlyHeaderDelta accepted a header whose flags source field changed but version did not")
 	}
 }
 
