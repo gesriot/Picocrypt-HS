@@ -71,7 +71,6 @@
     <string name="force_decrypt_warning">The encrypted file appears to be corrupted. Force decrypt will attempt to recover as much data as possible, but the output may be partially or completely corrupted.</string>
     <string name="force_decrypt">Force Decrypt</string>
     <string name="authentication_error">Authentication Error</string>
-    <string name="authentication_failed">Authentication failed</string>
     <string name="retry">Retry</string>
     <string name="error">Error</string>
     <string name="unknown_error_occurred">An unknown error occurred</string>

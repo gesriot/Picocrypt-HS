@@ -321,7 +321,7 @@ fun KeyfileNames(viewModel: MainViewModel) {
 }
 
 @Composable
-fun KeyfileCard(viewModel: MainViewModel) {
+fun KeyfileCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val formData by viewModel.formState.collectAsState()
     if (!(formData.isDecrypt || formData.isEncrypt)) {
         return
@@ -355,7 +355,7 @@ fun KeyfileCard(viewModel: MainViewModel) {
         null
     }
     
-    ExpandableCard(title = titleText, titleColor = titleColor) {
+    ExpandableCard(title = titleText, modifier = modifier, titleColor = titleColor) {
         Row {
             Column(
                 modifier = Modifier

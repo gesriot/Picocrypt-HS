@@ -37,7 +37,8 @@ import java.io.File
 @Composable
 fun ProgressCard(
     mainViewModel: MainViewModel,
-    operationViewModel: OperationViewModel
+    operationViewModel: OperationViewModel,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val operationState by operationViewModel.operationState.collectAsState()
@@ -77,6 +78,7 @@ fun ProgressCard(
 
         is OperationUiState.Running -> {
             AlertDialog(
+                modifier = modifier,
                 onDismissRequest = { /* Non-dismissible */ },
                 title = {
                     Text(
@@ -125,6 +127,7 @@ fun ProgressCard(
                 // Force decrypt dialog (data corruption only).
                 error.allowsForceDecrypt() -> {
                     AlertDialog(
+                        modifier = modifier,
                         onDismissRequest = { /* Non-dismissible - must use Close button */ },
                         title = {
                             Text(stringResource(R.string.data_corruption_detected))
@@ -171,6 +174,7 @@ fun ProgressCard(
                 // Password/auth error dialog (retry option).
                 error.allowsPasswordRetry() -> {
                     AlertDialog(
+                        modifier = modifier,
                         onDismissRequest = { /* Non-dismissible - must use buttons */ },
                         title = {
                             Text(stringResource(R.string.authentication_error))
@@ -207,6 +211,7 @@ fun ProgressCard(
                 // Standard error dialog (non-corruption, non-password errors).
                 else -> {
                     AlertDialog(
+                        modifier = modifier,
                         onDismissRequest = { /* Non-dismissible - must use Close button */ },
                         title = {
                             Text(stringResource(R.string.error))
@@ -255,6 +260,7 @@ fun ProgressCard(
             } ?: op?.let { File(it.outputFile).name } // Fallback to internal storage name if formData is null
 
             AlertDialog(
+                modifier = modifier,
                 onDismissRequest = {
                     // Don't cleanup on dismiss - user might want to save later
                     // Only cleanup when Cancel button is explicitly clicked

@@ -13,13 +13,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.runtime.remember
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
@@ -52,17 +50,6 @@ import io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.WorkButton
 import io.github.picocrypt_ng.picocrypt_ng.ui.theme.PicocryptNGTheme
-
-// Enum to track card visibility for spacing
-private enum class CardType {
-    FILE,
-    COMMENTS,
-    DECRYPTION_INFO,
-    PASSWORD,
-    ADVANCED,
-    KEYFILE,
-    WORK_BUTTON
-}
 
 class MainActivity : ComponentActivity() {
     private var operationViewModel: OperationViewModel? = null
@@ -232,17 +219,19 @@ fun MainLayout(
         formData.isEncrypt || formData.isDecrypt
     }
     
-    // Helper function to add spacing between cards
-    @Composable
-    fun SpacerIf(condition: Boolean) {
-        if (condition) {
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+    // Collect only the currently visible cards, in render order. Arrangement.spacedBy(24.dp)
+    // then yields no gap before the first card and 24.dp between consecutive cards — matching
+    // the previous SpacerIf behavior without writing Compose state during composition.
+    val visibleCards = buildList<@Composable () -> Unit> {
+        if (isFileCardVisible) add { FileCard(mainViewModel) }
+        if (isCommentsCardVisible) add { CommentsCard(mainViewModel) }
+        if (isDecryptionInfoCardVisible) add { DecryptionInfoCard(mainViewModel) }
+        if (isPasswordCardVisible) add { PasswordCard(mainViewModel) }
+        if (isAdvancedCardVisible) add { AdvancedCard(mainViewModel) }
+        if (isKeyfileCardVisible) add { KeyfileCard(mainViewModel) }
+        if (isWorkButtonVisible) add { WorkButton(mainViewModel, operationViewModel) }
     }
-    
-    // Track which card was last visible to determine spacing
-    var lastVisibleCard by remember { mutableStateOf<CardType?>(null) }
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -256,55 +245,15 @@ fun MainLayout(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         LogoBar()
-        
-        // FileCard - always visible (no spacing before first card)
-        if (isFileCardVisible) {
-            FileCard(mainViewModel)
-            lastVisibleCard = CardType.FILE
+
+        // No gap between LogoBar and the first card; 24.dp between consecutive cards.
+        Column(
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            visibleCards.forEach { it() }
         }
-        
-        // CommentsCard - add spacing if previous card was visible
-        if (isCommentsCardVisible) {
-            SpacerIf(lastVisibleCard != null)
-            CommentsCard(mainViewModel)
-            lastVisibleCard = CardType.COMMENTS
-        }
-        
-        // DecryptionInfoCard - add spacing if previous card was visible
-        if (isDecryptionInfoCardVisible) {
-            SpacerIf(lastVisibleCard != null)
-            DecryptionInfoCard(mainViewModel)
-            lastVisibleCard = CardType.DECRYPTION_INFO
-        }
-        
-        // PasswordCard - add spacing if previous card was visible
-        if (isPasswordCardVisible) {
-            SpacerIf(lastVisibleCard != null)
-            PasswordCard(mainViewModel)
-            lastVisibleCard = CardType.PASSWORD
-        }
-        
-        // AdvancedCard - add spacing if previous card was visible
-        if (isAdvancedCardVisible) {
-            SpacerIf(lastVisibleCard != null)
-            AdvancedCard(mainViewModel)
-            lastVisibleCard = CardType.ADVANCED
-        }
-        
-        // KeyfileCard - add spacing if previous card was visible
-        if (isKeyfileCardVisible) {
-            SpacerIf(lastVisibleCard != null)
-            KeyfileCard(mainViewModel)
-            lastVisibleCard = CardType.KEYFILE
-        }
-        
-        // WorkButton - add spacing if previous card was visible
-        if (isWorkButtonVisible) {
-            SpacerIf(lastVisibleCard != null)
-            WorkButton(mainViewModel, operationViewModel)
-            lastVisibleCard = CardType.WORK_BUTTON
-        }
-        
+
         // ProgressCard is now a modal dialog, not part of scrollable content
         ProgressCard(
             mainViewModel = mainViewModel,

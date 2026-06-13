@@ -28,7 +28,8 @@ import io.github.picocrypt_ng.picocrypt_ng.R
 @Composable
 fun WorkButton(
     mainViewModel: MainViewModel,
-    operationViewModel: OperationViewModel
+    operationViewModel: OperationViewModel,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val formData by mainViewModel.formState.collectAsState()
@@ -65,7 +66,7 @@ fun WorkButton(
         onClick = {
             shouldStartOperation = true
         },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
         enabled = isButtonEnabled
     ) {

@@ -22,15 +22,15 @@ import androidx.compose.runtime.getValue
 
 
 @Composable
-fun DecryptionInfoCard(viewModel: MainViewModel) {
+fun DecryptionInfoCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val formData by viewModel.formState.collectAsState()
     // Only show for decrypt operations with decryption info
     val info = formData.decryptionInfo
     if (!formData.isDecrypt || info == null) {
         return
     }
-    
-    ExpandableCard(title = stringResource(R.string.encryption_settings)) {
+
+    ExpandableCard(title = stringResource(R.string.encryption_settings), modifier = modifier) {
         Column(modifier = Modifier.padding(16.dp)) {
             // Keyfiles section
             Text(

@@ -184,8 +184,8 @@ fun ChooseFile(viewModel: MainViewModel) {
 }
 
 @Composable
-fun FileCard(viewModel: MainViewModel) {
-    Card {
+fun FileCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+    Card(modifier = modifier) {
         Column(
             modifier = Modifier.padding(8.dp)
         ) {
