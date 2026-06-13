@@ -9,7 +9,6 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.io.RandomAccessFile
 
 object FileCopyService {
     private const val INTERNAL_FILES_DIR = "picocrypt_files"
@@ -130,7 +129,7 @@ object FileCopyService {
         try {
             val file = File(filePath)
             if (file.exists()) {
-                secureDelete(file)
+                file.delete()
                 true
             } else {
                 false
@@ -151,7 +150,7 @@ object FileCopyService {
             if (internalDir.exists() && internalDir.isDirectory) {
                 internalDir.listFiles()?.forEach { file ->
                     if (file.isFile) {
-                        secureDelete(file)
+                        file.delete()
                     }
                 }
                 true
@@ -162,35 +161,6 @@ object FileCopyService {
             throw e
         } catch (e: Exception) {
             false
-        }
-    }
-
-    /**
-     * Best-effort secure delete: overwrites the file's bytes with zeros and fsyncs before unlinking.
-     * NOTE: on flash storage, wear-leveling means the original physical blocks may persist, so this
-     * reduces — but does not guarantee — recoverability. Streams the overwrite (<=64 KiB buffer) to
-     * avoid large heap allocations on multi-GB files.
-     */
-    private fun secureDelete(file: File): Boolean {
-        if (!file.exists()) return true
-        return try {
-            val length = file.length()
-            RandomAccessFile(file, "rwd").use { raf -> // "rwd" syncs content writes to storage
-                val zeros = ByteArray(64 * 1024)
-                var remaining = length
-                raf.seek(0)
-                while (remaining > 0) {
-                    val n = minOf(remaining, zeros.size.toLong()).toInt()
-                    raf.write(zeros, 0, n)
-                    remaining -= n
-                }
-                raf.fd.sync()
-            }
-            file.delete()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            file.delete() // fall back to a plain unlink on any I/O error
         }
     }
 
@@ -219,31 +189,31 @@ object FileCopyService {
                 if (path.isNotEmpty()) {
                     val file = File(path)
                     if (file.exists()) {
-                        if (!secureDelete(file)) {
+                        if (!file.delete()) {
                             allSuccess = false
                         }
                     }
                 }
             }
-
+            
             // Delete output file if provided
             outputFilePath?.let { path ->
                 if (path.isNotEmpty()) {
                     val file = File(path)
                     if (file.exists()) {
-                        if (!secureDelete(file)) {
+                        if (!file.delete()) {
                             allSuccess = false
                         }
                     }
                 }
             }
-
+            
             // Delete all keyfiles
             keyfilePaths.forEach { path ->
                 if (path.isNotEmpty()) {
                     val file = File(path)
                     if (file.exists()) {
-                        if (!secureDelete(file)) {
+                        if (!file.delete()) {
                             allSuccess = false
                         }
                     }
@@ -360,7 +330,7 @@ object FileCopyService {
             var allSuccess = true
             internalDir.listFiles()?.forEach { file ->
                 if (file.isFile && file.name.endsWith(".incomplete")) {
-                    if (!secureDelete(file)) {
+                    if (!file.delete()) {
                         allSuccess = false
                     }
                 }
@@ -387,7 +357,7 @@ object FileCopyService {
             var allSuccess = true
             internalDir.listFiles()?.forEach { file ->
                 if (file.isFile && file.name.startsWith("keyfile_")) {
-                    if (!secureDelete(file)) {
+                    if (!file.delete()) {
                         allSuccess = false
                     }
                 }
@@ -429,7 +399,7 @@ object FileCopyService {
             outputFiles.forEach { fileName ->
                 val file = File(internalDir, fileName)
                 if (file.exists()) {
-                    if (!secureDelete(file)) {
+                    if (!file.delete()) {
                         allSuccess = false
                     }
                 }
