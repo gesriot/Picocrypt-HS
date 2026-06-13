@@ -2,6 +2,7 @@ package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
 import android.net.Uri
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -59,6 +60,8 @@ object FileCopyService {
             }
 
             Result.success(destFile.absolutePath)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(
                 AppError.FileError.CopyFailed(
@@ -107,6 +110,8 @@ object FileCopyService {
             }
 
             Result.success(destFile.absolutePath)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(
                 AppError.FileError.CopyFailed(
@@ -129,6 +134,8 @@ object FileCopyService {
             } else {
                 false
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -150,6 +157,8 @@ object FileCopyService {
             } else {
                 false
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -212,6 +221,8 @@ object FileCopyService {
             }
             
             allSuccess
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -252,6 +263,8 @@ object FileCopyService {
             )
             
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(
                 AppError.FileError.SaveFailed(
@@ -296,6 +309,8 @@ object FileCopyService {
         return try {
             val file = File(filePath)
             file.exists() && file.isFile
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -322,6 +337,8 @@ object FileCopyService {
             }
             
             allSuccess
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -347,6 +364,8 @@ object FileCopyService {
             }
             
             allSuccess
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -390,6 +409,8 @@ object FileCopyService {
             cleanupIncompleteFiles(context)
             
             allSuccess
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }

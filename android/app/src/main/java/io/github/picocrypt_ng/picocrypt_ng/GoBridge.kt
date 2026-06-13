@@ -1,6 +1,7 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
 import android.os.Parcelable
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.parcelize.Parcelize
 import mobile.Mobile
 import mobile.ProgressResult as GoProgressResult
@@ -83,6 +84,8 @@ object GoBridge {
     fun startOperation(): String {
         return try {
             Mobile.startOperation()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Generate a fallback ID if Go binding fails
             "op_${System.currentTimeMillis()}"
@@ -98,6 +101,8 @@ object GoBridge {
         return try {
             val result = Mobile.detectOperation(filePath)
             Result.success(result)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Return error instead of fallback - Go binding failure is a critical error
             Result.failure(
@@ -153,6 +158,8 @@ object GoBridge {
             } else {
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         } finally {
@@ -204,6 +211,8 @@ object GoBridge {
             } else {
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         } finally {
@@ -237,6 +246,8 @@ object GoBridge {
                 done = result.getDone(),
                 code = result.getCode() ?: ""
             ))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         }
@@ -252,6 +263,8 @@ object GoBridge {
         return try {
             Mobile.cancelOperation(operationID)
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         }
@@ -279,6 +292,8 @@ object GoBridge {
                 comments = json.getString("comments"),
                 readable = json.getBoolean("readable")
             ))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         }
