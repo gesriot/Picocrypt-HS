@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,30 +51,24 @@ func TestFileTypeDetection(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			isSplit := detectSplitVolume(tc.filename)
+			// Exercise the production classifiers directly: isDecryptVolumePath
+			// (drop.go) decides encrypt-vs-decrypt mode (a split chunk is also a
+			// decrypt volume), IsSplitChunkPath (fileops) decides recombine.
 			isDecrypt := isDecryptVolumePath(tc.filename)
-			isPcv := isDecrypt && !isSplit
+			isSplit := fileops.IsSplitChunkPath(tc.filename)
 
-			if isPcv != tc.isPcv && !isSplit {
-				t.Errorf("isPcv = %v; want %v for %q", isPcv, tc.isPcv, tc.filename)
+			// tc.isPcv == "is this dropped as a volume to decrypt?"
+			if isDecrypt != tc.isPcv {
+				t.Errorf("isDecryptVolumePath = %v; want %v for %q", isDecrypt, tc.isPcv, tc.filename)
 			}
 			if isSplit != tc.isSplit {
-				t.Errorf("isSplit = %v; want %v for %q", isSplit, tc.isSplit, tc.filename)
+				t.Errorf("IsSplitChunkPath = %v; want %v for %q", isSplit, tc.isSplit, tc.filename)
 			}
-
-			// Determine encrypt mode
-			isEncrypt := !isDecrypt
-			if isEncrypt != tc.isEncrypt {
+			if isEncrypt := !isDecrypt; isEncrypt != tc.isEncrypt {
 				t.Errorf("isEncrypt = %v; want %v for %q", isEncrypt, tc.isEncrypt, tc.filename)
 			}
 		})
 	}
-}
-
-// detectSplitVolume checks if a filename is a split volume chunk.
-// This mirrors the logic in handleDecryptDrop.
-func detectSplitVolume(filename string) bool {
-	return fileops.IsSplitChunkPath(filename)
 }
 
 // TestSplitVolumeBasePath tests extraction of base path from split volumes.
@@ -127,8 +122,22 @@ func TestOutputPathFromDecrypt(t *testing.T) {
 	}
 }
 
-// TestMultipleDropLabels tests label generation for multiple dropped items.
+// TestMultipleDropLabels drives the real handleMultipleDrop (via onDrop) with
+// actual files/folders on disk and asserts the InputLabel it produces. The label
+// grammar (singular/plural, "and") is production logic in drop.go; this test must
+// fail if that logic changes, so it never recomputes the expected string itself —
+// it builds the on-disk inputs and reads back State.InputLabel.
 func TestMultipleDropLabels(t *testing.T) {
+	if raceEnabled {
+		// Drives real onDrop with folders, whose background scan goroutine calls
+		// refreshAdvanced -> the split-unit Select refresh. That measures glyphs on
+		// the render goroutine concurrently with the go-text cmapCache first-write,
+		// tripping the upstream Fyne v2.7.x font-cache race this file quarantines
+		// (same reason as the scheduleStartupPaths tests). Runs on the arm64 matrix.
+		t.Skip("Fyne internal font-cache races under -race; covered on arm64 matrix")
+	}
+	fyneApp := newTestFyneApp(t)
+
 	testCases := []struct {
 		name     string
 		files    int
@@ -147,107 +156,41 @@ func TestMultipleDropLabels(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			label := generateInputLabel(tc.files, tc.folders)
+			a := createUIReadyDropTestApp(t, fyneApp)
+			dir := t.TempDir()
 
-			if label != tc.expected {
-				t.Errorf("label = %q; want %q", label, tc.expected)
+			var paths []string
+			for i := 0; i < tc.files; i++ {
+				p := filepath.Join(dir, "file"+strconv.Itoa(i)+".txt")
+				if err := os.WriteFile(p, []byte("x"), 0644); err != nil {
+					t.Fatalf("write file: %v", err)
+				}
+				paths = append(paths, p)
+			}
+			for i := 0; i < tc.folders; i++ {
+				p := filepath.Join(dir, "folder"+strconv.Itoa(i))
+				if err := os.Mkdir(p, 0755); err != nil {
+					t.Fatalf("mkdir: %v", err)
+				}
+				paths = append(paths, p)
+			}
+
+			fyne.DoAndWait(func() {
+				a.onDrop(paths)
+			})
+			waitForDropProcessing(t, a)
+
+			var label string
+			fyne.DoAndWait(func() {
+				label = a.State.InputLabel
+			})
+			// handleMultipleDrop appends a " (size)" summary for the file count;
+			// the grammar prefix is what this test pins.
+			if !strings.HasPrefix(label, tc.expected) {
+				t.Errorf("InputLabel = %q; want prefix %q", label, tc.expected)
 			}
 		})
 	}
-}
-
-// generateInputLabel generates the input label for multiple items.
-// This mirrors the logic in handleMultipleDrop.
-func generateInputLabel(files, folders int) string {
-	if folders == 0 {
-		return pluralize(files, "file", "files")
-	}
-	if files == 0 {
-		return pluralize(folders, "folder", "folders")
-	}
-
-	if files == 1 && folders > 1 {
-		return "1 file and " + pluralize(folders, "folder", "folders")
-	}
-	if folders == 1 && files > 1 {
-		return pluralize(files, "file", "files") + " and 1 folder"
-	}
-	if folders == 1 && files == 1 {
-		return "1 file and 1 folder"
-	}
-	return pluralize(files, "file", "files") + " and " + pluralize(folders, "folder", "folders")
-}
-
-func pluralize(count int, singular, plural string) string {
-	if count == 1 {
-		return "1 " + singular
-	}
-	return itoa(count) + " " + plural
-}
-
-// itoa converts an int to string without leading zeros.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var result []byte
-	for n > 0 {
-		result = append([]byte{byte('0' + n%10)}, result...)
-		n /= 10
-	}
-	return string(result)
-}
-
-// TestDropStateTransitions tests state changes during drop handling.
-func TestDropStateTransitions(t *testing.T) {
-	newTestFyneApp(t)
-
-	t.Run("SingleFileDropSetsEncryptMode", func(t *testing.T) {
-		state := mustNewState(t)
-
-		// Simulate dropping a plain file
-		state.Mode = "encrypt"
-		state.InputFile = "/path/to/file.txt"
-		state.OutputFile = state.InputFile + ".pcv"
-
-		if state.Mode != "encrypt" {
-			t.Error("Mode should be 'encrypt' for plain file")
-		}
-		if !strings.HasSuffix(state.OutputFile, ".pcv") {
-			t.Error("Output should have .pcv suffix")
-		}
-	})
-
-	t.Run("PcvFileDropSetsDecryptMode", func(t *testing.T) {
-		state := mustNewState(t)
-
-		// Simulate dropping a .pcv file
-		state.Mode = "decrypt"
-		state.InputFile = "/path/to/secret.pcv"
-		state.OutputFile = "/path/to/secret"
-
-		if state.Mode != "decrypt" {
-			t.Error("Mode should be 'decrypt' for .pcv file")
-		}
-		if strings.HasSuffix(state.OutputFile, ".pcv") {
-			t.Error("Output should not have .pcv suffix")
-		}
-	})
-
-	t.Run("FolderDropSetsZipMode", func(t *testing.T) {
-		state := mustNewState(t)
-
-		// Simulate dropping a folder
-		state.Mode = "encrypt"
-		state.StartLabel = "Zip and Encrypt"
-
-		if state.Mode != "encrypt" {
-			t.Error("Mode should be 'encrypt' for folder")
-		}
-		if state.StartLabel != "Zip and Encrypt" {
-			t.Errorf("StartLabel = %q; want 'Zip and Encrypt'", state.StartLabel)
-		}
-	})
 }
 
 func TestApplyDropErrorPreservesStatusAfterReset(t *testing.T) {
@@ -2158,256 +2101,66 @@ func TestKeyfileDropHandling(t *testing.T) {
 	})
 }
 
-// TestScanningState tests the scanning state during folder processing.
-func TestScanningState(t *testing.T) {
-	state := mustNewState(t)
+// TestStatusFreeSpaceMultiplier drives the real updateUIState free-space
+// estimation: with MainStatus "Ready" and RequiredFreeSpace set, updateUIState
+// (app.go) rewrites the status label to "Ready (ensure >SIZE free)" where SIZE is
+// RequiredFreeSpace times a multiplier that grows with multi-file/deniability/
+// split/etc. The test sets only the inputs and reads the rendered statusLabel,
+// so it fails if the multiplier or formatting logic in updateUIState changes.
+func TestStatusFreeSpaceMultiplier(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
 
-	// Initially not scanning
-	if state.Scanning {
-		t.Error("Scanning should be false initially")
-	}
+	const base = int64(1024 * 1024) // 1 MiB
 
-	// Start scanning
-	state.Scanning = true
-	if !state.Scanning {
-		t.Error("Scanning should be true")
-	}
-
-	// During scanning, new drops should be ignored
-	if !state.Scanning {
-		t.Error("Drops should be blocked while scanning")
-	}
-
-	// End scanning
-	state.Scanning = false
-	if state.Scanning {
-		t.Error("Scanning should be false after completion")
-	}
-}
-
-// TestDeniabilityDetection tests deniability mode detection from headers.
-func TestDeniabilityDetection(t *testing.T) {
-	t.Run("DeniableVolumeStatus", func(t *testing.T) {
-		state := mustNewState(t)
-
-		// When version cannot be read, assume deniable
-		state.Deniability = true
-		state.MainStatus = "Cannot read header, volume may be deniable"
-
-		if !state.Deniability {
-			t.Error("Deniability should be true for unreadable header")
-		}
-	})
-
-	t.Run("NormalVolumeStatus", func(t *testing.T) {
-		state := mustNewState(t)
-		state.Deniability = false
-		state.MainStatus = "Ready"
-
-		if state.Deniability {
-			t.Error("Deniability should be false for normal volume")
-		}
-	})
-}
-
-// TestDropWithRealFiles tests drop handling logic with actual filesystem.
-// Note: We test the state logic directly since the UI components aren't initialized.
-func TestDropWithRealFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	t.Run("SingleFileDetection", func(t *testing.T) {
-		// Create test file
-		testFile := filepath.Join(tmpDir, "test.txt")
-		if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
-			t.Fatalf("Create test file: %v", err)
-		}
-
-		stat, err := os.Stat(testFile)
-		if err != nil {
-			t.Fatalf("Stat test file: %v", err)
-		}
-
-		// Test detection logic
-		if stat.IsDir() {
-			t.Error("File should not be detected as directory")
-		}
-		if strings.HasSuffix(testFile, ".pcv") {
-			t.Error("File should not be detected as encrypted")
-		}
-	})
-
-	t.Run("FolderDetection", func(t *testing.T) {
-		// Create test folder
-		testFolder := filepath.Join(tmpDir, "testfolder")
-		if err := os.Mkdir(testFolder, 0755); err != nil {
-			t.Fatalf("Create test folder: %v", err)
-		}
-
-		stat, err := os.Stat(testFolder)
-		if err != nil {
-			t.Fatalf("Stat test folder: %v", err)
-		}
-
-		if !stat.IsDir() {
-			t.Error("Folder should be detected as directory")
-		}
-	})
-
-	t.Run("MultipleFilesCount", func(t *testing.T) {
-		// Create multiple test files
-		files := make([]string, 3)
-		for i := 0; i < 3; i++ {
-			files[i] = filepath.Join(tmpDir, "multi"+string(rune('0'+i))+".txt")
-			if err := os.WriteFile(files[i], []byte("content"), 0644); err != nil {
-				t.Fatalf("Create test file: %v", err)
-			}
-		}
-
-		// Verify all files exist
-		for _, f := range files {
-			if _, err := os.Stat(f); err != nil {
-				t.Errorf("File %s should exist", f)
-			}
-		}
-
-		if len(files) != 3 {
-			t.Errorf("Files count = %d; want 3", len(files))
-		}
-	})
-
-	t.Run("PcvFileDetection", func(t *testing.T) {
-		// Create test .pcv file
-		pcvFile := filepath.Join(tmpDir, "encrypted.pcv")
-		if err := os.WriteFile(pcvFile, []byte("encrypted content"), 0644); err != nil {
-			t.Fatalf("Create test file: %v", err)
-		}
-
-		if !strings.HasSuffix(pcvFile, ".pcv") {
-			t.Error("PCV file should be detected by suffix")
-		}
-
-		// Should be decrypt mode
-		isPcv := strings.HasSuffix(pcvFile, ".pcv")
-		isSplit := detectSplitVolume(pcvFile)
-		isDecrypt := isPcv || isSplit
-
-		if !isDecrypt {
-			t.Error("PCV file should trigger decrypt mode")
-		}
-	})
-
-	t.Run("SplitVolumeDetection", func(t *testing.T) {
-		// Create split volume chunks
-		for i := 0; i < 3; i++ {
-			chunkFile := filepath.Join(tmpDir, "data.pcv."+string(rune('0'+i)))
-			if err := os.WriteFile(chunkFile, []byte("chunk"), 0644); err != nil {
-				t.Fatalf("Create chunk file: %v", err)
-			}
-		}
-
-		chunk0 := filepath.Join(tmpDir, "data.pcv.0")
-		if !detectSplitVolume(chunk0) {
-			t.Error("Split volume should be detected")
-		}
-	})
-}
-
-// TestDropRaceConditionPrevention tests that concurrent drops are blocked.
-func TestDropRaceConditionPrevention(t *testing.T) {
-	state := mustNewState(t)
-
-	// Simulate scanning in progress
-	state.Scanning = true
-
-	// New drops should be blocked
-	if !state.Scanning {
-		t.Error("Scanning should block new drops")
-	}
-
-	// Simulate working
-	state.Scanning = false
-	state.Working = true
-
-	if !state.Working {
-		t.Error("Working should block new drops")
-	}
-}
-
-// TestCommentsFromHeader tests reading comments from decrypted volume.
-func TestCommentsFromHeader(t *testing.T) {
-	testCases := []struct {
-		name     string
-		comments string
-		disabled bool
-		expected string
-	}{
-		{"ValidComments", "User comments here", false, "Comments (read-only):"},
-		{"EmptyComments", "", true, "Comments (read-only):"},
-		{"CorruptedComments", "Comments are corrupted", true, "Comments (read-only):"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			state := mustNewState(t)
-			state.Mode = "decrypt"
-			state.Comments = tc.comments
-			state.CommentsLabel = "Comments (read-only):"
-			state.CommentsDisabled = tc.disabled
-
-			if state.CommentsLabel != tc.expected {
-				t.Errorf("CommentsLabel = %q; want %q", state.CommentsLabel, tc.expected)
-			}
+	t.Run("SingleFileNoOptions", func(t *testing.T) {
+		a := createUIReadyDropTestApp(t, fyneApp)
+		fyne.DoAndWait(func() {
+			a.State.Mode = "encrypt"
+			a.State.Password = "secret"
+			a.State.CPassword = "secret"
+			a.State.AllFiles = []string{"only.txt"}
+			a.State.OnlyFiles = []string{"only.txt"}
+			a.State.MainStatus = "Ready"
+			a.State.RequiredFreeSpace = base
+			a.updateUIState()
 		})
-	}
+
+		want := "Ready (ensure >" + util.Sizeify(base*1) + " free)"
+		if got := statusLabelText(t, a); got != want {
+			t.Fatalf("status = %q; want %q (1x multiplier)", got, want)
+		}
+	})
+
+	t.Run("MultiFileDeniabilitySplit", func(t *testing.T) {
+		a := createUIReadyDropTestApp(t, fyneApp)
+		fyne.DoAndWait(func() {
+			a.State.Mode = "encrypt"
+			a.State.Password = "secret"
+			a.State.CPassword = "secret"
+			// 2 files (+1) + deniability (+1) + split (+1) => 4x
+			a.State.AllFiles = []string{"a.txt", "b.txt"}
+			a.State.OnlyFiles = []string{"a.txt", "b.txt"}
+			a.State.Deniability = true
+			a.State.Split = true
+			a.State.MainStatus = "Ready"
+			a.State.RequiredFreeSpace = base
+			a.updateUIState()
+		})
+
+		want := "Ready (ensure >" + util.Sizeify(base*4) + " free)"
+		if got := statusLabelText(t, a); got != want {
+			t.Fatalf("status = %q; want %q (4x multiplier)", got, want)
+		}
+	})
 }
 
-// TestRequiredFreeSpaceCalculation tests free space estimation.
-func TestRequiredFreeSpaceCalculation(t *testing.T) {
-	state := mustNewState(t)
-
-	// Single file
-	state.RequiredFreeSpace = 1024 * 1024 // 1 MiB
-
-	// Multipliers based on options
-	multiplier := 1
-	state.AllFiles = []string{"file1.txt", "file2.txt"} // Multi-file
-	if len(state.AllFiles) > 1 {
-		multiplier++
-	}
-	state.Deniability = true
-	if state.Deniability {
-		multiplier++
-	}
-	state.Split = true
-	if state.Split {
-		multiplier++
-	}
-
-	estimatedSpace := state.RequiredFreeSpace * int64(multiplier)
-	expectedSpace := 1024 * 1024 * 4 // 4 MiB (4x multiplier)
-
-	if estimatedSpace != int64(expectedSpace) {
-		t.Errorf("EstimatedSpace = %d; want %d", estimatedSpace, expectedSpace)
-	}
-}
-
-// TestStatusWithFreeSpace tests status message with free space info.
-func TestStatusWithFreeSpace(t *testing.T) {
-	state := mustNewState(t)
-	state.MainStatus = "Ready"
-	state.RequiredFreeSpace = 10 * 1024 * 1024 // 10 MiB
-
-	if state.RequiredFreeSpace > 0 {
-		spaceStr := util.Sizeify(state.RequiredFreeSpace)
-		statusText := "Ready (ensure >" + spaceStr + " free)"
-
-		if !strings.Contains(statusText, "free") {
-			t.Error("Status should mention free space")
-		}
-		if !strings.Contains(statusText, "MiB") && !strings.Contains(statusText, "10") {
-			t.Logf("Status = %q", statusText)
-		}
-	}
+func statusLabelText(t *testing.T, a *App) string {
+	t.Helper()
+	var text string
+	fyne.DoAndWait(func() {
+		text = a.statusLabel.text
+	})
+	return text
 }
 
 func createUIReadyDropTestApp(t *testing.T, fyneApp fyne.App) *App {
