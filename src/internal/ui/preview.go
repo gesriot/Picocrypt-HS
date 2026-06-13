@@ -16,8 +16,8 @@ import (
 // It returns the full *header.ReadResult so the caller can distinguish a hard
 // parse error (err != nil) from a soft "comments corrupted" condition
 // (res.DecodeError != nil with a usable header) and reproduce the existing UX
-// strings. Routing through ReadHeader (not ReadHeaderRaw) is deliberate:
-// ReadHeader has the ^\d{5}$ comment-length guard before allocating.
+// strings. ReadHeader applies the ^\d{5}$ comment-length guard before
+// allocating, so a crafted comment-length cannot drive an oversized alloc.
 func previewHeader(r io.Reader, rs *encoding.RSCodecs) (*header.ReadResult, error) {
 	return header.NewReader(r, rs).ReadHeader()
 }

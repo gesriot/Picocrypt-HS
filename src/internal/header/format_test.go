@@ -614,6 +614,70 @@ func TestVerifyV2Header(t *testing.T) {
 	}
 }
 
+// TestVerifyV2HeaderAuthenticatesEveryField proves the live (struct-based) v2
+// header MAC authenticates EVERY field it covers: tampering any one of them after
+// the MAC is fixed must be rejected. This is the safety net that lets us retire the
+// parallel raw-bytes header-MAC path — both the writer and reader use this live
+// path, and a swap is detectable per-field here, so the retired twin guarded
+// nothing the live path misses.
+func TestVerifyV2HeaderAuthenticatesEveryField(t *testing.T) {
+	subkey := bytes.Repeat([]byte{0x42}, 64)
+	keyfileHash := bytes.Repeat([]byte{0x11}, KeyfileHashSize)
+
+	base := func() *VolumeHeader {
+		return &VolumeHeader{
+			Version:   CurrentVersion,
+			Comments:  "vector",
+			Flags:     Flags{Paranoid: true, ReedSolomon: true},
+			Salt:      bytes.Repeat([]byte{0x01}, SaltSize),
+			HKDFSalt:  bytes.Repeat([]byte{0x02}, HKDFSaltSize),
+			SerpentIV: bytes.Repeat([]byte{0x03}, SerpentIVSize),
+			Nonce:     bytes.Repeat([]byte{0x04}, NonceSize),
+		}
+	}
+
+	// Baseline: an untampered header with its correct MAC verifies.
+	h := base()
+	h.KeyHash = ComputeV2HeaderMAC(subkey, h, keyfileHash)
+	if !VerifyV2Header(subkey, h, keyfileHash).Valid {
+		t.Fatal("VerifyV2Header rejected an untampered header")
+	}
+
+	// Each authenticated field, tampered after the MAC is fixed, must be rejected.
+	// mutate returns the keyfileHash to pass to VerifyV2Header (so the keyfileHash
+	// case can tamper that argument without touching the header struct).
+	cases := []struct {
+		name   string
+		mutate func(h *VolumeHeader, keyfileHash []byte) []byte
+	}{
+		{"version", func(h *VolumeHeader, kf []byte) []byte { h.Version = "v9.99"; return kf }},
+		// Same length (6) isolates the comment-content write from the length prefix.
+		{"comments_content", func(h *VolumeHeader, kf []byte) []byte { h.Comments = "VECTOR"; return kf }},
+		// Different length (7) additionally exercises the %05d comment-length write.
+		{"comments_length", func(h *VolumeHeader, kf []byte) []byte { h.Comments = "vectors"; return kf }},
+		{"flags", func(h *VolumeHeader, kf []byte) []byte { h.Flags.Paranoid = !h.Flags.Paranoid; return kf }},
+		{"salt", func(h *VolumeHeader, kf []byte) []byte { h.Salt[0] ^= 0xFF; return kf }},
+		{"hkdfSalt", func(h *VolumeHeader, kf []byte) []byte { h.HKDFSalt[0] ^= 0xFF; return kf }},
+		{"serpentIV", func(h *VolumeHeader, kf []byte) []byte { h.SerpentIV[0] ^= 0xFF; return kf }},
+		{"nonce", func(h *VolumeHeader, kf []byte) []byte { h.Nonce[0] ^= 0xFF; return kf }},
+		{"keyfileHash", func(h *VolumeHeader, kf []byte) []byte {
+			c := append([]byte(nil), kf...)
+			c[0] ^= 0xFF
+			return c
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := base()
+			h.KeyHash = ComputeV2HeaderMAC(subkey, h, keyfileHash)
+			kf := tc.mutate(h, keyfileHash)
+			if VerifyV2Header(subkey, h, kf).Valid {
+				t.Errorf("tampering %s was NOT detected — the header MAC does not authenticate it", tc.name)
+			}
+		})
+	}
+}
+
 func TestVerifyV1Header(t *testing.T) {
 	key := []byte("test-password-key")
 
