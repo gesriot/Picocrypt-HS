@@ -946,7 +946,7 @@ func TestAutoUnzip(t *testing.T) {
 
 	// Create zip file
 	zipPath := filepath.Join(tmpDir, "test.zip")
-	if err := createTestZip(zipPath, testDir, "test_folder"); err != nil {
+	if err := createTestZip(zipPath, testDir); err != nil {
 		t.Fatalf("Failed to create test zip: %v", err)
 	}
 
@@ -1037,7 +1037,7 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 
 	// Create zip file
 	zipPath := filepath.Join(tmpDir, "samelevel.zip")
-	if err := createTestZip(zipPath, testDir, "source_folder"); err != nil {
+	if err := createTestZip(zipPath, testDir); err != nil {
 		t.Fatalf("Failed to create test zip: %v", err)
 	}
 
@@ -1116,7 +1116,7 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 	}
 
 	zipPath := filepath.Join(tmpDir, "rollback.zip")
-	if err := createTestZip(zipPath, testDir, "rollback_folder"); err != nil {
+	if err := createTestZip(zipPath, testDir); err != nil {
 		t.Fatalf("Failed to create test zip: %v", err)
 	}
 
@@ -1173,7 +1173,7 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 }
 
 // createTestZip creates a zip file from a directory
-func createTestZip(zipPath, sourceDir, baseName string) error {
+func createTestZip(zipPath, sourceDir string) error {
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return err
