@@ -2,11 +2,10 @@ package volume
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"Picocrypt-NG/internal/crypto"
-
-	"golang.org/x/crypto/argon2"
 )
 
 func TestProductionKDFWrappersMatchCurrentImplementations(t *testing.T) {
@@ -22,40 +21,36 @@ func TestProductionKDFWrappersMatchCurrentImplementations(t *testing.T) {
 	password := []byte("test-password")
 	salt := bytes.Repeat([]byte{0x42}, 16)
 
+	// Frozen golden anchors for the production Argon2id parameters, pinned to the
+	// fixed password+salt above. These are INDEPENDENT of the crypto.Argon2* consts:
+	// any parameter regression (e.g. Argon2NormalPasses 4->3) makes the wrapper output
+	// drift away from these literals and turns the test red. CRITICAL: changing these
+	// constants breaks decryption of every existing 2.08/2.09 volume.
+	// Normal params: passes=4, memory=1<<20, threads=4, keylen=32.
+	const wantNormalHex = "337c613f12e5ded0b79572e3b6e022e4b0ec476226500075134bce41236daaf9"
+	// Paranoid params: passes=8, memory=1<<20, threads=8, keylen=32.
+	const wantParanoidHex = "30c552d4a4571dfab29e29fac304d5178116d45fc3129dfc3bfb070c25057d6f"
+
 	gotNormal, err := deriveVolumeKey(password, salt, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantNormal, err := crypto.DeriveKey(password, salt, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(gotNormal, wantNormal) {
-		t.Fatal("normal wrapper diverged from production implementation")
+	if got := hex.EncodeToString(gotNormal); got != wantNormalHex {
+		t.Fatalf("normal volume key drifted from frozen vector:\n got  = %s\n want = %s", got, wantNormalHex)
 	}
 
 	gotParanoid, err := deriveVolumeKey(password, salt, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantParanoid, err := crypto.DeriveKey(password, salt, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(gotParanoid, wantParanoid) {
-		t.Fatal("paranoid wrapper diverged from production implementation")
+	if got := hex.EncodeToString(gotParanoid); got != wantParanoidHex {
+		t.Fatalf("paranoid volume key drifted from frozen vector:\n got  = %s\n want = %s", got, wantParanoidHex)
 	}
 
+	// The deniability KDF uses the NORMAL Argon2 parameters, so on identical inputs it
+	// must equal the normal-mode golden. This pins productionDeniabilityKey's consts.
 	gotDeniability := deriveDeniabilityKey(password, salt)
-	wantDeniability := argon2.IDKey(
-		password,
-		salt,
-		crypto.Argon2NormalPasses,
-		crypto.Argon2NormalMemory,
-		crypto.Argon2NormalThreads,
-		crypto.Argon2KeySize,
-	)
-	if !bytes.Equal(gotDeniability, wantDeniability) {
-		t.Fatal("deniability wrapper diverged from production implementation")
+	if got := hex.EncodeToString(gotDeniability); got != wantNormalHex {
+		t.Fatalf("deniability key drifted from frozen vector:\n got  = %s\n want = %s", got, wantNormalHex)
 	}
 }
