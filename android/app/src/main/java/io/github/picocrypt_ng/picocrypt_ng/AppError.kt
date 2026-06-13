@@ -134,59 +134,44 @@ sealed class AppError(
     
     companion object {
         /**
-         * Converts a Go error string to an AppError.
-         * Analyzes the error message to determine the appropriate error type.
+         * Converts a Go error into a typed AppError using the stable, locale-independent
+         * [code] emitted by the Go layer (see Go errorCode), NOT the human-readable
+         * [errorString]. This replaces the prior fragile substring matching on Go error
+         * text, which was locale-coupled and tightly bound to Go wording.
+         *
+         * SECURITY: the mapping gates retry affordances and must preserve the old
+         * semantics exactly:
+         *  - AUTH_FAILED   -> PasswordAuth   : allowsPasswordRetry, NOT force-decrypt
+         *                    (wrong password / failed authentication / wrong keyfiles).
+         *  - DATA_CORRUPTED-> DataCorruption : allowsForceDecrypt (force-decrypt BYPASSES
+         *                    integrity/RS checks; only offered for recoverable payload
+         *                    corruption).
+         *  - CORRUPT_HEADER/CANCELLED/unknown -> GenericOperation : header corruption is
+         *                    deliberately NOT force-decryptable (the old logic excluded
+         *                    header errors from DataCorruption).
+         *
+         * [code] defaults to "" so the synchronous validation-error path
+         * (GoBridge.startEncrypt/startDecrypt) keeps working -> GenericOperation.
+         * [operationType] is retained for call-site clarity and future use.
          */
-        fun fromGoError(errorString: String, operationType: OperationType): AppError {
-            val errorLower = errorString.lowercase()
-            
-            // Check for data corruption (only for decryption)
-            if (operationType == OperationType.DECRYPT) {
-                val hasDataCorruption = errorLower.contains("data corrupted") || 
-                                       errorLower.contains("data corruption")
-                val hasHeaderError = errorLower.contains("header")
-                val hasAuthError = errorLower.contains("password") || 
-                                  errorLower.contains("incorrect") ||
-                                  errorLower.contains("keyfile") ||
-                                  errorLower.contains("authentication failed")
-                
-                if (hasDataCorruption && !hasHeaderError && !hasAuthError) {
-                    return OperationError.DataCorruption(
-                        userMessage = errorString,
-                        technicalMessage = errorString
-                    )
-                }
-            }
-            
-            // Check for password/auth errors
-            val isPasswordError = (errorLower.contains("password") && 
-                                  (errorLower.contains("incorrect") || 
-                                   errorLower.contains("authentication failed"))) ||
-                                 (errorLower.contains("keyfile") && errorLower.contains("incorrect")) ||
-                                 errorLower.contains("authentication failed")
-            
-            if (isPasswordError) {
-                return OperationError.PasswordAuth(
+        fun fromGoError(errorString: String, operationType: OperationType, code: String = ""): AppError {
+            return when (code) {
+                "AUTH_FAILED" -> OperationError.PasswordAuth(
+                    userMessage = errorString,
+                    technicalMessage = errorString
+                )
+                "DATA_CORRUPTED" -> OperationError.DataCorruption(
+                    userMessage = errorString,
+                    technicalMessage = errorString
+                )
+                "FILE_NOT_FOUND" -> OperationError.FileNotFound(
+                    technicalMessage = errorString
+                )
+                else -> OperationError.GenericOperation(
                     userMessage = errorString,
                     technicalMessage = errorString
                 )
             }
-            
-            // Check for file not found
-            if (errorLower.contains("file not found") || 
-                errorLower.contains("no such file") ||
-                errorLower.contains("cannot find")) {
-                return OperationError.FileNotFound(
-                    userMessage = "File not found or inaccessible",
-                    technicalMessage = errorString
-                )
-            }
-            
-            // Generic operation error
-            return OperationError.GenericOperation(
-                userMessage = errorString,
-                technicalMessage = errorString
-            )
         }
         
         /**

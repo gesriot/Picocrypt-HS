@@ -147,8 +147,8 @@ object OperationManager {
         val result = GoBridge.getProgress(operation.id)
         result.getOrNull()?.let { progressState ->
             val error = if (progressState.done && progressState.status == "Error") {
-                // Convert Go error string to AppError
-                AppError.fromGoError(progressState.info, operation.type)
+                // Classify by the stable Go error code (not fragile substring matching)
+                AppError.fromGoError(progressState.info, operation.type, progressState.code)
             } else {
                 null
             }

@@ -298,6 +298,10 @@ type ProgressResult struct {
 	Info     string
 	Done     bool
 	Error    string
+	// Code is the stable, locale-independent error classification (see
+	// errorCode); empty unless the operation failed. The Kotlin layer switches
+	// on it instead of substring-matching Error.
+	Code string
 }
 
 // GetProgress retrieves the current progress state for an operation.
@@ -312,6 +316,7 @@ func GetProgress(operationID string) (*ProgressResult, error) {
 		Info:     state.Info,
 		Done:     state.Done,
 		Error:    state.Error,
+		Code:     state.Code,
 	}, nil
 }
 

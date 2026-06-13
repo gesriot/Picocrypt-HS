@@ -3,14 +3,67 @@ package mobile
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	perrors "Picocrypt-NG/internal/errors"
+	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/volume"
 )
+
+// TestErrorCodeFor pins the pipeline-error -> stable-code mapping the Android
+// layer relies on to gate force-decrypt (corruption-only) and password-retry
+// (auth-only). The mapping is security-relevant: misclassifying a wrong-password
+// (*header.AuthError) as corruption would wrongly offer force-decrypt, which
+// BYPASSES integrity/RS checks. Each case wraps the real error value with %w to
+// prove errors.Is/As classification survives wrapping (as it does through the
+// pipeline's fmt.Errorf("...: %w", err) chains).
+func TestErrorCodeFor(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "nil is no error", err: nil, want: ""},
+		// Normal decrypt path: wrong password/keyfile surfaces as *header.AuthError
+		// (decrypt.go:273,283,335,345). It does NOT wrap perrors.ErrAuthFailed, so
+		// errors.Is(ErrAuthFailed) alone would miss it; errorCode uses errors.As.
+		{name: "v2 password-or-tamper AuthError", err: header.NewV2PasswordOrTamperError(), want: "AUTH_FAILED"},
+		{name: "v1 password AuthError", err: header.NewPasswordError(), want: "AUTH_FAILED"},
+		{name: "keyfile AuthError", err: header.NewKeyfileError(true), want: "AUTH_FAILED"},
+		{name: "wrapped AuthError", err: fmt.Errorf("decrypt: %w", header.NewPasswordError()), want: "AUTH_FAILED"},
+		// Verify-first path returns the bare sentinel (decrypt.go:572).
+		{name: "ErrAuthFailed sentinel", err: perrors.ErrAuthFailed, want: "AUTH_FAILED"},
+		{name: "wrapped ErrAuthFailed", err: fmt.Errorf("verify: %w", perrors.ErrAuthFailed), want: "AUTH_FAILED"},
+		// Payload corruption RS cannot recover (decrypt.go:796 and decodeWithRSFast).
+		{name: "ErrCorruptData sentinel", err: perrors.ErrCorruptData, want: "DATA_CORRUPTED"},
+		{name: "wrapped ErrCorruptData", err: fmt.Errorf("finalize: %w", perrors.ErrCorruptData), want: "DATA_CORRUPTED"},
+		// Header damage: decrypt.go:204 wraps header.ErrCorruptedHeader. Must NOT
+		// be DATA_CORRUPTED (old logic excluded header) -> CORRUPT_HEADER (not
+		// force-decryptable on the Kotlin side).
+		{name: "header damaged wraps ErrCorruptedHeader", err: fmt.Errorf("header damaged: %w", header.ErrCorruptedHeader), want: "CORRUPT_HEADER"},
+		{name: "ErrCorruptHeader sentinel", err: perrors.ErrCorruptHeader, want: "CORRUPT_HEADER"},
+		{name: "ErrFileNotFound sentinel", err: perrors.ErrFileNotFound, want: "FILE_NOT_FOUND"},
+		{name: "wrapped ErrFileNotFound", err: fmt.Errorf("open: %w", perrors.ErrFileNotFound), want: "FILE_NOT_FOUND"},
+		{name: "ErrCancelled sentinel", err: perrors.ErrCancelled, want: "CANCELLED"},
+		// Auth must win over corruption when both are in the chain, mirroring the
+		// old substring logic (auth checked before/over corruption).
+		{name: "auth wins over corruption", err: fmt.Errorf("%w: %w", perrors.ErrAuthFailed, perrors.ErrCorruptData), want: "AUTH_FAILED"},
+		{name: "unknown error is generic", err: fmt.Errorf("something unexpected"), want: "GENERIC"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := errorCode(tc.err); got != tc.want {
+				t.Errorf("errorCode(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
 
 func resetProgressMap() {
 	globalProgressMap.mu.Lock()

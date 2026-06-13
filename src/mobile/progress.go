@@ -14,7 +14,11 @@ type ProgressState struct {
 	Progress float32
 	Info     string
 	Error    string
-	Done     bool
+	// Code is a stable, locale-independent classification of Error (see
+	// errorCode); empty on success/cancel-without-error. The Android layer maps
+	// it to a typed AppError to gate force-decrypt / password-retry.
+	Code string
+	Done bool
 }
 
 // progressMap stores progress state for all active operations
@@ -83,6 +87,7 @@ func completeOperation(id string, err error) {
 		op.Done = true
 		if err != nil {
 			op.Error = err.Error()
+			op.Code = errorCode(err)
 			op.Status = "Error"
 		} else {
 			op.Status = "Completed"
@@ -108,6 +113,7 @@ func getProgress(id string) (*ProgressState, error) {
 		Progress: op.Progress,
 		Info:     op.Info,
 		Error:    op.Error,
+		Code:     op.Code,
 		Done:     op.Done,
 	}, nil
 }

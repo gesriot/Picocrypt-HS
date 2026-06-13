@@ -59,7 +59,13 @@ data class ProgressState(
     val status: String,
     val progress: Float,
     val info: String,
-    val done: Boolean
+    val done: Boolean,
+    /**
+     * Stable, locale-independent error classification emitted by Go (see Go
+     * errorCode); empty unless the operation failed. Drives AppError.fromGoError
+     * instead of fragile substring matching on [info].
+     */
+    val code: String = ""
 )
 
 /**
@@ -228,7 +234,8 @@ object GoBridge {
                 status = result.getStatus() ?: "Unknown",
                 progress = result.getProgress(),
                 info = info,
-                done = result.getDone()
+                done = result.getDone(),
+                code = result.getCode() ?: ""
             ))
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
