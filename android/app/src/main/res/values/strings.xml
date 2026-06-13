@@ -88,4 +88,10 @@
     <!-- Logo Bar -->
     <string name="logo_icon">logo icon</string>
     <string name="logo_text">logo text</string>
+
+    <!-- Foreground Service -->
+    <string name="fgs_channel_name">Operation Progress</string>
+    <string name="fgs_encrypting">Encrypting</string>
+    <string name="fgs_decrypting">Decrypting</string>
+    <string name="fgs_working">Working…</string>
 </resources>

@@ -33,15 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.SavedStateHandle
 import io.github.picocrypt_ng.picocrypt_ng.FileCopyService
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,9 +66,7 @@ private enum class CardType {
 
 class MainActivity : ComponentActivity() {
     private var operationViewModel: OperationViewModel? = null
-    private var backgroundObserverJob: Job? = null
-    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    
+
     // Static flag to track if cleanup has been done in this process lifecycle
     // This ensures cleanup only happens once per app process, not on every activity recreation
     companion object {
@@ -130,74 +121,15 @@ class MainActivity : ComponentActivity() {
     
     override fun onPause() {
         super.onPause()
+        // Reduce polling frequency in the background; the foreground service keeps the
+        // process alive and owns the progress notification.
         operationViewModel?.pausePolling()
-        
-        // Start observing operation state to update notification while backgrounded
-        operationViewModel?.let { viewModel ->
-            // Show initial notification if operation is active
-            val currentOp = viewModel.operationState.value
-            if (currentOp != null && !currentOp.done) {
-                OperationNotificationService.showNotification(
-                    this,
-                    currentOp.type,
-                    currentOp.status
-                )
-            }
-            
-            // Observe state changes and update notification
-            backgroundObserverJob = viewModel.operationState
-                .onEach { operationState ->
-                    if (operationState != null && !operationState.done) {
-                        // Reset dismissal state when operation becomes active (new operation started)
-                        if (operationState.progress == 0.0f && operationState.status == "Starting...") {
-                            OperationNotificationService.resetDismissalState()
-                        }
-                        
-                        // Update notification with latest progress
-                        OperationNotificationService.updateNotification(
-                            this,
-                            operationState.progress,
-                            operationState.status
-                        )
-                    } else if (operationState?.done == true) {
-                        // Operation completed, update notification with final status
-                        val finalStatus = if (operationState.error != null) {
-                            "Error: ${operationState.error}"
-                        } else {
-                            "Completed"
-                        }
-                        OperationNotificationService.updateNotification(
-                            this,
-                            1.0f,
-                            finalStatus
-                        )
-                    }
-                }
-                .launchIn(backgroundScope)
-        }
     }
-    
+
     override fun onResume() {
         super.onResume()
-        
-        // Stop observing operation state (we're back in foreground)
-        backgroundObserverJob?.cancel()
-        backgroundObserverJob = null
-        
-        // Hide notification
-        OperationNotificationService.hideNotification(this)
-        
-        // Reset dismissal state (notification should be hidden anyway when app resumes)
-        OperationNotificationService.resetDismissalState()
-        
-        // Resume polling
+        // Resume foreground-frequency polling.
         operationViewModel?.resumePolling()
-    }
-    
-    override fun onDestroy() {
-        super.onDestroy()
-        // Clean up background scope
-        backgroundScope.cancel()
     }
 }
 

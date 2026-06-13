@@ -153,7 +153,7 @@ fun ProgressCard(
             confirmButton = {
                 Button(
                     onClick = {
-                        operationViewModel.retryDecryptWithForce()
+                        operationViewModel.retryDecryptWithForce(context)
                     }
                 ) {
                     Text(stringResource(R.string.force_decrypt))
