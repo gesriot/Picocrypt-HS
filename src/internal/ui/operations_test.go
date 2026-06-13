@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
@@ -162,20 +163,20 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	a.State.Compress = false
 	a.advancedContainer = container.NewVBox()
 
-	saved := recursiveSettings{
-		password:       "secret",
-		keyfile:        true,
-		keyfiles:       []string{"k1", "k2"},
-		keyfileOrdered: true,
-		keyfileLabel:   "Using multiple keyfiles",
-		comments:       "saved comments",
-		paranoid:       true,
-		reedSolomon:    true,
-		deniability:    true,
-		split:          true,
-		splitSize:      "64",
-		splitSelected:  2,
-		delete:         true,
+	saved := app.RecursiveSnapshot{
+		Password:       "secret",
+		Keyfile:        true,
+		Keyfiles:       []string{"k1", "k2"},
+		KeyfileOrdered: true,
+		KeyfileLabel:   "Using multiple keyfiles",
+		Comments:       "saved comments",
+		Paranoid:       true,
+		ReedSolomon:    true,
+		Deniability:    true,
+		Split:          true,
+		SplitSize:      "64",
+		SplitSelected:  2,
+		Delete:         true,
 	}
 
 	done := make(chan struct{})
@@ -195,7 +196,7 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	if a.State.InputFile != inputPath {
 		t.Fatalf("InputFile = %q, want %q", a.State.InputFile, inputPath)
 	}
-	if a.State.Password != saved.password || a.State.CPassword != saved.password {
+	if a.State.Password != saved.Password || a.State.CPassword != saved.Password {
 		t.Fatalf("passwords not restored: %q / %q", a.State.Password, a.State.CPassword)
 	}
 	if got := a.State.PopupStatus; got != "Processing file 1/3..." {
@@ -204,10 +205,10 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	if !a.State.Keyfile || !a.State.KeyfileOrdered || !a.State.Paranoid || !a.State.ReedSolomon || !a.State.Deniability || !a.State.Split || !a.State.Delete {
 		t.Fatal("saved boolean options were not restored")
 	}
-	if a.State.SplitSize != saved.splitSize || a.State.SplitSelected != saved.splitSelected {
+	if a.State.SplitSize != saved.SplitSize || a.State.SplitSelected != saved.SplitSelected {
 		t.Fatal("split settings were not restored")
 	}
-	if a.State.Comments != saved.comments || a.State.KeyfileLabel != saved.keyfileLabel {
+	if a.State.Comments != saved.Comments || a.State.KeyfileLabel != saved.KeyfileLabel {
 		t.Fatal("saved metadata was not restored")
 	}
 }

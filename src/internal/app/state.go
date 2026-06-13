@@ -513,6 +513,27 @@ type UISnapshot struct {
 	CommentsLabel     string
 }
 
+// RecursiveSnapshot is a value-copy of the State fields the recursive (batch)
+// worker captures once and re-applies before each file. Like Snapshot/UISnapshot,
+// taking one copy under a single RLock keeps the recursive worker off unlocked
+// State access (APP-02). It carries the credential/option fields plus the
+// KeyfileLabel the recursive flow restores; no progress/widget fields belong here.
+type RecursiveSnapshot struct {
+	Password       string
+	Keyfile        bool
+	Keyfiles       []string
+	KeyfileOrdered bool
+	KeyfileLabel   string
+	Comments       string
+	Paranoid       bool
+	ReedSolomon    bool
+	Deniability    bool
+	Split          bool
+	SplitSize      string
+	SplitSelected  int32
+	Delete         bool
+}
+
 // Snapshot returns a consistent value-copy of the request-building fields under
 // a single read lock. Slice fields are deep-copied so the worker never aliases
 // State's backing arrays after the lock is released (APP-02).
@@ -580,6 +601,57 @@ func (s *State) UISnapshot() UISnapshot {
 		KeyfileLabel:      s.KeyfileLabel,
 		CommentsLabel:     s.CommentsLabel,
 	}
+}
+
+// RecursiveSnapshot returns a consistent value-copy of the fields the recursive
+// worker captures before processing a batch, under a single read lock. Keyfiles
+// is deep-copied so the worker never aliases State's backing array (APP-02).
+func (s *State) RecursiveSnapshot() RecursiveSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return RecursiveSnapshot{
+		Password:       s.Password,
+		Keyfile:        s.Keyfile,
+		Keyfiles:       append([]string(nil), s.Keyfiles...),
+		KeyfileOrdered: s.KeyfileOrdered,
+		KeyfileLabel:   s.KeyfileLabel,
+		Comments:       s.Comments,
+		Paranoid:       s.Paranoid,
+		ReedSolomon:    s.ReedSolomon,
+		Deniability:    s.Deniability,
+		Split:          s.Split,
+		SplitSize:      s.SplitSize,
+		SplitSelected:  s.SplitSelected,
+		Delete:         s.Delete,
+	}
+}
+
+// ApplyRecursiveSelection restores a captured RecursiveSnapshot onto the State
+// before the next file in a recursive batch, under a single write lock (APP-02:
+// replaces the recursive worker's bare cross-goroutine field writes). CPassword
+// mirrors Password (recursive mode never re-confirms), and Keyfiles is deep-copied
+// so the State never aliases the snapshot's backing array. Deniability is an
+// encrypt-only option, so it is left untouched when the just-dropped file put the
+// State into decrypt mode (preserves the prior inline guard).
+func (s *State) ApplyRecursiveSelection(rs RecursiveSnapshot) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Password = rs.Password
+	s.CPassword = rs.Password
+	s.Keyfile = rs.Keyfile
+	s.Keyfiles = append([]string(nil), rs.Keyfiles...)
+	s.KeyfileOrdered = rs.KeyfileOrdered
+	s.KeyfileLabel = rs.KeyfileLabel
+	s.Comments = rs.Comments
+	s.Paranoid = rs.Paranoid
+	s.ReedSolomon = rs.ReedSolomon
+	if s.Mode != "decrypt" {
+		s.Deniability = rs.Deniability
+	}
+	s.Split = rs.Split
+	s.SplitSize = rs.SplitSize
+	s.SplitSelected = rs.SplitSelected
+	s.Delete = rs.Delete
 }
 
 // SetShowProgress sets whether the progress dialog/state should be visible.

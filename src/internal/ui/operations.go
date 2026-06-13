@@ -19,22 +19,6 @@ func showOverwriteModalForOutput(outputExists, recursively, chosenViaDialog bool
 	return outputExists && !recursively && !chosenViaDialog
 }
 
-type recursiveSettings struct {
-	password       string
-	keyfile        bool
-	keyfiles       []string
-	keyfileOrdered bool
-	keyfileLabel   string
-	comments       string
-	paranoid       bool
-	reedSolomon    bool
-	deniability    bool
-	split          bool
-	splitSize      string
-	splitSelected  int32
-	delete         bool
-}
-
 // onClickStart handles the Start button click.
 func (a *App) onClickStart() {
 	a.cancelOpenedPathReadiness()
@@ -128,22 +112,9 @@ func (a *App) startRecursiveWork() {
 		return
 	}
 
-	// Store all settings before they get cleared by onDrop/resetUI
-	saved := recursiveSettings{
-		password:       a.State.Password,
-		keyfile:        a.State.Keyfile,
-		keyfiles:       append([]string(nil), a.State.Keyfiles...),
-		keyfileOrdered: a.State.KeyfileOrdered,
-		keyfileLabel:   a.State.KeyfileLabel,
-		comments:       a.State.Comments,
-		paranoid:       a.State.Paranoid,
-		reedSolomon:    a.State.ReedSolomon,
-		deniability:    a.State.Deniability,
-		split:          a.State.Split,
-		splitSize:      a.State.SplitSize,
-		splitSelected:  a.State.SplitSelected,
-		delete:         a.State.Delete,
-	}
+	// Capture all settings under one RLock before they get cleared by
+	// onDrop/resetUI, then re-apply them per file via the locked accessor (APP-02).
+	saved := a.State.RecursiveSnapshot()
 
 	files := make([]string, len(a.State.AllFiles))
 	copy(files, a.State.AllFiles)
@@ -209,28 +180,12 @@ func (a *App) startRecursiveWork() {
 	}()
 }
 
-func (a *App) applyRecursiveSelection(file string, saved recursiveSettings, index, total int) {
+func (a *App) applyRecursiveSelection(file string, saved app.RecursiveSnapshot, index, total int) {
 	status := fmt.Sprintf("Processing file %d/%d...", index, total)
 
 	fyne.DoAndWait(func() {
 		a.onDrop([]string{file})
-
-		a.State.Password = saved.password
-		a.State.CPassword = saved.password
-		a.State.Keyfile = saved.keyfile
-		a.State.Keyfiles = append([]string(nil), saved.keyfiles...)
-		a.State.KeyfileOrdered = saved.keyfileOrdered
-		a.State.KeyfileLabel = saved.keyfileLabel
-		a.State.Comments = saved.comments
-		a.State.Paranoid = saved.paranoid
-		a.State.ReedSolomon = saved.reedSolomon
-		if a.State.Mode != "decrypt" {
-			a.State.Deniability = saved.deniability
-		}
-		a.State.Split = saved.split
-		a.State.SplitSize = saved.splitSize
-		a.State.SplitSelected = saved.splitSelected
-		a.State.Delete = saved.delete
+		a.State.ApplyRecursiveSelection(saved)
 		a.State.SetPopupStatus(status)
 		_ = a.boundStatus.Set(status)
 	})
