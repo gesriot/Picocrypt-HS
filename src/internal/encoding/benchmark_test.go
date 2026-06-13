@@ -92,6 +92,25 @@ func BenchmarkRS1MiBEncode(b *testing.B) {
 	}
 }
 
+// BenchmarkRS1MiBEncodeInto measures encoding a full 1 MiB block via the
+// allocation-free EncodeInto path used by volume.encodeWithRS: one pre-sized
+// result buffer per MiB, encoded into in place (no per-chunk make, no append
+// copy). Compare against BenchmarkRS1MiBEncode to see the allocation delta.
+func BenchmarkRS1MiBEncodeInto(b *testing.B) {
+	const MiB = 1 << 20
+	data := make([]byte, MiB)
+	b.ResetTimer()
+	for b.Loop() {
+		result := make([]byte, 0, (MiB/RS128DataSize)*RS128EncodedSize)
+		for j := 0; j < MiB; j += RS128DataSize {
+			start := len(result)
+			result = result[:start+RS128EncodedSize]
+			_ = EncodeInto(result[start:], codecs.RS128, data[j:j+RS128DataSize])
+		}
+		_ = result
+	}
+}
+
 // BenchmarkRS1MiBDecodeFast measures fast decoding a full 1 MiB RS-encoded block.
 func BenchmarkRS1MiBDecodeFast(b *testing.B) {
 	const MiB = 1 << 20

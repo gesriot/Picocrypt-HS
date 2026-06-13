@@ -83,16 +83,33 @@ func NewRSCodecs() (*RSCodecs, error) {
 //
 // Example: Encode(rs128, 128-byte-data) -> 136 bytes with 8 parity bytes.
 func Encode(rs *infectious.FEC, data []byte) ([]byte, error) {
-	if len(data) != rs.Required() {
-		return nil, fmt.Errorf("rs encode: input size %d != required %d", len(data), rs.Required())
-	}
 	res := make([]byte, rs.Total())
-	if err := rs.Encode(data, func(s infectious.Share) {
-		res[s.Number] = s.Data[0]
-	}); err != nil {
-		return nil, fmt.Errorf("rs encode: %w", err)
+	if err := EncodeInto(res, rs, data); err != nil {
+		return nil, err
 	}
 	return res, nil
+}
+
+// EncodeInto is the allocation-free form of Encode: it writes the codec.Total()
+// output bytes directly into dst instead of returning a fresh slice. It is for
+// hot loops (the RS128 payload encoder) that already own an output buffer.
+//
+// dst must have length exactly rs.Total(); data must have length exactly
+// rs.Required(). The output bytes are identical to Encode's. Preconditions are
+// checked and return a non-nil error (never panic).
+func EncodeInto(dst []byte, rs *infectious.FEC, data []byte) error {
+	if len(data) != rs.Required() {
+		return fmt.Errorf("rs encode: input size %d != required %d", len(data), rs.Required())
+	}
+	if len(dst) != rs.Total() {
+		return fmt.Errorf("rs encode: dst size %d != total %d", len(dst), rs.Total())
+	}
+	if err := rs.Encode(data, func(s infectious.Share) {
+		dst[s.Number] = s.Data[0]
+	}); err != nil {
+		return fmt.Errorf("rs encode: %w", err)
+	}
+	return nil
 }
 
 // Decode attempts to decode and repair Reed-Solomon encoded data.

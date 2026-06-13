@@ -81,6 +81,56 @@ func TestEncodeWrongSizeReturnsError(t *testing.T) {
 	}
 }
 
+func TestEncodeIntoMatchesEncode(t *testing.T) {
+	codecs, err := NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs() failed: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		rs   *infectious.FEC
+	}{
+		{"RS1", codecs.RS1},
+		{"RS5", codecs.RS5},
+		{"RS16", codecs.RS16},
+		{"RS24", codecs.RS24},
+		{"RS32", codecs.RS32},
+		{"RS64", codecs.RS64},
+		{"RS128", codecs.RS128},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			data := make([]byte, c.rs.Required())
+			for i := range data {
+				data[i] = byte(i*7 + 1) // non-trivial, deterministic content
+			}
+
+			want, err := Encode(c.rs, data)
+			if err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+
+			dst := make([]byte, c.rs.Total())
+			if err := EncodeInto(dst, c.rs, data); err != nil {
+				t.Fatalf("EncodeInto: %v", err)
+			}
+			if !bytes.Equal(dst, want) {
+				t.Errorf("EncodeInto != Encode\n got %x\nwant %x", dst, want)
+			}
+		})
+	}
+
+	// Precondition errors, never panic.
+	if err := EncodeInto(make([]byte, 136), codecs.RS128, make([]byte, 127)); err == nil {
+		t.Error("EncodeInto(wrong data size): expected error, got nil")
+	}
+	if err := EncodeInto(make([]byte, 135), codecs.RS128, make([]byte, 128)); err == nil {
+		t.Error("EncodeInto(wrong dst size): expected error, got nil")
+	}
+}
+
 func TestDecodeWrongSizeReturnsError(t *testing.T) {
 	codecs, err := NewRSCodecs()
 	if err != nil {
