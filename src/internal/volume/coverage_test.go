@@ -10,8 +10,26 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
+	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/header"
 )
+
+// assertCancelled fails unless err is a cancellation error (reporter-driven
+// ErrCancelled or context.Canceled, through any %w wrapping) and the final output
+// file was never produced. Encodes the cancellation contract: an aborted operation
+// must surface a cancellation error and leave no partial volume behind.
+func assertCancelled(t *testing.T, op string, err error, outputPath string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("%s must fail when cancelled, not complete", op)
+	}
+	if !errors.Is(err, perrors.ErrCancelled) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("%s cancellation error = %v; want errors.Is(ErrCancelled) or errors.Is(context.Canceled)", op, err)
+	}
+	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
+		t.Errorf("cancelled %s left an output file at %s (stat err = %v)", op, outputPath, statErr)
+	}
+}
 
 // =============================================================================
 // Tests for VerifyFirst mode (decryptVerifyMACFirst)
@@ -578,8 +596,9 @@ func TestDecryptCancellation(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create a larger test file to have time for cancellation
-	plaintext := make([]byte, 100*1024) // 100 KiB
+	// Multi-chunk plaintext (>1 MiB): the reporter cancels after the first progress
+	// tick, so a single-chunk file would finish before the next IsCancelled check.
+	plaintext := make([]byte, 3*1024*1024)
 	for i := range plaintext {
 		plaintext[i] = byte(i % 256)
 	}
@@ -591,40 +610,27 @@ func TestDecryptCancellation(t *testing.T) {
 	encryptedPath := filepath.Join(tmpDir, "cancel_test.bin.pcv")
 	decryptedPath := filepath.Join(tmpDir, "cancel_dec.bin")
 
-	// Use a reporter that will signal cancellation
-	reporter := &CancellableReporter{cancelAfter: 1}
-
-	// Encrypt normally
-	encReq := &EncryptRequest{
+	// Encrypt normally.
+	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
 		Password:   "cancel_password",
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
+	}); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
-	// Decrypt with cancellation
-	decReq := &DecryptRequest{
+	// Decrypt while the reporter signals cancellation mid-stream.
+	err = Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
 		Password:     "cancel_password",
 		ForceDecrypt: false,
-		Reporter:     reporter,
+		Reporter:     &CancellableReporter{cancelAfter: 0},
 		RSCodecs:     rsCodecs,
-	}
-
-	err = Decrypt(context.Background(), decReq)
-	if err == nil {
-		t.Log("Decrypt completed before cancellation was triggered")
-	} else if strings.Contains(err.Error(), "cancelled") {
-		t.Log("Decrypt correctly handled cancellation")
-	} else {
-		t.Logf("Decrypt error: %v", err)
-	}
+	})
+	assertCancelled(t, "Decrypt", err, decryptedPath)
 }
 
 // CancellableReporter is a test reporter that triggers cancellation
@@ -1108,8 +1114,8 @@ func TestEncryptCancellation(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create larger test file
-	plaintext := make([]byte, 100*1024) // 100 KiB
+	// Multi-chunk plaintext so the reporter's cancel is observed before completion.
+	plaintext := make([]byte, 3*1024*1024)
 	for i := range plaintext {
 		plaintext[i] = byte(i % 256)
 	}
@@ -1120,25 +1126,14 @@ func TestEncryptCancellation(t *testing.T) {
 
 	encryptedPath := filepath.Join(tmpDir, "cancel_enc_test.bin.pcv")
 
-	// Use reporter that cancels immediately
-	reporter := &CancellableReporter{cancelAfter: 0}
-
-	encReq := &EncryptRequest{
+	err = Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
 		Password:   "cancel_password",
-		Reporter:   reporter,
+		Reporter:   &CancellableReporter{cancelAfter: 0},
 		RSCodecs:   rsCodecs,
-	}
-
-	err = Encrypt(context.Background(), encReq)
-	if err == nil {
-		t.Log("Encrypt completed before cancellation")
-	} else if strings.Contains(err.Error(), "cancelled") {
-		t.Log("Encrypt correctly handled cancellation")
-	} else {
-		t.Logf("Encrypt error: %v", err)
-	}
+	})
+	assertCancelled(t, "Encrypt", err, encryptedPath)
 }
 
 // TestEncryptContextCancellation tests that encryption respects context cancellation.
@@ -1176,13 +1171,7 @@ func TestEncryptContextCancellation(t *testing.T) {
 	}
 
 	err = Encrypt(ctx, encReq)
-	if err == nil {
-		t.Log("Encrypt completed before context cancellation was detected")
-	} else if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "cancelled") {
-		t.Log("Encrypt correctly handled context cancellation")
-	} else {
-		t.Logf("Encrypt error: %v", err)
-	}
+	assertCancelled(t, "Encrypt", err, encryptedPath)
 }
 
 // TestDecryptContextCancellation tests that decryption respects context cancellation.
@@ -1234,13 +1223,7 @@ func TestDecryptContextCancellation(t *testing.T) {
 	}
 
 	err = Decrypt(ctx, decReq)
-	if err == nil {
-		t.Log("Decrypt completed before context cancellation was detected")
-	} else if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "cancelled") {
-		t.Log("Decrypt correctly handled context cancellation")
-	} else {
-		t.Logf("Decrypt error: %v", err)
-	}
+	assertCancelled(t, "Decrypt", err, decryptedPath)
 }
 
 // TestRoundTripLargeFile tests encryption/decryption with a larger file to hit rekey code paths
