@@ -2,6 +2,7 @@ package encoding
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"github.com/Picocrypt/infectious"
@@ -78,6 +79,60 @@ func TestEncodeWrongSizeReturnsError(t *testing.T) {
 	}
 	if len(enc) != 136 {
 		t.Errorf("correct-size Encode: len=%d; want 136", len(enc))
+	}
+}
+
+// goldenRS128Input is a fixed 128-byte input (byte i = i*7+1 mod 256) whose
+// RS128 encoding is frozen below. Shared by the golden-vector test.
+func goldenRS128Input() []byte {
+	in := make([]byte, RS128DataSize)
+	for i := range in {
+		in[i] = byte(i*7 + 1)
+	}
+	return in
+}
+
+// TestRS128EncodeGoldenVector pins the RS128 payload encoder's output to a
+// frozen byte vector. The RS128 codec (infectious FEC(128,136)) is the exact
+// one the legacy Picocrypt .pcv format uses, so this freezes the on-disk
+// payload encode format: any drift in parity or layout is caught here directly,
+// not only transitively via roundtrip self-consistency.
+//
+// RS128 is a *systematic* code: output bytes 0..127 are the input verbatim
+// (this is why Decode's fast path returns data[:128]); bytes 128..135 are the
+// 8 parity bytes. Both properties are asserted.
+func TestRS128EncodeGoldenVector(t *testing.T) {
+	codecs, err := NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs() failed: %v", err)
+	}
+
+	input := goldenRS128Input()
+	got, err := Encode(codecs.RS128, input)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if len(got) != RS128EncodedSize {
+		t.Fatalf("Encode len = %d; want %d", len(got), RS128EncodedSize)
+	}
+
+	// Systematic property: first 128 output bytes equal the input verbatim.
+	if !bytes.Equal(got[:RS128DataSize], input) {
+		t.Errorf("RS128 not systematic:\n got[:128]=%x\nwant       %x", got[:RS128DataSize], input)
+	}
+
+	// Frozen full 136-byte block (128 systematic + 8 parity).
+	wantFull, err := hex.DecodeString(
+		"01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3da" +
+			"e1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3ba" +
+			"c1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939a" +
+			"a1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a" +
+			"a5d74e94add3b8cd")
+	if err != nil {
+		t.Fatalf("decode golden: %v", err)
+	}
+	if !bytes.Equal(got, wantFull) {
+		t.Errorf("RS128 golden mismatch (encode format drift):\n got  %x\nwant %x", got, wantFull)
 	}
 }
 
