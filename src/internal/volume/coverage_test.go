@@ -373,64 +373,73 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	plaintext := []byte("VerifyFirst + ForceDecrypt test data.")
+	plaintext := bytes.Repeat([]byte("VerifyFirst + ForceDecrypt payload. "), 32)
 	inputPath := filepath.Join(tmpDir, "verify_force.txt")
 	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
+		t.Fatalf("write input: %v", err)
 	}
-
 	encryptedPath := filepath.Join(tmpDir, "verify_force.txt.pcv")
-	decryptedPath := filepath.Join(tmpDir, "verify_force_dec.txt")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt
-	encReq := &EncryptRequest{
+	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
 		Password:   "verify_force_password",
-		Reporter:   reporter,
+		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
+	}); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
-	// Corrupt the payload
+	// Corrupt one ciphertext byte so the MAC fails.
 	data, err := os.ReadFile(encryptedPath)
 	if err != nil {
-		t.Fatalf("Failed to read encrypted file: %v", err)
+		t.Fatalf("read encrypted: %v", err)
 	}
-
 	corruptOffset := header.BaseHeaderSize + 10
-	if corruptOffset < len(data) {
-		data[corruptOffset] ^= 0xFF
+	if corruptOffset >= len(data)-64 {
+		t.Fatalf("encrypted file too small (%d bytes)", len(data))
 	}
-
+	data[corruptOffset] ^= 0xFF
 	if err := os.WriteFile(encryptedPath, data, 0644); err != nil {
-		t.Fatalf("Failed to write corrupted file: %v", err)
+		t.Fatalf("write corrupted: %v", err)
 	}
 
-	// Decrypt with VerifyFirst + ForceDecrypt - should continue despite MAC failure
+	// VerifyFirst WITHOUT ForceDecrypt: the pre-decryption MAC pass must reject and
+	// leave no output.
+	rejectedPath := filepath.Join(tmpDir, "verify_rejected.txt")
+	if err := Decrypt(context.Background(), &DecryptRequest{
+		InputFile:   encryptedPath,
+		OutputFile:  rejectedPath,
+		Password:    "verify_force_password",
+		VerifyFirst: true,
+		Reporter:    &GoldenTestReporter{},
+		RSCodecs:    rsCodecs,
+	}); err == nil {
+		t.Fatal("VerifyFirst decrypt of corrupted data must fail without ForceDecrypt")
+	}
+	if _, statErr := os.Stat(rejectedPath); !os.IsNotExist(statErr) {
+		t.Error("rejected VerifyFirst decrypt must not leave an output file")
+	}
+
+	// VerifyFirst WITH ForceDecrypt: forces through the MAC failure and keeps output.
 	var kept bool
-	decReq := &DecryptRequest{
+	keptPath := filepath.Join(tmpDir, "verify_force_dec.txt")
+	if err := Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
+		OutputFile:   keptPath,
 		Password:     "verify_force_password",
 		VerifyFirst:  true,
-		ForceDecrypt: true, // Force through MAC failure
+		ForceDecrypt: true,
 		Kept:         &kept,
-		Reporter:     reporter,
+		Reporter:     &GoldenTestReporter{},
 		RSCodecs:     rsCodecs,
+	}); err != nil {
+		t.Fatalf("VerifyFirst + ForceDecrypt must force through, got: %v", err)
 	}
-
-	err = Decrypt(context.Background(), decReq)
-	// ForceDecrypt may succeed or fail depending on corruption severity
-	if err != nil {
-		t.Logf("VerifyFirst + ForceDecrypt error (may be expected): %v", err)
-	} else {
-		t.Log("VerifyFirst + ForceDecrypt succeeded (forced through MAC failure)")
+	if !kept {
+		t.Error("VerifyFirst + ForceDecrypt over a MAC failure must set kept=true")
+	}
+	if _, statErr := os.Stat(keptPath); statErr != nil {
+		t.Errorf("VerifyFirst + ForceDecrypt must produce an output file: %v", statErr)
 	}
 }
 

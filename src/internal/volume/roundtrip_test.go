@@ -1842,7 +1842,9 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 	t.Log("Round-trip split+keyfile: SUCCESS")
 }
 
-// TestForceDecryptCorruptedData tests force decrypt with damaged RS data
+// TestForceDecryptCorruptedData proves the ForceDecrypt contract over a corrupted
+// payload: without ForceDecrypt a MAC failure is rejected with no output; with it,
+// the operation forces through, keeps a best-effort output file, and flags it kept.
 func TestForceDecryptCorruptedData(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -1851,68 +1853,71 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create test file
-	plaintext := []byte("Data that will be intentionally corrupted for recovery test.")
+	// Reed-Solomon OFF so a single ciphertext-byte flip reliably defeats the MAC
+	// (RS correction is covered by TestVerifyFirstCorrectableRS); a multi-KiB payload
+	// keeps the flip mid-ciphertext, away from the header and the trailing MAC.
+	plaintext := []byte(strings.Repeat("force-decrypt corruption payload. ", 64))
 	inputPath := filepath.Join(tmpDir, "corrupt_test.txt")
 	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
-
 	encryptedPath := filepath.Join(tmpDir, "corrupt_test.txt.pcv")
-	decryptedPath := filepath.Join(tmpDir, "corrupt_recovered.txt")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt with Reed-Solomon (needed for force decrypt to work)
-	encReq := &EncryptRequest{
+	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
 		Password:    "corrupt_test_password",
-		ReedSolomon: true,
-		Reporter:    reporter,
+		ReedSolomon: false,
+		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
+	}); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
-	// Corrupt some bytes in the encrypted file (after the header)
+	// Flip one ciphertext byte in the middle of the payload.
 	data, err := os.ReadFile(encryptedPath)
 	if err != nil {
-		t.Fatalf("Failed to read encrypted file: %v", err)
+		t.Fatalf("read encrypted: %v", err)
 	}
-
-	// Corrupt bytes near the end of the file (in the payload area)
-	// Header is approximately 789 + 3*comments bytes, so corrupt after that
-	corruptStart := len(data) - 100
-	if corruptStart > 0 && corruptStart < len(data)-10 {
-		for i := 0; i < 5; i++ {
-			data[corruptStart+i] ^= 0xFF // Flip bits
-		}
-	}
-
+	data[len(data)/2] ^= 0xFF
 	if err := os.WriteFile(encryptedPath, data, 0644); err != nil {
-		t.Fatalf("Failed to write corrupted file: %v", err)
+		t.Fatalf("write corrupted: %v", err)
 	}
 
-	// Try to decrypt with force mode (should succeed with possible data loss)
-	decReq := &DecryptRequest{
+	// Without ForceDecrypt: the MAC failure must be rejected, leaving no output.
+	rejectedPath := filepath.Join(tmpDir, "rejected.txt")
+	if err := Decrypt(context.Background(), &DecryptRequest{
+		InputFile:  encryptedPath,
+		OutputFile: rejectedPath,
+		Password:   "corrupt_test_password",
+		Reporter:   &GoldenTestReporter{},
+		RSCodecs:   rsCodecs,
+	}); err == nil {
+		t.Fatal("decrypt of corrupted data without ForceDecrypt must fail")
+	}
+	if _, statErr := os.Stat(rejectedPath); !os.IsNotExist(statErr) {
+		t.Error("rejected decrypt must not leave an output file")
+	}
+
+	// With ForceDecrypt: forces through the MAC failure, keeps a best-effort output
+	// file, and flags it as kept (input not authentic).
+	var kept bool
+	keptPath := filepath.Join(tmpDir, "kept.txt")
+	if err := Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
+		OutputFile:   keptPath,
 		Password:     "corrupt_test_password",
-		ForceDecrypt: true, // Force through errors
-		Reporter:     reporter,
+		ForceDecrypt: true,
+		Kept:         &kept,
+		Reporter:     &GoldenTestReporter{},
 		RSCodecs:     rsCodecs,
+	}); err != nil {
+		t.Fatalf("ForceDecrypt over corrupted data must succeed, got: %v", err)
 	}
-
-	err = Decrypt(context.Background(), decReq)
-	// Force decrypt might succeed or fail depending on where corruption landed
-	// The test verifies that force decrypt at least attempts recovery
-	if err != nil {
-		t.Logf("Force decrypt returned error (expected for some corruptions): %v", err)
-	} else {
-		t.Log("Force decrypt succeeded - some data may be recoverable")
+	if !kept {
+		t.Error("ForceDecrypt over a MAC failure must set kept=true")
+	}
+	if _, statErr := os.Stat(keptPath); statErr != nil {
+		t.Errorf("ForceDecrypt must produce a best-effort output file: %v", statErr)
 	}
 }
 

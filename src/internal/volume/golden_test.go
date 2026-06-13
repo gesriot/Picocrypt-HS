@@ -867,14 +867,26 @@ func TestGoldenHeaderParsing(t *testing.T) {
 		t.Fatalf("Failed to create RS codecs: %v", err)
 	}
 
-	testFiles := []string{
-		"pico_test_v1.txt.pcv",
-		"pico_test_v2.txt.pcv",
+	cases := []struct {
+		file          string
+		versionPrefix string
+	}{
+		{"pico_test_v1.txt.pcv", "v1"},
+		{"pico_test_v2.txt.pcv", "v2"},
 	}
 
-	for _, file := range testFiles {
-		t.Run(file, func(t *testing.T) {
-			path := filepath.Join(testdataPath, file)
+	allZero := func(b []byte) bool {
+		for _, x := range b {
+			if x != 0 {
+				return false
+			}
+		}
+		return true
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			path := filepath.Join(testdataPath, tc.file)
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				t.Skipf("File not found: %s", path)
 			}
@@ -888,24 +900,45 @@ func TestGoldenHeaderParsing(t *testing.T) {
 			reader := NewHeaderReaderForTest(fin, rsCodecs)
 			result, err := reader.ReadHeader()
 			if err != nil {
-				t.Fatalf("Failed to read header: %v", err)
+				t.Fatalf("ReadHeader: %v", err)
+			}
+			// A clean golden fixture must decode without RS errors.
+			if result.DecodeError != nil {
+				t.Errorf("clean golden fixture decoded with errors: %v", result.DecodeError)
 			}
 
 			h := result.Header
-			t.Logf("Version: %s", h.Version)
-			t.Logf("Comments: %s", h.Comments)
-			t.Logf("Flags: Paranoid=%v UseKeyfiles=%v KeyfileOrdered=%v ReedSolomon=%v Padded=%v",
-				h.Flags.Paranoid, h.Flags.UseKeyfiles, h.Flags.KeyfileOrdered, h.Flags.ReedSolomon, h.Flags.Padded)
-			t.Logf("Salt: %x", h.Salt)
-			t.Logf("HKDFSalt: %x", h.HKDFSalt)
-			t.Logf("SerpentIV: %x", h.SerpentIV)
-			t.Logf("Nonce: %x", h.Nonce)
-			t.Logf("KeyHash (first 16): %x", h.KeyHash[:16])
-			t.Logf("KeyfileHash: %x", h.KeyfileHash)
-			t.Logf("AuthTag (first 16): %x", h.AuthTag[:16])
+			// Version must be a well-formed Picocrypt version of the expected generation.
+			if !header.MatchVersion([]byte(h.Version)) {
+				t.Errorf("Version %q is not a well-formed Picocrypt version", h.Version)
+			}
+			if !strings.HasPrefix(h.Version, tc.versionPrefix) {
+				t.Errorf("Version = %q; want %s.x", h.Version, tc.versionPrefix)
+			}
 
-			if result.DecodeError != nil {
-				t.Logf("Decode error (header might still be usable): %v", result.DecodeError)
+			// Each crypto field must decode to its fixed width.
+			for _, f := range []struct {
+				name string
+				got  int
+				want int
+			}{
+				{"Salt", len(h.Salt), header.SaltSize},
+				{"HKDFSalt", len(h.HKDFSalt), header.HKDFSaltSize},
+				{"SerpentIV", len(h.SerpentIV), header.SerpentIVSize},
+				{"Nonce", len(h.Nonce), header.NonceSize},
+				{"KeyHash", len(h.KeyHash), header.KeyHashSize},
+				{"KeyfileHash", len(h.KeyfileHash), header.KeyfileHashSize},
+				{"AuthTag", len(h.AuthTag), header.AuthTagSize},
+			} {
+				if f.got != f.want {
+					t.Errorf("%s length = %d; want %d", f.name, f.got, f.want)
+				}
+			}
+
+			// KeyHash is the password-verification field present in both v1 and v2;
+			// an all-zero value would mean the header was mis-decoded.
+			if allZero(h.KeyHash) {
+				t.Error("KeyHash decoded to all zeros (mis-parsed header)")
 			}
 		})
 	}
