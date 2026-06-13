@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import io.github.picocrypt_ng.picocrypt_ng.FileCopyService
 
@@ -156,13 +157,28 @@ object OperationManager {
                 null
             }
             
-            _currentOperation.value = operation.copy(
-                status = progressState.status,
-                progress = progressState.progress,
-                info = progressState.info,
-                done = progressState.done,
-                error = error
-            )
+            // Atomic read-modify-write: between capturing `operation` above and the
+            // suspending getProgress I/O, a concurrent coroutine (the FGS 1000ms poll
+            // vs. the UI 500ms poll, or a clear/replace) may have changed the flow. An
+            // unconditional write would resurrect a cleared op as a phantom non-done
+            // state or clobber a newer op. Update conditionally on the latest value.
+            _currentOperation.update { current ->
+                if (current == null || current.id != operation.id || current.done) {
+                    // cleared, replaced, or already finished concurrently -- do not
+                    // resurrect/clobber.
+                    current
+                } else {
+                    // Copy onto `current` (not the captured `operation`): same id,
+                    // latest base.
+                    current.copy(
+                        status = progressState.status,
+                        progress = progressState.progress,
+                        info = progressState.info,
+                        done = progressState.done,
+                        error = error
+                    )
+                }
+            }
         }
         
         _currentOperation.value
