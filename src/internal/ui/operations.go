@@ -191,6 +191,24 @@ func (a *App) applyRecursiveSelection(file string, saved app.RecursiveSnapshot, 
 	})
 }
 
+// clearCredentialEntries resets the password, confirm-password, and comments entry
+// widgets to match a cleared State, then refreshes the strength meter and
+// validation. It touches Fyne widgets, so a worker goroutine must invoke it on the
+// UI goroutine (wrap in fyne.Do).
+func (a *App) clearCredentialEntries() {
+	if a.passwordEntry != nil {
+		a.passwordEntry.SetText("")
+	}
+	if a.cPasswordEntry != nil {
+		a.cPasswordEntry.SetText("")
+	}
+	if a.commentsEntry != nil {
+		a.commentsEntry.SetText("")
+	}
+	a.updatePasswordStrength()
+	a.updateValidation()
+}
+
 // doEncrypt performs encryption using the volume package.
 func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	// APP-02: read every request-building field once, consistently, under a
@@ -260,19 +278,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	a.State.SetStatus("Completed", util.GREEN)
 
 	// Clear UI widgets to match the reset state
-	fyne.Do(func() {
-		if a.passwordEntry != nil {
-			a.passwordEntry.SetText("")
-		}
-		if a.cPasswordEntry != nil {
-			a.cPasswordEntry.SetText("")
-		}
-		if a.commentsEntry != nil {
-			a.commentsEntry.SetText("")
-		}
-		a.updatePasswordStrength()
-		a.updateValidation()
-	})
+	fyne.Do(a.clearCredentialEntries)
 
 	if shouldDelete {
 		var deleteErrors []string
@@ -338,19 +344,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	a.State.ResetUI()
 
 	// Clear UI widgets to match the reset state
-	fyne.Do(func() {
-		if a.passwordEntry != nil {
-			a.passwordEntry.SetText("")
-		}
-		if a.cPasswordEntry != nil {
-			a.cPasswordEntry.SetText("")
-		}
-		if a.commentsEntry != nil {
-			a.commentsEntry.SetText("")
-		}
-		a.updatePasswordStrength()
-		a.updateValidation()
-	})
+	fyne.Do(a.clearCredentialEntries)
 
 	if kept {
 		a.State.SetKept(true)
