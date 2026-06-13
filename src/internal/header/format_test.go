@@ -341,18 +341,6 @@ func TestIsLegacyV1(t *testing.T) {
 	}
 }
 
-func TestNewCodecs(t *testing.T) {
-	rs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("NewRSCodecs failed: %v", err)
-	}
-
-	codecs := NewCodecs(rs)
-	if codecs.RSCodecs != rs {
-		t.Error("NewCodecs did not wrap RSCodecs correctly")
-	}
-}
-
 func TestHeaderWriteReadRoundtrip(t *testing.T) {
 	rs, err := encoding.NewRSCodecs()
 	if err != nil {

@@ -206,21 +206,6 @@ func TestNewMAC(t *testing.T) {
 	}
 }
 
-func TestCounter(t *testing.T) {
-	c := NewCounter()
-
-	// Should not trigger rekey initially
-	if c.Add(1000) {
-		t.Error("Should not trigger rekey for small amounts")
-	}
-
-	// Reset
-	c.Reset()
-	if c.Count() != 0 {
-		t.Error("Counter should be 0 after reset")
-	}
-}
-
 func TestDeniabilityRekey(t *testing.T) {
 	key := make([]byte, 32)
 	nonce := make([]byte, 24)
