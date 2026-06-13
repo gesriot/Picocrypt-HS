@@ -256,7 +256,29 @@ class FileCopyServiceTest {
     @Test
     fun deleteFile_returns_false_for_non_existent_file() = runTest {
         val result = FileCopyService.deleteFile(context, "/nonexistent/file.txt")
-        
+
         assertFalse("Should return false for non-existent file", result)
+    }
+
+    @Test
+    fun deleteFile_secure_delete_removes_file_with_known_content() = runTest {
+        // Write a file with known NON-ZERO content so the secure-delete overwrite
+        // step has something distinct to zero out before unlinking.
+        val internalDir = File(context.filesDir, "picocrypt_files")
+        internalDir.mkdirs()
+        val testFile = File(internalDir, "secure_delete_target.bin")
+        testFile.writeBytes(ByteArray(8192) { 0xAB.toByte() })
+
+        assertTrue("File should exist before secure delete", testFile.exists())
+        assertEquals("File should have known size before delete", 8192L, testFile.length())
+
+        val result = FileCopyService.deleteFile(context, testFile.absolutePath)
+
+        // NOTE: We cannot verify the overwritten bytes post-delete — the inode is gone once
+        // the file is unlinked, so there is nothing left to read back. This test only proves
+        // that routing deletion through the overwrite-then-unlink secureDelete helper still
+        // removes the file and preserves the existing return-value contract.
+        assertTrue("Secure delete should succeed", result)
+        assertFalse("File should be deleted after secure delete", testFile.exists())
     }
 }
