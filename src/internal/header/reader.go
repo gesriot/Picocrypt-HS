@@ -114,7 +114,7 @@ func (r *Reader) ReadHeader() (*ReadResult, error) {
 
 	// Read comments (each byte is rs1 encoded: 3 bytes -> 1 byte)
 	comments := make([]byte, 0, commentsLen)
-	for i := 0; i < commentsLen; i++ {
+	for i := range commentsLen {
 		cEnc := make([]byte, 3) // rs1: 1 -> 3
 		n, err = io.ReadFull(r.r, cEnc)
 		result.BytesRead += n

@@ -269,7 +269,7 @@ func TestSecureZeroConcurrent(t *testing.T) {
 
 	// Zero all buffers concurrently
 	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(idx int) {
 			SecureZero(buffers[idx])
 			done <- true
@@ -277,7 +277,7 @@ func TestSecureZeroConcurrent(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -319,14 +319,14 @@ func TestSecureZeroMultipleConcurrent(t *testing.T) {
 	}
 
 	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(idx int) {
 			SecureZeroMultiple(sets[idx].key1, sets[idx].key2, sets[idx].key3)
 			done <- true
 		}(i)
 	}
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -358,14 +358,14 @@ func TestKeyMaterialConcurrentClose(t *testing.T) {
 	internalData := km.Bytes()
 
 	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			km.Close() // Multiple concurrent Close calls should be safe
 			done <- true
 		}()
 	}
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -401,14 +401,14 @@ func TestCryptoContextConcurrentClose(t *testing.T) {
 	headerRef := cc.HeaderSubkey
 
 	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			cc.Close()
 			done <- true
 		}()
 	}
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 

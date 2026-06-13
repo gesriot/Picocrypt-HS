@@ -149,7 +149,7 @@ func corruptRSBlockBeyondBudget(t *testing.T, pcvPath string, blockIndex int) {
 
 	// Flip every byte of the 136-byte encoded block: ~136 errors >> the 4-error
 	// RS128 budget, so this is irrecoverable.
-	for i := 0; i < encoding.RS128EncodedSize; i++ {
+	for i := range encoding.RS128EncodedSize {
 		data[blockStart+i] ^= 0xFF
 	}
 

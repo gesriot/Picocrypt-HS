@@ -493,10 +493,8 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 	// Worker goroutine: build a request snapshot under one RLock, then write
 	// status/result through the locked setters — exactly the operations.go
 	// doEncrypt/doDecrypt hot-path access pattern.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			snap := state.Snapshot()
 			// Touch the snapshot fields so the race detector sees the reads.
 			_ = snap.Mode
@@ -514,14 +512,12 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 			state.SetStatus("working", util.WHITE)
 			state.SetKept(i%2 == 0)
 		}
-	}()
+	})
 
 	// Render-thread callback goroutine: drives the locked setters the drop /
 	// operations callbacks use to mutate shared fields concurrently.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			state.SetMode("encrypt")
 			state.SetWorking(i%2 == 0)
 			state.SetInputFile("in.txt")
@@ -530,13 +526,11 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 			state.SetDeniability(i%2 == 0)
 			state.SetKeep(i%2 == 1)
 		}
-	}()
+	})
 
 	// Render-thread reader goroutine: hits the locked getters concurrently.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for range iterations {
 			_ = state.IsEncrypting()
 			_ = state.IsDecrypting()
 			_ = state.IsWorking()
@@ -548,7 +542,7 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 			_ = rsnap.Keep
 			_ = state.WasKept()
 		}
-	}()
+	})
 
 	wg.Wait()
 
@@ -571,7 +565,7 @@ func TestStateConcurrency(t *testing.T) {
 
 	// Concurrent reads
 	wg.Add(iterations)
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		go func() {
 			defer wg.Done()
 			_ = state.IsEncrypting()
@@ -583,7 +577,7 @@ func TestStateConcurrency(t *testing.T) {
 
 	// Concurrent writes
 	wg.Add(iterations)
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		go func(i int) {
 			defer wg.Done()
 			state.SetStatus("Test", util.WHITE)

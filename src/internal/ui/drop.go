@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -461,13 +462,7 @@ func (a *App) handleKeyfileDrop(paths []string) bool {
 	// Add keyfiles, checking for duplicates and access
 	for _, path := range paths {
 		// Check if duplicate
-		duplicate := false
-		for _, existing := range a.State.Keyfiles {
-			if path == existing {
-				duplicate = true
-				break
-			}
-		}
+		duplicate := slices.Contains(a.State.Keyfiles, path)
 
 		// Check if accessible and not a directory
 		stat, err := os.Stat(path)

@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,13 +39,7 @@ func normalizeZipPath(zipPath string) string {
 // hasUnsafeWindowsTrimTraversalComponent rejects path segments that Windows can
 // canonicalize into "." or ".." by trimming trailing spaces or periods.
 func hasUnsafeWindowsTrimTraversalComponent(path string) bool {
-	for _, segment := range strings.Split(strings.ReplaceAll(path, "\\", "/"), "/") {
-		if becomesDotTraversalAfterWindowsTrim(segment) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(strings.Split(strings.ReplaceAll(path, "\\", "/"), "/"), becomesDotTraversalAfterWindowsTrim)
 }
 
 func becomesDotTraversalAfterWindowsTrim(segment string) bool {

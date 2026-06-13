@@ -116,7 +116,7 @@ func TestUIReporterConcurrency(t *testing.T) {
 
 	// Concurrent Cancel/Reset/IsCancelled
 	wg.Add(iterations * 3)
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		go func() {
 			defer wg.Done()
 			reporter.Cancel()

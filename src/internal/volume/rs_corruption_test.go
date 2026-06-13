@@ -103,7 +103,7 @@ func corruptOneRSBlock(t *testing.T, pcvPath string, blockIndex, nFlips int) {
 	}
 
 	// Flip nFlips distinct, spread-out bytes inside the 128-byte data region.
-	for k := 0; k < nFlips; k++ {
+	for k := range nFlips {
 		pos := blockStart + k*31 // 31 keeps positions distinct within [0,128)
 		data[pos] ^= 0xFF
 	}

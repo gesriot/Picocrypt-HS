@@ -2188,7 +2188,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	// Salt starts at offset 15 + 15 + 15 = 45, is 48 bytes (rs16: 16->48)
 	// RS16 can correct up to (48-16)/2 = 16 errors. Flip more than that.
 	saltStart := 45
-	for i := 0; i < 20; i++ { // Corrupt 20 bytes - exceeds RS16 correction capacity
+	for i := range 20 { // Corrupt 20 bytes - exceeds RS16 correction capacity
 		if saltStart+i < len(data) {
 			data[saltStart+i] ^= 0xFF
 		}

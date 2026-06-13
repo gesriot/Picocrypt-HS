@@ -924,7 +924,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	}
 	garbage := make([]byte, 200)
 	copy(garbage, full[:200])
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		garbage[i] = 0
 	}
 	garbagePath := filepath.Join(tmpDir, "garbage.pcv")

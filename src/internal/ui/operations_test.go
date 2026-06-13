@@ -348,10 +348,8 @@ func TestWorkerCallbackStateRace(t *testing.T) {
 
 	// Worker goroutine: snapshot the request fields, then write status/result
 	// via the locked setters — the operations.go doEncrypt/doDecrypt hot path.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			snap := a.State.Snapshot()
 			_ = snap.Mode
 			_ = snap.InputFile
@@ -364,13 +362,11 @@ func TestWorkerCallbackStateRace(t *testing.T) {
 			a.State.SetStatus("working", util.WHITE)
 			a.State.SetKept(i%2 == 0)
 		}
-	}()
+	})
 
 	// Render-thread writer goroutine: the drop/operations fyne.Do callbacks.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			a.State.SetMode("encrypt")
 			a.State.SetWorking(i%2 == 0)
 			a.State.SetInputFile("in.txt")
@@ -379,20 +375,18 @@ func TestWorkerCallbackStateRace(t *testing.T) {
 			a.State.SetDeniability(i%2 == 0)
 			a.State.SetKeep(i%2 == 1)
 		}
-	}()
+	})
 
 	// Render-thread reader goroutine: the guards/labels that read shared fields.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for range iterations {
 			_ = a.State.IsEncrypting()
 			_ = a.State.IsDecrypting()
 			_ = a.State.IsWorking()
 			_ = a.State.WasKept()
 			_ = a.State.Snapshot()
 		}
-	}()
+	})
 
 	wg.Wait()
 }
@@ -407,24 +401,20 @@ func TestUpdateUIStateReadsStateThroughSnapshot(t *testing.T) {
 	const iterations = 500
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			a.State.ResetUI()
 			a.State.SetStatus("working", util.WHITE)
 			a.State.SetScanning(i%2 == 0)
 			a.State.SetWorking(i%2 == 1)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for range iterations {
 			a.updateUIState()
 		}
-	}()
+	})
 
 	wg.Wait()
 }

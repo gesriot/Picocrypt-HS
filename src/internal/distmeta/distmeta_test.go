@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -442,9 +443,9 @@ func TestLinuxAppIdentityContract(t *testing.T) {
 func desktopEntryValue(t *testing.T, data []byte, key string) string {
 	t.Helper()
 	prefix := key + "="
-	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		if after, ok := strings.CutPrefix(line, prefix); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 	t.Fatalf("desktop entry missing %s key", key)
@@ -679,12 +680,7 @@ func TestSnapcraftBuildInstallsDeclaredCommand(t *testing.T) {
 }
 
 func containsString(values []string, needle string) bool {
-	for _, value := range values {
-		if value == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, needle)
 }
 
 // plistValue is a parsed plist value: string, bool, int, []plistValue, or plistDict.
