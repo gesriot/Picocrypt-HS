@@ -122,6 +122,16 @@ jobs:
         working-directory: android
         script: TEST_CLASSES="io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest"; { [ "${{ inputs.test_scope }}" = "extended" ] && TEST_CLASSES="$TEST_CLASSES,io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest"; } || true; ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="$TEST_CLASSES"
 
+    - name: Upload instrumented test report
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: instrumented-test-report
+        path: |
+          android/app/build/reports/androidTests/connected/
+          android/app/build/outputs/androidTest-results/connected/
+        if-no-files-found: warn
+
     - name: Prepare artifacts
       run: |
         mkdir -p out
