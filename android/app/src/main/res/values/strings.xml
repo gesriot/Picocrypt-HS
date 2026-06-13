@@ -30,6 +30,8 @@
     <string name="creating">Creating…</string>
     <string name="require_this_order">Require this order</string>
     <string name="error_creating_keyfile">Error Creating Keyfile</string>
+    <string name="keyfile_write_failed">Failed to write keyfile to selected location</string>
+    <string name="keyfile_create_failed">Failed to create keyfile: %1$s</string>
     <string name="keyfiles_required_warning">⚠️ Keyfiles required for this file</string>
     <string name="keyfile_order_matters">⚠️ Keyfile order matters</string>
     
@@ -71,7 +73,6 @@
     <string name="force_decrypt_warning">The encrypted file appears to be corrupted. Force decrypt will attempt to recover as much data as possible, but the output may be partially or completely corrupted.</string>
     <string name="force_decrypt">Force Decrypt</string>
     <string name="authentication_error">Authentication Error</string>
-    <string name="authentication_failed">Authentication failed</string>
     <string name="retry">Retry</string>
     <string name="error">Error</string>
     <string name="unknown_error_occurred">An unknown error occurred</string>
@@ -88,4 +89,10 @@
     <!-- Logo Bar -->
     <string name="logo_icon">logo icon</string>
     <string name="logo_text">logo text</string>
+
+    <!-- Foreground Service -->
+    <string name="fgs_channel_name">Operation Progress</string>
+    <string name="fgs_encrypting">Encrypting</string>
+    <string name="fgs_decrypting">Decrypting</string>
+    <string name="fgs_working">Working…</string>
 </resources>

@@ -3,7 +3,6 @@ package io.github.picocrypt_ng.picocrypt_ng.ui.components
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.picocrypt_ng.picocrypt_ng.AppError
@@ -42,7 +41,9 @@ class ProgressCardTest {
             )
         }
 
-        composeTestRule.onRoot().assertIsDisplayed()
+        // ProgressCard is a modal: with no active operation it renders nothing.
+        // Assert intent — no progress dialog is shown (its Cancel button is absent).
+        composeTestRule.onNodeWithText(application.getString(R.string.cancel)).assertDoesNotExist()
     }
 
     @Test

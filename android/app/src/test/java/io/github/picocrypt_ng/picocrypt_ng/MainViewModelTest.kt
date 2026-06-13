@@ -178,6 +178,46 @@ class MainViewModelTest {
         assertEquals(0, restoredFormState.passwordInput.size)
         assertEquals(0, restoredFormState.confirmPasswordInput.size)
     }
+
+    @Test
+    fun `passwords are not persisted to saved state`() = runTest {
+        // Set a non-empty form (valid encrypt) AND a password through the VM.
+        viewModel.updateFormData(
+            TestDataBuilders.createEncryptFormData(
+                selectedFilename = "secret.txt",
+                password = "",
+                confirmPassword = ""
+            )
+        )
+        viewModel.updatePasswords(
+            password = "secret-pass".toCharArray(),
+            confirmPassword = "secret-pass".toCharArray()
+        )
+        // No SavedStateHandle key may hold the password value. Only file/comment
+        // keys are written (KEY_SELECTED_FILENAME, KEY_COPIED_FILE_PATH, KEY_COMMENTS),
+        // so this assertion fails if updatePasswords/updateFormData ever wrote the
+        // password to any key.
+        for (key in savedStateHandle.keys()) {
+            val stored = savedStateHandle.get<Any?>(key)
+            assertFalse(
+                "SavedStateHandle key '$key' must not equal the password",
+                stored == "secret-pass"
+            )
+            if (stored is String) {
+                assertFalse(
+                    "SavedStateHandle key '$key' must not contain the password",
+                    stored.contains("secret-pass")
+                )
+            }
+        }
+
+        // A freshly-constructed VM (modeling process-death recreation from the same
+        // handle) must have no password.
+        val recreated = MainViewModel(mockApplication, savedStateHandle)
+        val recreatedState = recreated.formState.first()
+        assertEquals(0, recreatedState.passwordInput.size)
+        assertEquals(0, recreatedState.confirmPasswordInput.size)
+    }
     
     @Test
     fun `clearSensitiveData clears passwords`() = runTest {

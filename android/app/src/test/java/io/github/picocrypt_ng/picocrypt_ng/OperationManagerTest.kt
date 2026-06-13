@@ -10,6 +10,10 @@ import org.junit.Test
 import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
 import io.mockk.mockk
 import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
+import io.mockk.verify
+import kotlin.io.path.createTempDirectory
 
 /**
  * Unit tests for OperationManager.
@@ -159,6 +163,183 @@ class OperationManagerTest {
     }
     
     @Test
+    fun `pollProgress does not overwrite a terminal (done) state with a stale poll`() = runTest {
+        // GoBridge is an object backed by the Go mobile AAR, which is absent on the JVM
+        // unit-test classpath. Mock it so we can (a) drive _currentOperation to a real
+        // done=true state via the only public seam (startEncrypt + pollProgress), then
+        // (b) prove the done-guard rejects a later stale poll. This is the narrowest
+        // reachable level: there is no public setter for _currentOperation.
+        // startEncrypt resolves an output path under context.filesDir; the relaxed mock
+        // returns null for it, so back it with a real temp dir.
+        val tmpDir = createTempDirectory(prefix = "opmgr_test").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_test")
+            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+            // Establish an active (non-done) operation.
+            val started = OperationManager.startEncrypt(
+                mockContext,
+                TestDataBuilders.createEncryptFormData()
+            )
+            assertTrue("startEncrypt should succeed", started.isSuccess)
+
+            // First poll transitions the operation to a terminal done=true state.
+            every { GoBridge.getProgress("op_test") } returns Result.success(
+                ProgressState(status = "Completed", progress = 1f, info = "", done = true)
+            )
+            val terminal = OperationManager.pollProgress()
+            assertNotNull("Poll should return the terminal state", terminal)
+            assertTrue("State should be done after terminal poll", terminal!!.done)
+
+            // A later (slow/concurrent) poll reports a stale, non-terminal progress.
+            every { GoBridge.getProgress("op_test") } returns Result.success(
+                ProgressState(status = "Working...", progress = 0.42f, info = "stale", done = false)
+            )
+            val afterStale = OperationManager.pollProgress()
+
+            // The done-guard must keep the terminal state intact, not regress it.
+            assertNotNull(afterStale)
+            assertTrue("Done flag must remain true", afterStale!!.done)
+            assertEquals("Status must not regress", "Completed", afterStale.status)
+            assertEquals("Progress must not regress", 1f, afterStale.progress, 0.001f)
+            assertSame(
+                "Terminal state must be returned unchanged",
+                terminal,
+                afterStale
+            )
+            assertSame(
+                "currentOperation must still hold the terminal state",
+                terminal,
+                OperationManager.currentOperation.value
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `pollProgress does not resurrect a concurrently-cleared operation`() = runTest {
+        // RACE: the FGS (1000ms) and the ViewModel (500ms) both poll concurrently.
+        // pollProgress is a read-modify-write: it captures _currentOperation, then
+        // suspends in GoBridge.getProgress (I/O). If another coroutine calls
+        // clearOperation() during that window (_currentOperation -> null), an
+        // UNCONDITIONAL write of the captured op would RESURRECT the cleared op as a
+        // phantom non-done state. The write must no-op instead.
+        //
+        // Deterministic, not timing-based: model the concurrent clear as a SIDE EFFECT
+        // of the getProgress stub -- it nulls _currentOperation (exactly what
+        // clearOperation does to the flow; done directly because clearOperation is a
+        // suspend fun and the MockK answers block is not a coroutine body), THEN
+        // returns a non-done progress. After pollProgress, _currentOperation must
+        // still be null. GoBridge is the Go mobile AAR (absent on the JVM classpath),
+        // so mock it. startEncrypt resolves an output path under context.filesDir;
+        // back it with a real temp dir since the relaxed mock returns null.
+        val tmpDir = createTempDirectory(prefix = "opmgr_resurrect_test").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_clear")
+            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+            // Establish an active (non-done) operation through the public seam.
+            val started = OperationManager.startEncrypt(
+                mockContext,
+                TestDataBuilders.createEncryptFormData()
+            )
+            assertTrue("startEncrypt should succeed", started.isSuccess)
+            assertNotNull("operation should be active", OperationManager.currentOperation.value)
+
+            val stateField = OperationManager::class.java.getDeclaredField("_currentOperation")
+            stateField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val flow = stateField.get(OperationManager)
+                as kotlinx.coroutines.flow.MutableStateFlow<OperationState?>
+
+            // getProgress simulates a concurrent clear during its I/O, then returns a
+            // live, non-terminal progress for the now-stale captured operation.
+            every { GoBridge.getProgress("op_clear") } answers {
+                flow.value = null
+                Result.success(
+                    ProgressState(status = "Encrypting", progress = 0.5f, info = "", done = false)
+                )
+            }
+
+            val result = OperationManager.pollProgress()
+
+            assertNull("Cleared operation must not be resurrected (return)", result)
+            assertNull(
+                "Cleared operation must not be resurrected (currentOperation)",
+                OperationManager.currentOperation.value
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `pollProgress does not clobber a replaced operation`() = runTest {
+        // Same race window, different concurrent action: instead of clearing,
+        // another coroutine REPLACES _currentOperation with a different-id op (e.g. a
+        // new operation started while a slow poll was in flight). The unconditional
+        // write of the captured op would clobber the newer op; the id-guard must
+        // leave the replacement untouched.
+        val tmpDir = createTempDirectory(prefix = "opmgr_clobber_test").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_old")
+            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+            val started = OperationManager.startEncrypt(
+                mockContext,
+                TestDataBuilders.createEncryptFormData()
+            )
+            assertTrue("startEncrypt should succeed", started.isSuccess)
+
+            // A different-id operation installed concurrently during getProgress I/O.
+            val replacement = TestDataBuilders.createOperationState(
+                id = "op_new",
+                type = OperationType.ENCRYPT,
+                status = "Starting...",
+                progress = 0f,
+                done = false
+            )
+            val stateField = OperationManager::class.java.getDeclaredField("_currentOperation")
+            stateField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val flow = stateField.get(OperationManager)
+                as kotlinx.coroutines.flow.MutableStateFlow<OperationState?>
+
+            every { GoBridge.getProgress("op_old") } answers {
+                flow.value = replacement
+                Result.success(
+                    ProgressState(status = "Encrypting", progress = 0.5f, info = "", done = false)
+                )
+            }
+
+            val result = OperationManager.pollProgress()
+
+            assertSame("Replacement op must be returned unchanged", replacement, result)
+            assertSame(
+                "currentOperation must still hold the replacement op",
+                replacement,
+                OperationManager.currentOperation.value
+            )
+            assertEquals("Replacement id must be intact", "op_new", result!!.id)
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `clearOperation clears current operation`() = runTest {
         // First, we'd need to set up an operation, but since we can't easily mock GoBridge,
         // we'll test that clearOperation works when called
@@ -233,6 +414,70 @@ class OperationManagerTest {
         }
     }
     
+    @Test
+    fun `retryDecryptWithForce fails loud when stored formData has an empty password`() = runTest {
+        // Force-decrypt BYPASSES integrity/RS checks, so running it with an empty
+        // password (a CharArray(0) the form layer installs on clear -- see
+        // MainViewModel.clearSensitiveData / resetFormToDefaults) would silently run
+        // and produce garbage. Reproduce that exact state: a DECRYPT operation whose
+        // stored formData carries CharArray(0). startDecrypt validates the password,
+        // so it can't seed an empty-password operation directly; establish it with a
+        // valid password through the public seam, then swap in the empty-password
+        // formData via the private _currentOperation MutableStateFlow (white-box;
+        // there is no public setter). GoBridge is the Go mobile AAR (absent on the JVM
+        // classpath), so mock it -- the guard must short-circuit BEFORE
+        // GoBridge.startOperation/startDecrypt are reached on the retry.
+        val tmpDir = createTempDirectory(prefix = "opmgr_force_test").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_force")
+            every { GoBridge.startDecrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+            // Establish an active DECRYPT operation with a valid password.
+            val started = OperationManager.startDecrypt(
+                mockContext,
+                TestDataBuilders.createDecryptFormData()
+            )
+            assertTrue("startDecrypt should succeed", started.isSuccess)
+
+            // Swap the stored formData for one with an empty password (CharArray(0)),
+            // mirroring a post-clear form state, keeping the DECRYPT operation.
+            val established = OperationManager.currentOperation.value
+            assertNotNull("operation should be established", established)
+            val emptyPwForm = established!!.formData!!.copy(
+                passwordInput = CharArray(0),
+                confirmPasswordInput = CharArray(0)
+            )
+            assertFalse("seeded formData must be invalid", emptyPwForm.isPasswordValid)
+            val stateField = OperationManager::class.java.getDeclaredField("_currentOperation")
+            stateField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val flow = stateField.get(OperationManager)
+                as kotlinx.coroutines.flow.MutableStateFlow<OperationState?>
+            flow.value = established.copy(formData = emptyPwForm)
+
+            val result = OperationManager.retryDecryptWithForce()
+
+            assertTrue("Force-decrypt with an empty password must fail loud", result.isFailure)
+            result.onFailure { error ->
+                assertTrue(
+                    "Error should be InvalidPassword",
+                    error is AppError.ValidationError.InvalidPassword
+                )
+            }
+
+            // The guard must short-circuit before touching the Go bridge on the retry:
+            // exactly one startOperation + one startDecrypt, both from the setup call.
+            verify(exactly = 1) { GoBridge.startOperation() }
+            verify(exactly = 1) { GoBridge.startDecrypt(any(), any(), any(), any(), any()) }
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
     @Test
     fun `retryDecryptWithForce returns error when operation is not decrypt`() = runTest {
         // We can't easily set up an encrypt operation, but we can test the logic

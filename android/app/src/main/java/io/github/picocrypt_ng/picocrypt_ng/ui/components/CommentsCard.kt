@@ -61,12 +61,12 @@ fun Comments(viewModel: MainViewModel) {
 }
 
 @Composable
-fun CommentsCard(viewModel: MainViewModel) {
+fun CommentsCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val formData by viewModel.formState.collectAsState()
     if (!(formData.isEncrypt || formData.isDecrypt)) {
         return
     }
-    Card {
+    Card(modifier = modifier) {
         Column(
             modifier = Modifier.padding(8.dp)
         ) {

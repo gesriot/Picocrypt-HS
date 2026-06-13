@@ -162,7 +162,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Track temp files for cleanup. The stdin temp holds raw piped plaintext and
-	// the stdout temp holds the .pcv output; both are securely wiped before unlink.
+	// the stdout temp holds the .pcv output; both are removed when the run ends.
 	var stdinTempFile string
 	var stdoutTempFile string
 	defer func() { cleanupTempFiles(stdinTempFile, stdoutTempFile) }()
@@ -440,6 +440,6 @@ func cleanupEncryptError(outputFile string, useStdout, outputPreExisted bool) {
 	if !outputPreExisted {
 		_ = os.Remove(outputFile)
 	}
-	// Securely wipe the partially-written .incomplete staging file.
-	_ = wipeTempFile(outputFile + ".incomplete")
+	// Remove the partially-written .incomplete staging file.
+	_ = os.Remove(outputFile + ".incomplete")
 }

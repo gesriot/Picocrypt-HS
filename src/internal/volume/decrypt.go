@@ -767,8 +767,8 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 			// tool. Do NOT cache derived material or skip the re-derive.
 			ctx.TriedFullRSDecode = true
 
-			// Remove incomplete file (PLAINTEXT — overwrite-before-unlink, SEC-04)
-			_ = fileops.OverwriteAndRemove(req.OutputFile + ".incomplete")
+			// Remove incomplete file (PLAINTEXT — plain unlink, SEC-04)
+			_ = os.Remove(req.OutputFile + ".incomplete")
 
 			// Re-derive keys (needed to reset HKDF stream); see reDeriveForRetry.
 			if err := reDeriveForRetry(ctx, req); err != nil {
@@ -791,8 +791,8 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 				*req.Kept = true
 			}
 		} else {
-			// Remove incomplete output (PLAINTEXT — overwrite-before-unlink, SEC-04)
-			_ = fileops.OverwriteAndRemove(req.OutputFile + ".incomplete")
+			// Remove incomplete output (PLAINTEXT — plain unlink, SEC-04)
+			_ = os.Remove(req.OutputFile + ".incomplete")
 			return perrors.ErrCorruptData
 		}
 	}
@@ -802,13 +802,13 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 		return fmt.Errorf("rename output: %w", err)
 	}
 
-	// Cleanup temp files (ciphertext .pcv temps — defense-in-depth wipe, SEC-04)
+	// Cleanup temp files (ciphertext .pcv temps — plain unlink, SEC-04)
 	if ctx.TempFile != "" {
-		_ = fileops.OverwriteAndRemove(ctx.TempFile)
+		_ = os.Remove(ctx.TempFile)
 	}
 	// Remove recombined file if different from temp file (deniability changes TempFile)
 	if ctx.RecombinedFile != "" && ctx.RecombinedFile != ctx.TempFile {
-		_ = fileops.OverwriteAndRemove(ctx.RecombinedFile)
+		_ = os.Remove(ctx.RecombinedFile)
 	}
 
 	// Auto-unzip if requested and output looks like a zip archive.
@@ -876,16 +876,16 @@ func isZipArchive(path string) bool {
 }
 
 func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
-	// Ciphertext .pcv temps — defense-in-depth wipe (SEC-04).
+	// Ciphertext .pcv temps — plain unlink (SEC-04).
 	if ctx.TempFile != "" {
-		_ = fileops.OverwriteAndRemove(ctx.TempFile)
+		_ = os.Remove(ctx.TempFile)
 	}
 	// Remove recombined file if different from temp file
 	if ctx.RecombinedFile != "" && ctx.RecombinedFile != ctx.TempFile {
-		_ = fileops.OverwriteAndRemove(ctx.RecombinedFile)
+		_ = os.Remove(ctx.RecombinedFile)
 	}
-	// PLAINTEXT decrypt output — overwrite-before-unlink (SEC-04, T-04-04).
-	_ = fileops.OverwriteAndRemove(req.OutputFile + ".incomplete")
+	// PLAINTEXT decrypt output — plain unlink (SEC-04, T-04-04).
+	_ = os.Remove(req.OutputFile + ".incomplete")
 	// Note: ctx.Close() is called via defer in Decrypt()
 }
 

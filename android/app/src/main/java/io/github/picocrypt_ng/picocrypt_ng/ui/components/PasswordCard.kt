@@ -151,18 +151,19 @@ fun ConfirmPassword(
 
 @Composable
 fun PasswordCard(
-    viewModel: MainViewModel
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
 ) {
     val formData by viewModel.formState.collectAsState()
     if (!(formData.isEncrypt || formData.isDecrypt)) {
         return
     }
     var visible by rememberSaveable { mutableStateOf(false) }
-    
+
     // Prevent autofill save prompts for password fields
     PreventAutofillSaveEffect()
-    
-    Card {
+
+    Card(modifier = modifier) {
         Column(
             modifier = Modifier.padding(8.dp)
         ) {

@@ -139,7 +139,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Track temp files for cleanup. The stdout temp holds decrypted plaintext and
-	// the stdin temp holds the .pcv input; both are securely wiped before unlink.
+	// the stdin temp holds the .pcv input; both are removed when the run ends.
 	var stdinTempFile string
 	var stdoutTempFile string
 	defer func() { cleanupTempFiles(stdinTempFile, stdoutTempFile) }()
@@ -344,9 +344,9 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		reporter.PrintError("%v", err)
 		// Clean up partial output on error (temp files cleaned by defer).
-		// Securely wipe the partially-written .incomplete output.
+		// Remove the partially-written .incomplete output.
 		if !useStdout {
-			_ = wipeTempFile(outputFile + ".incomplete")
+			_ = os.Remove(outputFile + ".incomplete")
 		}
 		return err
 	}

@@ -110,21 +110,27 @@ jobs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
 
-    - name: Reset cmdline-tools for emulator runner
-      run: sudo rm -rf "$ANDROID_HOME/cmdline-tools"
-
     - name: Run focused instrumented tests
-      uses: ReactiveCircus/android-emulator-runner@e93c997dcab69054e999e3924af3d21c4a736e13
+      uses: ReactiveCircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009 # v2.37.0
       with:
-        api-level: 36
+        api-level: 34
         arch: x86_64
-        script: |
-          cd android
-          TEST_CLASSES="io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest"
-          if [ "${{ inputs.test_scope }}" = "extended" ]; then
-            TEST_CLASSES="$TEST_CLASSES,io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest"
-          fi
-          ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="$TEST_CLASSES"
+        disable-animations: true
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+        # Single-line: the runner executes each script line in its own `sh -c`,
+        # so multi-line `cd`/`if`/`fi` constructs do not persist across lines.
+        working-directory: android
+        script: TEST_CLASSES="io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest"; { [ "${{ inputs.test_scope }}" = "extended" ] && TEST_CLASSES="$TEST_CLASSES,io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest"; } || true; ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="$TEST_CLASSES"
+
+    - name: Upload instrumented test report
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: instrumented-test-report
+        path: |
+          android/app/build/reports/androidTests/connected/
+          android/app/build/outputs/androidTest-results/connected/
+        if-no-files-found: warn
 
     - name: Prepare artifacts
       run: |

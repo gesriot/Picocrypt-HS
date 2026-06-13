@@ -17,8 +17,6 @@ import (
 	"golang.org/x/crypto/chacha20"
 )
 
-var wipeDeniabilityTemp = fileops.OverwriteAndRemove
-
 // newDeniabilityReader is identity in production; tests replace it to inject
 // short reads and verify the io.ReadFull loops pin the rekey boundary to a
 // fixed block count regardless of read chunking. Mirrors newPayloadReader in
@@ -170,12 +168,12 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 	_ = fout.Close()
 
-	// Clean up: overwrite-before-unlink the .tmp (SEC-04, defense-in-depth — the
-	// .tmp holds inner .pcv ciphertext) and rename .incomplete to final name.
+	// Clean up: remove the .tmp (holds inner .pcv ciphertext) and rename
+	// .incomplete to final name.
 	// NOTE: this site is intentionally error-checked (not `_ =`): a failed .tmp
 	// removal must abort before the rename so both files are left for manual
 	// recovery. Preserve that control flow.
-	if err := fileops.OverwriteAndRemove(tmpPath); err != nil {
+	if err := os.Remove(tmpPath); err != nil {
 		// .tmp removal failed, but we have the complete .incomplete
 		// Don't try to rename - leave both files for manual inspection
 		// User can manually: verify .incomplete is correct, remove .tmp, rename .incomplete
@@ -235,7 +233,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	// Helper to cleanup on error
 	cleanup := func() {
 		_ = fout.Close()
-		_ = wipeDeniabilityTemp(outputPath)
+		_ = os.Remove(outputPath)
 	}
 
 	// Read salt and nonce
@@ -328,26 +326,26 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	// #nosec G304 -- outputPath is derived from user-provided volumePath
 	verifyFin, err := os.Open(outputPath)
 	if err != nil {
-		_ = wipeDeniabilityTemp(outputPath)
+		_ = os.Remove(outputPath)
 		return "", fmt.Errorf("open for verification: %w", err)
 	}
 
 	versionEnc := make([]byte, 15)
 	if _, err := io.ReadFull(verifyFin, versionEnc); err != nil {
 		_ = verifyFin.Close()
-		_ = wipeDeniabilityTemp(outputPath)
+		_ = os.Remove(outputPath)
 		return "", fmt.Errorf("read version: %w", err)
 	}
 	_ = verifyFin.Close()
 
 	versionDec, err := encoding.Decode(rs.RS5, versionEnc, false)
 	if err != nil {
-		_ = wipeDeniabilityTemp(outputPath)
+		_ = os.Remove(outputPath)
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
 
 	if !header.MatchVersion(versionDec) {
-		_ = wipeDeniabilityTemp(outputPath)
+		_ = os.Remove(outputPath)
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
 

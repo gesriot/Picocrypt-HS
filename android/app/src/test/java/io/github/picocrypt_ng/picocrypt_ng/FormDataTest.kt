@@ -280,20 +280,6 @@ class FormDataTest {
         assertEquals(formData1.hashCode(), formData2.hashCode())
         assertNotEquals(formData1.hashCode(), formData3.hashCode())
     }
-    
-    @Test
-    fun `passwordAsString converts CharArray to String`() {
-        val password = "testpassword123"
-        val formData = TestDataBuilders.createEncryptFormData(password = password)
-        assertEquals(password, formData.passwordAsString())
-    }
-    
-    @Test
-    fun `confirmPasswordAsString converts CharArray to String`() {
-        val password = "testpassword123"
-        val formData = TestDataBuilders.createEncryptFormData(confirmPassword = password)
-        assertEquals(password, formData.confirmPasswordAsString())
-    }
 }
 
 

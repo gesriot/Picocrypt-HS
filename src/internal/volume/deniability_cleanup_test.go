@@ -9,7 +9,13 @@ import (
 	"Picocrypt-NG/internal/encoding"
 )
 
-func TestRemoveDeniabilityWipesTempOnVerificationFailure(t *testing.T) {
+// TestRemoveDeniabilityRemovesTempOnVerificationFailure locks the cleanup
+// invariant: when RemoveDeniability decrypts a deniability wrapper whose inner
+// payload is not a valid volume, it must remove the decrypted .tmp staging file
+// rather than leaving the recovered inner plaintext on disk. Cleanup is plain
+// os.Remove (no shredding — overwrite-before-unlink was dropped as useless on
+// flash/CoW filesystems); the only invariant is that the temp is gone.
+func TestRemoveDeniabilityRemovesTempOnVerificationFailure(t *testing.T) {
 	rs, err := encoding.NewRSCodecs()
 	if err != nil {
 		t.Fatalf("NewRSCodecs failed: %v", err)
@@ -28,33 +34,10 @@ func TestRemoveDeniabilityWipesTempOnVerificationFailure(t *testing.T) {
 	}
 
 	tmpPath := wrappedPath + ".tmp"
-	prevWipe := wipeDeniabilityTemp
-	var sawTemp bool
-	var sawPlaintext bool
-	wipeDeniabilityTemp = func(path string) error {
-		if path == tmpPath {
-			sawTemp = true
-			data, readErr := os.ReadFile(path)
-			if readErr != nil {
-				t.Fatalf("read temp before wipe: %v", readErr)
-			}
-			sawPlaintext = bytes.Contains(data, innerPlaintext)
-		}
-		return prevWipe(path)
-	}
-	defer func() {
-		wipeDeniabilityTemp = prevWipe
-	}()
 
 	decryptedPath, err := RemoveDeniability(wrappedPath, password, nil, rs)
 	if err == nil {
 		t.Fatalf("RemoveDeniability succeeded for invalid inner volume, returned %q", decryptedPath)
-	}
-	if !sawTemp {
-		t.Fatalf("RemoveDeniability did not wipe temp path %s on verification failure", tmpPath)
-	}
-	if !sawPlaintext {
-		t.Fatalf("wipe hook did not observe decrypted inner plaintext before removal")
 	}
 	if _, err := os.Lstat(tmpPath); !os.IsNotExist(err) {
 		t.Fatalf("temp path still exists after cleanup: %v", err)

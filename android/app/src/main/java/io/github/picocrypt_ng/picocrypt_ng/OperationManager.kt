@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import io.github.picocrypt_ng.picocrypt_ng.FileCopyService
 
@@ -40,10 +41,10 @@ object OperationManager {
         
         // Generate output file path using FileCopyService
         val outputFilePath = FileCopyService.getOutputFilePath(context, formData.copiedFilePath, isEncrypt = true)
-        
+
         // Start operation
-        val operationID = GoBridge.startOperation()
-        
+        val operationID = GoBridge.startOperation().getOrElse { return@withContext Result.failure(it) }
+
         val options = EncryptOptions(
             comments = formData.comments,
             paranoid = formData.paranoid,
@@ -54,12 +55,12 @@ object OperationManager {
             keyfileOrdered = formData.keyfileOrdered
         )
         
-        // Pass CharArray directly to GoBridge (it will convert to String internally only when needed)
+        // Encode the password to UTF-8 bytes without a String; GoBridge zeroes them.
         val result = GoBridge.startEncrypt(
             operationID,
             formData.copiedFilePath,
             outputFilePath,
-            formData.passwordInput, // Pass CharArray directly
+            formData.passwordInput.toUtf8BytesSecure(),
             options
         )
         
@@ -99,10 +100,10 @@ object OperationManager {
         
         // Generate output file path using FileCopyService
         val outputFilePath = FileCopyService.getOutputFilePath(context, formData.copiedFilePath, isEncrypt = false)
-        
+
         // Start operation
-        val operationID = GoBridge.startOperation()
-        
+        val operationID = GoBridge.startOperation().getOrElse { return@withContext Result.failure(it) }
+
         val options = DecryptOptions(
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             forceDecrypt = false,
@@ -113,12 +114,12 @@ object OperationManager {
             deniability = formData.decryptionInfo?.deniability ?: false
         )
         
-        // Pass CharArray directly to GoBridge (it will convert to String internally only when needed)
+        // Encode the password to UTF-8 bytes without a String; GoBridge zeroes them.
         val result = GoBridge.startDecrypt(
             operationID,
             formData.copiedFilePath,
             outputFilePath,
-            formData.passwordInput, // Pass CharArray directly
+            formData.passwordInput.toUtf8BytesSecure(),
             options
         )
         
@@ -143,23 +144,41 @@ object OperationManager {
      */
     suspend fun pollProgress(): OperationState? = withContext(Dispatchers.IO) {
         val operation = _currentOperation.value ?: return@withContext null
-        
+        // Once terminal, do not let a slow/concurrent poll (UI 500ms + FGS 1000ms run
+        // simultaneously) overwrite the freshly-final state with stale progress.
+        if (operation.done) return@withContext operation
+
         val result = GoBridge.getProgress(operation.id)
         result.getOrNull()?.let { progressState ->
             val error = if (progressState.done && progressState.status == "Error") {
-                // Convert Go error string to AppError
-                AppError.fromGoError(progressState.info, operation.type)
+                // Classify by the stable Go error code (not fragile substring matching)
+                AppError.fromGoError(progressState.info, operation.type, progressState.code)
             } else {
                 null
             }
             
-            _currentOperation.value = operation.copy(
-                status = progressState.status,
-                progress = progressState.progress,
-                info = progressState.info,
-                done = progressState.done,
-                error = error
-            )
+            // Atomic read-modify-write: between capturing `operation` above and the
+            // suspending getProgress I/O, a concurrent coroutine (the FGS 1000ms poll
+            // vs. the UI 500ms poll, or a clear/replace) may have changed the flow. An
+            // unconditional write would resurrect a cleared op as a phantom non-done
+            // state or clobber a newer op. Update conditionally on the latest value.
+            _currentOperation.update { current ->
+                if (current == null || current.id != operation.id || current.done) {
+                    // cleared, replaced, or already finished concurrently -- do not
+                    // resurrect/clobber.
+                    current
+                } else {
+                    // Copy onto `current` (not the captured `operation`): same id,
+                    // latest base.
+                    current.copy(
+                        status = progressState.status,
+                        progress = progressState.progress,
+                        info = progressState.info,
+                        done = progressState.done,
+                        error = error
+                    )
+                }
+            }
         }
         
         _currentOperation.value
@@ -268,12 +287,19 @@ object OperationManager {
         val formData = operation.formData ?: return@withContext Result.failure(
             AppError.OperationError.GenericOperation("Operation data not available for retry")
         )
-        
+
+        // Force-decrypt BYPASSES integrity/RS checks, so an empty password (e.g. a
+        // CharArray zeroed by a prior clear) would silently run. Mirror startDecrypt's
+        // guard and fail loud before encoding the password or starting the op.
+        if (!formData.isPasswordValid) {
+            return@withContext Result.failure(AppError.ValidationError.InvalidPassword)
+        }
+
         // Clear the current operation state
         _currentOperation.value = null
-        
+
         // Start new operation with force decrypt enabled
-        val operationID = GoBridge.startOperation()
+        val operationID = GoBridge.startOperation().getOrElse { return@withContext Result.failure(it) }
         
         val options = DecryptOptions(
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
@@ -285,12 +311,12 @@ object OperationManager {
             deniability = formData.decryptionInfo?.deniability ?: false
         )
         
-        // Pass CharArray directly to GoBridge (it will convert to String internally only when needed)
+        // Encode the password to UTF-8 bytes without a String; GoBridge zeroes them.
         val result = GoBridge.startDecrypt(
             operationID,
             operation.inputFile,
             operation.outputFile,
-            formData.passwordInput, // Pass CharArray directly
+            formData.passwordInput.toUtf8BytesSecure(),
             options
         )
         

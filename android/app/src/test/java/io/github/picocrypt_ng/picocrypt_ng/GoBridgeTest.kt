@@ -37,11 +37,13 @@ class GoBridgeTest {
     fun `startOperation returns operation ID on success`() {
         // This test requires the Go mobile bindings to be available
         // In a real scenario, this would be an instrumented test
-        // For unit tests, we verify the fallback behavior or handle missing bindings
+        // For unit tests, we verify the Result wrapping or handle missing bindings
         try {
-            val operationId = GoBridge.startOperation()
-            assertNotNull("Operation ID should not be null", operationId)
-            assertTrue("Operation ID should not be empty", operationId.isNotEmpty())
+            val result = GoBridge.startOperation()
+            assertNotNull("Result should not be null", result)
+            result.onSuccess { operationId ->
+                assertTrue("Operation ID should not be empty", operationId.isNotEmpty())
+            }
         } catch (e: UnsatisfiedLinkError) {
             // Go mobile bindings not available - this is expected in unit tests
             // Skip this test when bindings aren't available
@@ -50,15 +52,19 @@ class GoBridgeTest {
             // Skip this test when bindings aren't available
         }
     }
-    
+
     @Test
-    fun `startOperation provides fallback ID on exception`() {
-        // The fallback ID format is "op_${System.currentTimeMillis()}"
-        // We can't easily test this without mocking Mobile, but we verify
-        // the method doesn't throw exceptions (except for missing bindings)
+    fun `startOperation returns failure (no fabricated ID) on exception`() {
+        // The fabricated-ID fallback was removed: a Go binding failure must surface
+        // as Result.failure, never a fake "op_..." ID that the Go map does not hold.
+        // We can't force Mobile to throw without mocking, but we verify the method
+        // never throws (except for missing bindings) and, if it fails, wraps an AppError.
         try {
-            val operationId = GoBridge.startOperation()
-            assertNotNull(operationId)
+            val result = GoBridge.startOperation()
+            assertNotNull(result)
+            result.onFailure { error ->
+                assertTrue("Error should be AppError", error is AppError)
+            }
         } catch (e: UnsatisfiedLinkError) {
             // Go mobile bindings not available - this is expected in unit tests
         } catch (e: NoClassDefFoundError) {
@@ -104,7 +110,6 @@ class GoBridgeTest {
         val operationID = "test_op_123"
         val inputFile = "/path/to/input.txt"
         val outputFile = "/path/to/output.pcv"
-        val password = "testpassword".toCharArray()
         val options = EncryptOptions(
             comments = "Test comments",
             paranoid = true,
@@ -114,13 +119,12 @@ class GoBridgeTest {
             keyfiles = listOf("keyfile1", "keyfile2"),
             keyfileOrdered = true
         )
-        
-        // Build the expected JSON structure
+
+        // Build the expected JSON structure (password is passed as bytes, never in JSON)
         val expectedJson = JSONObject().apply {
             put("operationID", operationID)
             put("inputFile", inputFile)
             put("outputFile", outputFile)
-            put("password", String(password))
             put("comments", options.comments)
             put("keyfiles", JSONArray().apply {
                 options.keyfiles.forEach { put(it) }
@@ -131,12 +135,12 @@ class GoBridgeTest {
             put("compress", options.compress)
             put("keyfileOrdered", options.keyfileOrdered)
         }
-        
+
         // Verify JSON structure
         assertEquals(operationID, expectedJson.getString("operationID"))
         assertEquals(inputFile, expectedJson.getString("inputFile"))
         assertEquals(outputFile, expectedJson.getString("outputFile"))
-        assertEquals(String(password), expectedJson.getString("password"))
+        assertFalse("password must never appear in the JSON", expectedJson.has("password"))
         assertEquals(options.comments, expectedJson.getString("comments"))
         assertEquals(options.paranoid, expectedJson.getBoolean("paranoid"))
         assertEquals(options.reedSolomon, expectedJson.getBoolean("reedSolomon"))
@@ -155,7 +159,6 @@ class GoBridgeTest {
         val operationID = "test_op_123"
         val inputFile = "/path/to/input.pcv"
         val outputFile = "/path/to/output.txt"
-        val password = "testpassword".toCharArray()
         val options = DecryptOptions(
             keyfiles = listOf("keyfile1"),
             forceDecrypt = true,
@@ -165,13 +168,12 @@ class GoBridgeTest {
             recombine = false,
             deniability = false
         )
-        
-        // Build the expected JSON structure
+
+        // Build the expected JSON structure (password is passed as bytes, never in JSON)
         val expectedJson = JSONObject().apply {
             put("operationID", operationID)
             put("inputFile", inputFile)
             put("outputFile", outputFile)
-            put("password", String(password))
             put("keyfiles", JSONArray().apply {
                 options.keyfiles.forEach { put(it) }
             })
@@ -182,12 +184,12 @@ class GoBridgeTest {
             put("recombine", options.recombine)
             put("deniability", options.deniability)
         }
-        
+
         // Verify JSON structure
         assertEquals(operationID, expectedJson.getString("operationID"))
         assertEquals(inputFile, expectedJson.getString("inputFile"))
         assertEquals(outputFile, expectedJson.getString("outputFile"))
-        assertEquals(String(password), expectedJson.getString("password"))
+        assertFalse("password must never appear in the JSON", expectedJson.has("password"))
         assertEquals(options.forceDecrypt, expectedJson.getBoolean("forceDecrypt"))
         assertEquals(options.verifyFirst, expectedJson.getBoolean("verifyFirst"))
         assertEquals(options.autoUnzip, expectedJson.getBoolean("autoUnzip"))
@@ -201,9 +203,9 @@ class GoBridgeTest {
         // When Mobile.startEncrypt returns empty string, it should be success
         // This is tested by the actual implementation logic
         // We verify the error handling path works correctly
-        val password = "test".toCharArray()
+        val password = "test".toByteArray(Charsets.UTF_8)
         val options = EncryptOptions()
-        
+
         try {
             // This will fail if Mobile throws, but we're testing the error conversion logic
             val result = GoBridge.startEncrypt(
@@ -227,9 +229,9 @@ class GoBridgeTest {
     
     @Test
     fun `startDecrypt converts empty error message to success`() {
-        val password = "test".toCharArray()
+        val password = "test".toByteArray(Charsets.UTF_8)
         val options = DecryptOptions()
-        
+
         try {
             val result = GoBridge.startDecrypt(
                 "op_123",
@@ -238,7 +240,7 @@ class GoBridgeTest {
                 password,
                 options
             )
-            
+
             result.onFailure { error ->
                 assertTrue("Error should be AppError", error is AppError)
             }
@@ -247,6 +249,15 @@ class GoBridgeTest {
         } catch (e: NoClassDefFoundError) {
             // Go mobile bindings not available - this is expected in unit tests
         }
+    }
+
+    @Test
+    fun `startEncrypt zeroes the password ByteArray`() {
+        if (!isGoMobileAvailable()) return
+        val id = GoBridge.startOperation().getOrElse { return }
+        val password = "hunter2".toByteArray(Charsets.UTF_8)
+        GoBridge.startEncrypt(id, "/no/such/input", "/tmp/out.pcv", password, EncryptOptions())
+        assertTrue("password bytes must be zeroed", password.all { it == 0.toByte() })
     }
     
     @Test

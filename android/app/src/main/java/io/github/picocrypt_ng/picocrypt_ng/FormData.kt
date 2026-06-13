@@ -59,25 +59,7 @@ data class FormData(
         clearPasswords()
         return cleared
     }
-    
-    /**
-     * Converts password to String for operations that require it.
-     * WARNING: This creates a String copy that may remain in memory.
-     * Use only when necessary (e.g., passing to Go backend).
-     */
-    fun passwordAsString(): String {
-        return String(passwordInput)
-    }
-    
-    /**
-     * Converts confirm password to String for operations that require it.
-     * WARNING: This creates a String copy that may remain in memory.
-     * Use only when necessary.
-     */
-    fun confirmPasswordAsString(): String {
-        return String(confirmPasswordInput)
-    }
-    
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false

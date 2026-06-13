@@ -36,11 +36,12 @@ import androidx.compose.runtime.collectAsState
 @Composable
 fun ExpandableCard(
     title: String,
+    modifier: Modifier = Modifier,
     titleColor: Color? = null,
     content: @Composable () -> Unit
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = modifier.fillMaxWidth()) {
         Column {
             Row(modifier = Modifier
                 .fillMaxWidth()
@@ -82,14 +83,14 @@ fun LabeledCheckbox(label: String, value: Boolean, onChange: (Boolean) -> Unit) 
 
 
 @Composable
-fun AdvancedCard(viewModel: MainViewModel) {
+fun AdvancedCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val formData by viewModel.formState.collectAsState()
     if (!formData.isEncrypt) {
         return
     }
     val count =
         (if (formData.reedSolomon) 1 else 0) + (if (formData.deniability) 1 else 0) + (if (formData.paranoid) 1 else 0)
-    ExpandableCard(title = stringResource(R.string.advanced_settings, count)) {
+    ExpandableCard(title = stringResource(R.string.advanced_settings, count), modifier = modifier) {
         Column(modifier = Modifier.padding(16.dp)) {
             LabeledCheckbox(stringResource(R.string.reed_solomon), formData.reedSolomon) {
                 viewModel.updateFormData(formData.copy(reedSolomon = it))

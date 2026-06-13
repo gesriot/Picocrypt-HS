@@ -26,6 +26,7 @@ class OperationViewModel : ViewModel() {
         viewModelScope.launch {
             val result = OperationManager.startEncrypt(context, formData)
             result.onSuccess {
+                OperationForegroundService.start(context.applicationContext)
                 startPolling()
             }
         }
@@ -38,6 +39,7 @@ class OperationViewModel : ViewModel() {
         viewModelScope.launch {
             val result = OperationManager.startDecrypt(context, formData)
             result.onSuccess {
+                OperationForegroundService.start(context.applicationContext)
                 startPolling()
             }
         }
@@ -73,6 +75,7 @@ class OperationViewModel : ViewModel() {
             stopPolling()
             val result = OperationManager.retryOperation(context, formData)
             result.onSuccess {
+                OperationForegroundService.start(context.applicationContext)
                 startPolling()
             }
         }
@@ -81,11 +84,12 @@ class OperationViewModel : ViewModel() {
     /**
      * Retries decryption with force decrypt enabled.
      */
-    fun retryDecryptWithForce() {
+    fun retryDecryptWithForce(context: Context) {
         viewModelScope.launch {
             stopPolling()
             val result = OperationManager.retryDecryptWithForce()
             result.onSuccess {
+                OperationForegroundService.start(context.applicationContext)
                 startPolling()
             }
         }
@@ -181,7 +185,7 @@ class OperationViewModel : ViewModel() {
                     break
                 }
                 
-                // Poll progress to update state (notification will be updated by MainActivity observer)
+                // Poll progress to advance state; the foreground service renders the notification from OperationManager.currentOperation.
                 OperationManager.pollProgress()
             }
         }
