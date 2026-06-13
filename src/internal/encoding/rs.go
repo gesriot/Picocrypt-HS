@@ -110,6 +110,13 @@ func Encode(rs *infectious.FEC, data []byte) ([]byte, error) {
 //   - Decoded data (original bytes without parity)
 //   - Error if too many bytes are corrupted to recover (returns partial data anyway)
 func Decode(rs *infectious.FEC, data []byte, fastDecode bool) ([]byte, error) {
+	// Precondition: input must be exactly codec.Total() bytes; otherwise the
+	// share loop and the data[:128]/data[:Total()/3] slices below would panic
+	// on attacker-controlled .pcv input. Mirrors the Encode precondition.
+	if len(data) != rs.Total() {
+		return nil, fmt.Errorf("rs decode: input size %d != total %d", len(data), rs.Total())
+	}
+
 	// Fast decode optimization: skip RS decoding for payload data
 	if rs.Total() == 136 && fastDecode {
 		return data[:128], nil

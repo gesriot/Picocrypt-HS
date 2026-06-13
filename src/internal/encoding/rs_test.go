@@ -81,6 +81,47 @@ func TestEncodeWrongSizeReturnsError(t *testing.T) {
 	}
 }
 
+func TestDecodeWrongSizeReturnsError(t *testing.T) {
+	codecs, err := NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs() failed: %v", err)
+	}
+
+	// Decode operates on attacker-controlled .pcv bytes; a slice whose length
+	// does not match the codec's Total() must return an error, never panic.
+	// Mirrors the Encode precondition (TestEncodeWrongSizeReturnsError).
+	tests := []struct {
+		name       string
+		rs         *infectious.FEC
+		size       int // != rs.Total()
+		fastDecode bool
+	}{
+		{"RS128 short correct-path", codecs.RS128, 100, false},
+		{"RS128 short fast-path", codecs.RS128, 100, true},
+		{"RS128 too large", codecs.RS128, 200, false},
+		{"RS5 short", codecs.RS5, 4, false},
+		{"RS1 short", codecs.RS1, 2, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Decode(tt.rs, make([]byte, tt.size), tt.fastDecode)
+			if err == nil {
+				t.Errorf("Decode(size=%d, fast=%v) = nil error; want non-nil", tt.size, tt.fastDecode)
+			}
+		})
+	}
+
+	// Correct size still round-trips (no regression on the valid path).
+	enc, err := Encode(codecs.RS128, make([]byte, 128))
+	if err != nil {
+		t.Fatalf("setup Encode: %v", err)
+	}
+	if _, err := Decode(codecs.RS128, enc, false); err != nil {
+		t.Errorf("correct-size Decode: unexpected err=%v", err)
+	}
+}
+
 func TestRSEncodeDecodeRS128(t *testing.T) {
 	codecs, err := NewRSCodecs()
 	if err != nil {
