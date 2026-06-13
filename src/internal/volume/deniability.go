@@ -23,6 +23,14 @@ import (
 // decrypt.go for the main payload path.
 var newDeniabilityReader = func(r io.Reader) io.Reader { return r }
 
+// isDeniableReadVersion reads IsDeniable's encoded version prefix. It is a
+// package-level seam (mirroring newDeniabilityReader) so tests can inject an I/O
+// failure on a file that already cleared the size guard, exercising the
+// read-error branch that is otherwise unreachable on a real filesystem.
+var isDeniableReadVersion = func(r io.Reader, buf []byte) (int, error) {
+	return io.ReadFull(r, buf)
+}
+
 // AddDeniability wraps a volume with a deniability layer.
 // This encrypts the entire volume with XChaCha20 using a separate key derived from the password.
 //
@@ -380,7 +388,7 @@ func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 	}
 
 	versionEnc := make([]byte, 15)
-	if _, err := io.ReadFull(fin, versionEnc); err != nil {
+	if _, err := isDeniableReadVersion(fin, versionEnc); err != nil {
 		// Size already cleared the minimum above, so a short read here means an I/O
 		// error rather than truncation — treat as non-deniable (cannot confirm).
 		return false
