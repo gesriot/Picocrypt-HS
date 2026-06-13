@@ -4,24 +4,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"Picocrypt-NG/internal/fileops"
 )
 
-// wipeTempFile zero-overwrites a temp file's bytes before unlinking, so a
-// plaintext fragment from stdin/stdout staging is not left recoverable on disk
-// after the run. It is a package var so tests can verify that cleanup goes
-// through this secure path rather than a bare os.Remove.
-var wipeTempFile = fileops.OverwriteAndRemove
-
-// cleanupTempFiles best-effort securely removes the stdin/stdout staging temps
-// created for a CLI encrypt/decrypt run. Empty paths are skipped (no temp was
-// created for that direction). Errors are intentionally ignored: cleanup is
-// best-effort and must never mask the operation's real result.
+// cleanupTempFiles best-effort removes the stdin/stdout staging temps created
+// for a CLI encrypt/decrypt run. Empty paths are skipped (no temp was created
+// for that direction). Errors are intentionally ignored: cleanup is best-effort
+// and must never mask the operation's real result.
 func cleanupTempFiles(paths ...string) {
 	for _, p := range paths {
 		if p != "" {
-			_ = wipeTempFile(p)
+			_ = os.Remove(p)
 		}
 	}
 }
@@ -63,15 +55,15 @@ func BufferStdinToTemp(outputPath string) (string, error) {
 	if err != nil {
 		_ = tmp.Close()
 		// This error path returns "", so the caller cannot clean up the buffered
-		// stdin bytes; securely wipe them here rather than just unlinking.
-		_ = wipeTempFile(tmpPath)
+		// stdin bytes; remove them here.
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("buffering stdin: %w", err)
 	}
 
 	if err := tmp.Close(); err != nil {
 		// The buffered stdin bytes are on disk and the caller cannot reach this
-		// path; securely wipe them rather than just unlinking.
-		_ = wipeTempFile(tmpPath)
+		// path; remove them here.
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("closing temp file: %w", err)
 	}
 
