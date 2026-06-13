@@ -25,7 +25,7 @@ func TestProductionKDFWrappersMatchCurrentImplementations(t *testing.T) {
 	// fixed password+salt above. These are INDEPENDENT of the crypto.Argon2* consts:
 	// any parameter regression (e.g. Argon2NormalPasses 4->3) makes the wrapper output
 	// drift away from these literals and turns the test red. CRITICAL: changing these
-	// constants breaks decryption of every existing 2.08/2.09 volume.
+	// constants breaks decryption of every existing legacy volume.
 	// Normal params: passes=4, memory=1<<20, threads=4, keylen=32.
 	const wantNormalHex = "337c613f12e5ded0b79572e3b6e022e4b0ec476226500075134bce41236daaf9"
 	// Paranoid params: passes=8, memory=1<<20, threads=8, keylen=32.
