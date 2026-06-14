@@ -16,6 +16,18 @@ Picocrypt NG uses the following cryptographic primitives:
 
 All primitives used are from the well-known [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) module.
 
+# Password Normalization
+A visually identical password can be encoded as different UTF-8 bytes depending on the platform's keyboard/input method (e.g. composed `é` U+00E9 vs decomposed `e` + U+0301). Because the password bytes feed Argon2id directly, two such forms would derive different keys, so a volume encrypted on one platform could not be decrypted on another.
+
+To fix this, the password is normalized to **Unicode NFC** (`golang.org/x/text/unicode/norm`) before key derivation, as mandated for passwords by [RFC 8265](https://www.rfc-editor.org/rfc/rfc8265) (PRECIS `OpaqueString`) and recommended by NIST SP 800-63B-4 §3.1.1.2. Only canonical composition is applied — never compatibility normalization (NFKC/NFKD, which would collapse distinct characters and reduce entropy), case folding, or whitespace trimming.
+
+- **Encrypt** normalizes the password to NFC (including the deniability wrapper key), so new volumes are cross-platform-stable.
+- **Decrypt** tries each form in order — NFC, then NFD, then the raw bytes as typed — and keeps the first that authenticates against the volume MAC. This opens new volumes, pre-existing volumes whose password was already NFC/ASCII, and legacy volumes encrypted from decomposed or non-canonical bytes. Trying several canonical forms of the same password never bypasses authentication; each form is verified independently.
+- **ASCII passwords are invariant** under every normalization form, so they collapse to a single candidate with no extra key derivations — the overwhelming majority of volumes are unaffected.
+- **Force-decrypt** bypasses authentication, so it has no signal to choose a form and uses the password exactly as typed.
+
+This is implemented in `internal/password` and applied at every key-derivation chokepoint (desktop/CLI/mobile via `internal/volume`, and the web build in `internal/wasm`). Note one consequence: a *new* volume whose password contains non-ASCII characters may not decrypt in an *older* Picocrypt build that does not normalize, unless the user happens to type the exact stored bytes — the desktop and CLI therefore show an advisory when encrypting with a non-ASCII password.
+
 # Counter Overflow
 Since XChaCha20 has a max message size of 256 GiB, Picocrypt NG will use the HKDF-SHA3 mentioned above to generate a new nonce for XChaCha20 and a new IV for Serpent if the total encrypted data is more than 60 GiB. While this threshold can be increased up to 256 GiB, Picocrypt NG uses 60 GiB to prevent any edge cases with blocks or the counter used by Serpent.
 

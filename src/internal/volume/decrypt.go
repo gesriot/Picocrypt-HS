@@ -16,6 +16,7 @@ import (
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/keyfile"
 	"Picocrypt-NG/internal/log"
+	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 )
 
@@ -59,20 +60,11 @@ func Decrypt(ctx context.Context, req *DecryptRequest) error {
 		return err
 	}
 
-	// Phase 3: Derive keys
-	if err := decryptDeriveKeys(opCtx, req); err != nil {
-		cleanupDecrypt(opCtx, req)
-		return err
-	}
-
-	// Phase 4: Process keyfiles
-	if err := decryptProcessKeyfiles(opCtx, req); err != nil {
-		cleanupDecrypt(opCtx, req)
-		return err
-	}
-
-	// Phase 5: Verify authentication
-	if err := decryptVerifyAuth(opCtx, req); err != nil {
+	// Phases 3-5: derive keys, process keyfiles, and verify authentication,
+	// trying each password normalization form (NFC/NFD/raw) until one
+	// authenticates (#19). On success the winning form is left on the context so
+	// the verify-first and RS-retry re-derivations reuse it.
+	if err := decryptDeriveProcessVerify(opCtx, req); err != nil {
 		cleanupDecrypt(opCtx, req)
 		return err
 	}
@@ -220,7 +212,7 @@ func decryptReadHeader(ctx *OperationContext, req *DecryptRequest) error {
 func decryptDeriveKeys(ctx *OperationContext, req *DecryptRequest) error {
 	ctx.SetStatus("Deriving key...")
 
-	key, err := deriveVolumeKey([]byte(req.Password), ctx.Header.Salt, ctx.Header.Flags.Paranoid)
+	key, err := deriveVolumeKey(ctx.passwordBytes, ctx.Header.Salt, ctx.Header.Flags.Paranoid)
 	if err != nil {
 		return err
 	}
@@ -359,6 +351,43 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 	}
 
 	return nil
+}
+
+// decryptDeriveProcessVerify runs the derive-keys -> process-keyfiles ->
+// verify-auth sequence, trying each password normalization form (NFC/NFD/raw)
+// until one authenticates against the volume MAC (#19). Only a
+// wrong-password/tamper failure triggers the next form; any other error (keyfile
+// mismatch, subkey read, etc.) is independent of the password and returned
+// immediately. The winning form stays on ctx.passwordBytes so the verify-first
+// and RS-retry re-derivations reuse it. ForceDecrypt has no auth gate to choose
+// a form, so it uses the password exactly as typed (a single attempt, preserving
+// historical behavior).
+func decryptDeriveProcessVerify(ctx *OperationContext, req *DecryptRequest) error {
+	candidates := pwnorm.Candidates(req.Password)
+	if req.ForceDecrypt {
+		candidates = [][]byte{[]byte(req.Password)}
+	}
+
+	var lastErr error
+	for i, cand := range candidates {
+		ctx.setPasswordBytes(cand)
+
+		if err := decryptDeriveKeys(ctx, req); err != nil {
+			return err
+		}
+		if err := decryptProcessKeyfiles(ctx, req); err != nil {
+			return err
+		}
+		err := decryptVerifyAuth(ctx, req)
+		if err == nil {
+			return nil
+		}
+		if !header.IsPasswordError(err) || i == len(candidates)-1 {
+			return err
+		}
+		lastErr = err
+	}
+	return lastErr
 }
 
 // reDeriveForRetry resets the key-derivation state before a full-RS decode retry.

@@ -2,6 +2,7 @@ package volume
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,23 +42,44 @@ func TestDeniabilityReportsSpeedAndETA(t *testing.T) {
 		t.Fatalf("NewRSCodecs: %v", err)
 	}
 	tmpDir := t.TempDir()
-	volPath := filepath.Join(tmpDir, "vol.pcv")
-	if err := os.WriteFile(volPath, bytes.Repeat([]byte("x"), 2*1024*1024), 0644); err != nil {
-		t.Fatalf("write volume: %v", err)
-	}
 
+	// AddDeniability encrypts whatever bytes it is given, so a plain 2 MiB blob
+	// exercises its streaming progress reporting.
+	addPath := filepath.Join(tmpDir, "add.bin")
+	if err := os.WriteFile(addPath, bytes.Repeat([]byte("x"), 2*1024*1024), 0644); err != nil {
+		t.Fatalf("write add input: %v", err)
+	}
 	addRep := &etaStatusReporter{}
-	if err := AddDeniability(volPath, "pw", addRep); err != nil {
+	if err := AddDeniability(addPath, "pw", addRep); err != nil {
 		t.Fatalf("AddDeniability: %v", err)
 	}
 	if !hasSpeedAndETA(addRep.statuses) {
 		t.Errorf("AddDeniability reported no speed+ETA status, got %v", addRep.statuses)
 	}
 
-	// The wrapped bytes are not a real inner volume, so RemoveDeniability fails
-	// verification AFTER the streaming pass — which is all this test asserts.
+	// RemoveDeniability now selects the password form by probing the inner
+	// version field before streaming, so it must operate on a REAL deniable
+	// volume to reach (and report on) the streaming pass. Build one: encrypt a
+	// 2 MiB file, then wrap it.
+	plainPath := filepath.Join(tmpDir, "pt.bin")
+	if err := os.WriteFile(plainPath, bytes.Repeat([]byte("y"), 2*1024*1024), 0644); err != nil {
+		t.Fatalf("write plaintext: %v", err)
+	}
+	volPath := filepath.Join(tmpDir, "vol.pcv")
+	if err := Encrypt(context.Background(), &EncryptRequest{
+		InputFile: plainPath, OutputFile: volPath, Password: "pw",
+		Reporter: &GoldenTestReporter{}, RSCodecs: rs,
+	}); err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	if err := AddDeniability(volPath, "pw", &etaStatusReporter{}); err != nil {
+		t.Fatalf("AddDeniability(volume): %v", err)
+	}
+
 	remRep := &etaStatusReporter{}
-	_, _ = RemoveDeniability(volPath, "pw", remRep, rs)
+	if _, err := RemoveDeniability(volPath, "pw", remRep, rs); err != nil {
+		t.Fatalf("RemoveDeniability: %v", err)
+	}
 	if !hasSpeedAndETA(remRep.statuses) {
 		t.Errorf("RemoveDeniability reported no speed+ETA status, got %v", remRep.statuses)
 	}

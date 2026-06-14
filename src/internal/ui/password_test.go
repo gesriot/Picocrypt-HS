@@ -13,6 +13,43 @@ import (
 // (a known-weak password must not score above a known-strong one) rather than
 // recomputing zxcvbn inline, so it fails if updatePasswordStrength stops calling
 // zxcvbn or stores the wrong value.
+// TestNonASCIIPasswordHint verifies the #19 advisory is shown only while
+// encrypting with a non-ASCII password, and hidden for ASCII passwords or in
+// decrypt mode. It drives the real updateNonASCIIHint against the built widget.
+func TestNonASCIIPasswordHint(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	// Built from a code point so the literal cannot be silently re-normalized.
+	nonASCII := "caf" + string([]rune{0x00E9})
+
+	fyne.DoAndWait(func() {
+		if a.nonASCIIHint == nil {
+			t.Fatal("nonASCIIHint widget was not built")
+		}
+
+		a.State.Mode = "encrypt"
+		a.State.Password = nonASCII
+		a.updateNonASCIIHint()
+		if !a.nonASCIIHint.Visible() {
+			t.Error("hint should be visible for a non-ASCII password in encrypt mode")
+		}
+
+		a.State.Password = "plain-ascii"
+		a.updateNonASCIIHint()
+		if a.nonASCIIHint.Visible() {
+			t.Error("hint should be hidden for an ASCII password")
+		}
+
+		a.State.Mode = "decrypt"
+		a.State.Password = nonASCII
+		a.updateNonASCIIHint()
+		if a.nonASCIIHint.Visible() {
+			t.Error("hint should be hidden in decrypt mode")
+		}
+	})
+}
+
 func TestPasswordStrengthScoring(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 
