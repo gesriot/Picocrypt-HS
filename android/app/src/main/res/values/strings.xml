@@ -40,6 +40,7 @@
     <string name="reed_solomon">Reed-Solomon</string>
     <string name="paranoid">Paranoid</string>
     <string name="deniability">Deniability</string>
+    <string name="compress">Compress</string>
     <string name="expand_or_collapse">Expand or collapse</string>
 
     <!-- Decrypt Options Card -->

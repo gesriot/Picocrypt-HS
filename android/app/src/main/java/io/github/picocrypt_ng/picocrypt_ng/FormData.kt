@@ -28,6 +28,7 @@ data class FormData(
     val verifyFirst: Boolean = false,
     val keyfileFilenames: List<KeyfileInfo>, // Keyfile info with internal path and display name
     val keyfileOrdered: Boolean,
+    val compress: Boolean = false,
     val decryptionInfo: DecryptionInfo? = null
 ) {
     val isDecrypt: Boolean
@@ -88,6 +89,7 @@ data class FormData(
         if (verifyFirst != other.verifyFirst) return false
         if (keyfileFilenames != other.keyfileFilenames) return false
         if (keyfileOrdered != other.keyfileOrdered) return false
+        if (compress != other.compress) return false
         if (decryptionInfo != other.decryptionInfo) return false
         
         return true
@@ -105,6 +107,7 @@ data class FormData(
         result = 31 * result + verifyFirst.hashCode()
         result = 31 * result + keyfileFilenames.hashCode()
         result = 31 * result + keyfileOrdered.hashCode()
+        result = 31 * result + compress.hashCode()
         result = 31 * result + (decryptionInfo?.hashCode() ?: 0)
         return result
     }

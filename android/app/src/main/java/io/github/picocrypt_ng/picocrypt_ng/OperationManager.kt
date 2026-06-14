@@ -57,7 +57,7 @@ object OperationManager {
             paranoid = formData.paranoid,
             reedSolomon = formData.reedSolomon,
             deniability = formData.deniability,
-            compress = false, // Not supported in UI yet
+            compress = formData.compress,
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             keyfileOrdered = formData.keyfileOrdered
         )

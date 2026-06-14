@@ -77,6 +77,18 @@ class GoBridgeTest {
     }
 
     @Test
+    fun buildEncryptRequestJson_includesCompressTrue() {
+        val json = GoBridge.buildEncryptRequestJson(
+            operationID = "op1",
+            inputFile = "/data/in.txt",
+            outputFile = "/data/out.pcv",
+            options = EncryptOptions(compress = true)
+        )
+        val obj = JSONObject(json)
+        assertTrue(obj.getBoolean("compress"))
+    }
+
+    @Test
     fun `buildDecryptRequestJson serializes every option and never the password`() {
         val json = JSONObject(
             GoBridge.buildDecryptRequestJson(

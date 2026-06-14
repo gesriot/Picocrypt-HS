@@ -101,6 +101,9 @@ fun AdvancedCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             LabeledCheckbox(stringResource(R.string.deniability), formData.deniability) {
                 viewModel.updateFormData(formData.copy(deniability = it))
             }
+            LabeledCheckbox(stringResource(R.string.compress), formData.compress) {
+                viewModel.updateFormData(formData.copy(compress = it))
+            }
         }
     }
 }
