@@ -3,10 +3,34 @@ package header
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
 )
+
+// rootVersion reads the canonical root VERSION file by walking up from the test's
+// working directory. The header package cannot import internal/app (app depends on
+// header), so it derives the expected version straight from the single source.
+func rootVersion(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	for {
+		if b, err := os.ReadFile(filepath.Join(dir, "VERSION")); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("VERSION file not found walking up from the test directory")
+		}
+		dir = parent
+	}
+}
 
 func TestHeaderSize(t *testing.T) {
 	// Base header size without comments
@@ -28,9 +52,13 @@ func TestHeaderSize(t *testing.T) {
 	}
 }
 
-func TestCurrentVersionIsV213(t *testing.T) {
-	if CurrentVersion != "v2.14" {
-		t.Fatalf("CurrentVersion = %q; want %q", CurrentVersion, "v2.14")
+// Version-agnostic: a release bump that edits the root VERSION file but forgets
+// header.CurrentVersion (or vice versa) fails here. No version literal in the name
+// or body, so the test itself never needs editing.
+func TestCurrentVersionMatchesVersionFile(t *testing.T) {
+	want := "v" + rootVersion(t)
+	if CurrentVersion != want {
+		t.Fatalf("CurrentVersion = %q; want %q (derived from root VERSION file)", CurrentVersion, want)
 	}
 }
 

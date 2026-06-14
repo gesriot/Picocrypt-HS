@@ -8,14 +8,14 @@ import (
 	"testing"
 )
 
-// TestVersionFlagOutputsV213 drives the REAL cli.Execute(version) entrypoint with
+// TestVersionFlagReachesOutput drives the REAL cli.Execute(version) entrypoint with
 // os.Args set to {bin, "--version"} and asserts the passed version reaches cobra's
 // stdout. This exercises the runtime wiring rootCmd.Version = version in Execute()
 // (root.go:124); deleting that line leaves rootCmd.Version stale ("dev") and turns
-// this red. The former test pre-assigned rootCmd.Version to the asserted literal
-// and called rootCmd.Execute() directly, so it never touched the production wiring.
-func TestVersionFlagOutputsV213(t *testing.T) {
-	const want = "v2.14"
+// this red. It tests the wiring, not the version value, so it uses a fixed sentinel
+// and never needs touching on a release bump.
+func TestVersionFlagReachesOutput(t *testing.T) {
+	const want = "v9.99-wiring-sentinel"
 
 	oldVersion := Version
 	oldRootVersion := rootCmd.Version

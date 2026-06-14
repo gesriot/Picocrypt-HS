@@ -16,7 +16,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const v214ReleaseDate = "2026-06-14"
 const linuxDesktopAppID = "io.github.picocrypt_ng.Picocrypt-NG"
 const linuxX11WMClass = "Picocrypt-NG"
 
@@ -551,7 +550,9 @@ type appstreamReleaseDescription struct {
 	Items []string `xml:"ul>li"`
 }
 
-func TestMetainfoV214ReleaseHistory(t *testing.T) {
+// Version-agnostic: derives the expected current release from the root VERSION file,
+// so a release bump edits only the metainfo entry and VERSION -- never this test.
+func TestMetainfoCurrentReleaseMatchesVersion(t *testing.T) {
 	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml")
 	var doc appstreamMetainfo
 	if err := xml.Unmarshal(data, &doc); err != nil {
@@ -561,16 +562,21 @@ func TestMetainfoV214ReleaseHistory(t *testing.T) {
 		t.Fatal("metainfo contains no release history")
 	}
 
+	wantVersion := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
+
 	current := doc.Releases[0]
-	if current.Version != "2.14" {
-		t.Fatalf("current metainfo release version = %q, want 2.14", current.Version)
+	if current.Version != wantVersion {
+		t.Fatalf("current metainfo release version = %q, want %q (root VERSION file)", current.Version, wantVersion)
 	}
-	if current.Date != v214ReleaseDate {
-		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v214ReleaseDate)
+	// The release date is release-specific; assert it is present and well-formed rather
+	// than pinning a literal that would need editing every release.
+	if !regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`).MatchString(current.Date) {
+		t.Fatalf("current metainfo release date = %q, want format YYYY-MM-DD", current.Date)
 	}
+	wantAnchor := "Changelog.md#v" + strings.ReplaceAll(wantVersion, ".", "")
 	detailsURL := appstreamDetailsURL(current)
-	if !strings.HasSuffix(detailsURL, "Changelog.md#v214") {
-		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v214", detailsURL)
+	if !strings.HasSuffix(detailsURL, wantAnchor) {
+		t.Fatalf("current metainfo details URL = %q, want suffix %q", detailsURL, wantAnchor)
 	}
 
 	versions := map[string]bool{}

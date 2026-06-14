@@ -7,12 +7,16 @@ import (
 	"strings"
 	"testing"
 
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/cli"
 )
 
-func TestRuntimeVersionIsV212(t *testing.T) {
-	if version != "v2.14" {
-		t.Fatalf("version = %q; want %q", version, "v2.14")
+// Version-agnostic by design: it pins the runtime version const to app.Version,
+// which TestStateVersion ties to the canonical root VERSION file. A release bump
+// edits the version literals only -- this test never needs renaming or re-bumping.
+func TestRuntimeVersionMatchesAppVersion(t *testing.T) {
+	if version != app.Version {
+		t.Fatalf("cmd version = %q; want app.Version %q (single source: root VERSION file)", version, app.Version)
 	}
 }
 
@@ -48,10 +52,10 @@ func TestRuntimeVersionFeedsCLIVersionOutput(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "v2.14") {
-		t.Fatalf("CLI --version output = %q; want it to contain %q", got, "v2.14")
+	if !strings.Contains(got, version) {
+		t.Fatalf("CLI --version output = %q; want it to contain the runtime version %q", got, version)
 	}
-	if strings.Contains(got, "v2.11") {
-		t.Fatalf("CLI --version output = %q; must not contain stale v2.11", got)
+	if strings.Contains(got, "dev") {
+		t.Fatalf("CLI --version output = %q; must not contain cobra's default %q (version wiring missing)", got, "dev")
 	}
 }
