@@ -27,26 +27,25 @@ import (
 // TestFileTypeDetection tests detection of encrypted vs plain files.
 func TestFileTypeDetection(t *testing.T) {
 	testCases := []struct {
-		name      string
-		filename  string
-		isPcv     bool
-		isSplit   bool
-		isEncrypt bool
+		name     string
+		filename string
+		isPcv    bool
+		isSplit  bool
 	}{
-		{"PlainText", "document.txt", false, false, true},
-		{"PlainPDF", "report.pdf", false, false, true},
-		{"EncryptedPcv", "secret.pcv", true, false, false},
-		{"EncryptedPcvUppercase", "secret.PCV", true, false, false},
-		{"SplitChunk0", "secret.pcv.0", true, true, false},
-		{"SplitChunk1", "secret.pcv.1", true, true, false},
-		{"SplitChunk99", "secret.pcv.99", true, true, false},
-		{"FakeSplit", "file.pcv.txt", false, false, true},
-		{"FalsePositiveBackup", "backup.pcv.tmp1", false, false, true},
-		{"FalsePositiveVersioned", "notes.pcv.v2", false, false, true},
-		{"DeepPath", "/path/to/secret.pcv", true, false, false},
-		{"DeepSplit", "/path/to/secret.pcv.5", true, true, false},
-		{"NoExtension", "document", false, false, true},
-		{"HiddenFile", ".hidden.pcv", true, false, false},
+		{"PlainText", "document.txt", false, false},
+		{"PlainPDF", "report.pdf", false, false},
+		{"EncryptedPcv", "secret.pcv", true, false},
+		{"EncryptedPcvUppercase", "secret.PCV", true, false},
+		{"SplitChunk0", "secret.pcv.0", true, true},
+		{"SplitChunk1", "secret.pcv.1", true, true},
+		{"SplitChunk99", "secret.pcv.99", true, true},
+		{"FakeSplit", "file.pcv.txt", false, false},
+		{"FalsePositiveBackup", "backup.pcv.tmp1", false, false},
+		{"FalsePositiveVersioned", "notes.pcv.v2", false, false},
+		{"DeepPath", "/path/to/secret.pcv", true, false},
+		{"DeepSplit", "/path/to/secret.pcv.5", true, true},
+		{"NoExtension", "document", false, false},
+		{"HiddenFile", ".hidden.pcv", true, false},
 	}
 
 	for _, tc := range testCases {
@@ -63,9 +62,6 @@ func TestFileTypeDetection(t *testing.T) {
 			}
 			if isSplit != tc.isSplit {
 				t.Errorf("IsSplitChunkPath = %v; want %v for %q", isSplit, tc.isSplit, tc.filename)
-			}
-			if isEncrypt := !isDecrypt; isEncrypt != tc.isEncrypt {
-				t.Errorf("isEncrypt = %v; want %v for %q", isEncrypt, tc.isEncrypt, tc.filename)
 			}
 		})
 	}

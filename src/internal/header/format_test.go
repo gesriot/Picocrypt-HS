@@ -33,22 +33,18 @@ func rootVersion(t *testing.T) string {
 }
 
 func TestHeaderSize(t *testing.T) {
-	// Base header size without comments
-	if HeaderSize(0) != BaseHeaderSize {
-		t.Errorf("HeaderSize(0) = %d; want %d", HeaderSize(0), BaseHeaderSize)
-	}
-
-	// Header with 10 comments
-	expected := BaseHeaderSize + 10*3 // Each comment byte is rs1 encoded (1->3)
-	if HeaderSize(10) != expected {
-		t.Errorf("HeaderSize(10) = %d; want %d", HeaderSize(10), expected)
-	}
-
-	// Verify base header size calculation
+	// Frozen-format tripwire: BaseHeaderSize is the sum of every RS-encoded
+	// fixed field in the .pcv header. Changing any field's on-disk size breaks
+	// 2.08/2.09 interop, so pin the byte count independently of the constant.
 	// 15 + 15 + 15 + 48 + 96 + 48 + 72 + 192 + 96 + 192 = 789
 	expectedBase := 15 + 15 + 15 + 48 + 96 + 48 + 72 + 192 + 96 + 192
 	if BaseHeaderSize != expectedBase {
 		t.Errorf("BaseHeaderSize = %d; want %d", BaseHeaderSize, expectedBase)
+	}
+
+	// Each comment byte is rs1-encoded (1->3); verify the expansion is applied.
+	if got, want := HeaderSize(10), BaseHeaderSize+10*3; got != want {
+		t.Errorf("HeaderSize(10) = %d; want %d", got, want)
 	}
 }
 
