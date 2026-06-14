@@ -20,4 +20,11 @@ class StagingServiceTest {
     @Test fun folderOutputName_keepsRootName() {
         assertEquals("MyDocs.zip.pcv", StagingService.folderOutputName("MyDocs"))
     }
+    @Test fun requiredBytes_isThreeXPlusMargin() {
+        assertEquals(3L * 1000 + StagingService.SPACE_MARGIN_BYTES, StagingService.requiredBytes(1000))
+    }
+    @Test fun hasSpaceFor_refusesWhenTight() {
+        assertEquals(false, StagingService.hasSpaceFor(total = 1000, usable = 3000))
+        assertEquals(true, StagingService.hasSpaceFor(total = 1000, usable = 3L * 1000 + StagingService.SPACE_MARGIN_BYTES))
+    }
 }

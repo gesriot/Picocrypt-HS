@@ -37,6 +37,30 @@ object StagingService {
     fun folderOutputName(rootName: String): String = "$rootName.zip.pcv"
     fun multiFileOutputName(unixSeconds: Long): String = "encrypted-$unixSeconds.zip.pcv"
 
+    const val SPACE_MARGIN_BYTES: Long = 16L * 1024 * 1024 // 16 MiB headroom
+
+    /** Peak internal usage ~= staged copy + encrypted temp zip + output volume, before cleanup. */
+    fun requiredBytes(total: Long): Long = 3L * total + SPACE_MARGIN_BYTES
+    fun hasSpaceFor(total: Long, usable: Long): Boolean = usable >= requiredBytes(total)
+
+    private fun usableSpace(context: Context): Long =
+        File(context.filesDir, STAGING_DIR).let { it.mkdirs(); it.usableSpace }
+
+    private fun treeSize(dir: DocumentFile): Long {
+        var sum = 0L
+        for (c in dir.listFiles()) {
+            if (c.isVirtual) continue
+            sum += if (c.isDirectory) treeSize(c) else c.length()
+        }
+        return sum
+    }
+
+    private fun insufficient(total: Long, usable: Long) = AppError.FileError.InsufficientStorage(
+        userMessage = "Not enough free space. This selection needs about " +
+            "${requiredBytes(total) / (1024 * 1024)} MiB free; ${usable / (1024 * 1024)} MiB available.",
+        technicalMessage = "required=${requiredBytes(total)} usable=$usable",
+    )
+
     // ---- IO ----
     private fun stagingDir(context: Context): File = File(context.filesDir, STAGING_DIR).also { it.mkdirs() }
     fun wipeStaging(context: Context) { File(context.filesDir, STAGING_DIR).deleteRecursively() }
@@ -52,6 +76,9 @@ object StagingService {
         withContext(Dispatchers.IO) {
             try {
                 wipeStaging(context)
+                val total = treeSize(tree)
+                val usable = usableSpace(context)
+                if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(total, usable))
                 val rootName = tree.name ?: "folder"
                 val root = File(stagingDir(context), rootName)
                 val files = mutableListOf<String>()
@@ -98,6 +125,9 @@ object StagingService {
         withContext(Dispatchers.IO) {
             try {
                 wipeStaging(context)
+                val total = uris.sumOf { DocumentFile.fromSingleUri(context, it)?.length() ?: 0L }
+                val usable = usableSpace(context)
+                if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(total, usable))
                 val dir = stagingDir(context)
                 val used = mutableSetOf<String>()
                 val files = mutableListOf<String>()
