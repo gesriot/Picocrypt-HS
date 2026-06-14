@@ -111,7 +111,10 @@ jobs:
         api-level: 36
         arch: x86_64
         disable-animations: true
-        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+        # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
+        # (src/internal/crypto/kdf.go); the runner's default ~2.5 GiB emulator OOMs
+        # (lowmemorykiller kills the test process) mid crypto roundtrip.
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 6144 -cores 4 -camera-back none -camera-front none
         working-directory: android
         script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest
 
