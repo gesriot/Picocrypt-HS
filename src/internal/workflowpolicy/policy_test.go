@@ -200,6 +200,15 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 	mustContain(t, content, "connectedDebugAndroidTest")
 	mustContain(t, content, "-Pandroid.testInstrumentationRunnerArguments.class")
 	mustContain(t, content, "OperationManagerIntegrationTest")
+
+	// The emulator must run API 36 (matching targetSdk), not 34: API 35+ behavior --
+	// the foreground-service dataSync timeout and Service.onTimeout(API 35+) -- is only
+	// reachable there, so gating on API 34 is a false green for that path.
+	prJob := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml"), "pr-test-build-android")
+	prEmulator := mustHaveStepUsingPrefix(t, prJob, "ReactiveCircus/android-emulator-runner@")
+	if got := prEmulator.With["api-level"]; got != 36 {
+		t.Fatalf("PR emulator api-level = %v, want 36 (>= targetSdk for FGS/onTimeout coverage)", got)
+	}
 }
 
 func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
@@ -235,6 +244,13 @@ func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	mustNotContain(t, content, "connectedDebugAndroidTest \\")
 	mustContain(t, content, "TEST_CLASSES=")
 	mustContain(t, content, "./gradlew connectedDebugAndroidTest")
+
+	// Same API-36 requirement as the PR gate (FGS/onTimeout reachability).
+	instrJob := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/android-instrumented.yml"), "android-instrumented")
+	instrEmulator := mustHaveStepUsingPrefix(t, instrJob, "ReactiveCircus/android-emulator-runner@")
+	if got := instrEmulator.With["api-level"]; got != 36 {
+		t.Fatalf("instrumented emulator api-level = %v, want 36", got)
+	}
 }
 
 func TestWindowsLegacyPRWorkflowIsCLIOnly(t *testing.T) {
