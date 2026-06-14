@@ -178,7 +178,9 @@ class OperationManagerTest {
         mockkObject(GoBridge)
         try {
             every { GoBridge.startOperation() } returns Result.success("op_test")
-            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+            every {
+                GoBridge.startEncrypt(any(), any(), any(), any(), any(), any(), any(), any())
+            } returns Result.success(Unit)
 
             // Establish an active (non-done) operation.
             val started = OperationManager.startEncrypt(
@@ -245,7 +247,9 @@ class OperationManagerTest {
         mockkObject(GoBridge)
         try {
             every { GoBridge.startOperation() } returns Result.success("op_clear")
-            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+            every {
+                GoBridge.startEncrypt(any(), any(), any(), any(), any(), any(), any(), any())
+            } returns Result.success(Unit)
 
             // Establish an active (non-done) operation through the public seam.
             val started = OperationManager.startEncrypt(
@@ -296,7 +300,9 @@ class OperationManagerTest {
         mockkObject(GoBridge)
         try {
             every { GoBridge.startOperation() } returns Result.success("op_old")
-            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+            every {
+                GoBridge.startEncrypt(any(), any(), any(), any(), any(), any(), any(), any())
+            } returns Result.success(Unit)
 
             val started = OperationManager.startEncrypt(
                 mockContext,
@@ -493,7 +499,9 @@ class OperationManagerTest {
         mockkObject(GoBridge)
         try {
             every { GoBridge.startOperation() } returns Result.success("op_enc")
-            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+            every {
+                GoBridge.startEncrypt(any(), any(), any(), any(), any(), any(), any(), any())
+            } returns Result.success(Unit)
 
             val started = OperationManager.startEncrypt(
                 mockContext,
@@ -669,6 +677,87 @@ class OperationManagerTest {
         } finally {
             unmockkObject(GoBridge)
             tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `startEncrypt on a folder selection sends empty inputFile and the staged arrays`() = runTest {
+        // A folder/multi selection encrypts the staged tree, not a single copied file.
+        // OperationManager must hand GoBridge an EMPTY inputFile (so Go does not also try
+        // to read a non-existent single path) and forward the inputFiles/onlyFolders the
+        // staging step produced. Capture the bridge args and prove the selection flows
+        // through. GoBridge is the Go mobile AAR (absent on the JVM classpath), so mock
+        // it; startEncrypt resolves an output path under context.filesDir, so back it
+        // with a real temp dir (the relaxed mock returns null otherwise).
+        val tmpDir = createTempDirectory(prefix = "opmgr_folder").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_folder")
+            val inputFileSlot = slot<String>()
+            val inputFilesSlot = slot<List<String>>()
+            val onlyFoldersSlot = slot<List<String>>()
+            every {
+                GoBridge.startEncrypt(
+                    any(),
+                    capture(inputFileSlot),
+                    any(),
+                    any(),
+                    any(),
+                    inputFiles = capture(inputFilesSlot),
+                    onlyFolders = capture(onlyFoldersSlot),
+                    onlyFiles = any(),
+                )
+            } returns Result.success(Unit)
+
+            val formData = TestDataBuilders.createFolderEncryptFormData(displayName = "MyDocs")
+            val result = OperationManager.startEncrypt(mockContext, formData)
+
+            assertTrue("folder encrypt should start", result.isSuccess)
+            assertTrue("bridge args must be captured", inputFilesSlot.isCaptured)
+            assertEquals(
+                "a multi selection must send an empty single inputFile",
+                "",
+                inputFileSlot.captured
+            )
+            assertEquals(
+                "the staged inputFiles must flow to the bridge",
+                formData.inputFiles,
+                inputFilesSlot.captured
+            )
+            assertEquals(
+                "the staged onlyFolders must flow to the bridge",
+                formData.onlyFolders,
+                onlyFoldersSlot.captured
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `startEncrypt fails loud on a folder selection with no staged files`() = runTest {
+        // A FOLDER selectionKind with an empty inputFiles list is an invalid selection
+        // (staging produced nothing). It must fail with NoFileSelected before any Go work,
+        // exactly as an empty single-file copiedFilePath does.
+        mockkObject(GoBridge)
+        try {
+            val formData = TestDataBuilders.createFolderEncryptFormData()
+                .copy(inputFiles = emptyList())
+            val result = OperationManager.startEncrypt(mockContext, formData)
+
+            assertTrue("empty folder selection must fail", result.isFailure)
+            result.onFailure {
+                assertTrue(
+                    "Error should be NoFileSelected",
+                    it is AppError.ValidationError.NoFileSelected
+                )
+            }
+            verify(exactly = 0) { GoBridge.startOperation() }
+        } finally {
+            unmockkObject(GoBridge)
         }
     }
 

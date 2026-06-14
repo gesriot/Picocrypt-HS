@@ -304,6 +304,36 @@ class FormDataTest {
     }
 
     @Test
+    fun `FOLDER selection is encrypt regardless of filename extension`() {
+        // A folder/multi-file selection always encrypts (Go zips it). The displayName
+        // has no .pcv extension and may have no extension at all, so isEncrypt must key
+        // off selectionKind, not the filename. isDecrypt/isSplitVolumeChunk are
+        // single-file-only concepts and must be false here.
+        val formData = TestDataBuilders.createFolderEncryptFormData(displayName = "MyDocs")
+        assertEquals(SelectionKind.FOLDER, formData.selectionKind)
+        assertTrue("a folder selection must be an encrypt", formData.isEncrypt)
+        assertFalse("a folder selection must never be a decrypt", formData.isDecrypt)
+        assertFalse("split-volume detection is single-file-only", formData.isSplitVolumeChunk)
+    }
+
+    @Test
+    fun `equals and hashCode reflect selection fields`() {
+        // The selection model (inputFiles/onlyFolders/onlyFiles/selectionKind/
+        // suggestedOutputName) is part of FormData's identity: two forms that differ only
+        // in their staged selection must not be considered equal, else a stale folder
+        // selection could be mistaken for a new one.
+        val a = TestDataBuilders.createFolderEncryptFormData(displayName = "MyDocs")
+        val b = TestDataBuilders.createFolderEncryptFormData(displayName = "MyDocs")
+        val c = TestDataBuilders.createFolderEncryptFormData(
+            displayName = "MyDocs",
+            inputFiles = listOf("/stage/MyDocs/only-one.txt")
+        )
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+        assertNotEquals(a, c)
+    }
+
+    @Test
     fun `isFormValid is false for a split volume chunk`() {
         // A split chunk must never be a runnable operation: it does not end in .pcv, so
         // isEncrypt is true and it would be double-encrypted. The work button gates on
