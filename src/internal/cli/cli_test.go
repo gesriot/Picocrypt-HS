@@ -748,7 +748,7 @@ func TestReporterOutput(t *testing.T) {
 	})
 }
 
-// Version wiring is covered behaviorally by TestVersionFlagOutputsV213 (version_test.go),
+// Version wiring is covered behaviorally by TestVersionFlagReachesOutput (version_test.go),
 // which drives the real Execute()/rootCmd and asserts the version reaches CLI output;
 // a tautological "set rootCmd.Version then assert it" test was removed here.
 

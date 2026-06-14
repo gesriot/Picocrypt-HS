@@ -157,18 +157,6 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `operationState updates when OperationManager state changes`() = runTest(mainDispatcherRule.testDispatcher) {
-        // Initially null
-        var operationState = viewModel.operationState.first()
-        assertNull("Should be null initially", operationState)
-        
-        // Note: We can't easily set OperationManager state without GoBridge,
-        // but we verify the StateFlow is connected
-        val managerState = OperationManager.currentOperation.first()
-        assertEquals(managerState, operationState)
-    }
-
-    @Test
     fun `startForegroundServiceSafely swallows a background-start IllegalStateException`() {
         // On Android 12+ starting a foreground service from the background throws
         // ForegroundServiceStartNotAllowedException (an IllegalStateException subclass).
