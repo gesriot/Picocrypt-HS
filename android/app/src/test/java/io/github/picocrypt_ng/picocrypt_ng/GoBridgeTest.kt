@@ -1,25 +1,26 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
+import org.json.JSONException
 import org.json.JSONObject
-import org.json.JSONArray
 
 /**
- * Unit tests for GoBridge class.
- * 
- * Note: GoBridge uses mobile.Mobile which is a generated class from Go mobile bindings.
- * Full integration testing requires the Go mobile AAR to be built and should be done
- * in instrumented tests. These unit tests focus on error handling and conversion logic.
- * 
- * Some tests may fail if Go mobile bindings are not available - this is expected in
- * unit test environments where the AAR may not be built.
+ * Unit tests for GoBridge.
+ *
+ * Two kinds of tests live here:
+ *  - Pure-logic tests (request-JSON building, response parsing, password zeroing, option
+ *    defaults) run on the plain JVM and assert the REAL production code paths -- they fail
+ *    if the production serialization/parsing changes.
+ *  - Tests that need the gomobile native bridge (mobile.Mobile) cannot run on the JVM.
+ *    They SKIP LOUDLY via assumeTrue(isGoMobileAvailable()) instead of silently passing
+ *    (JUnit reports them as ignored, not green). Their real coverage is the on-device
+ *    OperationManagerIntegrationTest crypto roundtrip.
  */
 class GoBridgeTest {
-    
-    /**
-     * Checks if Go mobile bindings are available.
-     */
+
+    /** True only when the gomobile AAR (mobile.Mobile) is loadable in this runtime. */
     private fun isGoMobileAvailable(): Boolean {
         return try {
             Class.forName("mobile.Mobile")
@@ -32,343 +33,220 @@ class GoBridgeTest {
             false
         }
     }
-    
-    @Test
-    fun `startOperation returns operation ID on success`() {
-        // This test requires the Go mobile bindings to be available
-        // In a real scenario, this would be an instrumented test
-        // For unit tests, we verify the Result wrapping or handle missing bindings
-        try {
-            val result = GoBridge.startOperation()
-            assertNotNull("Result should not be null", result)
-            result.onSuccess { operationId ->
-                assertTrue("Operation ID should not be empty", operationId.isNotEmpty())
-            }
-        } catch (e: UnsatisfiedLinkError) {
-            // Go mobile bindings not available - this is expected in unit tests
-            // Skip this test when bindings aren't available
-        } catch (e: NoClassDefFoundError) {
-            // Go mobile bindings not available - this is expected in unit tests
-            // Skip this test when bindings aren't available
-        }
-    }
+
+    // --- Request JSON building: asserts the REAL production builders ------------------
+    // These call GoBridge.build*RequestJson (the exact code startEncrypt/startDecrypt
+    // send to Go), so they fail if a field is dropped, renamed, or retyped. No AAR needed.
 
     @Test
-    fun `startOperation returns failure (no fabricated ID) on exception`() {
-        // The fabricated-ID fallback was removed: a Go binding failure must surface
-        // as Result.failure, never a fake "op_..." ID that the Go map does not hold.
-        // We can't force Mobile to throw without mocking, but we verify the method
-        // never throws (except for missing bindings) and, if it fails, wraps an AppError.
-        try {
-            val result = GoBridge.startOperation()
-            assertNotNull(result)
-            result.onFailure { error ->
-                assertTrue("Error should be AppError", error is AppError)
-            }
-        } catch (e: UnsatisfiedLinkError) {
-            // Go mobile bindings not available - this is expected in unit tests
-        } catch (e: NoClassDefFoundError) {
-            // Go mobile bindings not available - this is expected in unit tests
-        } catch (e: Exception) {
-            fail("startOperation should not throw exceptions (except missing bindings), but got: ${e.message}")
-        }
-    }
-    
-    @Test
-    fun `detectOperation returns error on exception`() {
-        // Test with invalid file path that should cause an exception
-        try {
-            val result = GoBridge.detectOperation("")
-            
-            // Result should be either success or failure, but not throw
-            assertNotNull("Result should not be null", result)
-            
-            // If it fails, should be a proper AppError
-            result.onFailure { error ->
-                assertTrue("Error should be AppError", error is AppError)
-                assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
-            }
-        } catch (e: UnsatisfiedLinkError) {
-            // Go mobile bindings not available - this is expected in unit tests
-        } catch (e: NoClassDefFoundError) {
-            // Go mobile bindings not available - this is expected in unit tests
-        }
-    }
-    
-    @Test
-    fun `startEncrypt JSON structure is correct`() {
-        // This test doesn't require Go mobile bindings - it just tests JSON structure
-        // Test that the JSON structure built by startEncrypt is correct
-        // We can't easily test the full flow without Mobile, but we can verify
-        // the JSON building logic by examining what would be created
-        
-        // Skip if Go mobile bindings cause class loading issues
-        if (!isGoMobileAvailable()) {
-            return
-        }
-        
-        val operationID = "test_op_123"
-        val inputFile = "/path/to/input.txt"
-        val outputFile = "/path/to/output.pcv"
-        val options = EncryptOptions(
-            comments = "Test comments",
-            paranoid = true,
-            reedSolomon = true,
-            deniability = false,
-            compress = false,
-            keyfiles = listOf("keyfile1", "keyfile2"),
-            keyfileOrdered = true
+    fun `buildEncryptRequestJson serializes every option and never the password`() {
+        val json = JSONObject(
+            GoBridge.buildEncryptRequestJson(
+                operationID = "test_op_123",
+                inputFile = "/path/to/input.txt",
+                outputFile = "/path/to/output.pcv",
+                options = EncryptOptions(
+                    comments = "Test comments",
+                    paranoid = true,
+                    reedSolomon = true,
+                    deniability = false,
+                    compress = true,
+                    keyfiles = listOf("keyfile1", "keyfile2"),
+                    keyfileOrdered = true
+                )
+            )
         )
 
-        // Build the expected JSON structure (password is passed as bytes, never in JSON)
-        val expectedJson = JSONObject().apply {
-            put("operationID", operationID)
-            put("inputFile", inputFile)
-            put("outputFile", outputFile)
-            put("comments", options.comments)
-            put("keyfiles", JSONArray().apply {
-                options.keyfiles.forEach { put(it) }
-            })
-            put("paranoid", options.paranoid)
-            put("reedSolomon", options.reedSolomon)
-            put("deniability", options.deniability)
-            put("compress", options.compress)
-            put("keyfileOrdered", options.keyfileOrdered)
-        }
+        assertEquals("test_op_123", json.getString("operationID"))
+        assertEquals("/path/to/input.txt", json.getString("inputFile"))
+        assertEquals("/path/to/output.pcv", json.getString("outputFile"))
+        assertEquals("Test comments", json.getString("comments"))
+        assertTrue(json.getBoolean("paranoid"))
+        assertTrue(json.getBoolean("reedSolomon"))
+        assertFalse(json.getBoolean("deniability"))
+        assertTrue(json.getBoolean("compress"))
+        assertTrue(json.getBoolean("keyfileOrdered"))
 
-        // Verify JSON structure
-        assertEquals(operationID, expectedJson.getString("operationID"))
-        assertEquals(inputFile, expectedJson.getString("inputFile"))
-        assertEquals(outputFile, expectedJson.getString("outputFile"))
-        assertFalse("password must never appear in the JSON", expectedJson.has("password"))
-        assertEquals(options.comments, expectedJson.getString("comments"))
-        assertEquals(options.paranoid, expectedJson.getBoolean("paranoid"))
-        assertEquals(options.reedSolomon, expectedJson.getBoolean("reedSolomon"))
-        assertEquals(options.deniability, expectedJson.getBoolean("deniability"))
-        assertEquals(options.compress, expectedJson.getBoolean("compress"))
-        assertEquals(options.keyfileOrdered, expectedJson.getBoolean("keyfileOrdered"))
-        
-        val keyfilesArray = expectedJson.getJSONArray("keyfiles")
-        assertEquals(2, keyfilesArray.length())
-        assertEquals("keyfile1", keyfilesArray.getString(0))
-        assertEquals("keyfile2", keyfilesArray.getString(1))
+        val keyfiles = json.getJSONArray("keyfiles")
+        assertEquals(2, keyfiles.length())
+        assertEquals("keyfile1", keyfiles.getString(0))
+        assertEquals("keyfile2", keyfiles.getString(1))
+
+        // SECURITY: the password is handed to Mobile as raw bytes, never serialized.
+        assertFalse("password must never appear in the JSON", json.has("password"))
     }
-    
+
     @Test
-    fun `startDecrypt JSON structure is correct`() {
-        val operationID = "test_op_123"
-        val inputFile = "/path/to/input.pcv"
-        val outputFile = "/path/to/output.txt"
-        val options = DecryptOptions(
-            keyfiles = listOf("keyfile1"),
-            forceDecrypt = true,
-            verifyFirst = false,
-            autoUnzip = true,
-            sameLevel = false,
-            recombine = false,
-            deniability = false
+    fun `buildDecryptRequestJson serializes every option and never the password`() {
+        val json = JSONObject(
+            GoBridge.buildDecryptRequestJson(
+                operationID = "test_op_123",
+                inputFile = "/path/to/input.pcv",
+                outputFile = "/path/to/output.txt",
+                options = DecryptOptions(
+                    keyfiles = listOf("keyfile1"),
+                    forceDecrypt = true,
+                    verifyFirst = true,
+                    autoUnzip = false,
+                    sameLevel = true,
+                    recombine = false,
+                    deniability = true
+                )
+            )
         )
 
-        // Build the expected JSON structure (password is passed as bytes, never in JSON)
-        val expectedJson = JSONObject().apply {
-            put("operationID", operationID)
-            put("inputFile", inputFile)
-            put("outputFile", outputFile)
-            put("keyfiles", JSONArray().apply {
-                options.keyfiles.forEach { put(it) }
-            })
-            put("forceDecrypt", options.forceDecrypt)
-            put("verifyFirst", options.verifyFirst)
-            put("autoUnzip", options.autoUnzip)
-            put("sameLevel", options.sameLevel)
-            put("recombine", options.recombine)
-            put("deniability", options.deniability)
-        }
+        assertEquals("test_op_123", json.getString("operationID"))
+        assertEquals("/path/to/input.pcv", json.getString("inputFile"))
+        assertEquals("/path/to/output.txt", json.getString("outputFile"))
+        assertTrue(json.getBoolean("forceDecrypt"))
+        assertTrue(json.getBoolean("verifyFirst"))
+        assertFalse(json.getBoolean("autoUnzip"))
+        assertTrue(json.getBoolean("sameLevel"))
+        assertFalse(json.getBoolean("recombine"))
+        assertTrue(json.getBoolean("deniability"))
 
-        // Verify JSON structure
-        assertEquals(operationID, expectedJson.getString("operationID"))
-        assertEquals(inputFile, expectedJson.getString("inputFile"))
-        assertEquals(outputFile, expectedJson.getString("outputFile"))
-        assertFalse("password must never appear in the JSON", expectedJson.has("password"))
-        assertEquals(options.forceDecrypt, expectedJson.getBoolean("forceDecrypt"))
-        assertEquals(options.verifyFirst, expectedJson.getBoolean("verifyFirst"))
-        assertEquals(options.autoUnzip, expectedJson.getBoolean("autoUnzip"))
-        assertEquals(options.sameLevel, expectedJson.getBoolean("sameLevel"))
-        assertEquals(options.recombine, expectedJson.getBoolean("recombine"))
-        assertEquals(options.deniability, expectedJson.getBoolean("deniability"))
+        val keyfiles = json.getJSONArray("keyfiles")
+        assertEquals(1, keyfiles.length())
+        assertEquals("keyfile1", keyfiles.getString(0))
+
+        assertFalse("password must never appear in the JSON", json.has("password"))
     }
-    
-    @Test
-    fun `startEncrypt converts empty error message to success`() {
-        // When Mobile.startEncrypt returns empty string, it should be success
-        // This is tested by the actual implementation logic
-        // We verify the error handling path works correctly
-        val password = "test".toByteArray(Charsets.UTF_8)
-        val options = EncryptOptions()
 
-        try {
-            // This will fail if Mobile throws, but we're testing the error conversion logic
-            val result = GoBridge.startEncrypt(
-                "op_123",
-                "/input",
-                "/output",
-                password,
-                options
-            )
-            
-            // Result should not throw, and if it fails, should be a proper AppError
-            result.onFailure { error ->
-                assertTrue("Error should be AppError", error is AppError)
+    // --- Response parsing: asserts the REAL production parser -------------------------
+
+    @Test
+    fun `parseDecryptionInfo maps every header field`() {
+        val info = GoBridge.parseDecryptionInfo(
+            """
+            {
+                "keyfilesRequired": true,
+                "keyfileOrdered": true,
+                "reedSolomon": true,
+                "deniability": false,
+                "paranoid": true,
+                "comments": "Test comments",
+                "readable": true
             }
-        } catch (e: UnsatisfiedLinkError) {
-            // Go mobile bindings not available - this is expected in unit tests
-        } catch (e: NoClassDefFoundError) {
-            // Go mobile bindings not available - this is expected in unit tests
-        }
+            """.trimIndent()
+        )
+
+        assertTrue(info.keyfilesRequired)
+        assertTrue(info.keyfileOrdered)
+        assertTrue(info.reedSolomon)
+        assertFalse(info.deniability)
+        assertTrue(info.paranoid)
+        assertEquals("Test comments", info.comments)
+        assertTrue(info.readable)
     }
-    
+
     @Test
-    fun `startDecrypt converts empty error message to success`() {
-        val password = "test".toByteArray(Charsets.UTF_8)
-        val options = DecryptOptions()
-
-        try {
-            val result = GoBridge.startDecrypt(
-                "op_123",
-                "/input.pcv",
-                "/output",
-                password,
-                options
-            )
-
-            result.onFailure { error ->
-                assertTrue("Error should be AppError", error is AppError)
+    fun `parseDecryptionInfo throws on a missing required field`() {
+        // SECURITY: a malformed header response must fail loud, not silently default
+        // (e.g. defaulting keyfilesRequired=false would let the UI skip the keyfile
+        // prompt). The production parser uses getBoolean, which throws on a missing key.
+        val missingKeyfilesRequired = """
+            {
+                "keyfileOrdered": false,
+                "reedSolomon": false,
+                "deniability": false,
+                "paranoid": false,
+                "comments": "",
+                "readable": true
             }
-        } catch (e: UnsatisfiedLinkError) {
-            // Go mobile bindings not available - this is expected in unit tests
-        } catch (e: NoClassDefFoundError) {
-            // Go mobile bindings not available - this is expected in unit tests
+        """.trimIndent()
+
+        assertThrows(JSONException::class.java) {
+            GoBridge.parseDecryptionInfo(missingKeyfilesRequired)
         }
     }
 
+    // --- Password zeroing: security contract that holds even when the call fails ------
+    // GoBridge.start{Encrypt,Decrypt} zero the caller's password in a finally block. On
+    // the JVM the native Mobile call throws, but finally still runs, so these verify the
+    // wipe WITHOUT the AAR (and on-device, where Mobile returns, the finally still runs).
+
     @Test
-    fun `startEncrypt zeroes the password ByteArray`() {
-        if (!isGoMobileAvailable()) return
-        val id = GoBridge.startOperation().getOrElse { return }
+    fun `startEncrypt zeroes the password even when the bridge call fails`() {
         val password = "hunter2".toByteArray(Charsets.UTF_8)
-        GoBridge.startEncrypt(id, "/no/such/input", "/tmp/out.pcv", password, EncryptOptions())
+        try {
+            GoBridge.startEncrypt("op_missing", "/no/such/in", "/tmp/out.pcv", password, EncryptOptions())
+        } catch (t: Throwable) {
+            // Native bridge unavailable on the JVM; the finally block has already run.
+        }
         assertTrue("password bytes must be zeroed", password.all { it == 0.toByte() })
     }
-    
+
     @Test
-    fun `getDecryptionInfo parses JSON correctly`() {
-        // Test JSON parsing logic
-        // This test doesn't require Go mobile bindings - it just tests JSON parsing
-        
-        // Skip if Go mobile bindings cause class loading issues
-        if (!isGoMobileAvailable()) {
-            return
+    fun `startDecrypt zeroes the password even when the bridge call fails`() {
+        val password = "hunter2".toByteArray(Charsets.UTF_8)
+        try {
+            GoBridge.startDecrypt("op_missing", "/no/such/in.pcv", "/tmp/out", password, DecryptOptions())
+        } catch (t: Throwable) {
+            // Native bridge unavailable on the JVM; the finally block has already run.
         }
-        
-        val jsonString = """
-        {
-            "keyfilesRequired": true,
-            "keyfileOrdered": true,
-            "reedSolomon": true,
-            "deniability": false,
-            "paranoid": true,
-            "comments": "Test comments",
-            "readable": true
-        }
-        """.trimIndent()
-        
-        val json = JSONObject(jsonString)
-        val decryptionInfo = DecryptionInfo(
-            keyfilesRequired = json.getBoolean("keyfilesRequired"),
-            keyfileOrdered = json.getBoolean("keyfileOrdered"),
-            reedSolomon = json.getBoolean("reedSolomon"),
-            deniability = json.getBoolean("deniability"),
-            paranoid = json.getBoolean("paranoid"),
-            comments = json.getString("comments"),
-            readable = json.getBoolean("readable")
-        )
-        
-        assertEquals(true, decryptionInfo.keyfilesRequired)
-        assertEquals(true, decryptionInfo.keyfileOrdered)
-        assertEquals(true, decryptionInfo.reedSolomon)
-        assertEquals(false, decryptionInfo.deniability)
-        assertEquals(true, decryptionInfo.paranoid)
-        assertEquals("Test comments", decryptionInfo.comments)
-        assertEquals(true, decryptionInfo.readable)
+        assertTrue("password bytes must be zeroed", password.all { it == 0.toByte() })
     }
-    
-    @Test
-    fun `getDecryptionInfo handles missing fields with defaults`() {
-        // Test that missing fields are handled (though the actual implementation
-        // would throw JSONException, we verify the structure)
-        val minimalJson = """
-        {
-            "keyfilesRequired": false,
-            "keyfileOrdered": false,
-            "reedSolomon": false,
-            "deniability": false,
-            "paranoid": false,
-            "comments": "",
-            "readable": true
-        }
-        """.trimIndent()
-        
-        val json = JSONObject(minimalJson)
-        val decryptionInfo = DecryptionInfo(
-            keyfilesRequired = json.getBoolean("keyfilesRequired"),
-            keyfileOrdered = json.getBoolean("keyfileOrdered"),
-            reedSolomon = json.getBoolean("reedSolomon"),
-            deniability = json.getBoolean("deniability"),
-            paranoid = json.getBoolean("paranoid"),
-            comments = json.getString("comments"),
-            readable = json.getBoolean("readable")
-        )
-        
-        assertNotNull(decryptionInfo)
-    }
-    
+
+    // --- Option/struct defaults: guard against accidental default changes -------------
+
     @Test
     fun `EncryptOptions has correct defaults`() {
         val options = EncryptOptions()
         assertEquals("", options.comments)
-        assertEquals(false, options.paranoid)
-        assertEquals(false, options.reedSolomon)
-        assertEquals(false, options.deniability)
-        assertEquals(false, options.compress)
+        assertFalse(options.paranoid)
+        assertFalse(options.reedSolomon)
+        assertFalse(options.deniability)
+        assertFalse(options.compress)
         assertEquals(emptyList<String>(), options.keyfiles)
-        assertEquals(false, options.keyfileOrdered)
+        assertFalse(options.keyfileOrdered)
     }
-    
+
     @Test
     fun `DecryptOptions has correct defaults`() {
+        // autoUnzip MUST default false: Go auto-unzip orphans Android's single-file
+        // export (see OperationManager). A regression here re-introduces SaveFailed.
         val options = DecryptOptions()
         assertEquals(emptyList<String>(), options.keyfiles)
-        assertEquals(false, options.forceDecrypt)
-        assertEquals(false, options.verifyFirst)
-        assertEquals(false, options.autoUnzip)
-        assertEquals(false, options.sameLevel)
-        assertEquals(false, options.recombine)
-        assertEquals(false, options.deniability)
+        assertFalse(options.forceDecrypt)
+        assertFalse(options.verifyFirst)
+        assertFalse(options.autoUnzip)
+        assertFalse(options.sameLevel)
+        assertFalse(options.recombine)
+        assertFalse(options.deniability)
     }
-    
+
     @Test
-    fun `ProgressState structure is correct`() {
+    fun `ProgressState has correct defaults`() {
         val progressState = ProgressState(
             status = "Processing",
             progress = 0.5f,
             info = "Encrypting file...",
             done = false
         )
-        
         assertEquals("Processing", progressState.status)
         assertEquals(0.5f, progressState.progress, 0.001f)
         assertEquals("Encrypting file...", progressState.info)
-        assertEquals(false, progressState.done)
+        assertFalse(progressState.done)
+        assertEquals("code defaults to empty until an error is classified", "", progressState.code)
+    }
+
+    // --- Bridge-only contracts: skip loudly on the JVM (covered on-device) ------------
+
+    @Test
+    fun `startOperation returns a non-empty operation ID`() {
+        assumeTrue("requires the gomobile AAR (mobile.Mobile)", isGoMobileAvailable())
+        val result = GoBridge.startOperation()
+        assertTrue("startOperation should succeed with the AAR present", result.isSuccess)
+        result.onSuccess { assertTrue("operation ID must not be empty", it.isNotEmpty()) }
+    }
+
+    @Test
+    fun `detectOperation wraps a binding failure as an AppError`() {
+        assumeTrue("requires the gomobile AAR (mobile.Mobile)", isGoMobileAvailable())
+        // Empty path -> Go reports an error -> bridge must wrap it as a typed AppError.
+        val result = GoBridge.detectOperation("")
+        result.onFailure {
+            assertTrue("must be a GenericOperation AppError", it is AppError.OperationError.GenericOperation)
+        }
     }
 }
-

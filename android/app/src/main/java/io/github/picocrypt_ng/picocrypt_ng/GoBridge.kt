@@ -137,20 +137,7 @@ object GoBridge {
     ): Result<Unit> {
         return try {
             // Build JSON request (password is passed separately as bytes, never in JSON)
-            val requestJson = JSONObject().apply {
-                put("operationID", operationID)
-                put("inputFile", inputFile)
-                put("outputFile", outputFile)
-                put("comments", options.comments)
-                put("keyfiles", JSONArray().apply {
-                    options.keyfiles.forEach { put(it) }
-                })
-                put("paranoid", options.paranoid)
-                put("reedSolomon", options.reedSolomon)
-                put("deniability", options.deniability)
-                put("compress", options.compress)
-                put("keyfileOrdered", options.keyfileOrdered)
-            }.toString()
+            val requestJson = buildEncryptRequestJson(operationID, inputFile, outputFile, options)
 
             // Note: gomobile copies the array across JNI; that transient bridge copy is not reachable for zeroing (intrinsic to the binding).
             val errorMsg = Mobile.startEncrypt(requestJson, password)
@@ -190,20 +177,7 @@ object GoBridge {
     ): Result<Unit> {
         return try {
             // Build JSON request (password is passed separately as bytes, never in JSON)
-            val requestJson = JSONObject().apply {
-                put("operationID", operationID)
-                put("inputFile", inputFile)
-                put("outputFile", outputFile)
-                put("keyfiles", JSONArray().apply {
-                    options.keyfiles.forEach { put(it) }
-                })
-                put("forceDecrypt", options.forceDecrypt)
-                put("verifyFirst", options.verifyFirst)
-                put("autoUnzip", options.autoUnzip)
-                put("sameLevel", options.sameLevel)
-                put("recombine", options.recombine)
-                put("deniability", options.deniability)
-            }.toString()
+            val requestJson = buildDecryptRequestJson(operationID, inputFile, outputFile, options)
 
             // Note: gomobile copies the array across JNI; that transient bridge copy is not reachable for zeroing (intrinsic to the binding).
             val errorMsg = Mobile.startDecrypt(requestJson, password)
@@ -285,21 +259,75 @@ object GoBridge {
     fun getDecryptionInfo(filePath: String): Result<DecryptionInfo> {
         return try {
             val jsonString = Mobile.getDecryptionInfo(filePath)
-            val json = JSONObject(jsonString)
-            
-            Result.success(DecryptionInfo(
-                keyfilesRequired = json.getBoolean("keyfilesRequired"),
-                keyfileOrdered = json.getBoolean("keyfileOrdered"),
-                reedSolomon = json.getBoolean("reedSolomon"),
-                deniability = json.getBoolean("deniability"),
-                paranoid = json.getBoolean("paranoid"),
-                comments = json.getString("comments"),
-                readable = json.getBoolean("readable")
-            ))
+            Result.success(parseDecryptionInfo(jsonString))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         }
+    }
+
+    /**
+     * Builds the encryption request JSON sent to Mobile.startEncrypt. The password is
+     * intentionally NEVER included here -- it is passed to Mobile as raw bytes and zeroed.
+     * Extracted so unit tests verify the REAL serialization instead of re-deriving it.
+     */
+    internal fun buildEncryptRequestJson(
+        operationID: String,
+        inputFile: String,
+        outputFile: String,
+        options: EncryptOptions
+    ): String = JSONObject().apply {
+        put("operationID", operationID)
+        put("inputFile", inputFile)
+        put("outputFile", outputFile)
+        put("comments", options.comments)
+        put("keyfiles", JSONArray().apply { options.keyfiles.forEach { put(it) } })
+        put("paranoid", options.paranoid)
+        put("reedSolomon", options.reedSolomon)
+        put("deniability", options.deniability)
+        put("compress", options.compress)
+        put("keyfileOrdered", options.keyfileOrdered)
+    }.toString()
+
+    /**
+     * Builds the decryption request JSON sent to Mobile.startDecrypt. As with encryption,
+     * the password is never serialized. Extracted for the same testability reason.
+     */
+    internal fun buildDecryptRequestJson(
+        operationID: String,
+        inputFile: String,
+        outputFile: String,
+        options: DecryptOptions
+    ): String = JSONObject().apply {
+        put("operationID", operationID)
+        put("inputFile", inputFile)
+        put("outputFile", outputFile)
+        put("keyfiles", JSONArray().apply { options.keyfiles.forEach { put(it) } })
+        put("forceDecrypt", options.forceDecrypt)
+        put("verifyFirst", options.verifyFirst)
+        put("autoUnzip", options.autoUnzip)
+        put("sameLevel", options.sameLevel)
+        put("recombine", options.recombine)
+        put("deniability", options.deniability)
+    }.toString()
+
+    /**
+     * Parses the decryption-metadata JSON returned by Mobile.getDecryptionInfo. Uses
+     * getBoolean/getString, which THROW on a missing field rather than silently
+     * defaulting (a missing keyfilesRequired must never be read as false). Extracted so
+     * the parser is unit-tested directly.
+     */
+    internal fun parseDecryptionInfo(jsonString: String): DecryptionInfo {
+        val json = JSONObject(jsonString)
+        return DecryptionInfo(
+            keyfilesRequired = json.getBoolean("keyfilesRequired"),
+            keyfileOrdered = json.getBoolean("keyfileOrdered"),
+            reedSolomon = json.getBoolean("reedSolomon"),
+            deniability = json.getBoolean("deniability"),
+            paranoid = json.getBoolean("paranoid"),
+            comments = json.getString("comments"),
+            readable = json.getBoolean("readable")
+        )
     }
 }
