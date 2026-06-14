@@ -12,6 +12,7 @@ import (
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
+	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/chacha20"
@@ -101,8 +102,10 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 		return fmt.Errorf("write nonce: %w", err)
 	}
 
-	// Derive key using Argon2 (normal mode parameters)
-	key := deriveDeniabilityKey([]byte(password), salt)
+	// Derive key using Argon2 (normal mode parameters). NFC-normalize the
+	// password so a deniable volume — which has no readable header to fall back
+	// on — is cross-platform-decryptable (#19).
+	key := deriveDeniabilityKey(pwnorm.EncodeForKDF(password), salt)
 	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)

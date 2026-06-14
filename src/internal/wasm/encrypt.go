@@ -7,6 +7,7 @@ import (
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
+	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 )
 
@@ -128,8 +129,9 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 		Padded:         false,
 	}
 
-	// Derive key
-	passwordBytes := []byte(password)
+	// Derive key from the NFC-normalized password (#19) so web-encrypted
+	// volumes are cross-platform-decryptable regardless of how it was typed.
+	passwordBytes := pwnorm.EncodeForKDF(password)
 	key, err := crypto.DeriveKey(passwordBytes, salt, false)
 	zeroWASMSensitiveBuffer(wasmZeroingPasswordBytes, passwordBytes)
 	if err != nil {
