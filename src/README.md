@@ -26,10 +26,10 @@ git clone https://github.com/Picocrypt-NG/Picocrypt-NG.git
 cd Picocrypt-NG/src
 
 # Linux/macOS
-CGO_ENABLED=1 go build -ldflags="-s -w" -o Picocrypt-NG cmd/picocrypt/main.go
+CGO_ENABLED=1 go build -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
 
 # Windows
-CGO_ENABLED=1 go build -ldflags="-s -w -H=windowsgui -extldflags=-static" -o Picocrypt-NG.exe cmd/picocrypt/main.go
+CGO_ENABLED=1 go build -ldflags="-s -w -H=windowsgui -extldflags=-static" -o Picocrypt-NG.exe ./cmd/picocrypt
 ```
 
 ## Run

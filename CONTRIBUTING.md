@@ -16,7 +16,7 @@
 ```bash
 git clone https://github.com/Picocrypt-NG/Picocrypt-NG.git
 cd Picocrypt-NG/src
-go build -o picocrypt cmd/picocrypt/main.go
+go build -o picocrypt ./cmd/picocrypt
 ```
 
 ## Testing
