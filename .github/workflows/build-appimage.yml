@@ -187,7 +187,7 @@ jobs:
         } >> "$GITHUB_ENV"
 
     - name: Release
-      uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
+      uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
       with:
         # The .zsync must ship alongside the AppImage: AppImageUpdate fetches it from the
         # same release to compute deltas. Without it the embedded update info is a dead end.
