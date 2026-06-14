@@ -1,10 +1,15 @@
 # v2.14
 <ul>
-	<li>✓ <strong>Android: open multi-file and compressed volumes</strong>: a <code>.pcv</code> made from several files or with compression on the desktop now decrypts and saves as a <code>.zip</code> on Android instead of failing to export; open it with any file manager (auto-unzip stays off, like the CLI)</li>
-	<li>✓ <strong>Android: split volumes</strong>: selecting a <code>.pcv.0</code> chunk now tells you to recombine the parts on a computer first, instead of failing with a misleading error or re-encrypting the chunk</li>
-	<li>✓ <strong>Android: verify-first decrypt</strong>: optional integrity check before any output is written (under Decryption Options), independent of force-decrypt</li>
-	<li>✓ <strong>Android: background start</strong>: starting an encrypt or decrypt while the app is in the background no longer crashes; the operation keeps running and progress still updates</li>
+	<li>✓ <strong>Compression and deniability progress</strong>: both passes now report speed and ETA, like the main encrypt/decrypt pass</li>
+	<li>✓ <strong>Split-size validation</strong>: a chunk size that would overflow is rejected before encrypting instead of silently producing a broken split</li>
+	<li>✓ <strong>Reed-Solomon robustness</strong>: decoding rejects wrong-size input instead of panicking, and payload encoding does fewer allocations</li>
+	<li>✓ <strong>BSD disk-space checks</strong>: free-space checks work on FreeBSD/NetBSD/OpenBSD via the correct statvfs build tags</li>
+	<li>✓ <strong>Android: background operations</strong>: encrypt/decrypt run in a foreground service, so a long operation keeps running and updating progress when the app is backgrounded</li>
+	<li>✓ <strong>Android: verify-first decrypt</strong>: optional integrity check before any output is written, independent of force-decrypt</li>
+	<li>✓ <strong>Android: password handling</strong>: passwords cross the Go bridge as zeroed byte buffers rather than long-lived strings</li>
+	<li>✓ <strong>Android: volume interop</strong>: a desktop volume made from multiple files or with compression now decrypts and saves as a <code>.zip</code> (open it with any file manager); a split-volume chunk is rejected with guidance to recombine on a computer first</li>
 	<li>✓ <strong>Linux: AppImage package</strong>: a portable, unsandboxed single-file build that bundles its GTK/X11 dependencies and uses the host's OpenGL driver, for distros where the .deb or raw binary don't fit</li>
+	<li>✓ <strong>Dependencies</strong>: updated golang.org/x/crypto and other modules</li>
 </ul>
 
 # v2.13

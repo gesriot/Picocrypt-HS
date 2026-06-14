@@ -29,8 +29,8 @@ func TestHeaderSize(t *testing.T) {
 }
 
 func TestCurrentVersionIsV213(t *testing.T) {
-	if CurrentVersion != "v2.13" {
-		t.Fatalf("CurrentVersion = %q; want %q", CurrentVersion, "v2.13")
+	if CurrentVersion != "v2.14" {
+		t.Fatalf("CurrentVersion = %q; want %q", CurrentVersion, "v2.14")
 	}
 }
 
@@ -38,7 +38,7 @@ func TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField(t *testing.T) {
 	const comments = "release guard"
 
 	oldHeader := deterministicFormatGuardHeader("v2.12", comments)
-	newHeader := deterministicFormatGuardHeader("v2.13", comments)
+	newHeader := deterministicFormatGuardHeader("v2.14", comments)
 
 	oldEncoded, oldWritten := writeFormatGuardHeader(t, oldHeader)
 	newEncoded, newWritten := writeFormatGuardHeader(t, newHeader)
@@ -48,13 +48,13 @@ func TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField(t *testing.T) {
 		t.Fatalf("v2.12 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", oldWritten, len(comments), expectedSize)
 	}
 	if newWritten != expectedSize {
-		t.Fatalf("v2.13 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", newWritten, len(comments), expectedSize)
+		t.Fatalf("v2.14 WriteHeader wrote %d bytes; want HeaderSize(%d) = %d", newWritten, len(comments), expectedSize)
 	}
 	if len(oldEncoded) != expectedSize {
 		t.Fatalf("v2.12 encoded header length = %d; want %d", len(oldEncoded), expectedSize)
 	}
 	if len(newEncoded) != expectedSize {
-		t.Fatalf("v2.13 encoded header length = %d; want %d", len(newEncoded), expectedSize)
+		t.Fatalf("v2.14 encoded header length = %d; want %d", len(newEncoded), expectedSize)
 	}
 
 	regions := encodedHeaderRegions(len(comments))
@@ -84,10 +84,10 @@ func TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation(t *testing.T
 	// Base header and a copy that differs ONLY in a source field (Flags.Padded).
 	// Both go through the REAL WriteHeader so the non-version delta is produced by
 	// production, not fabricated by the test.
-	baseHeader := deterministicFormatGuardHeader("v2.13", comments)
+	baseHeader := deterministicFormatGuardHeader("v2.14", comments)
 	baseEncoded, _ := writeFormatGuardHeader(t, baseHeader)
 
-	mutatedHeader := deterministicFormatGuardHeader("v2.13", comments)
+	mutatedHeader := deterministicFormatGuardHeader("v2.14", comments)
 	mutatedHeader.Flags.Padded = !mutatedHeader.Flags.Padded
 	mutatedEncoded, _ := writeFormatGuardHeader(t, mutatedHeader)
 
@@ -129,7 +129,7 @@ func TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation(t *testing.T
 
 func TestVersionFormatAcceptanceRemainsCurrentIndependent(t *testing.T) {
 	cases := []string{
-		"v2.13",
+		"v2.14",
 		"v2.12",
 		"v2.11",
 		"v2.10",

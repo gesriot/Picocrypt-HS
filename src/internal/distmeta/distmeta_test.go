@@ -16,7 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const v213ReleaseDate = "2026-06-12"
+const v214ReleaseDate = "2026-06-14"
 const linuxDesktopAppID = "io.github.picocrypt_ng.Picocrypt-NG"
 const linuxX11WMClass = "Picocrypt-NG"
 
@@ -50,7 +50,7 @@ func mustReadFile(t *testing.T, relPath string) []byte {
 }
 
 func TestActiveReleaseMetadataVersions(t *testing.T) {
-	const want = "2.13"
+	const want = "2.14"
 
 	t.Run("root_VERSION", func(t *testing.T) {
 		got := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
@@ -91,9 +91,9 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 			name string
 			re   *regexp.Regexp
 		}{
-			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,13,0,0\r?$`)},
-			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,13,0,0\r?$`)},
-			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.13"\r?$`)},
+			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,14,0,0\r?$`)},
+			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,14,0,0\r?$`)},
+			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.14"\r?$`)},
 		}
 		for _, req := range required {
 			t.Run(req.name, func(t *testing.T) {
@@ -551,7 +551,7 @@ type appstreamReleaseDescription struct {
 	Items []string `xml:"ul>li"`
 }
 
-func TestMetainfoV213ReleaseHistory(t *testing.T) {
+func TestMetainfoV214ReleaseHistory(t *testing.T) {
 	data := mustReadFile(t, "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml")
 	var doc appstreamMetainfo
 	if err := xml.Unmarshal(data, &doc); err != nil {
@@ -562,22 +562,22 @@ func TestMetainfoV213ReleaseHistory(t *testing.T) {
 	}
 
 	current := doc.Releases[0]
-	if current.Version != "2.13" {
-		t.Fatalf("current metainfo release version = %q, want 2.13", current.Version)
+	if current.Version != "2.14" {
+		t.Fatalf("current metainfo release version = %q, want 2.14", current.Version)
 	}
-	if current.Date != v213ReleaseDate {
-		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v213ReleaseDate)
+	if current.Date != v214ReleaseDate {
+		t.Fatalf("current metainfo release date = %q, want %q", current.Date, v214ReleaseDate)
 	}
 	detailsURL := appstreamDetailsURL(current)
-	if !strings.HasSuffix(detailsURL, "Changelog.md#v213") {
-		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v213", detailsURL)
+	if !strings.HasSuffix(detailsURL, "Changelog.md#v214") {
+		t.Fatalf("current metainfo details URL = %q, want suffix Changelog.md#v214", detailsURL)
 	}
 
 	versions := map[string]bool{}
 	for _, release := range doc.Releases {
 		versions[release.Version] = true
 	}
-	for _, want := range []string{"2.12", "2.11", "2.10", "2.09", "2.08"} {
+	for _, want := range []string{"2.13", "2.12", "2.11", "2.10", "2.09", "2.08"} {
 		if !versions[want] {
 			t.Errorf("metainfo release history missing historical version %s", want)
 		}

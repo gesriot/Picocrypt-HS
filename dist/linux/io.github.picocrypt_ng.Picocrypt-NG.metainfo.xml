@@ -35,6 +35,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.14" date="2026-06-14">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v214</url>
+      <description>
+        <ul>
+          <li>The compression and deniability passes now report speed and ETA</li>
+          <li>Reed-Solomon decoding rejects malformed input instead of panicking, and a split size that would overflow is rejected before encrypting</li>
+          <li>Android runs long operations in a foreground service and adds a verify-first decrypt option</li>
+          <li>New Linux AppImage package</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.13" date="2026-06-12">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v213</url>
       <description>

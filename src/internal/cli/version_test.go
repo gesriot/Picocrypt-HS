@@ -15,7 +15,7 @@ import (
 // this red. The former test pre-assigned rootCmd.Version to the asserted literal
 // and called rootCmd.Execute() directly, so it never touched the production wiring.
 func TestVersionFlagOutputsV213(t *testing.T) {
-	const want = "v2.13"
+	const want = "v2.14"
 
 	oldVersion := Version
 	oldRootVersion := rootCmd.Version
