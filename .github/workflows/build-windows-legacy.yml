@@ -125,7 +125,7 @@ jobs:
         echo "CHECKSUM_LEGACY_CLI=$($hash.Hash)" >> $env:GITHUB_ENV
 
     - name: Release
-      uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
+      uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
       with:
         files: artifacts/build-windows-legacy/Picocrypt-NG-cli-Legacy.exe
         tag_name: ${{ env.VERSION }}
