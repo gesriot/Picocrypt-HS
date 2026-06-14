@@ -327,6 +327,60 @@ func TestStartEncryptZeroesPasswordBytes(t *testing.T) {
 	_ = waitForDone(t, id)
 }
 
+func TestStartEncryptPassesMultiFileSelection(t *testing.T) {
+	resetProgressMap()
+
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	for _, p := range []string{a, b} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outputPath := filepath.Join(dir, "out.pcv")
+
+	var captured *volume.EncryptRequest
+	orig := runEncrypt
+	runEncrypt = func(_ context.Context, req *volume.EncryptRequest) error {
+		captured = req
+		return nil
+	}
+	defer func() { runEncrypt = orig }()
+
+	id := StartOperation()
+	reqJSON, err := json.Marshal(EncryptRequestJSON{
+		OperationID: id,
+		InputFiles:  []string{a, b},
+		OnlyFiles:   []string{a, b},
+		OnlyFolders: []string{dir},
+		OutputFile:  outputPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := StartEncrypt(string(reqJSON), []byte("pw")); got != "" {
+		t.Fatalf("StartEncrypt(...) = %q, want empty", got)
+	}
+	_ = waitForDone(t, id)
+
+	if captured == nil {
+		t.Fatal("runEncrypt was not called")
+	}
+	if len(captured.InputFiles) != 2 || captured.InputFiles[0] != a || captured.InputFiles[1] != b {
+		t.Fatalf("InputFiles = %#v, want [%q %q]", captured.InputFiles, a, b)
+	}
+	if len(captured.OnlyFiles) != 2 {
+		t.Fatalf("OnlyFiles = %#v, want 2 entries", captured.OnlyFiles)
+	}
+	if len(captured.OnlyFolders) != 1 || captured.OnlyFolders[0] != dir {
+		t.Fatalf("OnlyFolders = %#v, want [%q]", captured.OnlyFolders, dir)
+	}
+	if captured.InputFile != "" {
+		t.Fatalf("InputFile = %q, want empty for multi-file selection", captured.InputFile)
+	}
+}
+
 func waitForDone(t *testing.T, id string) *ProgressState {
 	t.Helper()
 
