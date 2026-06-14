@@ -73,7 +73,13 @@ jobs:
       run: |
         cd src
         if [ "${{ matrix.arch }}" = "amd64" ]; then
-          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -race -timeout 15m ./...
+          # Race detection on the unit tests only. The CLI integration tests spawn the
+          # real CLI binary (a separate, non-race build, so -race adds no coverage there)
+          # and each spawn runs the production 1 GiB Argon2id KDF; running them under -race
+          # with package parallelism exhausts the runner (SIGTERM/exit 143 + orphaned
+          # picocrypt-test child). Run them separately without -race, like the arm64 job.
+          CGO_ENABLED=1 go test -v -race -timeout 15m ./...
+          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./internal/cli/...
         else
           PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./...
         fi
