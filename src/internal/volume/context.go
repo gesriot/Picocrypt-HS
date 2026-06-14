@@ -137,11 +137,12 @@ type OperationContext struct {
 	Header *header.VolumeHeader
 
 	// Cryptographic state
-	Key          []byte               // Argon2-derived key (possibly XORed with keyfile key)
-	KeyfileKey   []byte               // 32-byte key derived from keyfile(s)
-	KeyfileHash  []byte               // SHA3-256(KeyfileKey) for verification
-	SubkeyReader *crypto.SubkeyReader // HKDF stream for deriving MAC/Serpent subkeys
-	CipherSuite  *crypto.CipherSuite  // Initialized cipher suite (XChaCha20 + optional Serpent)
+	Key           []byte               // Argon2-derived key (possibly XORed with keyfile key)
+	KeyfileKey    []byte               // 32-byte key derived from keyfile(s)
+	KeyfileHash   []byte               // SHA3-256(KeyfileKey) for verification
+	passwordBytes []byte               // KDF input for the current password form being tried (#19)
+	SubkeyReader  *crypto.SubkeyReader // HKDF stream for deriving MAC/Serpent subkeys
+	CipherSuite   *crypto.CipherSuite  // Initialized cipher suite (XChaCha20 + optional Serpent)
 
 	// Operation flags
 	IsLegacyV1   bool                    // True if decrypting a v1.x volume (different HKDF timing)
@@ -287,6 +288,19 @@ func (ctx *OperationContext) setKeyfileKey(k []byte) {
 	ctx.KeyfileKey = k
 }
 
+// setPasswordBytes zeros the previous password byte form before storing the new
+// one. The decrypt path sets this per candidate normalization form (#19); the
+// winning form is reused by the RS / verify-first re-derivation paths and is
+// zeroed by Close. The same pointer-identity self-assign guard as setKey applies.
+// (The password also lives in req.Password as an immutable, un-zeroable string —
+// see Close's SECURITY note.)
+func (ctx *OperationContext) setPasswordBytes(b []byte) {
+	if ctx.passwordBytes != nil && (len(b) == 0 || &b[0] != &ctx.passwordBytes[0]) {
+		crypto.SecureZero(ctx.passwordBytes)
+	}
+	ctx.passwordBytes = b
+}
+
 // Close securely zeros all sensitive cryptographic material in the context.
 // This should be called via defer immediately after creating the context.
 //
@@ -307,10 +321,11 @@ func (ctx *OperationContext) Close() {
 	}
 
 	// Zero main key material
-	crypto.SecureZeroMultiple(ctx.Key, ctx.KeyfileKey, ctx.KeyfileHash)
+	crypto.SecureZeroMultiple(ctx.Key, ctx.KeyfileKey, ctx.KeyfileHash, ctx.passwordBytes)
 	ctx.Key = nil
 	ctx.KeyfileKey = nil
 	ctx.KeyfileHash = nil
+	ctx.passwordBytes = nil
 
 	// Close cipher suite (zeros internal key)
 	if ctx.CipherSuite != nil {

@@ -5,37 +5,60 @@ import (
 	"testing"
 )
 
-// Worked Unicode vectors (UAX #15). These pin the exact cross-platform mismatch
-// issue #19 targets: the same visible character in composed (NFC) vs decomposed
-// (NFD) byte forms, which derive different Argon2 keys when fed raw.
-const (
-	eComposed    = "é"             // é  NFC  -> C3 A9
-	eDecomposed  = "é"            // é  NFD  -> 65 CC 81
-	gaComposed   = "가"             // 가 NFC  -> EA B0 80
-	gaDecomposed = "가"       // 가 NFD  -> E1 84 80 E1 85 A1
-	devEmoji     = "\U0001f469‍\U0001f4bb" // 👩‍💻 ZWJ sequence, unchanged by NFC/NFD
-)
-
+// Test vectors are built from explicit code points / bytes — never from source
+// literals — so an editor re-normalizing this file cannot silently make the
+// composed/decomposed distinctions vacuous. These are the UAX #15 worked
+// examples behind issue #19: the same visible character in two byte forms.
 var (
+	eComposed    = string([]rune{0x00E9})                  // é  NFC
+	eDecomposed  = string([]rune{0x0065, 0x0301})          // é  NFD (e + combining acute)
+	gaComposed   = string([]rune{0xAC00})                  // 가 NFC
+	gaDecomposed = string([]rune{0x1100, 0x1161})          // 가 NFD (conjoining jamo)
+	devEmoji     = string([]rune{0x1F469, 0x200D, 0x1F4BB}) // 👩‍💻 ZWJ sequence
+	// e + acute (ccc 230) + dot-below (ccc 220): combining marks in non-canonical
+	// order, so the raw bytes equal neither the NFC nor the NFD form.
+	nonCanonical = string([]rune{0x0065, 0x0301, 0x0323})
+
 	eNFCBytes  = []byte{0xc3, 0xa9}
 	eNFDBytes  = []byte{0x65, 0xcc, 0x81}
 	gaNFCBytes = []byte{0xea, 0xb0, 0x80}
+	gaNFDBytes = []byte{0xe1, 0x84, 0x80, 0xe1, 0x85, 0xa1}
 )
+
+// TestVectorConstantsHaveExpectedByteForms documents and locks the UTF-8 byte
+// encodings of the vectors, so a wrong code point above is caught immediately.
+func TestVectorConstantsHaveExpectedByteForms(t *testing.T) {
+	checks := []struct {
+		name string
+		got  []byte
+		want []byte
+	}{
+		{"eComposed", []byte(eComposed), eNFCBytes},
+		{"eDecomposed", []byte(eDecomposed), eNFDBytes},
+		{"gaComposed", []byte(gaComposed), gaNFCBytes},
+		{"gaDecomposed", []byte(gaDecomposed), gaNFDBytes},
+	}
+	for _, c := range checks {
+		if !bytes.Equal(c.got, c.want) {
+			t.Errorf("%s raw bytes = % x, want % x", c.name, c.got, c.want)
+		}
+	}
+}
 
 func TestNormalizeProducesNFC(t *testing.T) {
 	// Composed and decomposed forms of the SAME character must normalize to
 	// identical NFC bytes — that is exactly what lets a password typed on one
 	// platform derive the same key as on another (the #19 fix). If Normalize
-	// stopped normalizing, these would diverge and the test fails.
+	// stopped normalizing, the decomposed cases would diverge and fail.
 	cases := []struct {
 		name string
 		in   string
 		want []byte
 	}{
-		{"é composed", eComposed, eNFCBytes},
-		{"é decomposed", eDecomposed, eNFCBytes},
-		{"가 composed", gaComposed, gaNFCBytes},
-		{"가 decomposed", gaDecomposed, gaNFCBytes},
+		{"e composed", eComposed, eNFCBytes},
+		{"e decomposed", eDecomposed, eNFCBytes},
+		{"ga composed", gaComposed, gaNFCBytes},
+		{"ga decomposed", gaDecomposed, gaNFCBytes},
 	}
 	for _, tc := range cases {
 		if got := []byte(Normalize(tc.in)); !bytes.Equal(got, tc.want) {
@@ -48,7 +71,7 @@ func TestNormalizeIsIdempotent(t *testing.T) {
 	for _, in := range []string{eComposed, eDecomposed, gaDecomposed, devEmoji, "ascii"} {
 		once := Normalize(in)
 		if twice := Normalize(once); twice != once {
-			t.Errorf("Normalize not idempotent for %q: %q != %q", in, twice, once)
+			t.Errorf("Normalize not idempotent for % x: % x != % x", []byte(in), []byte(twice), []byte(once))
 		}
 	}
 }
@@ -65,10 +88,10 @@ func TestNormalizeLeavesASCIIUnchanged(t *testing.T) {
 func TestNormalizeDoesNotCaseFoldOrTrim(t *testing.T) {
 	// NFC must preserve case (RFC 8265 §4.2.2: no case mapping — folding the
 	// Turkish dotless-i class reduces security) and must NOT trim whitespace
-	// (silent entropy loss / lockouts). ß must not fold to "ss".
-	in := " straße "
+	// (silent entropy loss / lockouts). U+00DF (ß) must not fold to "ss".
+	in := " stra" + string([]rune{0x00DF}) + "e " // " straße "
 	if got := Normalize(in); got != in {
-		t.Errorf("Normalize must preserve ß and surrounding spaces: %q -> %q", in, got)
+		t.Errorf("Normalize must preserve U+00DF and surrounding spaces: % x -> % x", []byte(in), []byte(got))
 	}
 }
 
@@ -84,7 +107,7 @@ func TestEncodeForKDFIsNFCBytes(t *testing.T) {
 	// Encrypt must feed the KDF the NFC form regardless of how the password was
 	// typed, so new volumes are cross-platform-stable.
 	if got := EncodeForKDF(eDecomposed); !bytes.Equal(got, eNFCBytes) {
-		t.Errorf("EncodeForKDF(decomposed é) = % x, want NFC % x", got, eNFCBytes)
+		t.Errorf("EncodeForKDF(decomposed e) = % x, want NFC % x", got, eNFCBytes)
 	}
 }
 
@@ -104,18 +127,19 @@ func TestCandidatesASCIISingleAttempt(t *testing.T) {
 func TestCandidatesNonASCIIOrderAndDedup(t *testing.T) {
 	// NFC must be tried FIRST (so a correct password on a new/NFC volume matches
 	// on the first derivation) and duplicate forms must be collapsed (so we
-	// never run the same Argon2 twice). For a composed-é password NFC == raw, so
-	// after dedup we expect exactly [NFC, NFD].
+	// never run the same Argon2 twice). For a composed-e password NFC == raw, so
+	// after dedup we expect exactly [NFC, NFD]; same for the decomposed form
+	// (there NFD == raw).
 	for _, in := range []string{eComposed, eDecomposed} {
 		got := Candidates(in)
 		if len(got) != 2 {
-			t.Fatalf("Candidates(%q) len = %d, want 2 (got % x)", in, len(got), got)
+			t.Fatalf("Candidates(% x) len = %d, want 2 (got % x)", []byte(in), len(got), got)
 		}
 		if !bytes.Equal(got[0], eNFCBytes) {
-			t.Errorf("Candidates(%q)[0] = % x, want NFC % x", in, got[0], eNFCBytes)
+			t.Errorf("Candidates(% x)[0] = % x, want NFC % x", []byte(in), got[0], eNFCBytes)
 		}
 		if !bytes.Equal(got[1], eNFDBytes) {
-			t.Errorf("Candidates(%q)[1] = % x, want NFD % x", in, got[1], eNFDBytes)
+			t.Errorf("Candidates(% x)[1] = % x, want NFD % x", []byte(in), got[1], eNFDBytes)
 		}
 	}
 }
@@ -123,10 +147,7 @@ func TestCandidatesNonASCIIOrderAndDedup(t *testing.T) {
 func TestCandidatesIncludesRawWhenNeitherNFCNorNFD(t *testing.T) {
 	// A non-canonical input (combining marks out of canonical order) differs
 	// from BOTH its NFC and NFD forms, so raw MUST be kept as a third candidate
-	// to keep such legacy volumes decryptable. "e" + U+0301 (acute, ccc=230) +
-	// U+0323 (dot-below, ccc=220): canonical order requires 220 before 230, so
-	// this raw ordering is non-canonical and is preserved by neither NFC nor NFD.
-	nonCanonical := "ẹ́"
+	// to keep such legacy volumes decryptable.
 	got := Candidates(nonCanonical)
 	if len(got) != 3 {
 		t.Fatalf("Candidates(non-canonical) len = %d, want 3 (got % x)", len(got), got)

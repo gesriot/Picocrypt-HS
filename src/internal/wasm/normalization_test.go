@@ -33,3 +33,34 @@ func TestWASMEncryptNormalizesPassword(t *testing.T) {
 		t.Errorf("roundtrip mismatch\ngot:  %q\nwant: %q", plaintext, original)
 	}
 }
+
+// TestWASMDecryptTriesNormalizationForms proves the web decrypt path tries
+// multiple password forms: a volume stored under the NFC form must also open
+// when the user types the decomposed form (#19). Without decrypt-side try-both
+// the decomposed form derives a different key and fails with ErrWrongPassword.
+func TestWASMDecryptTriesNormalizationForms(t *testing.T) {
+	cases := []struct {
+		name    string
+		encrypt string
+		decrypt string
+	}{
+		{"NFC_encrypt_NFD_decrypt", nfcPassword, nfdPassword},
+		{"NFD_encrypt_NFC_decrypt", nfdPassword, nfcPassword},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			original := []byte("web cross-form payload")
+			ciphertext, errCode := EncryptVolume(original, tc.encrypt)
+			if errCode != 0 {
+				t.Fatalf("encrypt failed with error code %d", errCode)
+			}
+			plaintext, errCode := DecryptVolume(ciphertext, tc.decrypt)
+			if errCode != 0 {
+				t.Fatalf("decrypt failed with error code %d (try-both not applied?)", errCode)
+			}
+			if !bytes.Equal(plaintext, original) {
+				t.Errorf("roundtrip mismatch\ngot:  %q\nwant: %q", plaintext, original)
+			}
+		})
+	}
+}
