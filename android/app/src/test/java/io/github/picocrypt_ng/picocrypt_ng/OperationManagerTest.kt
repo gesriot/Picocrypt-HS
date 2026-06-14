@@ -481,10 +481,44 @@ class OperationManagerTest {
 
     @Test
     fun `retryDecryptWithForce returns error when operation is not decrypt`() = runTest {
-        // We can't easily set up an encrypt operation, but we can test the logic
-        // that checks operation type
-        // This would require setting up an operation state, which is difficult without GoBridge
-        // So we'll test this in instrumented tests
+        // The guard at OperationManager.retryDecryptWithForce rejects a non-DECRYPT
+        // operation (operation.type != DECRYPT -> GenericOperation("Can only retry
+        // decryption operations")). It short-circuits BEFORE any decrypt-side GoBridge
+        // call, so the Go AAR is not needed — establish an ENCRYPT op through the public
+        // seam (GoBridge mocked) and assert the rejection. startEncrypt resolves an
+        // output path under context.filesDir; back it with a real temp dir.
+        val tmpDir = createTempDirectory(prefix = "opmgr_notdecrypt").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_enc")
+            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+            val started = OperationManager.startEncrypt(
+                mockContext,
+                TestDataBuilders.createEncryptFormData()
+            )
+            assertTrue("startEncrypt should succeed", started.isSuccess)
+            assertEquals(OperationType.ENCRYPT, OperationManager.currentOperation.value?.type)
+
+            val result = OperationManager.retryDecryptWithForce()
+
+            assertTrue("Force-decrypt retry on an encrypt op must fail", result.isFailure)
+            result.onFailure { error ->
+                assertTrue(
+                    "Error should be GenericOperation",
+                    error is AppError.OperationError.GenericOperation
+                )
+                assertTrue(
+                    "Message should explain only decryption can be retried",
+                    (error.message ?: "").contains("Can only retry decryption", ignoreCase = true)
+                )
+            }
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
     }
     
     @Test
