@@ -159,3 +159,94 @@ func TestBuildMobileDecryptOptionsWireCheckboxesToState(t *testing.T) {
 		assertCheckboxWiring(t, a.deleteCheck, "Delete encrypted", func() bool { return a.State.Delete })
 	})
 }
+
+// TestEncryptAdvancedOptionsNeverSoftLock guards against issue #56, where certain
+// advanced-option combinations left the encrypt checkboxes permanently disabled,
+// forcing the user to restart the app to recover. The fix makes every disabled
+// state a pure function of the current UISnapshot (updateEncryptOptionsState) with
+// no latched flags and no mutual exclusion, so any selection is always reversible.
+// These cases assert that the two combinations reported in #56 keep every option
+// interactive: the user can always toggle back out without restarting.
+func TestEncryptAdvancedOptionsNeverSoftLock(t *testing.T) {
+	newTestFyneApp(t)
+
+	// newEncryptAppWithCredentials builds an encrypt-mode app whose credentials make
+	// advancedDisabled==false (password set and matching) and whose >1 file count
+	// keeps "Recursively" ungated, so any disabled checkbox can only come from
+	// option interplay — which is exactly what #56 was about.
+	newEncryptAppWithCredentials := func(t *testing.T) *App {
+		t.Helper()
+		a := createTestApp(t)
+		a.advancedContainer = container.NewVBox()
+		a.State.Mode = "encrypt"
+		a.State.Password = "correct horse"
+		a.State.CPassword = "correct horse"
+		a.State.AllFiles = []string{"a.txt", "b.txt"}
+		fyne.DoAndWait(func() { a.buildEncryptOptions() })
+		return a
+	}
+
+	// recompute runs the production disable-state recomputation from the current
+	// State snapshot, exactly as the app does after every UI change.
+	recompute := func(a *App) {
+		fyne.DoAndWait(func() { a.updateAdvancedDisableState() })
+	}
+
+	// Reported combo (b): Compress + Recursively. Enabling Recursively disables
+	// Compress (intended), but disabling Recursively again must restore it.
+	t.Run("CompressRecoversAfterUncheckingRecursively", func(t *testing.T) {
+		a := newEncryptAppWithCredentials(t)
+
+		recompute(a)
+		if a.compressCheck.Disabled() {
+			t.Fatal("precondition: Compress should be enabled before Recursively is checked")
+		}
+
+		// User checks Recursively (its OnChanged also clears Compress).
+		a.State.Recursively = true
+		a.State.Compress = false
+		recompute(a)
+		if !a.compressCheck.Disabled() {
+			t.Fatal("Compress should be disabled while Recursively is checked")
+		}
+		if a.recursivelyCheck.Disabled() {
+			t.Fatal("Recursively must stay enabled so the user can undo it")
+		}
+
+		// User unchecks Recursively: Compress MUST become usable again. A latched
+		// disable (the #56 soft-lock) would leave it stuck disabled here.
+		a.State.Recursively = false
+		recompute(a)
+		if a.compressCheck.Disabled() {
+			t.Fatal("#56 regression: Compress stayed disabled after Recursively was unchecked (soft-lock)")
+		}
+	})
+
+	// Reported combo (a): Paranoid + Reed-Solomon + Deniability. None of these
+	// mutually exclude, so selecting all three must not disable any option.
+	t.Run("ParanoidReedSolomonDeniabilityLockNothing", func(t *testing.T) {
+		a := newEncryptAppWithCredentials(t)
+
+		a.State.Paranoid = true
+		a.State.ReedSolomon = true
+		a.State.Deniability = true
+		recompute(a)
+
+		for _, c := range []struct {
+			name string
+			box  *widget.Check
+		}{
+			{"Paranoid mode", a.paranoidCheck},
+			{"Compress files", a.compressCheck},
+			{"Reed-Solomon", a.reedSolomonCheck},
+			{"Delete files", a.deleteCheck},
+			{"Deniability", a.deniabilityCheck},
+			{"Recursively", a.recursivelyCheck},
+			{"Split:", a.splitCheck},
+		} {
+			if c.box.Disabled() {
+				t.Errorf("#56 regression: %q is disabled under Paranoid+Reed-Solomon+Deniability; this combo must not lock any option", c.name)
+			}
+		}
+	})
+}
