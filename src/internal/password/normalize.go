@@ -47,11 +47,11 @@ func EncodeForKDF(pw string) []byte {
 // for the common case. For a non-ASCII password it returns up to three forms,
 // duplicates removed while preserving order:
 //
-//	1. NFC  — opens new volumes and legacy ASCII/NFC volumes; tried first so a
-//	          correct password matches on the first (and only) derivation.
-//	2. NFD  — opens legacy volumes whose password was decomposed.
-//	3. raw  — opens legacy volumes whose bytes were neither NFC nor NFD (e.g. a
-//	          password pasted with combining marks in non-canonical order).
+//  1. NFC  — opens new volumes and legacy ASCII/NFC volumes; tried first so a
+//     correct password matches on the first (and only) derivation.
+//  2. NFD  — opens legacy volumes whose password was decomposed.
+//  3. raw  — opens legacy volumes whose bytes were neither NFC nor NFD (e.g. a
+//     password pasted with combining marks in non-canonical order).
 //
 // Each candidate is authenticated independently against the volume MAC by the
 // caller; trying several canonical forms of the SAME password never bypasses
@@ -61,17 +61,18 @@ func EncodeForKDF(pw string) []byte {
 // Returned slices are independent allocations, so a caller may zero each one
 // after use without affecting the others.
 func Candidates(pw string) [][]byte {
-	raw := []byte(pw)
-	if isASCII(raw) {
-		return [][]byte{raw}
+	if !ContainsNonASCII(pw) {
+		// ASCII is invariant under every normalization form, so a single
+		// candidate suffices and there is no extra KDF work for the common case.
+		return [][]byte{[]byte(pw)}
 	}
 
-	// Distinct allocations (not norm.*.Bytes, which may alias raw) so the caller
-	// can zero each candidate independently.
+	// Distinct allocations (not norm.*.Bytes, which may alias) so the caller can
+	// zero each candidate independently.
 	forms := [3][]byte{
 		[]byte(norm.NFC.String(pw)),
 		[]byte(norm.NFD.String(pw)),
-		raw,
+		[]byte(pw),
 	}
 
 	candidates := make([][]byte, 0, len(forms))
@@ -83,15 +84,18 @@ func Candidates(pw string) [][]byte {
 	return candidates
 }
 
-// isASCII reports whether b contains only 7-bit ASCII bytes, which Unicode
-// normalization leaves unchanged.
-func isASCII(b []byte) bool {
-	for _, c := range b {
-		if c >= utf8.RuneSelf {
-			return false
+// ContainsNonASCII reports whether pw contains any non-ASCII byte. User
+// interfaces use it to advise that a non-ASCII password — while normalized to a
+// canonical form for cross-platform decryption — may still be hard to reproduce
+// on another device with a different keyboard or input method (NIST
+// SP 800-63B-4 recommends informing users of this).
+func ContainsNonASCII(pw string) bool {
+	for i := 0; i < len(pw); i++ {
+		if pw[i] >= utf8.RuneSelf {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // containsBytes reports whether set already holds a slice byte-equal to b. A

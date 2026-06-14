@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	pwnorm "Picocrypt-NG/internal/password"
+
 	"golang.org/x/term"
 )
 
@@ -73,6 +75,20 @@ func readPasswordSecure(prompt string) (string, error) {
 // ReadPasswordInteractive prompts for password interactively.
 // If confirm is true, asks for confirmation (for encryption).
 // If allowEmpty is true, empty password is allowed (useful when keyfiles provide credentials).
+// nonASCIIPasswordNote returns an advisory to show when an ENCRYPTION password
+// (confirm == true) contains non-ASCII characters, or "" when none is warranted.
+// The password is normalized (NFC) for cross-platform decryption, but the user
+// should still be able to reproduce the exact characters elsewhere — NIST
+// SP 800-63B-4 recommends advising this.
+func nonASCIIPasswordNote(confirm bool, password string) string {
+	if confirm && pwnorm.ContainsNonASCII(password) {
+		return "Note: your password contains non-ASCII characters. They are normalized " +
+			"for cross-platform decryption, but make sure you can type the same " +
+			"characters on every device where you'll decrypt this volume."
+	}
+	return ""
+}
+
 func ReadPasswordInteractive(confirm, allowEmpty bool) (string, error) {
 	// Once the prompt(s) have returned normally, clear the saved tty state so a
 	// later unrelated signal does not re-poke the terminal.
@@ -95,6 +111,10 @@ func ReadPasswordInteractive(confirm, allowEmpty bool) (string, error) {
 		if password != confirmPw {
 			return "", ErrPasswordMismatch
 		}
+	}
+
+	if note := nonASCIIPasswordNote(confirm, password); note != "" {
+		fmt.Fprintln(os.Stderr, note)
 	}
 
 	return password, nil

@@ -10,10 +10,10 @@ import (
 // composed/decomposed distinctions vacuous. These are the UAX #15 worked
 // examples behind issue #19: the same visible character in two byte forms.
 var (
-	eComposed    = string([]rune{0x00E9})                  // é  NFC
-	eDecomposed  = string([]rune{0x0065, 0x0301})          // é  NFD (e + combining acute)
-	gaComposed   = string([]rune{0xAC00})                  // 가 NFC
-	gaDecomposed = string([]rune{0x1100, 0x1161})          // 가 NFD (conjoining jamo)
+	eComposed    = string([]rune{0x00E9})                   // é  NFC
+	eDecomposed  = string([]rune{0x0065, 0x0301})           // é  NFD (e + combining acute)
+	gaComposed   = string([]rune{0xAC00})                   // 가 NFC
+	gaDecomposed = string([]rune{0x1100, 0x1161})           // 가 NFD (conjoining jamo)
 	devEmoji     = string([]rune{0x1F469, 0x200D, 0x1F4BB}) // 👩‍💻 ZWJ sequence
 	// e + acute (ccc 230) + dot-below (ccc 220): combining marks in non-canonical
 	// order, so the raw bytes equal neither the NFC nor the NFD form.
@@ -164,5 +164,26 @@ func TestCandidatesEmptyPassword(t *testing.T) {
 	got := Candidates("")
 	if len(got) != 1 || len(got[0]) != 0 {
 		t.Errorf("Candidates(\"\") = %v, want a single empty candidate", got)
+	}
+}
+
+func TestContainsNonASCII(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"ascii", "Password123!@#", false},
+		{"empty", "", false},
+		{"high-bit-boundary 0x7f", "\x7f", false},
+		{"accented", eComposed, true},
+		{"decomposed", eDecomposed, true},
+		{"hangul", gaComposed, true},
+		{"ascii then non-ascii", "pass" + eComposed, true},
+	}
+	for _, tc := range cases {
+		if got := ContainsNonASCII(tc.in); got != tc.want {
+			t.Errorf("ContainsNonASCII(%s) = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
