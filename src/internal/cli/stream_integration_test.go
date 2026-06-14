@@ -26,6 +26,29 @@ func requireCLIIntegration(t *testing.T) {
 	}
 }
 
+// stdinFile materializes data as a real *os.File for use as a subprocess's stdin.
+//
+// When exec.Cmd.Stdin is an *os.File, os/exec hands the fd straight to the child;
+// for any other io.Reader (e.g. bytes.Reader) it spawns a parent-side goroutine
+// (writerDescriptor) to pump the pipe. Under the race detector on a busy CI
+// runner that pump goroutine can fail to deliver EOF, so the child blocks
+// forever on its stdin read, is left orphaned (the picocrypt-test process), and
+// the whole -race suite is killed with SIGTERM (exit 143). A regular file always
+// reaches EOF and needs no pump goroutine, so the child can never wedge on stdin.
+func stdinFile(t *testing.T, data []byte) *os.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stdin")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("writing stdin temp: %v", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("opening stdin temp: %v", err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return f
+}
+
 func TestStdinStdoutIntegration(t *testing.T) {
 	requireCLIIntegration(t)
 
@@ -63,7 +86,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-p", testPassword,
 			"-y",
 		)
-		cmd.Stdin = bytes.NewReader(inputData)
+		cmd.Stdin = stdinFile(t, inputData)
 
 		output, err := cmd.CombinedOutput()
 		if err != nil {
@@ -115,7 +138,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-o", outputFile,
 			"-p", testPassword,
 		)
-		cmd.Stdin = bytes.NewReader(inputData)
+		cmd.Stdin = stdinFile(t, inputData)
 
 		output, err := cmd.CombinedOutput()
 		if err == nil {
@@ -188,7 +211,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-o", "-",
 			"-p", testPassword,
 		)
-		cmd.Stdin = bytes.NewReader(inputData)
+		cmd.Stdin = stdinFile(t, inputData)
 
 		encrypted, err := cmd.Output()
 		if err != nil {
@@ -208,7 +231,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-o", "-",
 			"-p", testPassword,
 		)
-		cmd.Stdin = bytes.NewReader(encrypted)
+		cmd.Stdin = stdinFile(t, encrypted)
 
 		decrypted, err := cmd.Output()
 		if err != nil {
@@ -234,7 +257,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-p", testPassword,
 			"-y",
 		)
-		cmd.Stdin = bytes.NewReader(inputData)
+		cmd.Stdin = stdinFile(t, inputData)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("encryption failed: %v\nOutput: %s", err, output)
 		}
@@ -252,7 +275,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-p", testPassword,
 			"-y",
 		)
-		cmd.Stdin = bytes.NewReader(encrypted)
+		cmd.Stdin = stdinFile(t, encrypted)
 
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("stdin decrypt failed: %v\nOutput: %s", err, output)
@@ -284,7 +307,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-o", existingOutput,
 			"-p", testPassword,
 		)
-		cmd.Stdin = bytes.NewReader(inputData)
+		cmd.Stdin = stdinFile(t, inputData)
 
 		output, err := cmd.CombinedOutput()
 		if err == nil {
@@ -306,7 +329,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-p", testPassword,
 			"-y",
 		)
-		cmd.Stdin = bytes.NewReader(inputData)
+		cmd.Stdin = stdinFile(t, inputData)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("encryption failed: %v\nOutput: %s", err, output)
 		}
@@ -343,7 +366,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-o", "-",
 			"-p", testPassword,
 		)
-		cmd.Stdin = bytes.NewReader(inputData)
+		cmd.Stdin = stdinFile(t, inputData)
 
 		encrypted, err := cmd.Output()
 		if err != nil {
@@ -358,7 +381,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 			"-o", "-",
 			"-p", testPassword,
 		)
-		cmd.Stdin = bytes.NewReader(encrypted)
+		cmd.Stdin = stdinFile(t, encrypted)
 
 		decrypted, err := cmd.Output()
 		if err != nil {
@@ -379,7 +402,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		// Encrypt
 		encCmd := exec.Command(binaryPath, "encrypt", "-i", "-", "-o", "-", "-p", testPassword)
-		encCmd.Stdin = bytes.NewReader(inputData)
+		encCmd.Stdin = stdinFile(t, inputData)
 		encrypted, err := encCmd.Output()
 		if err != nil {
 			t.Fatalf("pipe encrypt: %v", err)
@@ -387,7 +410,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		// Decrypt
 		decCmd := exec.Command(binaryPath, "decrypt", "-i", "-", "-o", "-", "-p", testPassword)
-		decCmd.Stdin = bytes.NewReader(encrypted)
+		decCmd.Stdin = stdinFile(t, encrypted)
 		decrypted, err := decCmd.Output()
 		if err != nil {
 			t.Fatalf("pipe decrypt: %v", err)
@@ -478,7 +501,7 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 			"-o", filepath.Join(tmpDir, "out.pcv"),
 			"-P",
 		)
-		cmd.Stdin = bytes.NewReader([]byte("test"))
+		cmd.Stdin = stdinFile(t, []byte("test"))
 
 		output, err := cmd.CombinedOutput()
 		if err == nil {
@@ -557,7 +580,7 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 			"-p", "correctpassword",
 			"-y",
 		)
-		cmd.Stdin = bytes.NewReader(inputData)
+		cmd.Stdin = stdinFile(t, inputData)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("encrypt failed: %v\nOutput: %s", err, output)
 		}
@@ -569,7 +592,7 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 			"-o", "-",
 			"-p", "wrongpassword",
 		)
-		cmd.Stdin = bytes.NewReader(encrypted)
+		cmd.Stdin = stdinFile(t, encrypted)
 
 		output, err := cmd.CombinedOutput()
 		if err == nil {
