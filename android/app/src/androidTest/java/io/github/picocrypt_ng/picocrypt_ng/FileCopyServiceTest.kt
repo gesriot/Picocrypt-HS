@@ -236,7 +236,24 @@ class FileCopyServiceTest {
         assertFalse("Output file should be deleted", outputFile.exists())
         assertTrue("Input file should remain", inputFile.exists())
     }
-    
+
+    @Test
+    fun cleanupOperationFilesBeforeStart_preservesStagingTree() = runTest {
+        // Bug 2 regression: staged folder/multi-file inputs live under staging/ and are the
+        // very inputs the operation is about to read. Pre-start cleanup must not wipe them
+        // (staging hygiene is owned by StagingService.wipeStaging at pick time and
+        // clearOperation after the op), or Go would get paths to deleted files.
+        val staged = File(context.filesDir, "picocrypt_files/staging/MyDocs")
+        staged.mkdirs()
+        val a = File(staged, "a.txt").apply { writeText("a") }
+
+        FileCopyService.cleanupOperationFilesBeforeStart(context)
+
+        assertTrue("staged input must survive pre-start cleanup", a.exists())
+        // cleanup
+        File(context.filesDir, "picocrypt_files/staging").deleteRecursively()
+    }
+
     @Test
     fun deleteFile_removes_existing_file() = runTest {
         val internalDir = File(context.filesDir, "picocrypt_files")

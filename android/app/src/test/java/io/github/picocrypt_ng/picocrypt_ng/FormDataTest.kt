@@ -345,6 +345,24 @@ class FormDataTest {
         assertTrue("precondition: chunk is classified as split", formData.isSplitVolumeChunk)
         assertFalse("a split chunk must invalidate the form", formData.isFormValid)
     }
+
+    @Test
+    fun hasSelectedInput_trueForSingleFile() {
+        val fd = TestDataBuilders.createEncryptFormData(copiedFilePath = "/data/input_file.txt")
+        assertTrue(fd.hasSelectedInput)
+    }
+
+    @Test
+    fun hasSelectedInput_trueForFolderSelection() {
+        val fd = TestDataBuilders.createFolderEncryptFormData()
+        assertTrue(fd.hasSelectedInput)
+    }
+
+    @Test
+    fun hasSelectedInput_falseWhenNothingSelected() {
+        val fd = TestDataBuilders.createEncryptFormData(copiedFilePath = "")
+        assertFalse(fd.hasSelectedInput)
+    }
 }
 
 

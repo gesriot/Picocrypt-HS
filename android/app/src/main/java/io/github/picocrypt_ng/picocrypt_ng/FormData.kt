@@ -53,6 +53,14 @@ data class FormData(
         get() = passwordInput.isNotEmpty() && ((isEncrypt && isPasswordsMatch) || isDecrypt)
 
     /**
+     * True when a concrete input is selected: a single copied file, or a staged
+     * folder/multi-file selection. WorkButton gates the Encrypt button on this so
+     * folder/multi selections (which have an empty copiedFilePath) are not blocked.
+     */
+    val hasSelectedInput: Boolean
+        get() = copiedFilePath.isNotEmpty() || inputFiles.isNotEmpty()
+
+    /**
      * True when the selected file is a numbered split-volume chunk (e.g. secret.pcv.0).
      * Mirrors Go fileops.IsSplitChunkPath. Android cannot recombine chunks (single-file
      * picker, no sibling access), so such files are rejected loudly rather than run --
