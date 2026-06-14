@@ -55,6 +55,20 @@ jobs:
         # linuxdeploy invokes appimagetool from PATH during --output appimage.
         sudo mv appimagetool /usr/local/bin/appimagetool
 
+    - name: Import GPG signing key
+      env:
+        GPG_PRIVATE_KEY: ${{ secrets.APPIMAGE_GPG_PRIVATE_KEY }}
+      run: |
+        # Dedicated release-signing key, provisioned as a repo secret (ASCII-armored
+        # private key). Fail loud rather than silently shipping an unsigned release.
+        test -n "$GPG_PRIVATE_KEY" || { echo "::error::APPIMAGE_GPG_PRIVATE_KEY secret is empty"; exit 1; }
+        printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
+        # appimagetool reads APPIMAGETOOL_SIGN_PASSPHRASE and feeds gpg via loopback;
+        # gpg-agent must be told to accept it without an interactive pinentry prompt.
+        mkdir -p "$HOME/.gnupg" && chmod 700 "$HOME/.gnupg"
+        echo "allow-loopback-pinentry" >> "$HOME/.gnupg/gpg-agent.conf"
+        gpgconf --kill gpg-agent
+
     - name: Build AppImage
       env:
         # GitHub runners lack FUSE; run the tools (and later the result) extracted.
@@ -63,6 +77,8 @@ jobs:
         # little from stripping; skipping it removes a fragile step (linuxdeploy's strip
         # aborts on libraries using newer ELF sections, e.g. .relr.dyn) for ~2-3 MB.
         NO_STRIP: "true"
+        # Passphrase for the release-signing key; consumed by appimagetool's --sign.
+        APPIMAGETOOL_SIGN_PASSPHRASE: ${{ secrets.APPIMAGE_GPG_PASSPHRASE }}
       run: |
         VERSION=$(cat VERSION)
         mkdir -p stage AppDir/usr/share/metainfo
@@ -81,13 +97,41 @@ jobs:
         # Deterministic output filename (independent of the binary's internal version).
         export OUTPUT="Picocrypt-NG-${VERSION}-x86_64.AppImage"
         export VERSION
+
+        # AppImageUpdate delta-update transport: linuxdeploy embeds this string in the
+        # .upd_info ELF section and emits the matching .zsync. The glob (not the literal
+        # version) is what lets an installed build discover every future release; `latest`
+        # resolves to the GitHub release marked "Latest" (non-prerelease). owner/repo come
+        # from the running repo so forks point at themselves, not upstream.
+        UPDATE_INFORMATION="gh-releases-zsync|${GITHUB_REPOSITORY%/*}|${GITHUB_REPOSITORY#*/}|latest|Picocrypt-NG-*-x86_64.AppImage.zsync"
+        # GPG signing: key id is the primary fingerprint from the imported keyring.
+        SIGN_KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+        test -n "$SIGN_KEY" || { echo "::error::no signing key in keyring"; exit 1; }
+        # Both env-var spellings are exported on purpose: the pinned linuxdeploy build's
+        # bundled appimage plugin uses the legacy names (OUTPUT/VERSION already prove the
+        # legacy contract holds), while the LDAI_-prefixed names cover a newer plugin once
+        # the tooling pin is refreshed. The verification below fails loud if neither path
+        # produced a signed AppImage + .zsync, so a silent no-op cannot ship.
+        export UPDATE_INFORMATION LDAI_UPDATE_INFORMATION="$UPDATE_INFORMATION"
+        export SIGN=1 LDAI_SIGN=1 SIGN_KEY LDAI_SIGN_KEY="$SIGN_KEY"
+
         ./linuxdeploy \
           --appdir AppDir \
           --executable src/Picocrypt-NG \
           --desktop-file stage/io.github.picocrypt_ng.Picocrypt-NG.desktop \
           --icon-file stage/io.github.picocrypt_ng.Picocrypt-NG.png \
           --output appimage
+
+        # Fail loud: the build must have produced the AppImage, its .zsync, and a real
+        # signature from OUR key -- never ship a half-configured release artifact.
         test -f "$OUTPUT"
+        test -f "${OUTPUT}.zsync" || { echo "::error::no .zsync produced -- update information was not honored"; exit 1; }
+        objcopy -O binary --only-section=.sha256_sig "$OUTPUT" sig.bin
+        test -s sig.bin || { echo "::error::.sha256_sig section empty -- AppImage was not signed"; exit 1; }
+        objcopy -O binary --only-section=.sig_key "$OUTPUT" sig_key.asc
+        EMBEDDED_FPR=$(gpg --show-keys --with-colons sig_key.asc | awk -F: '/^fpr:/ {print $10; exit}')
+        test "$EMBEDDED_FPR" = "$SIGN_KEY" || { echo "::error::embedded signer $EMBEDDED_FPR != release key $SIGN_KEY"; exit 1; }
+        rm -f sig.bin sig_key.asc
 
     - name: Smoke test AppImage
       env:
@@ -107,6 +151,7 @@ jobs:
         VERSION=$(cat VERSION)
         mkdir -p out
         mv "Picocrypt-NG-${VERSION}-x86_64.AppImage" out/
+        mv "Picocrypt-NG-${VERSION}-x86_64.AppImage.zsync" out/
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v7
@@ -144,7 +189,11 @@ jobs:
     - name: Release
       uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
       with:
-        files: artifacts/${{ env.APPIMAGE_NAME }}
+        # The .zsync must ship alongside the AppImage: AppImageUpdate fetches it from the
+        # same release to compute deltas. Without it the embedded update info is a dead end.
+        files: |
+          artifacts/${{ env.APPIMAGE_NAME }}
+          artifacts/${{ env.APPIMAGE_NAME }}.zsync
         tag_name: ${{ env.VERSION }}
         append_body: true
         body: |
