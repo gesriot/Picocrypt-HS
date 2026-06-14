@@ -927,7 +927,7 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 		}
 
 		chunks := len(data)/encoding.RS128EncodedSize - 1
-		for i := 0; i < chunks; i++ {
+		for i := range chunks {
 			decoded, err := encoding.Decode(rs.RS128, data[i*encoding.RS128EncodedSize:(i+1)*encoding.RS128EncodedSize], fastDecode)
 			if err != nil {
 				if forceDecode {
@@ -941,18 +941,12 @@ func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceD
 
 		// Last chunk (always unpad)
 		lastChunkStart := chunks * encoding.RS128EncodedSize
-		lastChunkEnd := lastChunkStart + encoding.RS128EncodedSize
-		if lastChunkEnd > len(data) {
-			lastChunkEnd = len(data)
-		}
+		lastChunkEnd := min(lastChunkStart+encoding.RS128EncodedSize, len(data))
 		decoded, err := encoding.Decode(rs.RS128, data[lastChunkStart:lastChunkEnd], fastDecode)
 		if err != nil {
 			if forceDecode {
 				// Safely extract what we can
-				safeEnd := lastChunkStart + encoding.RS128DataSize
-				if safeEnd > len(data) {
-					safeEnd = len(data)
-				}
+				safeEnd := min(lastChunkStart+encoding.RS128DataSize, len(data))
 				decoded = data[lastChunkStart:safeEnd]
 			} else {
 				return nil, perrors.ErrCorruptData

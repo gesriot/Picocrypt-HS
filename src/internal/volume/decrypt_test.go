@@ -34,7 +34,7 @@ func buildEncodedMiB(t *testing.T, rs *encoding.RSCodecs) (plain, enc []byte) {
 func buildEncodedChunks(t *testing.T, rs *encoding.RSCodecs, nFullChunks, lastLen int) (plain, enc []byte) {
 	t.Helper()
 	// Full chunks.
-	for c := 0; c < nFullChunks; c++ {
+	for c := range nFullChunks {
 		chunk := make([]byte, encoding.RS128DataSize)
 		for i := range chunk {
 			chunk[i] = byte(c*7 + i)
@@ -83,7 +83,7 @@ func expectedDecode(t *testing.T, data []byte, rs *encoding.RSCodecs, isLast, pa
 	}
 
 	chunks := len(data)/encoding.RS128EncodedSize - 1
-	for i := 0; i < chunks; i++ {
+	for i := range chunks {
 		decoded, err := encoding.Decode(rs.RS128, data[i*encoding.RS128EncodedSize:(i+1)*encoding.RS128EncodedSize], fastDecode)
 		if err != nil {
 			t.Fatalf("expected Decode (partial) at chunk %d: %v", i, err)
@@ -91,10 +91,7 @@ func expectedDecode(t *testing.T, data []byte, rs *encoding.RSCodecs, isLast, pa
 		result = append(result, decoded...)
 	}
 	lastChunkStart := chunks * encoding.RS128EncodedSize
-	lastChunkEnd := lastChunkStart + encoding.RS128EncodedSize
-	if lastChunkEnd > len(data) {
-		lastChunkEnd = len(data)
-	}
+	lastChunkEnd := min(lastChunkStart+encoding.RS128EncodedSize, len(data))
 	decoded, err := encoding.Decode(rs.RS128, data[lastChunkStart:lastChunkEnd], fastDecode)
 	if err != nil {
 		t.Fatalf("expected Decode (last) at %d: %v", lastChunkStart, err)

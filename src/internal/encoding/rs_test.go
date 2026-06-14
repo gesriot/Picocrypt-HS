@@ -142,17 +142,40 @@ func TestEncodeIntoMatchesEncode(t *testing.T) {
 		t.Fatalf("NewRSCodecs() failed: %v", err)
 	}
 
+	// EncodeInto output is pinned to independent golden vectors rather than
+	// compared against Encode (which merely wraps EncodeInto, making that a
+	// self-comparison that survives any corruption of the shared rs.Encode
+	// callback). Inputs are data[i]=byte(i*7+1); the vectors below are frozen
+	// hex pinned from the real encoder. The RS128 vector equals
+	// TestRS128EncodeGoldenVector's wantFull, so EncodeInto and Encode are
+	// cross-checked against the same frozen on-disk format without a tautology,
+	// and any drift in parity/layout for ANY codec is caught here directly.
 	cases := []struct {
-		name string
-		rs   *infectious.FEC
+		name   string
+		rs     *infectious.FEC
+		golden string // frozen EncodeInto output, hex
 	}{
-		{"RS1", codecs.RS1},
-		{"RS5", codecs.RS5},
-		{"RS16", codecs.RS16},
-		{"RS24", codecs.RS24},
-		{"RS32", codecs.RS32},
-		{"RS64", codecs.RS64},
-		{"RS128", codecs.RS128},
+		{"RS1", codecs.RS1, "010101"},
+		{"RS5", codecs.RS5, "01080f161db7d775ff302fd8df8862"},
+		{"RS16", codecs.RS16, "01080f161d242b323940474e555c636a" +
+			"ae9b1a3e844e245e00fc53e8555bec9bc60161db82e09195a2bfd287c652afca"},
+		{"RS24", codecs.RS24, "01080f161d242b323940474e555c636a71787f868d949ba2" +
+			"bfdb84891f55112e47f06919e11593e87b2ec210d70198e2" +
+			"ce796547f5bc60d922c1c0a17444484160eac65ffe76e029"},
+		{"RS32", codecs.RS32, "01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3da" +
+			"7596357a44436d24e306dd71aab840a7a3ddfe5ab0505017" +
+			"648982124bfc79e6810f673629d66c48ea85637d127513f0430c73eff09a174f9fd25d2687bbd603"},
+		{"RS64", codecs.RS64, "01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3da" +
+			"e1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3ba" +
+			"a7b7ba564e1eb102a42e96d4d5e235b57e7ef7ec82e16e1de253da8fd6aaf8cb" +
+			"7409d291018dc607a4b2e8c812d2f4cf7e657f0108f7ac1e9461e4fc933096918fc20ddd1ecdfeb1" +
+			"a84cefa772b43e35990caedcf7fdbe2ba15c17020ab3ed42ecd9ff9180f76bd5d2a15bfab2e857345" +
+			"7218bbaa72de809d604ee943825fc34"},
+		{"RS128", codecs.RS128, "01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3da" +
+			"e1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3ba" +
+			"c1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939a" +
+			"a1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a" +
+			"a5d74e94add3b8cd"},
 	}
 
 	for _, c := range cases {
@@ -162,17 +185,20 @@ func TestEncodeIntoMatchesEncode(t *testing.T) {
 				data[i] = byte(i*7 + 1) // non-trivial, deterministic content
 			}
 
-			want, err := Encode(c.rs, data)
+			want, err := hex.DecodeString(c.golden)
 			if err != nil {
-				t.Fatalf("Encode: %v", err)
+				t.Fatalf("decode golden: %v", err)
 			}
 
 			dst := make([]byte, c.rs.Total())
 			if err := EncodeInto(dst, c.rs, data); err != nil {
 				t.Fatalf("EncodeInto: %v", err)
 			}
+			if len(dst) != c.rs.Total() {
+				t.Errorf("EncodeInto len = %d; want %d", len(dst), c.rs.Total())
+			}
 			if !bytes.Equal(dst, want) {
-				t.Errorf("EncodeInto != Encode\n got %x\nwant %x", dst, want)
+				t.Errorf("EncodeInto golden mismatch (encode format drift):\n got  %x\nwant %x", dst, want)
 			}
 		})
 	}

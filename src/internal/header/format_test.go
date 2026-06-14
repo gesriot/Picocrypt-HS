@@ -64,18 +64,66 @@ func TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField(t *testing.T) {
 	}
 }
 
+// TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation drives the REAL
+// WriteHeader for two headers that differ ONLY in a source field (Flags.Padded),
+// so the non-version delta is produced by production rather than fabricated. It
+// pins the live flags-encoding path (writer.go: encoding.Encode(RS5,
+// Flags.ToBytes())) by asserting the encoded flags region equals a recomputed
+// RS5(Flags.ToBytes()) — zeroing that path is rejected — then confirms the
+// version-delta guard rejects a header whose flags changed while the version did
+// not. The sibling TestWriteHeaderVersionBumpChangesOnlyEncodedVersionField
+// covers the complementary version-only direction.
 func TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation(t *testing.T) {
 	const comments = "release guard"
 
-	oldEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.12", comments))
-	newEncoded, _ := writeFormatGuardHeader(t, deterministicFormatGuardHeader("v2.13", comments))
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	// Base header and a copy that differs ONLY in a source field (Flags.Padded).
+	// Both go through the REAL WriteHeader so the non-version delta is produced by
+	// production, not fabricated by the test.
+	baseHeader := deterministicFormatGuardHeader("v2.13", comments)
+	baseEncoded, _ := writeFormatGuardHeader(t, baseHeader)
+
+	mutatedHeader := deterministicFormatGuardHeader("v2.13", comments)
+	mutatedHeader.Flags.Padded = !mutatedHeader.Flags.Padded
+	mutatedEncoded, _ := writeFormatGuardHeader(t, mutatedHeader)
 
 	regions := encodedHeaderRegions(len(comments))
 	flagsStart := regionStart(t, regions, "flags")
-	newEncoded[flagsStart] ^= 0x01
 
-	if err := versionOnlyHeaderDelta(oldEncoded, newEncoded, regions); err == nil {
-		t.Fatal("versionOnlyHeaderDelta accepted a non-version-field mutation in the flags region")
+	// WriteHeader must encode the flags region from h.Flags.ToBytes(). This pins
+	// the live flags path: zeroing it (writer.go -> encoding.Encode(RS5, make([]byte,5)))
+	// is rejected. Recompute the expectation so it self-pins if Flags layout changes.
+	wantFlags, err := encoding.Encode(rs.RS5, baseHeader.Flags.ToBytes())
+	if err != nil {
+		t.Fatalf("Encode base flags failed: %v", err)
+	}
+	gotFlags := baseEncoded[flagsStart : flagsStart+FlagsEncSize]
+	if !bytes.Equal(gotFlags, wantFlags) {
+		t.Fatalf("encoded flags region = %v; want RS5(Flags.ToBytes()) = %v", gotFlags, wantFlags)
+	}
+
+	// A Flags-only source change must move bytes in the flags region and nowhere else.
+	for _, region := range regions {
+		same := bytes.Equal(baseEncoded[region.start:region.end], mutatedEncoded[region.start:region.end])
+		if region.name == "flags" {
+			if same {
+				t.Fatalf("flags region [%d:%d] unchanged after flipping Flags.Padded source field", region.start, region.end)
+			}
+			continue
+		}
+		if !same {
+			t.Fatalf("%s region [%d:%d] changed from a Flags-only source mutation", region.name, region.start, region.end)
+		}
+	}
+
+	// The version-delta guard must reject a header whose NON-version field changed
+	// while the version stayed constant.
+	if err := versionOnlyHeaderDelta(baseEncoded, mutatedEncoded, regions); err == nil {
+		t.Fatal("versionOnlyHeaderDelta accepted a header whose flags source field changed but version did not")
 	}
 }
 
@@ -338,18 +386,6 @@ func TestIsLegacyV1(t *testing.T) {
 		if h.IsLegacyV1() != tc.expected {
 			t.Errorf("IsLegacyV1(%q) = %v; want %v", tc.version, h.IsLegacyV1(), tc.expected)
 		}
-	}
-}
-
-func TestNewCodecs(t *testing.T) {
-	rs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("NewRSCodecs failed: %v", err)
-	}
-
-	codecs := NewCodecs(rs)
-	if codecs.RSCodecs != rs {
-		t.Error("NewCodecs did not wrap RSCodecs correctly")
 	}
 }
 
@@ -623,6 +659,70 @@ func TestVerifyV2Header(t *testing.T) {
 	result = VerifyV2Header(subkey, h, keyfileHash)
 	if result.Valid {
 		t.Error("VerifyV2Header passed for modified header")
+	}
+}
+
+// TestVerifyV2HeaderAuthenticatesEveryField proves the live (struct-based) v2
+// header MAC authenticates EVERY field it covers: tampering any one of them after
+// the MAC is fixed must be rejected. This is the safety net that lets us retire the
+// parallel raw-bytes header-MAC path — both the writer and reader use this live
+// path, and a swap is detectable per-field here, so the retired twin guarded
+// nothing the live path misses.
+func TestVerifyV2HeaderAuthenticatesEveryField(t *testing.T) {
+	subkey := bytes.Repeat([]byte{0x42}, 64)
+	keyfileHash := bytes.Repeat([]byte{0x11}, KeyfileHashSize)
+
+	base := func() *VolumeHeader {
+		return &VolumeHeader{
+			Version:   CurrentVersion,
+			Comments:  "vector",
+			Flags:     Flags{Paranoid: true, ReedSolomon: true},
+			Salt:      bytes.Repeat([]byte{0x01}, SaltSize),
+			HKDFSalt:  bytes.Repeat([]byte{0x02}, HKDFSaltSize),
+			SerpentIV: bytes.Repeat([]byte{0x03}, SerpentIVSize),
+			Nonce:     bytes.Repeat([]byte{0x04}, NonceSize),
+		}
+	}
+
+	// Baseline: an untampered header with its correct MAC verifies.
+	h := base()
+	h.KeyHash = ComputeV2HeaderMAC(subkey, h, keyfileHash)
+	if !VerifyV2Header(subkey, h, keyfileHash).Valid {
+		t.Fatal("VerifyV2Header rejected an untampered header")
+	}
+
+	// Each authenticated field, tampered after the MAC is fixed, must be rejected.
+	// mutate returns the keyfileHash to pass to VerifyV2Header (so the keyfileHash
+	// case can tamper that argument without touching the header struct).
+	cases := []struct {
+		name   string
+		mutate func(h *VolumeHeader, keyfileHash []byte) []byte
+	}{
+		{"version", func(h *VolumeHeader, kf []byte) []byte { h.Version = "v9.99"; return kf }},
+		// Same length (6) isolates the comment-content write from the length prefix.
+		{"comments_content", func(h *VolumeHeader, kf []byte) []byte { h.Comments = "VECTOR"; return kf }},
+		// Different length (7) additionally exercises the %05d comment-length write.
+		{"comments_length", func(h *VolumeHeader, kf []byte) []byte { h.Comments = "vectors"; return kf }},
+		{"flags", func(h *VolumeHeader, kf []byte) []byte { h.Flags.Paranoid = !h.Flags.Paranoid; return kf }},
+		{"salt", func(h *VolumeHeader, kf []byte) []byte { h.Salt[0] ^= 0xFF; return kf }},
+		{"hkdfSalt", func(h *VolumeHeader, kf []byte) []byte { h.HKDFSalt[0] ^= 0xFF; return kf }},
+		{"serpentIV", func(h *VolumeHeader, kf []byte) []byte { h.SerpentIV[0] ^= 0xFF; return kf }},
+		{"nonce", func(h *VolumeHeader, kf []byte) []byte { h.Nonce[0] ^= 0xFF; return kf }},
+		{"keyfileHash", func(h *VolumeHeader, kf []byte) []byte {
+			c := append([]byte(nil), kf...)
+			c[0] ^= 0xFF
+			return c
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := base()
+			h.KeyHash = ComputeV2HeaderMAC(subkey, h, keyfileHash)
+			kf := tc.mutate(h, keyfileHash)
+			if VerifyV2Header(subkey, h, kf).Valid {
+				t.Errorf("tampering %s was NOT detected — the header MAC does not authenticate it", tc.name)
+			}
+		})
 	}
 }
 

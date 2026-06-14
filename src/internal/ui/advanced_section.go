@@ -292,8 +292,8 @@ func (a *App) updateOutputFileForCompress(compress bool) {
 		}
 	} else {
 		// Remove .zip suffix if present
-		if strings.HasSuffix(a.State.OutputFile, ".zip.pcv") {
-			a.State.OutputFile = strings.TrimSuffix(a.State.OutputFile, ".zip.pcv") + ".pcv"
+		if before, ok := strings.CutSuffix(a.State.OutputFile, ".zip.pcv"); ok {
+			a.State.OutputFile = before + ".pcv"
 		}
 	}
 

@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 )
 
@@ -206,21 +207,6 @@ func TestNewMAC(t *testing.T) {
 	}
 }
 
-func TestCounter(t *testing.T) {
-	c := NewCounter()
-
-	// Should not trigger rekey initially
-	if c.Add(1000) {
-		t.Error("Should not trigger rekey for small amounts")
-	}
-
-	// Reset
-	c.Reset()
-	if c.Count() != 0 {
-		t.Error("Counter should be 0 after reset")
-	}
-}
-
 func TestDeniabilityRekey(t *testing.T) {
 	key := make([]byte, 32)
 	nonce := make([]byte, 24)
@@ -257,55 +243,50 @@ func TestDeniabilityRekey(t *testing.T) {
 }
 
 func TestCipherSuiteRekey(t *testing.T) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 24)
-	serpentKey := make([]byte, 32)
-	serpentIV := make([]byte, 16)
-	hkdfSalt := make([]byte, 32)
-
-	for i := range key {
-		key[i] = byte(i)
-		serpentKey[i] = byte(i + 32)
+	// Fixed fixtures make the post-rekey keystream a stable golden. Encrypting an
+	// all-zero plaintext yields the raw keystream, so these vectors pin that
+	// Rekey actually reinitializes the cipher(s) with the fresh HKDF-derived
+	// nonce/IV. A no-op Rekey, a forgotten cs.chacha reassignment, or a skipped
+	// Serpent-IV read all change these bytes and turn the test red.
+	tests := []struct {
+		name     string
+		paranoid bool
+		wantHex  string // post-rekey keystream over 32 zero bytes
+	}{
+		{"normal", false, "af4d335462f511d0ac2c0086d0660c7e19ba7e657ac48528c30ed65171cc5547"},
+		{"paranoid", true, "c52f9d93f8b02d8f39aac6957d46afc6ec28b018c1c7c7b83d4fcc7493b96f5e"},
 	}
 
-	// Test rekey in both modes
-	for _, paranoid := range []bool{false, true} {
-		t.Run(func() string {
-			if paranoid {
-				return "paranoid"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := make([]byte, 32)
+			serpentKey := make([]byte, 32)
+			for i := range key {
+				key[i] = byte(i)
+				serpentKey[i] = byte(i + 32)
 			}
-			return "normal"
-		}(), func(t *testing.T) {
-			mac, _ := NewMAC(make([]byte, 32), paranoid)
+			nonce := make([]byte, 24)
+			serpentIV := make([]byte, 16)
+			hkdfSalt := make([]byte, 32)
+
+			mac, _ := NewMAC(make([]byte, 32), tt.paranoid)
 			hkdf := NewHKDFStream(key, hkdfSalt)
 
-			suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, paranoid)
+			suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, tt.paranoid)
 			if err != nil {
 				t.Fatalf("NewCipherSuite() failed: %v", err)
 			}
 
-			// Encrypt some data before rekey
-			src1 := []byte("data before rekey")
-			dst1 := make([]byte, len(src1))
-			suite.Encrypt(dst1, src1)
-
-			// Perform rekey
-			err = suite.Rekey()
-			if err != nil {
+			if err := suite.Rekey(); err != nil {
 				t.Fatalf("Rekey() failed: %v", err)
 			}
 
-			// Encrypt more data after rekey
-			src2 := []byte("data after rekey")
-			dst2 := make([]byte, len(src2))
-			suite.Encrypt(dst2, src2)
+			// Encrypt zero plaintext -> ciphertext is the post-rekey keystream.
+			got := make([]byte, 32)
+			suite.Encrypt(got, make([]byte, 32))
 
-			// Both should work (no panic, produces output)
-			if bytes.Equal(dst1, make([]byte, len(dst1))) {
-				t.Error("First encryption produced all zeros")
-			}
-			if bytes.Equal(dst2, make([]byte, len(dst2))) {
-				t.Error("Second encryption produced all zeros")
+			if gotHex := hex.EncodeToString(got); gotHex != tt.wantHex {
+				t.Errorf("post-rekey keystream = %s; want %s", gotHex, tt.wantHex)
 			}
 		})
 	}
@@ -313,8 +294,12 @@ func TestCipherSuiteRekey(t *testing.T) {
 
 func TestCipherSuiteRekeyMultiple(t *testing.T) {
 	key := make([]byte, 32)
-	nonce := make([]byte, 24)
 	serpentKey := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+		serpentKey[i] = byte(i + 32)
+	}
+	nonce := make([]byte, 24)
 	serpentIV := make([]byte, 16)
 	hkdfSalt := make([]byte, 32)
 
@@ -326,31 +311,43 @@ func TestCipherSuiteRekeyMultiple(t *testing.T) {
 		t.Fatalf("NewCipherSuite() failed: %v", err)
 	}
 
-	// Perform multiple rekeys (simulating very large file)
-	for i := 0; i < 5; i++ {
-		err = suite.Rekey()
-		if err != nil {
+	// Golden keystream block produced immediately after each successive rekey
+	// (paranoid: Serpent-CTR -> XChaCha20 over 16 zero bytes). Pins that every
+	// rekey reinitializes both ciphers from the advancing HKDF stream; a rekey
+	// that fails to advance or to reinstall a cipher would repeat a block or
+	// diverge from these vectors.
+	want := []string{
+		"c52f9d93f8b02d8f39aac6957d46afc6",
+		"be44c5e694339a0781c97c06303f934f",
+		"259fab0e64eb4f740ce2267fe04f5199",
+		"44f85e251feeebfc28a063e5714e58c5",
+		"154f0defa2d72f1f1a53393320f42010",
+	}
+
+	var prev []byte
+	for i := range 5 {
+		if err := suite.Rekey(); err != nil {
 			t.Fatalf("Rekey() #%d failed: %v", i+1, err)
 		}
 
-		// Encrypt some data after each rekey
-		src := []byte("test data")
-		dst := make([]byte, len(src))
-		suite.Encrypt(dst, src)
+		// Encrypt zero plaintext -> ciphertext is this cycle's keystream block.
+		got := make([]byte, 16)
+		suite.Encrypt(got, make([]byte, 16))
+
+		if gotHex := hex.EncodeToString(got); gotHex != want[i] {
+			t.Errorf("cycle %d keystream = %s; want %s", i, gotHex, want[i])
+		}
+		if prev != nil && bytes.Equal(got, prev) {
+			t.Errorf("cycle %d keystream equals previous cycle (rekey did not advance)", i)
+		}
+		prev = got // got is freshly allocated each iteration
 	}
 }
 
 func TestCipherSuiteClose(t *testing.T) {
-	key := make([]byte, 32)
 	nonce := make([]byte, 24)
-	serpentKey := make([]byte, 32)
 	serpentIV := make([]byte, 16)
 	hkdfSalt := make([]byte, 32)
-
-	for i := range key {
-		key[i] = byte(i)
-		serpentKey[i] = byte(i + 32)
-	}
 
 	// Test close in both modes
 	for _, paranoid := range []bool{false, true} {
@@ -360,22 +357,55 @@ func TestCipherSuiteClose(t *testing.T) {
 			}
 			return "normal"
 		}(), func(t *testing.T) {
+			// Distinct nonzero key/serpentKey so the zero-check is meaningful:
+			// byte 0 must change from 1 to 0 (key[i]=byte(i) would leave byte 0
+			// already zero and make a no-op Close indistinguishable).
+			key := make([]byte, 32)
+			serpentKey := make([]byte, 32)
+			for i := range key {
+				key[i] = byte(i + 1)
+				serpentKey[i] = byte(i + 32)
+			}
+
 			mac, _ := NewMAC(make([]byte, 32), paranoid)
 			hkdf := NewHKDFStream(key, hkdfSalt)
 
-			// Make a copy of key to verify zeroing
-			keyToCheck := make([]byte, 32)
-			copy(keyToCheck, key)
-
-			suite, err := NewCipherSuite(keyToCheck, nonce, serpentKey, serpentIV, mac, hkdf, paranoid)
+			suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, paranoid)
 			if err != nil {
 				t.Fatalf("NewCipherSuite() failed: %v", err)
 			}
 
-			// Close the suite
+			// cs.key aliases the caller's key slice (NewCipherSuite stores it
+			// directly), so capture the backing array to prove Close zeros the
+			// bytes, not merely that it nils the field.
+			keyBacking := suite.key
+
 			suite.Close()
 
-			// Multiple Close() calls should be safe
+			// SecureZero(cs.key) must have wiped the key material.
+			if !bytes.Equal(keyBacking, make([]byte, 32)) {
+				t.Errorf("Close() did not zero key material: %x", keyBacking)
+			}
+			// All sensitive references must be cleared.
+			if suite.key != nil {
+				t.Error("Close() should nil cs.key")
+			}
+			if suite.chacha != nil {
+				t.Error("Close() should nil cs.chacha")
+			}
+			if suite.mac != nil {
+				t.Error("Close() should nil cs.mac")
+			}
+			if paranoid {
+				if suite.serpent != nil {
+					t.Error("Close() should nil cs.serpent")
+				}
+				if suite.serpentS != nil {
+					t.Error("Close() should nil cs.serpentS")
+				}
+			}
+
+			// Multiple Close() calls should be safe (idempotent).
 			suite.Close()
 			suite.Close()
 		})

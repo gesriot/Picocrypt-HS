@@ -169,10 +169,7 @@ func decryptPlainPayload(payload []byte, cs *crypto.CipherSuite, counter *int64)
 	chunkSize := util.MiB
 
 	for offset := 0; offset < len(payload); offset += chunkSize {
-		end := offset + chunkSize
-		if end > len(payload) {
-			end = len(payload)
-		}
+		end := min(offset+chunkSize, len(payload))
 
 		chunk := payload[offset:end]
 		dst := make([]byte, len(chunk))

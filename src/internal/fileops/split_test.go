@@ -219,7 +219,7 @@ func TestRecombineCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create chunks manually
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		chunkData := bytes.Repeat([]byte{byte(i)}, 1000)
 		chunkPath := filepath.Join(tmpDir, "test.pcv."+string(rune('0'+i)))
 		if err := os.WriteFile(chunkPath, chunkData, 0644); err != nil {
@@ -360,7 +360,7 @@ func TestRecombineProgress(t *testing.T) {
 
 	// Create chunks with enough data to trigger progress updates
 	chunkData := bytes.Repeat([]byte("X"), 10*1024) // 10 KiB per chunk
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		chunkPath := basePath + "." + string(rune('0'+i))
 		if err := os.WriteFile(chunkPath, chunkData, 0644); err != nil {
 			t.Fatalf("Create chunk: %v", err)
@@ -614,7 +614,7 @@ func TestRecombineLargeChunks(t *testing.T) {
 
 	// Create chunks larger than the internal buffer (1 MiB)
 	chunkData := bytes.Repeat([]byte("Y"), 2*1024*1024) // 2 MiB per chunk
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		chunkPath := basePath + "." + string(rune('0'+i))
 		if err := os.WriteFile(chunkPath, chunkData, 0644); err != nil {
 			t.Fatalf("Create chunk: %v", err)

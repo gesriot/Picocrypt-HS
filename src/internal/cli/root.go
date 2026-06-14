@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -52,8 +53,7 @@ func exitCodeForError(err error) int {
 		return 0
 	}
 
-	var exitErr ExitCodeError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[ExitCodeError](err); ok {
 		return exitErr.ExitCode()
 	}
 	return ExitGeneralError
@@ -211,13 +211,7 @@ func lookupRootPersistentFlag(token string) *pflag.Flag {
 }
 
 func hasKnownRootCommand(args []string) bool {
-	for _, arg := range args {
-		if isKnownRootCommand(arg) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(args, isKnownRootCommand)
 }
 
 func isKnownRootCommand(token string) bool {
@@ -229,10 +223,8 @@ func isKnownRootCommand(token string) bool {
 		if cmd.Name() == token {
 			return true
 		}
-		for _, alias := range cmd.Aliases {
-			if alias == token {
-				return true
-			}
+		if slices.Contains(cmd.Aliases, token) {
+			return true
 		}
 	}
 

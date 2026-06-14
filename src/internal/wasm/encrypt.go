@@ -225,10 +225,7 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	var counter int64
 
 	for offset := 0; offset < len(plaintext); offset += chunkSize {
-		end := offset + chunkSize
-		if end > len(plaintext) {
-			end = len(plaintext)
-		}
+		end := min(offset+chunkSize, len(plaintext))
 
 		chunk := plaintext[offset:end]
 		dst := make([]byte, len(chunk))

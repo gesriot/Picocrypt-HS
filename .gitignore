@@ -28,6 +28,7 @@ src/picocrypt
 src/picocrypt.wasm
 src/picocrypt.wasm.b64
 src/wasm_exec.js
+src/wasm
 
 # Logs
 *.log

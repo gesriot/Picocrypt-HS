@@ -451,7 +451,7 @@ func TestUnpackCancellation(t *testing.T) {
 	}
 
 	w := zip.NewWriter(f)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		fw, err := w.CreateHeader(&zip.FileHeader{
 			Name:   filepath.Join("dir", "file"+string(rune('0'+i))+".txt"),
 			Method: zip.Store,

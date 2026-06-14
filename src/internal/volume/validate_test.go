@@ -19,14 +19,17 @@ func TestEncryptRequestValidate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		req     *EncryptRequest
-		wantErr error
+		name              string
+		req               *EncryptRequest
+		wantSentinel      error  // non-nil => assert errors.Is(err, wantSentinel)
+		wantValidationFld string // non-empty => assert *ValidationError with this Field
+		wantFileNotFound  bool   // true => assert *FileError unwrapping to os.ErrNotExist
+		wantNil           bool   // true => assert err == nil
 	}{
 		{
-			name:    "no input files",
-			req:     &EncryptRequest{},
-			wantErr: errors.ErrNoInputFiles,
+			name:         "no input files",
+			req:          &EncryptRequest{},
+			wantSentinel: errors.ErrNoInputFiles,
 		},
 		{
 			name: "no credentials",
@@ -34,7 +37,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 				InputFile:  testFile,
 				OutputFile: filepath.Join(tmpDir, "out.pcv"),
 			},
-			wantErr: errors.ErrNoCredentials,
+			wantSentinel: errors.ErrNoCredentials,
 		},
 		{
 			name: "no output file",
@@ -42,7 +45,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 				InputFile: testFile,
 				Password:  "test",
 			},
-			wantErr: nil, // Will fail with validation error
+			wantValidationFld: "OutputFile",
 		},
 		{
 			name: "invalid split size",
@@ -53,7 +56,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 				Split:      true,
 				ChunkSize:  0,
 			},
-			wantErr: errors.ErrInvalidChunkSize,
+			wantSentinel: errors.ErrInvalidChunkSize,
 		},
 		{
 			name: "input file not found",
@@ -62,7 +65,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 				OutputFile: filepath.Join(tmpDir, "out.pcv"),
 				Password:   "test",
 			},
-			wantErr: nil, // Will be a FileError
+			wantFileNotFound: true,
 		},
 		{
 			name: "valid request",
@@ -71,16 +74,37 @@ func TestEncryptRequestValidate(t *testing.T) {
 				OutputFile: filepath.Join(tmpDir, "out.pcv"),
 				Password:   "test",
 			},
-			wantErr: nil,
+			wantNil: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.req.Validate()
-			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
-					t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			switch {
+			case tt.wantSentinel != nil:
+				if !errors.Is(err, tt.wantSentinel) {
+					t.Errorf("Validate() error = %v, want %v", err, tt.wantSentinel)
+				}
+			case tt.wantValidationFld != "":
+				var ve *errors.ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("Validate() error = %v, want *ValidationError on field %q", err, tt.wantValidationFld)
+				}
+				if ve.Field != tt.wantValidationFld {
+					t.Errorf("ValidationError.Field = %q, want %q", ve.Field, tt.wantValidationFld)
+				}
+			case tt.wantFileNotFound:
+				var fe *errors.FileError
+				if !errors.As(err, &fe) {
+					t.Fatalf("Validate() error = %v, want *FileError", err)
+				}
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("Validate() error = %v, want it to wrap os.ErrNotExist", err)
+				}
+			case tt.wantNil:
+				if err != nil {
+					t.Errorf("Validate() error = %v, want nil", err)
 				}
 			}
 		})
@@ -211,10 +235,12 @@ func TestDecryptRequestValidateCredentials(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		req              *DecryptRequest
-		keyfilesRequired bool
-		wantErr          error
+		name              string
+		req               *DecryptRequest
+		keyfilesRequired  bool
+		wantSentinel      error  // non-nil => assert errors.Is(err, wantSentinel)
+		wantValidationFld string // non-empty => assert *ValidationError with this Field
+		wantNil           bool   // true => assert err == nil
 	}{
 		{
 			name: "no credentials required",
@@ -223,7 +249,7 @@ func TestDecryptRequestValidateCredentials(t *testing.T) {
 				OutputFile: filepath.Join(tmpDir, "out.txt"),
 			},
 			keyfilesRequired: false,
-			wantErr:          errors.ErrNoCredentials,
+			wantSentinel:     errors.ErrNoCredentials,
 		},
 		{
 			name: "keyfiles required but not provided",
@@ -232,8 +258,8 @@ func TestDecryptRequestValidateCredentials(t *testing.T) {
 				OutputFile: filepath.Join(tmpDir, "out.txt"),
 				Password:   "test",
 			},
-			keyfilesRequired: true,
-			wantErr:          nil, // Will be a validation error
+			keyfilesRequired:  true,
+			wantValidationFld: "Keyfiles",
 		},
 		{
 			name: "password only valid when no keyfiles required",
@@ -243,16 +269,29 @@ func TestDecryptRequestValidateCredentials(t *testing.T) {
 				Password:   "test",
 			},
 			keyfilesRequired: false,
-			wantErr:          nil,
+			wantNil:          true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.req.ValidateCredentials(tt.keyfilesRequired)
-			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
-					t.Errorf("ValidateCredentials() error = %v, wantErr %v", err, tt.wantErr)
+			switch {
+			case tt.wantSentinel != nil:
+				if !errors.Is(err, tt.wantSentinel) {
+					t.Errorf("ValidateCredentials() error = %v, want %v", err, tt.wantSentinel)
+				}
+			case tt.wantValidationFld != "":
+				var ve *errors.ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("ValidateCredentials() error = %v, want *ValidationError on field %q", err, tt.wantValidationFld)
+				}
+				if ve.Field != tt.wantValidationFld {
+					t.Errorf("ValidationError.Field = %q, want %q", ve.Field, tt.wantValidationFld)
+				}
+			case tt.wantNil:
+				if err != nil {
+					t.Errorf("ValidateCredentials() error = %v, want nil", err)
 				}
 			}
 		})

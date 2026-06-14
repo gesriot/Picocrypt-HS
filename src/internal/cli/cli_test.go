@@ -543,46 +543,89 @@ func TestSplitVolumeDetection(t *testing.T) {
 	})
 }
 
+// TestOutputAutoGeneration drives the REAL runEncrypt/runDecrypt auto-generation
+// branches (encOutput=="" / decOutput==""), rather than recomputing the rule
+// inline. The decrypt half is the mutation-catcher: it pins that the auto output
+// is the input with ".pcv" stripped (decrypt.go:205); dropping the TrimSuffix
+// would write the plaintext over the .pcv path and turn this red.
 func TestOutputAutoGeneration(t *testing.T) {
-	t.Run("encrypt auto-generates output", func(t *testing.T) {
+	t.Run("encrypt auto-generates output as input+.pcv", func(t *testing.T) {
+		resetEncryptFlagsForDirTest()
+		t.Cleanup(resetEncryptFlagsForDirTest)
+
 		tmpDir := t.TempDir()
-		inputFile := filepath.Join(tmpDir, "test.txt")
-		if err := os.WriteFile(inputFile, []byte("test"), 0644); err != nil {
+		inputFile := filepath.Join(tmpDir, "secret.txt")
+		if err := os.WriteFile(inputFile, []byte("plaintext"), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		// We can't easily test the full flow without actually encrypting,
-		// but we can verify the logic by checking what output would be generated
 		encInput = []string{inputFile}
-		encOutput = ""
+		encOutput = "" // force auto-generation through runEncrypt
+		encPassword = "pw"
+		encQuiet = true
+		encYes = true
 
-		// The auto-generation happens inside runEncrypt, so we just verify the logic
-		outputFile := encOutput
-		if outputFile == "" {
-			if len(encInput) == 1 {
-				outputFile = encInput[0] + ".pcv"
-			} else {
-				outputFile = "encrypted.pcv"
-			}
+		if err := encryptCmd.RunE(encryptCmd, []string{}); err != nil {
+			t.Fatalf("runEncrypt: %v", err)
 		}
 
-		expected := inputFile + ".pcv"
-		if outputFile != expected {
-			t.Errorf("expected %q, got %q", expected, outputFile)
+		wantOut := inputFile + ".pcv"
+		info, err := os.Stat(wantOut)
+		if err != nil {
+			t.Fatalf("expected auto-generated output %q to exist: %v", wantOut, err)
+		}
+		if info.Size() == 0 {
+			t.Fatalf("auto-generated output %q is empty", wantOut)
 		}
 	})
 
-	t.Run("decrypt auto-generates output", func(t *testing.T) {
-		input := "/path/to/file.pcv"
-		expected := "/path/to/file"
+	t.Run("decrypt auto-generates output as input minus .pcv", func(t *testing.T) {
+		resetDecryptFlagsForDirTest()
+		t.Cleanup(resetDecryptFlagsForDirTest)
 
-		output := strings.TrimSuffix(input, ".pcv")
-		if output != expected {
-			t.Errorf("expected %q, got %q", expected, output)
+		goldenPath := filepath.Join("..", "..", "testdata", "golden", "pico_test_v2.txt.pcv")
+		if _, err := os.Stat(goldenPath); err != nil {
+			t.Fatalf("golden volume missing: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		volPath := filepath.Join(tmpDir, "vol.txt.pcv")
+		copyCLITestFile(t, goldenPath, volPath)
+
+		decInput = volPath
+		decOutput = "" // force auto-generation through runDecrypt
+		decPassword = "test"
+		decQuiet = true
+		decYes = true
+
+		if err := decryptCmd.RunE(decryptCmd, []string{}); err != nil {
+			t.Fatalf("runDecrypt: %v", err)
+		}
+
+		wantOut := strings.TrimSuffix(volPath, ".pcv") // vol.txt
+		if wantOut == volPath {
+			t.Fatalf("test setup error: input %q has no .pcv suffix", volPath)
+		}
+		got, err := os.ReadFile(wantOut)
+		if err != nil {
+			t.Fatalf("expected auto-generated output %q to exist: %v", wantOut, err)
+		}
+		const wantPlaintext = "There is a test file for Picocrypt validation.\n"
+		if string(got) != wantPlaintext {
+			t.Fatalf("decrypted %q = %q, want %q", wantOut, got, wantPlaintext)
+		}
+		// Under the mutation (outputFile = decInput, no .pcv stripping) the
+		// plaintext would be written over the .pcv path, not vol.txt.
+		if _, err := os.Stat(volPath); err != nil {
+			t.Fatalf("input volume %q unexpectedly gone: %v", volPath, err)
 		}
 	})
 }
 
+// TestGlobExpansion drives runEncrypt's real glob-expansion path (encrypt.go:203)
+// rather than re-testing filepath.Glob. A non-matching pattern must surface the
+// specific "input file not found" guard (encrypt.go:207-209); a matching pattern
+// must flow through the expansion loop and succeed.
 func TestGlobExpansion(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -593,25 +636,48 @@ func TestGlobExpansion(t *testing.T) {
 		}
 	}
 
-	t.Run("glob matches files", func(t *testing.T) {
-		pattern := filepath.Join(tmpDir, "*.txt")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			t.Fatal(err)
+	t.Run("non-matching pattern reports input file not found", func(t *testing.T) {
+		resetEncryptFlagsForDirTest()
+		t.Cleanup(resetEncryptFlagsForDirTest)
+
+		encInput = []string{filepath.Join(tmpDir, "*.xyz")}
+		encOutput = filepath.Join(tmpDir, "out.pcv")
+		encPassword = "pw"
+		encQuiet = true
+		encYes = true
+
+		err := encryptCmd.RunE(encryptCmd, []string{})
+		if err == nil {
+			t.Fatal("expected error for non-matching glob pattern")
 		}
-		if len(matches) != 2 {
-			t.Errorf("expected 2 matches, got %d", len(matches))
+		// The specific guard message is load-bearing: deleting the len==0 guard
+		// lets execution fall through to "no files found to encrypt", so a bare
+		// err!=nil check would not catch the mutation.
+		if !strings.Contains(err.Error(), "input file not found") {
+			t.Fatalf("expected %q in error, got: %v", "input file not found", err)
 		}
 	})
 
-	t.Run("glob no matches", func(t *testing.T) {
-		pattern := filepath.Join(tmpDir, "*.xyz")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			t.Fatal(err)
+	t.Run("matching pattern is expanded and encrypted", func(t *testing.T) {
+		resetEncryptFlagsForDirTest()
+		t.Cleanup(resetEncryptFlagsForDirTest)
+
+		outPath := filepath.Join(tmpDir, "matched.pcv")
+		encInput = []string{filepath.Join(tmpDir, "*.txt")} // matches a.txt, b.txt
+		encOutput = outPath
+		encPassword = "pw"
+		encQuiet = true
+		encYes = true
+
+		if err := encryptCmd.RunE(encryptCmd, []string{}); err != nil {
+			t.Fatalf("runEncrypt with matching glob: %v", err)
 		}
-		if len(matches) != 0 {
-			t.Errorf("expected 0 matches, got %d", len(matches))
+		info, err := os.Stat(outPath)
+		if err != nil {
+			t.Fatalf("expected encrypted output %q to exist: %v", outPath, err)
+		}
+		if info.Size() == 0 {
+			t.Fatalf("encrypted output %q is empty", outPath)
 		}
 	})
 }
@@ -682,17 +748,9 @@ func TestReporterOutput(t *testing.T) {
 	})
 }
 
-func TestVersionFlag(t *testing.T) {
-	// Test that version is set correctly
-	Version = "v1.0.0"
-	if rootCmd.Version != "v1.0.0" {
-		// Version is set by Execute(), so we need to call the setter
-		rootCmd.Version = Version
-	}
-	if rootCmd.Version != "v1.0.0" {
-		t.Errorf("expected version v1.0.0, got %s", rootCmd.Version)
-	}
-}
+// Version wiring is covered behaviorally by TestVersionFlagOutputsV213 (version_test.go),
+// which drives the real Execute()/rootCmd and asserts the version reaches CLI output;
+// a tautological "set rootCmd.Version then assert it" test was removed here.
 
 func TestDetectCLIMode(t *testing.T) {
 	testCases := []struct {

@@ -543,7 +543,7 @@ func encodeWithRS(data []byte, rs *encoding.RSCodecs) ([]byte, error) {
 	// Partial block (< 1 MiB) - need to handle padding
 	// Encode full 128-byte chunks
 	fullChunks := len(data) / encoding.RS128DataSize
-	for i := 0; i < fullChunks; i++ {
+	for i := range fullChunks {
 		if err := encodeChunk(data[i*encoding.RS128DataSize : (i+1)*encoding.RS128DataSize]); err != nil {
 			return nil, err
 		}

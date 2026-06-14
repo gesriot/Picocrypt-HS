@@ -71,13 +71,29 @@ func TestSecureZeroMultipleEmpty(t *testing.T) {
 }
 
 func TestSecureZeroHash(t *testing.T) {
-	// SecureZeroHash should not panic on nil
+	// SecureZeroHash should not panic on nil.
 	SecureZeroHash(nil)
 
-	// Test with actual hash (just check it doesn't panic)
-	mac, _ := NewMAC(make([]byte, 32), false)
+	// SecureZeroHash must Reset the hash so partial data does not linger.
+	// Reset is externally observable: a keyed BLAKE2b restores its keyed
+	// initial state, so after Reset the running digest must equal that of a
+	// fresh MAC with the same key and no input written. An empty-bodied
+	// SecureZeroHash (no Reset) would leave "test data" folded into the state
+	// and the two sums would differ.
+	subkey := make([]byte, 32)
+	for i := range subkey {
+		subkey[i] = byte(i)
+	}
+
+	mac, _ := NewMAC(subkey, false)
 	mac.Write([]byte("test data"))
 	SecureZeroHash(mac)
+
+	fresh, _ := NewMAC(subkey, false)
+	if !bytes.Equal(mac.Sum(nil), fresh.Sum(nil)) {
+		t.Errorf("SecureZeroHash did not reset MAC state: got %x, want %x (empty-input state)",
+			mac.Sum(nil), fresh.Sum(nil))
+	}
 }
 
 func TestKeyMaterial(t *testing.T) {
@@ -253,7 +269,7 @@ func TestSecureZeroConcurrent(t *testing.T) {
 
 	// Zero all buffers concurrently
 	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(idx int) {
 			SecureZero(buffers[idx])
 			done <- true
@@ -261,7 +277,7 @@ func TestSecureZeroConcurrent(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -303,14 +319,14 @@ func TestSecureZeroMultipleConcurrent(t *testing.T) {
 	}
 
 	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(idx int) {
 			SecureZeroMultiple(sets[idx].key1, sets[idx].key2, sets[idx].key3)
 			done <- true
 		}(i)
 	}
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -342,14 +358,14 @@ func TestKeyMaterialConcurrentClose(t *testing.T) {
 	internalData := km.Bytes()
 
 	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			km.Close() // Multiple concurrent Close calls should be safe
 			done <- true
 		}()
 	}
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -385,14 +401,14 @@ func TestCryptoContextConcurrentClose(t *testing.T) {
 	headerRef := cc.HeaderSubkey
 
 	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			cc.Close()
 			done <- true
 		}()
 	}
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 

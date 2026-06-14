@@ -19,22 +19,6 @@ func showOverwriteModalForOutput(outputExists, recursively, chosenViaDialog bool
 	return outputExists && !recursively && !chosenViaDialog
 }
 
-type recursiveSettings struct {
-	password       string
-	keyfile        bool
-	keyfiles       []string
-	keyfileOrdered bool
-	keyfileLabel   string
-	comments       string
-	paranoid       bool
-	reedSolomon    bool
-	deniability    bool
-	split          bool
-	splitSize      string
-	splitSelected  int32
-	delete         bool
-}
-
 // onClickStart handles the Start button click.
 func (a *App) onClickStart() {
 	a.cancelOpenedPathReadiness()
@@ -128,22 +112,9 @@ func (a *App) startRecursiveWork() {
 		return
 	}
 
-	// Store all settings before they get cleared by onDrop/resetUI
-	saved := recursiveSettings{
-		password:       a.State.Password,
-		keyfile:        a.State.Keyfile,
-		keyfiles:       append([]string(nil), a.State.Keyfiles...),
-		keyfileOrdered: a.State.KeyfileOrdered,
-		keyfileLabel:   a.State.KeyfileLabel,
-		comments:       a.State.Comments,
-		paranoid:       a.State.Paranoid,
-		reedSolomon:    a.State.ReedSolomon,
-		deniability:    a.State.Deniability,
-		split:          a.State.Split,
-		splitSize:      a.State.SplitSize,
-		splitSelected:  a.State.SplitSelected,
-		delete:         a.State.Delete,
-	}
+	// Capture all settings under one RLock before they get cleared by
+	// onDrop/resetUI, then re-apply them per file via the locked accessor (APP-02).
+	saved := a.State.RecursiveSnapshot()
 
 	files := make([]string, len(a.State.AllFiles))
 	copy(files, a.State.AllFiles)
@@ -209,31 +180,54 @@ func (a *App) startRecursiveWork() {
 	}()
 }
 
-func (a *App) applyRecursiveSelection(file string, saved recursiveSettings, index, total int) {
+func (a *App) applyRecursiveSelection(file string, saved app.RecursiveSnapshot, index, total int) {
 	status := fmt.Sprintf("Processing file %d/%d...", index, total)
 
 	fyne.DoAndWait(func() {
 		a.onDrop([]string{file})
-
-		a.State.Password = saved.password
-		a.State.CPassword = saved.password
-		a.State.Keyfile = saved.keyfile
-		a.State.Keyfiles = append([]string(nil), saved.keyfiles...)
-		a.State.KeyfileOrdered = saved.keyfileOrdered
-		a.State.KeyfileLabel = saved.keyfileLabel
-		a.State.Comments = saved.comments
-		a.State.Paranoid = saved.paranoid
-		a.State.ReedSolomon = saved.reedSolomon
-		if a.State.Mode != "decrypt" {
-			a.State.Deniability = saved.deniability
-		}
-		a.State.Split = saved.split
-		a.State.SplitSize = saved.splitSize
-		a.State.SplitSelected = saved.splitSelected
-		a.State.Delete = saved.delete
+		a.State.ApplyRecursiveSelection(saved)
 		a.State.SetPopupStatus(status)
 		_ = a.boundStatus.Set(status)
 	})
+}
+
+// clearCredentialEntries resets the password, confirm-password, and comments entry
+// widgets to match a cleared State, then refreshes the strength meter and
+// validation. It touches Fyne widgets, so a worker goroutine must invoke it on the
+// UI goroutine (wrap in fyne.Do).
+func (a *App) clearCredentialEntries() {
+	if a.passwordEntry != nil {
+		a.passwordEntry.SetText("")
+	}
+	if a.cPasswordEntry != nil {
+		a.cPasswordEntry.SetText("")
+	}
+	if a.commentsEntry != nil {
+		a.commentsEntry.SetText("")
+	}
+	a.updatePasswordStrength()
+	a.updateValidation()
+}
+
+// splitUnitFromIndex maps a GUI split-unit dropdown index (State.SplitSelected,
+// aligned with State.SplitUnits) to the fileops.SplitUnit the encrypt request
+// uses. An unknown index falls back to SplitUnitKiB (the prior switch's
+// zero-value default), keeping behavior byte-identical to the inlined switch.
+func splitUnitFromIndex(index int32) fileops.SplitUnit {
+	switch index {
+	case 0:
+		return fileops.SplitUnitKiB
+	case 1:
+		return fileops.SplitUnitMiB
+	case 2:
+		return fileops.SplitUnitGiB
+	case 3:
+		return fileops.SplitUnitTiB
+	case 4:
+		return fileops.SplitUnitTotal
+	default:
+		return fileops.SplitUnitKiB
+	}
 }
 
 // doEncrypt performs encryption using the volume package.
@@ -242,19 +236,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	// single RLock instead of ~15 bare cross-goroutine field reads.
 	snap := a.State.Snapshot()
 
-	var chunkUnit fileops.SplitUnit
-	switch snap.SplitSelected {
-	case 0:
-		chunkUnit = fileops.SplitUnitKiB
-	case 1:
-		chunkUnit = fileops.SplitUnitMiB
-	case 2:
-		chunkUnit = fileops.SplitUnitGiB
-	case 3:
-		chunkUnit = fileops.SplitUnitTiB
-	case 4:
-		chunkUnit = fileops.SplitUnitTotal
-	}
+	chunkUnit := splitUnitFromIndex(snap.SplitSelected)
 
 	chunkSize := 1
 	if snap.SplitSize != "" {
@@ -305,19 +287,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	a.State.SetStatus("Completed", util.GREEN)
 
 	// Clear UI widgets to match the reset state
-	fyne.Do(func() {
-		if a.passwordEntry != nil {
-			a.passwordEntry.SetText("")
-		}
-		if a.cPasswordEntry != nil {
-			a.cPasswordEntry.SetText("")
-		}
-		if a.commentsEntry != nil {
-			a.commentsEntry.SetText("")
-		}
-		a.updatePasswordStrength()
-		a.updateValidation()
-	})
+	fyne.Do(a.clearCredentialEntries)
 
 	if shouldDelete {
 		var deleteErrors []string
@@ -383,19 +353,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	a.State.ResetUI()
 
 	// Clear UI widgets to match the reset state
-	fyne.Do(func() {
-		if a.passwordEntry != nil {
-			a.passwordEntry.SetText("")
-		}
-		if a.cPasswordEntry != nil {
-			a.cPasswordEntry.SetText("")
-		}
-		if a.commentsEntry != nil {
-			a.commentsEntry.SetText("")
-		}
-		a.updatePasswordStrength()
-		a.updateValidation()
-	})
+	fyne.Do(a.clearCredentialEntries)
 
 	if kept {
 		a.State.SetKept(true)

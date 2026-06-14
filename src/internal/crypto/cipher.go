@@ -93,7 +93,7 @@ func (cs *CipherSuite) Decrypt(dst, src []byte) {
 //  2. serpentIV (16 bytes) - for Serpent-CTR
 func (cs *CipherSuite) Rekey() error {
 	// Read new nonce for XChaCha20
-	nonce := make([]byte, 24)
+	nonce := make([]byte, RekeyNonceSize)
 	if _, err := io.ReadFull(cs.hkdf, nonce); err != nil {
 		return errors.New("fatal hkdf.Read error during rekey (nonce)")
 	}
@@ -106,7 +106,7 @@ func (cs *CipherSuite) Rekey() error {
 
 	// Read new IV for Serpent (if paranoid)
 	if cs.paranoid {
-		serpentIV := make([]byte, 16)
+		serpentIV := make([]byte, RekeyIVSize)
 		if _, err := io.ReadFull(cs.hkdf, serpentIV); err != nil {
 			return errors.New("fatal hkdf.Read error during rekey (serpent IV)")
 		}

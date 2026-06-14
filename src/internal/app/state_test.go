@@ -2,6 +2,8 @@ package app
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +11,32 @@ import (
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/util"
 )
+
+// repoRoot walks up from the test working directory to the repository root —
+// the first ancestor that contains both the VERSION file and .github/workflows.
+// Mirrors the established pattern in internal/distmeta and internal/workflowpolicy
+// (no repoRoot exists in package app). Used by TestStateVersion to tie the
+// app.Version const to the canonical VERSION file.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	current := wd
+	for {
+		_, verErr := os.Stat(filepath.Join(current, "VERSION"))
+		_, wfErr := os.Stat(filepath.Join(current, ".github", "workflows"))
+		if verErr == nil && wfErr == nil {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			t.Fatal("could not find repository root (dir with VERSION and .github/workflows) from test working directory")
+		}
+		current = parent
+	}
+}
 
 // mustNewState builds a *State for tests, failing the test if RS-codec
 // initialization returns an error. Centralizes the (*State, error) call so the
@@ -465,10 +493,8 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 	// Worker goroutine: build a request snapshot under one RLock, then write
 	// status/result through the locked setters — exactly the operations.go
 	// doEncrypt/doDecrypt hot-path access pattern.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			snap := state.Snapshot()
 			// Touch the snapshot fields so the race detector sees the reads.
 			_ = snap.Mode
@@ -486,14 +512,12 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 			state.SetStatus("working", util.WHITE)
 			state.SetKept(i%2 == 0)
 		}
-	}()
+	})
 
 	// Render-thread callback goroutine: drives the locked setters the drop /
 	// operations callbacks use to mutate shared fields concurrently.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			state.SetMode("encrypt")
 			state.SetWorking(i%2 == 0)
 			state.SetInputFile("in.txt")
@@ -502,13 +526,11 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 			state.SetDeniability(i%2 == 0)
 			state.SetKeep(i%2 == 1)
 		}
-	}()
+	})
 
 	// Render-thread reader goroutine: hits the locked getters concurrently.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for range iterations {
 			_ = state.IsEncrypting()
 			_ = state.IsDecrypting()
 			_ = state.IsWorking()
@@ -520,7 +542,7 @@ func TestStateWorkerCallbackConcurrency(t *testing.T) {
 			_ = rsnap.Keep
 			_ = state.WasKept()
 		}
-	}()
+	})
 
 	wg.Wait()
 
@@ -543,7 +565,7 @@ func TestStateConcurrency(t *testing.T) {
 
 	// Concurrent reads
 	wg.Add(iterations)
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		go func() {
 			defer wg.Done()
 			_ = state.IsEncrypting()
@@ -555,7 +577,7 @@ func TestStateConcurrency(t *testing.T) {
 
 	// Concurrent writes
 	wg.Add(iterations)
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		go func(i int) {
 			defer wg.Done()
 			state.SetStatus("Test", util.WHITE)
@@ -571,15 +593,51 @@ func TestStateConcurrency(t *testing.T) {
 	t.Log("Concurrent access completed without deadlock")
 }
 
+// TestPasswordInputModeConstants verifies the named PasswordInputMode constants
+// are wired correctly into their consumers, rather than asserting the trivial
+// iota distinctness (0 != 1). It pins two bindings: NewState initializes
+// PasswordMode to PasswordModeHidden, and IsPasswordHidden tracks the named
+// constant at each value. This catches a consumer that hard-codes a literal or
+// returns a constant answer.
+//
+// Residual overlap with TestIsPasswordHidden is minimal and intentional: that
+// test exercises IsPasswordHidden in isolation, while this one ties the named
+// constants to both the constructor default and the predicate together — the
+// binding the original tautology failed to assert.
 func TestPasswordInputModeConstants(t *testing.T) {
-	// Verify constants are distinct
-	if PasswordModeHidden == PasswordModeVisible {
-		t.Error("PasswordModeHidden should not equal PasswordModeVisible")
+	state := mustNewState(t)
+
+	// Constructor default is bound to the named constant, not a bare literal.
+	if state.PasswordMode != PasswordModeHidden {
+		t.Errorf("NewState PasswordMode = %d; want PasswordModeHidden (%d)", state.PasswordMode, PasswordModeHidden)
+	}
+	if !state.IsPasswordHidden() {
+		t.Error("IsPasswordHidden() = false at PasswordModeHidden; want true")
+	}
+
+	// One toggle flips to the visible constant; the predicate must follow it.
+	state.TogglePasswordVisibility()
+	if state.PasswordMode != PasswordModeVisible {
+		t.Errorf("after toggle PasswordMode = %d; want PasswordModeVisible (%d)", state.PasswordMode, PasswordModeVisible)
+	}
+	if state.IsPasswordHidden() {
+		t.Error("IsPasswordHidden() = true at PasswordModeVisible; want false")
 	}
 }
 
+// TestStateVersion is a desync tripwire, not a tautology: it asserts the
+// app.Version const stays in lockstep with the canonical root VERSION file
+// (app.Version must be "v" + <VERSION>). A version bump that edits VERSION but
+// forgets state.go (or vice versa) fails here. This is non-duplicative of
+// distmeta's TestActiveReleaseMetadataVersions, which validates VERSION against
+// distribution metadata but never references app.Version.
 func TestStateVersion(t *testing.T) {
-	if Version != "v2.13" {
-		t.Fatalf("Version = %q; want %q", Version, "v2.13")
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "VERSION"))
+	if err != nil {
+		t.Fatalf("read VERSION: %v", err)
+	}
+	want := "v" + strings.TrimSpace(string(raw))
+	if Version != want {
+		t.Fatalf("app.Version = %q; want %q (derived from root VERSION file)", Version, want)
 	}
 }

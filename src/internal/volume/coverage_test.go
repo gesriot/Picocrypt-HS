@@ -10,8 +10,26 @@ import (
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
+	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/header"
 )
+
+// assertCancelled fails unless err is a cancellation error (reporter-driven
+// ErrCancelled or context.Canceled, through any %w wrapping) and the final output
+// file was never produced. Encodes the cancellation contract: an aborted operation
+// must surface a cancellation error and leave no partial volume behind.
+func assertCancelled(t *testing.T, op string, err error, outputPath string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("%s must fail when cancelled, not complete", op)
+	}
+	if !errors.Is(err, perrors.ErrCancelled) && !errors.Is(err, context.Canceled) {
+		t.Fatalf("%s cancellation error = %v; want errors.Is(ErrCancelled) or errors.Is(context.Canceled)", op, err)
+	}
+	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
+		t.Errorf("cancelled %s left an output file at %s (stat err = %v)", op, outputPath, statErr)
+	}
+}
 
 // =============================================================================
 // Tests for VerifyFirst mode (decryptVerifyMACFirst)
@@ -355,64 +373,73 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	plaintext := []byte("VerifyFirst + ForceDecrypt test data.")
+	plaintext := bytes.Repeat([]byte("VerifyFirst + ForceDecrypt payload. "), 32)
 	inputPath := filepath.Join(tmpDir, "verify_force.txt")
 	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
+		t.Fatalf("write input: %v", err)
 	}
-
 	encryptedPath := filepath.Join(tmpDir, "verify_force.txt.pcv")
-	decryptedPath := filepath.Join(tmpDir, "verify_force_dec.txt")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt
-	encReq := &EncryptRequest{
+	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
 		Password:   "verify_force_password",
-		Reporter:   reporter,
+		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
+	}); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
-	// Corrupt the payload
+	// Corrupt one ciphertext byte so the MAC fails.
 	data, err := os.ReadFile(encryptedPath)
 	if err != nil {
-		t.Fatalf("Failed to read encrypted file: %v", err)
+		t.Fatalf("read encrypted: %v", err)
 	}
-
 	corruptOffset := header.BaseHeaderSize + 10
-	if corruptOffset < len(data) {
-		data[corruptOffset] ^= 0xFF
+	if corruptOffset >= len(data)-64 {
+		t.Fatalf("encrypted file too small (%d bytes)", len(data))
 	}
-
+	data[corruptOffset] ^= 0xFF
 	if err := os.WriteFile(encryptedPath, data, 0644); err != nil {
-		t.Fatalf("Failed to write corrupted file: %v", err)
+		t.Fatalf("write corrupted: %v", err)
 	}
 
-	// Decrypt with VerifyFirst + ForceDecrypt - should continue despite MAC failure
+	// VerifyFirst WITHOUT ForceDecrypt: the pre-decryption MAC pass must reject and
+	// leave no output.
+	rejectedPath := filepath.Join(tmpDir, "verify_rejected.txt")
+	if err := Decrypt(context.Background(), &DecryptRequest{
+		InputFile:   encryptedPath,
+		OutputFile:  rejectedPath,
+		Password:    "verify_force_password",
+		VerifyFirst: true,
+		Reporter:    &GoldenTestReporter{},
+		RSCodecs:    rsCodecs,
+	}); err == nil {
+		t.Fatal("VerifyFirst decrypt of corrupted data must fail without ForceDecrypt")
+	}
+	if _, statErr := os.Stat(rejectedPath); !os.IsNotExist(statErr) {
+		t.Error("rejected VerifyFirst decrypt must not leave an output file")
+	}
+
+	// VerifyFirst WITH ForceDecrypt: forces through the MAC failure and keeps output.
 	var kept bool
-	decReq := &DecryptRequest{
+	keptPath := filepath.Join(tmpDir, "verify_force_dec.txt")
+	if err := Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
+		OutputFile:   keptPath,
 		Password:     "verify_force_password",
 		VerifyFirst:  true,
-		ForceDecrypt: true, // Force through MAC failure
+		ForceDecrypt: true,
 		Kept:         &kept,
-		Reporter:     reporter,
+		Reporter:     &GoldenTestReporter{},
 		RSCodecs:     rsCodecs,
+	}); err != nil {
+		t.Fatalf("VerifyFirst + ForceDecrypt must force through, got: %v", err)
 	}
-
-	err = Decrypt(context.Background(), decReq)
-	// ForceDecrypt may succeed or fail depending on corruption severity
-	if err != nil {
-		t.Logf("VerifyFirst + ForceDecrypt error (may be expected): %v", err)
-	} else {
-		t.Log("VerifyFirst + ForceDecrypt succeeded (forced through MAC failure)")
+	if !kept {
+		t.Error("VerifyFirst + ForceDecrypt over a MAC failure must set kept=true")
+	}
+	if _, statErr := os.Stat(keptPath); statErr != nil {
+		t.Errorf("VerifyFirst + ForceDecrypt must produce an output file: %v", statErr)
 	}
 }
 
@@ -578,8 +605,9 @@ func TestDecryptCancellation(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create a larger test file to have time for cancellation
-	plaintext := make([]byte, 100*1024) // 100 KiB
+	// Multi-chunk plaintext (>1 MiB): the reporter cancels after the first progress
+	// tick, so a single-chunk file would finish before the next IsCancelled check.
+	plaintext := make([]byte, 3*1024*1024)
 	for i := range plaintext {
 		plaintext[i] = byte(i % 256)
 	}
@@ -591,40 +619,27 @@ func TestDecryptCancellation(t *testing.T) {
 	encryptedPath := filepath.Join(tmpDir, "cancel_test.bin.pcv")
 	decryptedPath := filepath.Join(tmpDir, "cancel_dec.bin")
 
-	// Use a reporter that will signal cancellation
-	reporter := &CancellableReporter{cancelAfter: 1}
-
-	// Encrypt normally
-	encReq := &EncryptRequest{
+	// Encrypt normally.
+	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
 		Password:   "cancel_password",
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
+	}); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
-	// Decrypt with cancellation
-	decReq := &DecryptRequest{
+	// Decrypt while the reporter signals cancellation mid-stream.
+	err = Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
 		Password:     "cancel_password",
 		ForceDecrypt: false,
-		Reporter:     reporter,
+		Reporter:     &CancellableReporter{cancelAfter: 0},
 		RSCodecs:     rsCodecs,
-	}
-
-	err = Decrypt(context.Background(), decReq)
-	if err == nil {
-		t.Log("Decrypt completed before cancellation was triggered")
-	} else if strings.Contains(err.Error(), "cancelled") {
-		t.Log("Decrypt correctly handled cancellation")
-	} else {
-		t.Logf("Decrypt error: %v", err)
-	}
+	})
+	assertCancelled(t, "Decrypt", err, decryptedPath)
 }
 
 // CancellableReporter is a test reporter that triggers cancellation
@@ -909,7 +924,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	}
 	garbage := make([]byte, 200)
 	copy(garbage, full[:200])
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		garbage[i] = 0
 	}
 	garbagePath := filepath.Join(tmpDir, "garbage.pcv")
@@ -1108,8 +1123,8 @@ func TestEncryptCancellation(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create larger test file
-	plaintext := make([]byte, 100*1024) // 100 KiB
+	// Multi-chunk plaintext so the reporter's cancel is observed before completion.
+	plaintext := make([]byte, 3*1024*1024)
 	for i := range plaintext {
 		plaintext[i] = byte(i % 256)
 	}
@@ -1120,25 +1135,14 @@ func TestEncryptCancellation(t *testing.T) {
 
 	encryptedPath := filepath.Join(tmpDir, "cancel_enc_test.bin.pcv")
 
-	// Use reporter that cancels immediately
-	reporter := &CancellableReporter{cancelAfter: 0}
-
-	encReq := &EncryptRequest{
+	err = Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
 		Password:   "cancel_password",
-		Reporter:   reporter,
+		Reporter:   &CancellableReporter{cancelAfter: 0},
 		RSCodecs:   rsCodecs,
-	}
-
-	err = Encrypt(context.Background(), encReq)
-	if err == nil {
-		t.Log("Encrypt completed before cancellation")
-	} else if strings.Contains(err.Error(), "cancelled") {
-		t.Log("Encrypt correctly handled cancellation")
-	} else {
-		t.Logf("Encrypt error: %v", err)
-	}
+	})
+	assertCancelled(t, "Encrypt", err, encryptedPath)
 }
 
 // TestEncryptContextCancellation tests that encryption respects context cancellation.
@@ -1176,13 +1180,7 @@ func TestEncryptContextCancellation(t *testing.T) {
 	}
 
 	err = Encrypt(ctx, encReq)
-	if err == nil {
-		t.Log("Encrypt completed before context cancellation was detected")
-	} else if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "cancelled") {
-		t.Log("Encrypt correctly handled context cancellation")
-	} else {
-		t.Logf("Encrypt error: %v", err)
-	}
+	assertCancelled(t, "Encrypt", err, encryptedPath)
 }
 
 // TestDecryptContextCancellation tests that decryption respects context cancellation.
@@ -1234,13 +1232,7 @@ func TestDecryptContextCancellation(t *testing.T) {
 	}
 
 	err = Decrypt(ctx, decReq)
-	if err == nil {
-		t.Log("Decrypt completed before context cancellation was detected")
-	} else if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "cancelled") {
-		t.Log("Decrypt correctly handled context cancellation")
-	} else {
-		t.Logf("Decrypt error: %v", err)
-	}
+	assertCancelled(t, "Decrypt", err, decryptedPath)
 }
 
 // TestRoundTripLargeFile tests encryption/decryption with a larger file to hit rekey code paths

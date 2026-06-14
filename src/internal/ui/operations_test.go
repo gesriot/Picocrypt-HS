@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"Picocrypt-NG/internal/app"
+	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
@@ -42,72 +44,15 @@ func TestOnClickStartValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("PasswordOnlyValid", func(t *testing.T) {
-		a := createTestApp(t)
-		a.State.Mode = "decrypt"
-		a.State.Password = "secret"
-		a.State.Keyfiles = nil
-
-		// Should have credentials
-		hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
-		if !hasCredentials {
-			t.Error("Password alone should be valid credentials")
-		}
-	})
-
-	t.Run("KeyfilesOnlyValid", func(t *testing.T) {
-		a := createTestApp(t)
-		a.State.Mode = "decrypt"
-		a.State.Password = ""
-		a.State.Keyfiles = []string{"/path/to/keyfile"}
-
-		hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
-		if !hasCredentials {
-			t.Error("Keyfiles alone should be valid credentials")
-		}
-	})
-
 	t.Run("EncryptPasswordMismatch", func(t *testing.T) {
 		a := createTestApp(t)
 		a.State.Mode = "encrypt"
 		a.State.Password = "secret"
 		a.State.CPassword = "different"
 
-		// Validation should fail
-		if a.State.Password == a.State.CPassword {
-			t.Error("Passwords should not match")
-		}
-
 		a.onClickStart()
 		if a.State.Working {
 			t.Error("Should not start encrypt with mismatched passwords")
-		}
-	})
-
-	t.Run("EncryptPasswordMatch", func(t *testing.T) {
-		a := createTestApp(t)
-		a.State.Mode = "encrypt"
-		a.State.Password = "secret"
-		a.State.CPassword = "secret"
-
-		// Validation should pass
-		if a.State.Password != a.State.CPassword {
-			t.Error("Passwords should match")
-		}
-	})
-
-	t.Run("DecryptIgnoresConfirmPassword", func(t *testing.T) {
-		a := createTestApp(t)
-		a.State.Mode = "decrypt"
-		a.State.Password = "secret"
-		a.State.CPassword = "different"
-
-		// Decrypt mode should not care about CPassword
-		hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
-		passwordsMatch := a.State.Mode != "encrypt" || a.State.Password == a.State.CPassword
-
-		if !hasCredentials || !passwordsMatch {
-			t.Error("Decrypt should be valid regardless of CPassword")
 		}
 	})
 }
@@ -162,20 +107,20 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	a.State.Compress = false
 	a.advancedContainer = container.NewVBox()
 
-	saved := recursiveSettings{
-		password:       "secret",
-		keyfile:        true,
-		keyfiles:       []string{"k1", "k2"},
-		keyfileOrdered: true,
-		keyfileLabel:   "Using multiple keyfiles",
-		comments:       "saved comments",
-		paranoid:       true,
-		reedSolomon:    true,
-		deniability:    true,
-		split:          true,
-		splitSize:      "64",
-		splitSelected:  2,
-		delete:         true,
+	saved := app.RecursiveSnapshot{
+		Password:       "secret",
+		Keyfile:        true,
+		Keyfiles:       []string{"k1", "k2"},
+		KeyfileOrdered: true,
+		KeyfileLabel:   "Using multiple keyfiles",
+		Comments:       "saved comments",
+		Paranoid:       true,
+		ReedSolomon:    true,
+		Deniability:    true,
+		Split:          true,
+		SplitSize:      "64",
+		SplitSelected:  2,
+		Delete:         true,
 	}
 
 	done := make(chan struct{})
@@ -195,7 +140,7 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	if a.State.InputFile != inputPath {
 		t.Fatalf("InputFile = %q, want %q", a.State.InputFile, inputPath)
 	}
-	if a.State.Password != saved.password || a.State.CPassword != saved.password {
+	if a.State.Password != saved.Password || a.State.CPassword != saved.Password {
 		t.Fatalf("passwords not restored: %q / %q", a.State.Password, a.State.CPassword)
 	}
 	if got := a.State.PopupStatus; got != "Processing file 1/3..." {
@@ -204,10 +149,10 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	if !a.State.Keyfile || !a.State.KeyfileOrdered || !a.State.Paranoid || !a.State.ReedSolomon || !a.State.Deniability || !a.State.Split || !a.State.Delete {
 		t.Fatal("saved boolean options were not restored")
 	}
-	if a.State.SplitSize != saved.splitSize || a.State.SplitSelected != saved.splitSelected {
+	if a.State.SplitSize != saved.SplitSize || a.State.SplitSelected != saved.SplitSelected {
 		t.Fatal("split settings were not restored")
 	}
-	if a.State.Comments != saved.comments || a.State.KeyfileLabel != saved.keyfileLabel {
+	if a.State.Comments != saved.Comments || a.State.KeyfileLabel != saved.KeyfileLabel {
 		t.Fatal("saved metadata was not restored")
 	}
 }
@@ -259,97 +204,46 @@ func TestCreateReporterCallbacksUpdateStateAndCancelButton(t *testing.T) {
 	}
 }
 
-// TestSplitUnitConversion tests the split unit selection logic in doEncrypt.
+// TestSplitUnitConversion verifies the doEncrypt split-unit index mapping
+// (splitUnitFromIndex) turns each State.SplitSelected value into the correct
+// fileops.SplitUnit constant the encrypt request carries.
 func TestSplitUnitConversion(t *testing.T) {
 	testCases := []struct {
-		selected int
-		expected string
+		name  string
+		index int32
+		want  fileops.SplitUnit
 	}{
-		{0, "KiB"},
-		{1, "MiB"},
-		{2, "GiB"},
-		{3, "TiB"},
-		{4, "Total"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.expected, func(t *testing.T) {
-			// This tests the State.SplitUnits array alignment
-			state := mustNewState(t)
-			if tc.selected < len(state.SplitUnits) {
-				if state.SplitUnits[tc.selected] != tc.expected {
-					t.Errorf("SplitUnits[%d] = %q; want %q",
-						tc.selected, state.SplitUnits[tc.selected], tc.expected)
-				}
-			}
-		})
-	}
-}
-
-// TestSplitSizeValidation tests split size parsing logic.
-func TestSplitSizeValidation(t *testing.T) {
-	testCases := []struct {
-		name     string
-		input    string
-		valid    bool
-		expected int
-	}{
-		{"ValidNumber", "100", true, 100},
-		{"ValidSmall", "1", true, 1},
-		{"ValidLarge", "9999", true, 9999},
-		{"Empty", "", false, 0},
-		{"Zero", "0", false, 0},
-		{"Negative", "-1", false, 0},
-		{"NonNumeric", "abc", false, 0},
-		{"MixedContent", "10a", false, 0},
-		{"Decimal", "10.5", false, 0},
-		{"Whitespace", " 10 ", false, 0},
+		{"KiB", 0, fileops.SplitUnitKiB},
+		{"MiB", 1, fileops.SplitUnitMiB},
+		{"GiB", 2, fileops.SplitUnitGiB},
+		{"TiB", 3, fileops.SplitUnitTiB},
+		{"Total", 4, fileops.SplitUnitTotal},
+		{"OutOfRangeFallsBackToKiB", 99, fileops.SplitUnitKiB},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Parse logic from doEncrypt
-			var n int
-			var valid bool
-			if tc.input != "" {
-				if parsed, err := parseInt(tc.input); err == nil && parsed > 0 {
-					n = parsed
-					valid = true
-				}
-			}
-
-			if valid != tc.valid {
-				t.Errorf("Valid = %v; want %v for input %q", valid, tc.valid, tc.input)
-			}
-			if valid && n != tc.expected {
-				t.Errorf("Parsed = %d; want %d for input %q", n, tc.expected, tc.input)
+			if got := splitUnitFromIndex(tc.index); got != tc.want {
+				t.Errorf("splitUnitFromIndex(%d) = %d; want %d", tc.index, got, tc.want)
 			}
 		})
 	}
 }
 
-// parseInt is a helper to match the strconv.Atoi behavior in doEncrypt.
-func parseInt(s string) (int, error) {
-	var n int
-	_, err := parseIntHelper(s, &n)
-	return n, err
-}
-
-func parseIntHelper(s string, n *int) (bool, error) {
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false, os.ErrInvalid
+// TestSplitUnitsLabelsAlignWithIndices keeps the GUI dropdown labels aligned
+// with the index meanings splitUnitFromIndex encodes: SplitUnits[i] must name
+// the unit splitUnitFromIndex(i) returns.
+func TestSplitUnitsLabelsAlignWithIndices(t *testing.T) {
+	state := mustNewState(t)
+	want := []string{"KiB", "MiB", "GiB", "TiB", "Total"}
+	if len(state.SplitUnits) != len(want) {
+		t.Fatalf("len(SplitUnits) = %d; want %d", len(state.SplitUnits), len(want))
+	}
+	for i, w := range want {
+		if state.SplitUnits[i] != w {
+			t.Errorf("SplitUnits[%d] = %q; want %q", i, state.SplitUnits[i], w)
 		}
 	}
-	if len(s) == 0 {
-		return false, os.ErrInvalid
-	}
-	var result int
-	for _, c := range s {
-		result = result*10 + int(c-'0')
-	}
-	*n = result
-	return true, nil
 }
 
 // TestOperationStatusColors tests that status colors are set correctly.
@@ -391,79 +285,6 @@ func TestOperationStatusColors(t *testing.T) {
 	})
 }
 
-// TestRecursiveModeSettings tests recursive mode state preservation.
-func TestRecursiveModeSettings(t *testing.T) {
-	state := mustNewState(t)
-
-	// Set encryption settings
-	state.Password = "secret"
-	state.CPassword = "secret"
-	state.Paranoid = true
-	state.ReedSolomon = true
-	state.Comments = "test comments"
-
-	// Simulate saving settings for recursive mode
-	savedPassword := state.Password
-	savedParanoid := state.Paranoid
-	savedReedSolomon := state.ReedSolomon
-	savedComments := state.Comments
-
-	// Reset and restore (simulating recursive processing)
-	state.ResetUI()
-
-	state.Password = savedPassword
-	state.Paranoid = savedParanoid
-	state.ReedSolomon = savedReedSolomon
-	state.Comments = savedComments
-
-	// Verify settings preserved
-	if state.Password != "secret" {
-		t.Error("Password not preserved")
-	}
-	if !state.Paranoid {
-		t.Error("Paranoid not preserved")
-	}
-	if !state.ReedSolomon {
-		t.Error("ReedSolomon not preserved")
-	}
-	if state.Comments != "test comments" {
-		t.Error("Comments not preserved")
-	}
-}
-
-// TestOutputFileGeneration tests output file path generation.
-func TestOutputFileGeneration(t *testing.T) {
-	t.Run("SingleFileEncrypt", func(t *testing.T) {
-		inputFile := "/home/user/documents/secret.txt"
-		expectedOutput := inputFile + ".pcv"
-
-		if expectedOutput != "/home/user/documents/secret.txt.pcv" {
-			t.Errorf("Output = %q; want '.pcv' suffix", expectedOutput)
-		}
-	})
-
-	t.Run("FolderEncrypt", func(t *testing.T) {
-		// Use a platform-specific absolute path for testing
-		folderPath := filepath.Join(os.TempDir(), "documents", "folder")
-		// Encrypted folder creates a zip with timestamp
-		dir := filepath.Dir(folderPath)
-		baseOutput := filepath.Join(dir, "encrypted-") // + timestamp + ".zip.pcv"
-
-		if !filepath.IsAbs(baseOutput) {
-			t.Errorf("Output path should be absolute, got: %s", baseOutput)
-		}
-	})
-
-	t.Run("DecryptRemovesPcv", func(t *testing.T) {
-		inputFile := "/home/user/documents/secret.txt.pcv"
-		expectedOutput := inputFile[:len(inputFile)-4] // Remove ".pcv"
-
-		if expectedOutput != "/home/user/documents/secret.txt" {
-			t.Errorf("Output = %q; want original name without .pcv", expectedOutput)
-		}
-	})
-}
-
 // TestCanStartLogic tests the comprehensive start validation.
 func TestCanStartLogic(t *testing.T) {
 	testCases := []struct {
@@ -499,26 +320,6 @@ func TestCanStartLogic(t *testing.T) {
 	}
 }
 
-// TestProgressReporting tests progress callback integration.
-func TestProgressReporting(t *testing.T) {
-	state := mustNewState(t)
-
-	// Simulate progress updates
-	progressValues := []float32{0.0, 0.25, 0.5, 0.75, 1.0}
-	progressInfos := []string{"0%", "25%", "50%", "75%", "100%"}
-
-	for i, val := range progressValues {
-		state.SetProgress(val, progressInfos[i])
-
-		if state.Progress != val {
-			t.Errorf("Progress = %f; want %f", state.Progress, val)
-		}
-		if state.ProgressInfo != progressInfos[i] {
-			t.Errorf("ProgressInfo = %q; want %q", state.ProgressInfo, progressInfos[i])
-		}
-	}
-}
-
 // TestCancelButtonState tests cancel button enable/disable logic.
 // TestWorkerCallbackStateRace exercises the APP-02 worker↔render boundary at the
 // *App level: one goroutine plays the encrypt/decrypt worker using the exact
@@ -547,10 +348,8 @@ func TestWorkerCallbackStateRace(t *testing.T) {
 
 	// Worker goroutine: snapshot the request fields, then write status/result
 	// via the locked setters — the operations.go doEncrypt/doDecrypt hot path.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			snap := a.State.Snapshot()
 			_ = snap.Mode
 			_ = snap.InputFile
@@ -563,13 +362,11 @@ func TestWorkerCallbackStateRace(t *testing.T) {
 			a.State.SetStatus("working", util.WHITE)
 			a.State.SetKept(i%2 == 0)
 		}
-	}()
+	})
 
 	// Render-thread writer goroutine: the drop/operations fyne.Do callbacks.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			a.State.SetMode("encrypt")
 			a.State.SetWorking(i%2 == 0)
 			a.State.SetInputFile("in.txt")
@@ -578,20 +375,18 @@ func TestWorkerCallbackStateRace(t *testing.T) {
 			a.State.SetDeniability(i%2 == 0)
 			a.State.SetKeep(i%2 == 1)
 		}
-	}()
+	})
 
 	// Render-thread reader goroutine: the guards/labels that read shared fields.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for range iterations {
 			_ = a.State.IsEncrypting()
 			_ = a.State.IsDecrypting()
 			_ = a.State.IsWorking()
 			_ = a.State.WasKept()
 			_ = a.State.Snapshot()
 		}
-	}()
+	})
 
 	wg.Wait()
 }
@@ -606,24 +401,20 @@ func TestUpdateUIStateReadsStateThroughSnapshot(t *testing.T) {
 	const iterations = 500
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for i := range iterations {
 			a.State.ResetUI()
 			a.State.SetStatus("working", util.WHITE)
 			a.State.SetScanning(i%2 == 0)
 			a.State.SetWorking(i%2 == 1)
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		for range iterations {
 			a.updateUIState()
 		}
-	}()
+	})
 
 	wg.Wait()
 }

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"Picocrypt-NG/internal/diskspace"
 )
 
 func TestChooseTempDir_SystemDefault(t *testing.T) {
@@ -52,7 +54,18 @@ func TestChooseTempDir_OverrideNotWritable(t *testing.T) {
 func TestChooseTempDir_WithOutputPath(t *testing.T) {
 	TempDirOverride = ""
 
-	// Use a real path for output
+	// Force system temp to be unwritable so the known-size candidate order
+	// (system temp first, then output dir) must fall through to the output dir.
+	missingTemp := filepath.Join(t.TempDir(), "missing-temp")
+	switch runtime.GOOS {
+	case "windows":
+		t.Setenv("TMP", missingTemp)
+		t.Setenv("TEMP", missingTemp)
+	default:
+		t.Setenv("TMPDIR", missingTemp)
+	}
+
+	// Use a real, writable path for output.
 	tmpDir := t.TempDir()
 	outputPath := filepath.Join(tmpDir, "output.pcv")
 
@@ -60,8 +73,9 @@ func TestChooseTempDir_WithOutputPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ChooseTempDir() error = %v", err)
 	}
-	if dir == "" {
-		t.Error("expected non-empty temp dir")
+	// With system temp unwritable, the output directory must be chosen.
+	if want := filepath.Dir(outputPath); dir != want {
+		t.Errorf("ChooseTempDir() = %q, want output dir %q", dir, want)
 	}
 }
 
@@ -133,19 +147,21 @@ func TestIsWritable(t *testing.T) {
 }
 
 func TestRequiredSpace(t *testing.T) {
+	// Exact expectations pin requiredSpace = estimated*sizeMultiplier(1.5) + minBuffer.
+	// One-sided got<want would pass under e.g. a 3.0 multiplier; equality catches it.
 	tests := []struct {
 		estimated int64
-		wantMin   int64
+		want      int64
 	}{
-		{0, minBuffer}, // min buffer
+		{0, minBuffer}, // min buffer only
 		{100 * 1024 * 1024, 150*1024*1024 + minBuffer},   // 100MB -> 150MB + buffer
 		{1024 * 1024 * 1024, 1536*1024*1024 + minBuffer}, // 1GB -> 1.5GB + buffer
 	}
 
 	for _, tt := range tests {
 		got := requiredSpace(tt.estimated)
-		if got < tt.wantMin {
-			t.Errorf("requiredSpace(%d) = %d, want >= %d", tt.estimated, got, tt.wantMin)
+		if got != tt.want {
+			t.Errorf("requiredSpace(%d) = %d, want %d", tt.estimated, got, tt.want)
 		}
 	}
 }
@@ -294,14 +310,26 @@ func TestChooseTempDir_KnownSizePrefersSystemTemp(t *testing.T) {
 	tmpDir := t.TempDir()
 	outputPath := filepath.Join(tmpDir, "output.pcv")
 
+	systemTemp := os.TempDir()
+	// Guard the sandbox case: if system temp is unusable, the contract
+	// (prefer system temp for known-size files) is unreachable, so skip
+	// rather than asserting a value the production code legitimately avoids.
+	if !isWritable(systemTemp) {
+		t.Skipf("system temp %s not writable; cannot assert known-size preference", systemTemp)
+	}
+	if space, err := diskspace.Available(systemTemp); err != nil || space < requiredSpace(1024) {
+		t.Skipf("system temp %s lacks space (have=%d need=%d err=%v); cannot assert known-size preference",
+			systemTemp, space, requiredSpace(1024), err)
+	}
+
 	// Known size (not stdin)
 	dir, err := ChooseTempDir(1024, outputPath)
 	if err != nil {
 		t.Fatalf("ChooseTempDir() error = %v", err)
 	}
 
-	// Should prefer system temp for known-size files
-	if dir != os.TempDir() {
-		t.Logf("Note: known-size mode selected %s instead of system temp %s", dir, os.TempDir())
+	// Known-size mode must prefer system temp (candidates[0]) when it is usable.
+	if dir != systemTemp {
+		t.Errorf("known-size mode should prefer system temp %s, got %s", systemTemp, dir)
 	}
 }

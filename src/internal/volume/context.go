@@ -142,7 +142,6 @@ type OperationContext struct {
 	KeyfileHash  []byte               // SHA3-256(KeyfileKey) for verification
 	SubkeyReader *crypto.SubkeyReader // HKDF stream for deriving MAC/Serpent subkeys
 	CipherSuite  *crypto.CipherSuite  // Initialized cipher suite (XChaCha20 + optional Serpent)
-	Counter      *crypto.Counter      // Tracks bytes for 60 GiB rekey threshold
 
 	// Operation flags
 	IsLegacyV1   bool                    // True if decrypting a v1.x volume (different HKDF timing)
@@ -174,7 +173,6 @@ func NewEncryptContext(ctx context.Context, req *EncryptRequest) *OperationConte
 		Ctx:        ctx,
 		OutputFile: req.OutputFile,
 		Reporter:   req.Reporter,
-		Counter:    crypto.NewCounter(),
 	}
 }
 
@@ -189,7 +187,6 @@ func NewDecryptContext(ctx context.Context, req *DecryptRequest) *OperationConte
 		InputFile:  req.InputFile,
 		OutputFile: req.OutputFile,
 		Reporter:   req.Reporter,
-		Counter:    crypto.NewCounter(),
 	}
 }
 

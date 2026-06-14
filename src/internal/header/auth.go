@@ -55,25 +55,6 @@ func ComputeV2HeaderMAC(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte
 	return mac.Sum(nil)
 }
 
-// ComputeV2HeaderMACRaw computes the HMAC-SHA3-512 using raw header field bytes.
-// This is used during decryption where we need to use the exact decoded bytes.
-func ComputeV2HeaderMACRaw(subkeyHeader []byte, raw *RawHeaderFields, h *VolumeHeader, keyfileHash []byte) []byte {
-	mac := hmac.New(newSHA3512, subkeyHeader)
-
-	// Write all header fields in exact order using raw bytes where available
-	mac.Write(raw.Version)
-	_, _ = fmt.Fprintf(mac, "%05d", raw.CommentsLen)
-	mac.Write(raw.Comments)
-	mac.Write(raw.Flags)
-	mac.Write(h.Salt)
-	mac.Write(h.HKDFSalt)
-	mac.Write(h.SerpentIV)
-	mac.Write(h.Nonce)
-	mac.Write(keyfileHash)
-
-	return mac.Sum(nil)
-}
-
 func newSHA3512() hash.Hash {
 	return sha3.New512()
 }
@@ -89,17 +70,6 @@ func ComputeV1KeyHash(key []byte) []byte {
 // Returns true if the computed MAC matches the stored keyHash.
 func VerifyV2Header(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte) *AuthResult {
 	computed := ComputeV2HeaderMAC(subkeyHeader, h, keyfileHash)
-	valid := subtle.ConstantTimeCompare(computed, h.KeyHash) == 1
-
-	return &AuthResult{
-		Valid:           valid,
-		KeyHashComputed: computed,
-	}
-}
-
-// VerifyV2HeaderRaw verifies a v2 volume header using raw decoded bytes.
-func VerifyV2HeaderRaw(subkeyHeader []byte, raw *RawHeaderFields, h *VolumeHeader, keyfileHash []byte) *AuthResult {
-	computed := ComputeV2HeaderMACRaw(subkeyHeader, raw, h, keyfileHash)
 	valid := subtle.ConstantTimeCompare(computed, h.KeyHash) == 1
 
 	return &AuthResult{
