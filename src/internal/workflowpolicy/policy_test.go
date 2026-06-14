@@ -42,6 +42,7 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 		{name: "build-macos", path: ".github/workflows/build-macos.yml", job: "release"},
 		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
 		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
+		{name: "build-appimage", path: ".github/workflows/build-appimage.yml", job: "release"},
 	}
 
 	for _, tc := range testCases {
@@ -79,6 +80,42 @@ func TestBuildPermissionsStayLeastPrivilege(t *testing.T) {
 	mustPermission(t, buildSnapcraft.Permissions, "contents", "read")
 	mustEffectivePermission(t, buildSnapcraft, mustJob(t, buildSnapcraft, "build-snapcraft"), "contents", "read")
 	mustEffectivePermission(t, buildSnapcraft, mustJob(t, buildSnapcraft, "release"), "contents", "write")
+
+	buildAppImage := mustReadWorkflowDoc(t, ".github/workflows/build-appimage.yml")
+	mustPermission(t, buildAppImage.Permissions, "contents", "read")
+	mustEffectivePermission(t, buildAppImage, mustJob(t, buildAppImage, "build"), "contents", "read")
+	mustEffectivePermission(t, buildAppImage, mustJob(t, buildAppImage, "release"), "contents", "write")
+}
+
+func TestAppImageWorkflowIsPortableSmokeTestedAndPinned(t *testing.T) {
+	const path = ".github/workflows/build-appimage.yml"
+	workflow := mustReadWorkflowDoc(t, path)
+	content := mustReadWorkflow(t, path)
+
+	build := mustJob(t, workflow, "build")
+
+	// Portability floor. AppImage was dropped once "for better portability"
+	// (Changelog v1.34); building on the newest runner's glibc reproduces that, so the
+	// build job pins the oldest supported runner (ubuntu-22.04, glibc 2.35).
+	mustContain(t, content, "runs-on: ubuntu-22.04")
+
+	// Supply chain: the AppImage tooling is fetched at build time, so it must be
+	// sha256-pinned AND verified (fail loud), like UPX in build-linux. Asserts that a
+	// pin exists and is checked -- not the exact digest -- so a tool bump does not churn
+	// this test.
+	mustContain(t, content, "linuxdeploy")
+	mustContain(t, content, "appimagetool")
+	mustMatch(t, content, `[0-9a-f]{64}`)
+	mustContain(t, content, "sha256sum")
+	mustContain(t, content, "--check")
+
+	// The produced AppImage must be smoke-tested, or a broken bundle (a shared library
+	// that fails to resolve) ships silently. --version drives the embedded CLI
+	// (cli.Execute), which exits before Fyne/OpenGL init, so it proves every bundled and
+	// host-provided library resolves at process start without needing a display.
+	smoke := mustStepNamed(t, build, "Smoke test AppImage")
+	mustContain(t, smoke.Run, "--version")
+	mustContain(t, smoke.Run, ".AppImage")
 }
 
 func TestMacOSReleaseWorkflowInjectsRootVersionIntoBundleMetadata(t *testing.T) {

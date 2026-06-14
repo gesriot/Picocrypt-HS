@@ -4,6 +4,7 @@
 	<li>✓ <strong>Android: split volumes</strong>: selecting a <code>.pcv.0</code> chunk now tells you to recombine the parts on a computer first, instead of failing with a misleading error or re-encrypting the chunk</li>
 	<li>✓ <strong>Android: verify-first decrypt</strong>: optional integrity check before any output is written (under Decryption Options), independent of force-decrypt</li>
 	<li>✓ <strong>Android: background start</strong>: starting an encrypt or decrypt while the app is in the background no longer crashes; the operation keeps running and progress still updates</li>
+	<li>✓ <strong>Linux: AppImage package</strong>: a portable, unsandboxed single-file build that bundles its GTK/X11 dependencies and uses the host's OpenGL driver, for distros where the .deb or raw binary don't fit</li>
 </ul>
 
 # v2.13
