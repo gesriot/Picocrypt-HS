@@ -108,7 +108,12 @@ object OperationManager {
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             forceDecrypt = false,
             verifyFirst = formData.verifyFirst,
-            autoUnzip = true, // Auto-unzip decrypted files
+            // INTEROP: Go auto-unzip extracts to a subdirectory and DELETES the zip
+            // (decrypt.go:816,847). Android exports a single fixed output path, so an
+            // unzipped output orphans the export -> SaveFailed. Keep OFF until a SAF
+            // tree-export exists; the intact .zip stays exportable. Matches the CLI
+            // --auto-unzip default (decrypt.go:94).
+            autoUnzip = false,
             sameLevel = false,
             recombine = false, // Split volumes are not supported in the Android app
             deniability = formData.decryptionInfo?.deniability ?: false
@@ -305,7 +310,7 @@ object OperationManager {
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             forceDecrypt = true, // Enable force decrypt
             verifyFirst = formData.verifyFirst,
-            autoUnzip = true,
+            autoUnzip = false, // See startDecrypt: off until SAF tree-export exists.
             sameLevel = false,
             recombine = false,
             deniability = formData.decryptionInfo?.deniability ?: false

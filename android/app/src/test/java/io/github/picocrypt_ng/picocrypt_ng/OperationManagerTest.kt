@@ -595,5 +595,81 @@ class OperationManagerTest {
             tmpDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun `startDecrypt does not auto-unzip so zip volumes stay exportable`() = runTest {
+        // INTEROP (core value): a desktop volume made from multiple files / compression
+        // decrypts to a .zip. Go's auto-unzip extracts to a SUBDIRECTORY and DELETES the
+        // zip (decrypt.go:816,847); Android then exports a single fixed output path, so
+        // the export reads a now-missing/directory path -> SaveFailed. Until a SAF
+        // tree-export exists, Android must NOT auto-unzip: the intact .zip stays the one
+        // exportable output (matches the CLI --auto-unzip default of false, decrypt.go:94).
+        // Capture the DecryptOptions handed to the Go bridge and prove autoUnzip is off.
+        val tmpDir = createTempDirectory(prefix = "opmgr_autounzip").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_unzip")
+            val optionsSlot = slot<DecryptOptions>()
+            every {
+                GoBridge.startDecrypt(any(), any(), any(), any(), capture(optionsSlot))
+            } returns Result.success(Unit)
+
+            val result = OperationManager.startDecrypt(
+                mockContext,
+                TestDataBuilders.createDecryptFormData()
+            )
+
+            assertTrue("startDecrypt should succeed", result.isSuccess)
+            assertTrue("DecryptOptions must be captured", optionsSlot.isCaptured)
+            assertFalse(
+                "auto-unzip must be OFF on Android (no SAF tree-export; the zip volume must stay exportable)",
+                optionsSlot.captured.autoUnzip
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `retryDecryptWithForce does not auto-unzip`() = runTest {
+        // Same interop invariant as startDecrypt, on the force-decrypt retry path
+        // (retryDecryptWithForce builds its own DecryptOptions). The slot captures the
+        // last GoBridge.startDecrypt call -- the retry -- which must set forceDecrypt
+        // (proving it is the retry) and keep autoUnzip off.
+        val tmpDir = createTempDirectory(prefix = "opmgr_autounzip_force").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_unzip_force")
+            val optionsSlot = slot<DecryptOptions>()
+            every {
+                GoBridge.startDecrypt(any(), any(), any(), any(), capture(optionsSlot))
+            } returns Result.success(Unit)
+
+            assertTrue(
+                "startDecrypt setup should succeed",
+                OperationManager.startDecrypt(
+                    mockContext,
+                    TestDataBuilders.createDecryptFormData()
+                ).isSuccess
+            )
+            val retry = OperationManager.retryDecryptWithForce()
+
+            assertTrue("retryDecryptWithForce should succeed", retry.isSuccess)
+            assertTrue("DecryptOptions must be captured", optionsSlot.isCaptured)
+            assertTrue("retry path must set forceDecrypt", optionsSlot.captured.forceDecrypt)
+            assertFalse(
+                "auto-unzip must be OFF on the force-retry path too",
+                optionsSlot.captured.autoUnzip
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
 }
 
