@@ -117,6 +117,11 @@ type App struct {
 	confirmLabel *widget.Label
 	confirmRow   *fyne.Container
 
+	// Advisory shown in encrypt mode when the password contains non-ASCII
+	// characters (#19): normalized for cross-platform decryption, but the user
+	// should be able to reproduce the same characters on other devices.
+	nonASCIIHint *widget.Label
+
 	// Password buttons
 	showHideBtn *widget.Button
 	clearPwdBtn *widget.Button

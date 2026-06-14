@@ -3,6 +3,7 @@ package ui
 
 import (
 	"Picocrypt-NG/internal/app"
+	pwnorm "Picocrypt-NG/internal/password"
 
 	"github.com/Picocrypt/zxcvbn-go"
 
@@ -91,10 +92,20 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 	a.confirmLabel = widget.NewLabel("Confirm password:")
 	a.confirmLabel.TextStyle = fyne.TextStyle{Bold: true}
 
+	// Subtle advisory shown only while encrypting with a non-ASCII password (#19).
+	a.nonASCIIHint = widget.NewLabel(
+		"Non-ASCII password: it is normalized so the volume decrypts on any " +
+			"platform, but make sure you can type the same characters on every " +
+			"device where you'll decrypt it.")
+	a.nonASCIIHint.Importance = widget.LowImportance
+	a.nonASCIIHint.Wrapping = fyne.TextWrapWord
+	a.nonASCIIHint.Hide()
+
 	return container.NewVBox(
 		passwordLabel,
 		buttonRow,
 		passwordRow,
+		a.nonASCIIHint,
 		a.confirmLabel,
 		a.confirmRow,
 	)
@@ -107,6 +118,20 @@ func (a *App) updatePasswordStrength() {
 		a.strengthIndicator.SetStrength(a.State.PasswordStrength)
 		a.strengthIndicator.SetVisible(a.State.Password != "")
 		a.strengthIndicator.SetDecryptMode(a.State.Mode == "decrypt")
+	}
+	a.updateNonASCIIHint()
+}
+
+// updateNonASCIIHint shows the non-ASCII advisory only while encrypting with a
+// password that contains non-ASCII characters (#19).
+func (a *App) updateNonASCIIHint() {
+	if a.nonASCIIHint == nil {
+		return
+	}
+	if a.State.Mode != "decrypt" && pwnorm.ContainsNonASCII(a.State.Password) {
+		a.nonASCIIHint.Show()
+	} else {
+		a.nonASCIIHint.Hide()
 	}
 }
 
@@ -197,4 +222,8 @@ func (a *App) updatePasswordUIState(mainDisabled bool, snap app.UISnapshot) {
 			a.confirmRow.Show()
 		}
 	}
+
+	// Re-evaluate the non-ASCII advisory when the mode changes (e.g. it must hide
+	// when switching to decrypt).
+	a.updateNonASCIIHint()
 }

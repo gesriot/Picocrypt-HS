@@ -12,6 +12,7 @@ import (
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
+	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/chacha20"
@@ -101,8 +102,10 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 		return fmt.Errorf("write nonce: %w", err)
 	}
 
-	// Derive key using Argon2 (normal mode parameters)
-	key := deriveDeniabilityKey([]byte(password), salt)
+	// Derive key using Argon2 (normal mode parameters). NFC-normalize the
+	// password so a deniable volume — which has no readable header to fall back
+	// on — is cross-platform-decryptable (#19).
+	key := deriveDeniabilityKey(pwnorm.EncodeForKDF(password), salt)
 	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
@@ -257,8 +260,25 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 		return "", fmt.Errorf("read nonce: %w", err)
 	}
 
-	// Derive key using Argon2 (normal mode parameters)
-	key := deriveDeniabilityKey([]byte(password), salt)
+	// The deniable wrapper carries no MAC; the correct key is the one whose
+	// keystream decodes a valid inner volume version. Probe the first encoded
+	// version field with each password normalization form (NFC/NFD/raw) and keep
+	// the first that matches, then decrypt the whole volume with that key (#19).
+	probe := make([]byte, header.VersionEncSize)
+	if _, err := io.ReadFull(fin, probe); err != nil {
+		cleanup()
+		return "", fmt.Errorf("read version probe: %w", err)
+	}
+	if _, err := fin.Seek(int64(len(salt)+len(nonce)), io.SeekStart); err != nil {
+		cleanup()
+		return "", fmt.Errorf("seek after probe: %w", err)
+	}
+
+	key, err := selectDeniabilityKey(password, salt, nonce, probe, rs)
+	if err != nil {
+		cleanup()
+		return "", err
+	}
 	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
@@ -358,6 +378,30 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	}
 
 	return outputPath, nil
+}
+
+// selectDeniabilityKey returns the deniability key for the first password
+// normalization form (NFC/NFD/raw) whose keystream decodes a valid inner volume
+// version from probe (the RS-encoded version field). It returns an error if no
+// form matches. Trying several canonical forms of the same password does not
+// weaken the wrapper: each candidate must still yield a recognizable inner
+// header. ASCII passwords yield a single candidate, so there is no extra work.
+func selectDeniabilityKey(password string, salt, nonce, probe []byte, rs *encoding.RSCodecs) ([]byte, error) {
+	for _, cand := range pwnorm.Candidates(password) {
+		key := deriveDeniabilityKey(cand, salt)
+		cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
+		if err != nil {
+			crypto.SecureZero(key)
+			return nil, fmt.Errorf("create cipher: %w", err)
+		}
+		dec := make([]byte, len(probe))
+		cipher.XORKeyStream(dec, probe)
+		if versionDec, decodeErr := encoding.Decode(rs.RS5, dec, false); decodeErr == nil && header.MatchVersion(versionDec) {
+			return key, nil
+		}
+		crypto.SecureZero(key)
+	}
+	return nil, errors.New("password is incorrect or the file is not a volume")
 }
 
 // IsDeniable checks if a volume appears to have deniability protection.

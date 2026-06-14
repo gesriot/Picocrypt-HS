@@ -8,6 +8,7 @@ import (
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
+	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 )
 
@@ -45,51 +46,39 @@ func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
 		return nil, ErrUnsupported
 	}
 
-	// Derive key
-	passwordBytes := []byte(password)
-	key, err := crypto.DeriveKey(passwordBytes, hdr.Salt, hdr.Flags.Paranoid)
-	zeroWASMSensitiveBuffer(wasmZeroingDecryptPasswordBytes, passwordBytes)
-	if err != nil {
-		return nil, ErrCorruptedHeader
-	}
-	defer crypto.SecureZero(key)
-
 	// Prepare keyfile hash (zeros since no keyfiles)
 	keyfileHash := make([]byte, 32)
 	defer zeroWASMSensitiveBuffer(wasmZeroingDecryptKeyfileHash, keyfileHash)
 
-	// Initialize HKDF and verify auth based on version
-	var subkeyReader *crypto.SubkeyReader
 	isLegacyV1 := hdr.IsLegacyV1()
 
-	if isLegacyV1 {
-		// v1: Verify password using SHA3-512(key), HKDF uses plain key
-		authResult := header.VerifyV1Header(key, hdr)
-		if !authResult.Valid {
-			return nil, ErrWrongPassword
-		}
-
-		// v1: HKDF with plain key (no keyfile XOR since web doesn't support keyfiles)
-		hkdfStream := crypto.NewHKDFStream(key, hdr.HKDFSalt)
-		subkeyReader = crypto.NewSubkeyReader(hkdfStream)
-	} else {
-		// v2: Initialize HKDF first, then verify header MAC
-		hkdfStream := crypto.NewHKDFStream(key, hdr.HKDFSalt)
-		subkeyReader = crypto.NewSubkeyReader(hkdfStream)
-
-		// Read header subkey for verification
-		subkeyHeader, err := subkeyReader.HeaderSubkey()
+	// Derive the key, trying each password normalization form (NFC/NFD/raw) until
+	// one authenticates against the header (#19). ASCII passwords yield a single
+	// candidate, so there is no extra KDF work for the common case.
+	var key []byte
+	var subkeyReader *crypto.SubkeyReader
+	for _, cand := range pwnorm.Candidates(password) {
+		k, err := crypto.DeriveKey(cand, hdr.Salt, hdr.Flags.Paranoid)
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptPasswordBytes, cand)
 		if err != nil {
 			return nil, ErrCorruptedHeader
 		}
-
-		// Verify header MAC
-		authResult := header.VerifyV2Header(subkeyHeader, hdr, keyfileHash)
-		zeroWASMSensitiveBuffer(wasmZeroingDecryptHeaderSubkey, subkeyHeader)
-		if !authResult.Valid {
-			return nil, ErrWrongPassword
+		valid, sr, errCode := verifyWASMHeader(k, hdr, keyfileHash, isLegacyV1)
+		if errCode != 0 {
+			crypto.SecureZero(k)
+			return nil, errCode
 		}
+		if valid {
+			key = k
+			subkeyReader = sr
+			break
+		}
+		crypto.SecureZero(k)
 	}
+	if key == nil {
+		return nil, ErrWrongPassword
+	}
+	defer crypto.SecureZero(key)
 
 	// Read remaining subkeys
 	macSubkey, err := subkeyReader.MACSubkey()
@@ -153,6 +142,36 @@ func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
 	}
 
 	return plaintext, 0
+}
+
+// verifyWASMHeader checks whether key authenticates the volume header and, on
+// success, returns the HKDF subkey reader positioned for the remaining subkey
+// reads. valid is false for a wrong key (a candidate password form that does not
+// match); errCode is non-zero only for a hard failure (corrupted header), not
+// for a wrong password.
+func verifyWASMHeader(key []byte, hdr *header.VolumeHeader, keyfileHash []byte, isLegacyV1 bool) (valid bool, sr *crypto.SubkeyReader, errCode int) {
+	if isLegacyV1 {
+		// v1: verify password via SHA3-512(key); HKDF uses the plain key.
+		if !header.VerifyV1Header(key, hdr).Valid {
+			return false, nil, 0
+		}
+		hkdfStream := crypto.NewHKDFStream(key, hdr.HKDFSalt)
+		return true, crypto.NewSubkeyReader(hkdfStream), 0
+	}
+
+	// v2: initialize HKDF, then verify the header MAC.
+	hkdfStream := crypto.NewHKDFStream(key, hdr.HKDFSalt)
+	reader := crypto.NewSubkeyReader(hkdfStream)
+	subkeyHeader, err := reader.HeaderSubkey()
+	if err != nil {
+		return false, nil, ErrCorruptedHeader
+	}
+	authValid := header.VerifyV2Header(subkeyHeader, hdr, keyfileHash).Valid
+	zeroWASMSensitiveBuffer(wasmZeroingDecryptHeaderSubkey, subkeyHeader)
+	if !authValid {
+		return false, nil, 0
+	}
+	return true, reader, 0
 }
 
 func hasUnsupportedWASMFeature(flags header.Flags) bool {

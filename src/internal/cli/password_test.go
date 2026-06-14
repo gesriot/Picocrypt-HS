@@ -9,6 +9,35 @@ import (
 	"golang.org/x/term"
 )
 
+func TestNonASCIIPasswordNote(t *testing.T) {
+	// Built from a code point so the literal cannot be silently re-normalized.
+	nonASCII := "caf" + string([]rune{0x00E9})
+
+	cases := []struct {
+		name     string
+		confirm  bool
+		password string
+		wantNote bool
+	}{
+		{"non-ascii encrypt", true, nonASCII, true},
+		{"ascii encrypt", true, "plain-password", false},
+		{"non-ascii decrypt (no confirm)", false, nonASCII, false},
+		{"empty encrypt", true, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			note := nonASCIIPasswordNote(tc.confirm, tc.password)
+			if got := note != ""; got != tc.wantNote {
+				t.Errorf("nonASCIIPasswordNote(confirm=%v, %q) note=%q, want note present=%v",
+					tc.confirm, tc.password, note, tc.wantNote)
+			}
+			if tc.wantNote && !strings.Contains(note, "non-ASCII") {
+				t.Errorf("note should mention non-ASCII, got %q", note)
+			}
+		})
+	}
+}
+
 func TestReadPasswordLine(t *testing.T) {
 	testCases := []struct {
 		name  string
