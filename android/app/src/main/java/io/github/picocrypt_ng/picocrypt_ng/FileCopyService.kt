@@ -407,7 +407,10 @@ object FileCopyService {
             
             // Clean up any remaining incomplete files (but not input/keyfiles)
             cleanupIncompleteFiles(context)
-            
+
+            // Folder/multi-file staging tree (StagingService) is a subtree, not flat files -- wipe it whole.
+            File(internalDir, "staging").deleteRecursively()
+
             allSuccess
         } catch (e: CancellationException) {
             throw e
