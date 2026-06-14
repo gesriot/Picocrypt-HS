@@ -97,6 +97,32 @@ jobs:
       working-directory: android
       run: ./gradlew :app:assembleDebugAndroidTest
 
+    - name: Enable KVM
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+
+    - name: Run instrumented crypto roundtrip
+      uses: ReactiveCircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009 # v2.37.0
+      with:
+        api-level: 34
+        arch: x86_64
+        disable-animations: true
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+        working-directory: android
+        script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest
+
+    - name: Upload instrumented test report
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: pr-instrumented-test-report
+        path: |
+          android/app/build/reports/androidTests/connected/
+          android/app/build/outputs/androidTest-results/connected/
+        if-no-files-found: warn
+
     - name: Prepare artifacts
       run: |
         mkdir -p out

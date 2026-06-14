@@ -188,14 +188,18 @@ func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	mustContain(t, smokeStep.Run, "snap run picocrypt-ng --version")
 }
 
-func TestAndroidPRWorkflowStaysFastAndCompileFocused(t *testing.T) {
+func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/pr-test-build-android.yml")
 	mustContain(t, content, "Run Unit Tests")
 	mustContain(t, content, "./gradlew test")
 	mustContain(t, content, ":app:compileDebugAndroidTestKotlin")
 	mustContain(t, content, ":app:assembleDebugAndroidTest")
-	mustNotContain(t, content, "ReactiveCircus/android-emulator-runner@")
-	mustNotContain(t, content, "connectedDebugAndroidTest")
+	// The PR gate now runs the real on-device Go encrypt/decrypt roundtrip so a crypto
+	// regression on Android cannot merge green. Keep the emulator action SHA-pinned.
+	mustMatch(t, content, `ReactiveCircus/android-emulator-runner@[0-9a-f]{40}`)
+	mustContain(t, content, "connectedDebugAndroidTest")
+	mustContain(t, content, "-Pandroid.testInstrumentationRunnerArguments.class")
+	mustContain(t, content, "OperationManagerIntegrationTest")
 }
 
 func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
