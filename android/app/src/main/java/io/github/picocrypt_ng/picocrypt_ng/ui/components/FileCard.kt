@@ -159,7 +159,14 @@ fun ChooseFile(viewModel: MainViewModel) {
                 }
             }
             selectedFileName = fileName
-            selectedUri = it // Trigger LaunchedEffect
+            if (FormData.isSplitVolumeChunkName(fileName)) {
+                // Split-volume chunk (secret.pcv.0): Android cannot recombine sibling
+                // chunks. Surface the reason loudly and skip copy/detect -- otherwise it
+                // would be treated as an encrypt target and double-encrypted.
+                viewModel.setError(AppError.ValidationError.SplitVolumeNotSupported)
+            } else {
+                selectedUri = it // Trigger LaunchedEffect (copy + detect)
+            }
         }
     }
     

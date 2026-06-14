@@ -671,5 +671,58 @@ class OperationManagerTest {
             tmpDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun `startEncrypt fails loud on a split-volume chunk`() = runTest {
+        // A .pcv.N chunk does NOT end in .pcv, so FormData.isEncrypt is true -- the work
+        // button would DOUBLE-ENCRYPT it. Android cannot recombine (single-file picker),
+        // so the operation must fail loud BEFORE reaching the Go bridge.
+        mockkObject(GoBridge)
+        try {
+            val formData = TestDataBuilders.createEncryptFormData(
+                selectedFilename = "secret.pcv.0",
+                copiedFilePath = "/data/test/input_file"
+            )
+            val result = OperationManager.startEncrypt(mockContext, formData)
+
+            assertTrue("Split chunk must fail", result.isFailure)
+            result.onFailure {
+                assertTrue(
+                    "Error should be SplitVolumeNotSupported",
+                    it is AppError.ValidationError.SplitVolumeNotSupported
+                )
+            }
+            // Must short-circuit before any Go work.
+            verify(exactly = 0) { GoBridge.startOperation() }
+        } finally {
+            unmockkObject(GoBridge)
+        }
+    }
+
+    @Test
+    fun `startDecrypt fails loud on a split-volume chunk`() = runTest {
+        // A desktop split volume selected on Android (secret.pcv.0) cannot be decrypted
+        // without recombining its sibling chunks, which Android has no way to supply.
+        // Fail loud instead of running the Go op on one chunk (confusing corrupt error).
+        mockkObject(GoBridge)
+        try {
+            val formData = TestDataBuilders.createDecryptFormData(
+                selectedFilename = "secret.pcv.0",
+                copiedFilePath = "/data/test/input_file"
+            )
+            val result = OperationManager.startDecrypt(mockContext, formData)
+
+            assertTrue("Split chunk must fail", result.isFailure)
+            result.onFailure {
+                assertTrue(
+                    "Error should be SplitVolumeNotSupported",
+                    it is AppError.ValidationError.SplitVolumeNotSupported
+                )
+            }
+            verify(exactly = 0) { GoBridge.startOperation() }
+        } finally {
+            unmockkObject(GoBridge)
+        }
+    }
 }
 

@@ -38,6 +38,16 @@ data class FormData(
         get() = passwordInput.contentEquals(confirmPasswordInput)
     val isPasswordValid: Boolean
         get() = passwordInput.isNotEmpty() && ((isEncrypt && isPasswordsMatch) || isDecrypt)
+
+    /**
+     * True when the selected file is a numbered split-volume chunk (e.g. secret.pcv.0).
+     * Mirrors Go fileops.IsSplitChunkPath. Android cannot recombine chunks (single-file
+     * picker, no sibling access), so such files are rejected loudly rather than run --
+     * a chunk does not end in .pcv, so without this it would be treated as an encrypt
+     * target and double-encrypted.
+     */
+    val isSplitVolumeChunk: Boolean
+        get() = isSplitVolumeChunkName(selectedFilename)
     
     /**
      * Clears password fields by zeroing the character arrays.
@@ -112,5 +122,19 @@ data class FormData(
         }
     
     val isFormValid: Boolean
-        get() = selectedFilename.isNotEmpty() && isPasswordValid && !areKeyfilesRequiredButMissing
+        get() = selectedFilename.isNotEmpty() && isPasswordValid &&
+            !areKeyfilesRequiredButMissing && !isSplitVolumeChunk
+
+    companion object {
+        // Mirrors Go fileops.splitChunkRE: (?i)\.pcv\.[0-9]+$ matched on the base name.
+        private val SPLIT_CHUNK_REGEX = Regex("""(?i)\.pcv\.[0-9]+$""")
+
+        /**
+         * Reports whether [filename] names a numbered split-volume chunk (e.g.
+         * secret.pcv.0). Kept in sync with Go fileops.IsSplitChunkPath so detection is
+         * identical on both sides of the bridge.
+         */
+        fun isSplitVolumeChunkName(filename: String): Boolean =
+            SPLIT_CHUNK_REGEX.containsMatchIn(filename.substringAfterLast('/'))
+    }
 }
