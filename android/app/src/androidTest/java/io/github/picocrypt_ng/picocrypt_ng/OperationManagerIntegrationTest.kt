@@ -3,8 +3,11 @@ package io.github.picocrypt_ng.picocrypt_ng
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -119,57 +122,59 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun startEncrypt_creates_operation_state_on_success() = runTest {
-        // Create a test file
-        val internalDir = File(context.filesDir, "picocrypt_files")
-        internalDir.mkdirs()
-        val testFile = File(internalDir, "input_file.txt")
-        testFile.writeText("test content")
-        
-        val formData = encryptFormData(
-            copiedFilePath = testFile.absolutePath,
-            password = "testpassword",
-            confirmPassword = "testpassword"
+    fun encrypt_then_decrypt_recovers_the_original_bytes() = runBlocking {
+        // The point of an ON-DEVICE gate: prove that real bytes survive
+        // encrypt -> gomobile/JNI bridge -> native crypto -> decrypt on an actual device.
+        // `go test` already covers the crypto math but never crosses the bridge, so this is
+        // the only place that proves the bridge + AAR + KDF/cipher actually round-trip.
+        // runBlocking (not runTest) so the wait runs in real wall-clock time.
+        val original = (
+            "Picocrypt-NG on-device roundtrip — éçü 0123456789 " +
+                "the quick brown fox jumps over the lazy dog"
+            ).toByteArray(Charsets.UTF_8)
+        val internalDir = File(context.filesDir, "picocrypt_files").apply { mkdirs() }
+        val plaintext = File(internalDir, "roundtrip_input.txt")
+        plaintext.writeBytes(original)
+
+        // Encrypt.
+        val encStart = OperationManager.startEncrypt(
+            context,
+            encryptFormData(copiedFilePath = plaintext.absolutePath)
         )
-        
-        val result = OperationManager.startEncrypt(context, formData)
-
-        assertTrue("Encrypt should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
-        val operationID = result.getOrThrow()
-
-        val operationState = OperationManager.currentOperation.first()
-        assertNotNull("Operation state should be set", operationState)
-        assertEquals("Operation ID should match", operationID, operationState?.id)
-        assertEquals("Operation type should be ENCRYPT", OperationType.ENCRYPT, operationState?.type)
-        assertEquals("Input file should match", testFile.absolutePath, operationState?.inputFile)
-        assertNotNull("Output file should be set", operationState?.outputFile)
-        assertTrue("Output file should end with .pcv", operationState?.outputFile?.endsWith(".pcv") == true)
-    }
-    
-    @Test
-    fun startDecrypt_creates_operation_state_on_success() = runTest {
-        val password = "testpassword"
-        val encryptedFile = createEncryptedVolume(
-            sourceText = "test encrypted content",
-            password = password
+        assertTrue("encrypt should start: ${encStart.exceptionOrNull()}", encStart.isSuccess)
+        val encState = waitForOperationToFinish()
+        assertNull("encrypt must not finish with an error", encState.error)
+        val encryptedFile = File(encState.outputFile)
+        assertTrue("encrypted volume must exist", encryptedFile.exists())
+        assertFalse(
+            "ciphertext must differ from plaintext (data was actually encrypted)",
+            encryptedFile.readBytes().contentEquals(original)
         )
+        OperationManager.clearOperation(context, shouldCleanupFiles = false)
 
-        val formData = decryptFormData(
-            copiedFilePath = encryptedFile.absolutePath,
-            password = password
+        // Re-stage the ciphertext as a decrypt INPUT, mirroring the real app: a picked
+        // .pcv is copied to input_file.<ext>. startDecrypt's pre-clean wipes output_file.*
+        // (never input_file.*), so feeding the raw encrypt output back in would delete it.
+        val decryptInput = File(internalDir, "input_file.pcv")
+        encryptedFile.copyTo(decryptInput, overwrite = true)
+
+        // Decrypt the volume we just produced.
+        val decStart = OperationManager.startDecrypt(
+            context,
+            decryptFormData(copiedFilePath = decryptInput.absolutePath)
         )
+        assertTrue("decrypt should start: ${decStart.exceptionOrNull()}", decStart.isSuccess)
+        val decState = waitForOperationToFinish()
+        assertNull("decrypt must not finish with an error", decState.error)
+        val decryptedFile = File(decState.outputFile)
+        assertTrue("decrypted output must exist", decryptedFile.exists())
 
-        val result = OperationManager.startDecrypt(context, formData)
-
-        assertTrue("Decrypt should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
-        val operationID = result.getOrThrow()
-
-        val operationState = OperationManager.currentOperation.first()
-        assertNotNull("Operation state should be set", operationState)
-        assertEquals("Operation ID should match", operationID, operationState?.id)
-        assertEquals("Operation type should be DECRYPT", OperationType.DECRYPT, operationState?.type)
-        assertEquals("Input file should match", encryptedFile.absolutePath, operationState?.inputFile)
-        assertNotNull("Output file should be set", operationState?.outputFile)
+        // The assertion that actually matters: the bytes came back intact.
+        assertArrayEquals(
+            "decrypted bytes must equal the original plaintext",
+            original,
+            decryptedFile.readBytes()
+        )
     }
     
     @Test
@@ -279,40 +284,18 @@ class OperationManagerIntegrationTest {
         assertNull("Should be null after clearing", operationState)
     }
 
-    private suspend fun createEncryptedVolume(sourceText: String, password: String): File {
-        val internalDir = File(context.filesDir, "picocrypt_files")
-        internalDir.mkdirs()
-        val inputFile = File(internalDir, "integration_input.txt")
-        inputFile.writeText(sourceText)
-
-        val result = OperationManager.startEncrypt(
-            context,
-            encryptFormData(
-                copiedFilePath = inputFile.absolutePath,
-                password = password,
-                confirmPassword = password
-            )
-        )
-        assertTrue("Encrypt setup should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
-
-        val completed = waitForOperationToFinish()
-        assertTrue("Encrypt setup operation should complete successfully", completed.done)
-        assertNull("Encrypt setup should not finish with error", completed.error)
-
-        val encryptedFile = File(completed.outputFile)
-        OperationManager.clearOperation(context, shouldCleanupFiles = false)
-
-        assertTrue("Encrypted file should exist for decrypt test", encryptedFile.exists())
-        return encryptedFile
-    }
-
-    private suspend fun waitForOperationToFinish(maxPolls: Int = 200): OperationState {
+    // Polls the async Go operation to completion in REAL wall-clock time. The gomobile
+    // bridge is start-then-poll by design, so polling is unavoidable; the budget is large
+    // enough (~60s for an Argon2id KDF that takes seconds) that only a genuine bug -- not a
+    // slow emulator -- can trip it. delay() is forced onto a real dispatcher so a
+    // virtual-time test scheduler cannot collapse it to zero.
+    private suspend fun waitForOperationToFinish(maxPolls: Int = 600): OperationState {
         repeat(maxPolls) {
             val state = OperationManager.pollProgress()
             if (state != null && state.done) {
                 return state
             }
-            delay(50)
+            withContext(Dispatchers.IO) { delay(100) }
         }
         throw AssertionError("Timed out waiting for operation to finish")
     }

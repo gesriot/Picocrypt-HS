@@ -41,7 +41,11 @@
     <string name="paranoid">Paranoid</string>
     <string name="deniability">Deniability</string>
     <string name="expand_or_collapse">Expand or collapse</string>
-    
+
+    <!-- Decrypt Options Card -->
+    <string name="decrypt_options">Decryption Options (%1$d)</string>
+    <string name="verify_first">Verify integrity first</string>
+
     <!-- Decryption Info Card -->
     <string name="encryption_settings">Encryption Settings</string>
     <string name="keyfiles_section">Keyfiles</string>

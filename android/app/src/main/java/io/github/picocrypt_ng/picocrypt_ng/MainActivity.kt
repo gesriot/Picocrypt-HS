@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.AdvancedCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.CommentsCard
+import io.github.picocrypt_ng.picocrypt_ng.ui.components.DecryptOptionsCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.DecryptionInfoCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.ErrorDialog
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.FileCard
@@ -173,6 +174,9 @@ fun MainLayout() {
     val isAdvancedCardVisible = remember(formData) {
         formData.isEncrypt
     }
+    val isDecryptOptionsCardVisible = remember(formData) {
+        formData.isDecrypt
+    }
     val isKeyfileCardVisible = remember(formData) {
         if (!(formData.isEncrypt || formData.isDecrypt)) {
             false
@@ -197,6 +201,7 @@ fun MainLayout() {
         if (isDecryptionInfoCardVisible) add { DecryptionInfoCard(mainViewModel) }
         if (isPasswordCardVisible) add { PasswordCard(mainViewModel) }
         if (isAdvancedCardVisible) add { AdvancedCard(mainViewModel) }
+        if (isDecryptOptionsCardVisible) add { DecryptOptionsCard(mainViewModel) }
         if (isKeyfileCardVisible) add { KeyfileCard(mainViewModel) }
         if (isWorkButtonVisible) add { WorkButton(mainViewModel, operationViewModel) }
     }

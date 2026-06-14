@@ -280,6 +280,41 @@ class FormDataTest {
         assertEquals(formData1.hashCode(), formData2.hashCode())
         assertNotEquals(formData1.hashCode(), formData3.hashCode())
     }
+
+    @Test
+    fun `isSplitVolumeChunk detects numbered pcv chunks`() {
+        // Must mirror Go fileops.IsSplitChunkPath: (?i)\.pcv\.[0-9]+$ on the base name.
+        // Desktop split volumes (secret.pcv.0, .1, ...) need recombining; Android can't
+        // (single-file picker, no sibling chunks), so they must be detected and rejected.
+        val cases = listOf(
+            "archive.zip.pcv.0" to true,
+            "archive.zip.pcv.12" to true,
+            "ARCHIVE.ZIP.PCV.0" to true,   // case-insensitive, like the Go regex
+            "secret.pcv.0" to true,
+            "backup.pcv.tmp1" to false,    // suffix not all digits
+            "notes.pcv.v2" to false,
+            "secret.pcv" to false,         // a normal (single) volume
+            "photo.jpg" to false,
+            "" to false
+        )
+        for ((name, want) in cases) {
+            val formData = TestDataBuilders.createDecryptFormData(selectedFilename = name)
+            assertEquals("isSplitVolumeChunk for '$name'", want, formData.isSplitVolumeChunk)
+        }
+    }
+
+    @Test
+    fun `isFormValid is false for a split volume chunk`() {
+        // A split chunk must never be a runnable operation: it does not end in .pcv, so
+        // isEncrypt is true and it would be double-encrypted. The work button gates on
+        // isFormValid, so a chunk must make the form invalid even with a valid password.
+        val formData = TestDataBuilders.createDecryptFormData(
+            selectedFilename = "secret.pcv.0",
+            password = "testpassword"
+        )
+        assertTrue("precondition: chunk is classified as split", formData.isSplitVolumeChunk)
+        assertFalse("a split chunk must invalidate the form", formData.isFormValid)
+    }
 }
 
 

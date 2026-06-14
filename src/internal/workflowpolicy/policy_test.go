@@ -42,6 +42,7 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 		{name: "build-macos", path: ".github/workflows/build-macos.yml", job: "release"},
 		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
 		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
+		{name: "build-appimage", path: ".github/workflows/build-appimage.yml", job: "release"},
 	}
 
 	for _, tc := range testCases {
@@ -79,6 +80,42 @@ func TestBuildPermissionsStayLeastPrivilege(t *testing.T) {
 	mustPermission(t, buildSnapcraft.Permissions, "contents", "read")
 	mustEffectivePermission(t, buildSnapcraft, mustJob(t, buildSnapcraft, "build-snapcraft"), "contents", "read")
 	mustEffectivePermission(t, buildSnapcraft, mustJob(t, buildSnapcraft, "release"), "contents", "write")
+
+	buildAppImage := mustReadWorkflowDoc(t, ".github/workflows/build-appimage.yml")
+	mustPermission(t, buildAppImage.Permissions, "contents", "read")
+	mustEffectivePermission(t, buildAppImage, mustJob(t, buildAppImage, "build"), "contents", "read")
+	mustEffectivePermission(t, buildAppImage, mustJob(t, buildAppImage, "release"), "contents", "write")
+}
+
+func TestAppImageWorkflowIsPortableSmokeTestedAndPinned(t *testing.T) {
+	const path = ".github/workflows/build-appimage.yml"
+	workflow := mustReadWorkflowDoc(t, path)
+	content := mustReadWorkflow(t, path)
+
+	build := mustJob(t, workflow, "build")
+
+	// Portability floor. AppImage was dropped once "for better portability"
+	// (Changelog v1.34); building on the newest runner's glibc reproduces that, so the
+	// build job pins the oldest supported runner (ubuntu-22.04, glibc 2.35).
+	mustContain(t, content, "runs-on: ubuntu-22.04")
+
+	// Supply chain: the AppImage tooling is fetched at build time, so it must be
+	// sha256-pinned AND verified (fail loud), like UPX in build-linux. Asserts that a
+	// pin exists and is checked -- not the exact digest -- so a tool bump does not churn
+	// this test.
+	mustContain(t, content, "linuxdeploy")
+	mustContain(t, content, "appimagetool")
+	mustMatch(t, content, `[0-9a-f]{64}`)
+	mustContain(t, content, "sha256sum")
+	mustContain(t, content, "--check")
+
+	// The produced AppImage must be smoke-tested, or a broken bundle (a shared library
+	// that fails to resolve) ships silently. --version drives the embedded CLI
+	// (cli.Execute), which exits before Fyne/OpenGL init, so it proves every bundled and
+	// host-provided library resolves at process start without needing a display.
+	smoke := mustStepNamed(t, build, "Smoke test AppImage")
+	mustContain(t, smoke.Run, "--version")
+	mustContain(t, smoke.Run, ".AppImage")
 }
 
 func TestMacOSReleaseWorkflowInjectsRootVersionIntoBundleMetadata(t *testing.T) {
@@ -188,14 +225,27 @@ func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	mustContain(t, smokeStep.Run, "snap run picocrypt-ng --version")
 }
 
-func TestAndroidPRWorkflowStaysFastAndCompileFocused(t *testing.T) {
+func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/pr-test-build-android.yml")
 	mustContain(t, content, "Run Unit Tests")
 	mustContain(t, content, "./gradlew test")
 	mustContain(t, content, ":app:compileDebugAndroidTestKotlin")
 	mustContain(t, content, ":app:assembleDebugAndroidTest")
-	mustNotContain(t, content, "ReactiveCircus/android-emulator-runner@")
-	mustNotContain(t, content, "connectedDebugAndroidTest")
+	// The PR gate now runs the real on-device Go encrypt/decrypt roundtrip so a crypto
+	// regression on Android cannot merge green. Keep the emulator action SHA-pinned.
+	mustMatch(t, content, `ReactiveCircus/android-emulator-runner@[0-9a-f]{40}`)
+	mustContain(t, content, "connectedDebugAndroidTest")
+	mustContain(t, content, "-Pandroid.testInstrumentationRunnerArguments.class")
+	mustContain(t, content, "OperationManagerIntegrationTest")
+
+	// The emulator must run API 36 (matching targetSdk), not 34: API 35+ behavior --
+	// the foreground-service dataSync timeout and Service.onTimeout(API 35+) -- is only
+	// reachable there, so gating on API 34 is a false green for that path.
+	prJob := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml"), "pr-test-build-android")
+	prEmulator := mustHaveStepUsingPrefix(t, prJob, "ReactiveCircus/android-emulator-runner@")
+	if got := prEmulator.With["api-level"]; got != 36 {
+		t.Fatalf("PR emulator api-level = %v, want 36 (>= targetSdk for FGS/onTimeout coverage)", got)
+	}
 }
 
 func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
@@ -231,6 +281,13 @@ func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	mustNotContain(t, content, "connectedDebugAndroidTest \\")
 	mustContain(t, content, "TEST_CLASSES=")
 	mustContain(t, content, "./gradlew connectedDebugAndroidTest")
+
+	// Same API-36 requirement as the PR gate (FGS/onTimeout reachability).
+	instrJob := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/android-instrumented.yml"), "android-instrumented")
+	instrEmulator := mustHaveStepUsingPrefix(t, instrJob, "ReactiveCircus/android-emulator-runner@")
+	if got := instrEmulator.With["api-level"]; got != 36 {
+		t.Fatalf("instrumented emulator api-level = %v, want 36", got)
+	}
 }
 
 func TestWindowsLegacyPRWorkflowIsCLIOnly(t *testing.T) {

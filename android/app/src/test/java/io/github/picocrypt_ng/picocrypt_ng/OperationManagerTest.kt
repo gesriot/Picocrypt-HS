@@ -13,6 +13,7 @@ import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
 import io.mockk.verify
+import io.mockk.slot
 import kotlin.io.path.createTempDirectory
 
 /**
@@ -480,10 +481,44 @@ class OperationManagerTest {
 
     @Test
     fun `retryDecryptWithForce returns error when operation is not decrypt`() = runTest {
-        // We can't easily set up an encrypt operation, but we can test the logic
-        // that checks operation type
-        // This would require setting up an operation state, which is difficult without GoBridge
-        // So we'll test this in instrumented tests
+        // The guard at OperationManager.retryDecryptWithForce rejects a non-DECRYPT
+        // operation (operation.type != DECRYPT -> GenericOperation("Can only retry
+        // decryption operations")). It short-circuits BEFORE any decrypt-side GoBridge
+        // call, so the Go AAR is not needed — establish an ENCRYPT op through the public
+        // seam (GoBridge mocked) and assert the rejection. startEncrypt resolves an
+        // output path under context.filesDir; back it with a real temp dir.
+        val tmpDir = createTempDirectory(prefix = "opmgr_notdecrypt").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_enc")
+            every { GoBridge.startEncrypt(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+            val started = OperationManager.startEncrypt(
+                mockContext,
+                TestDataBuilders.createEncryptFormData()
+            )
+            assertTrue("startEncrypt should succeed", started.isSuccess)
+            assertEquals(OperationType.ENCRYPT, OperationManager.currentOperation.value?.type)
+
+            val result = OperationManager.retryDecryptWithForce()
+
+            assertTrue("Force-decrypt retry on an encrypt op must fail", result.isFailure)
+            result.onFailure { error ->
+                assertTrue(
+                    "Error should be GenericOperation",
+                    error is AppError.OperationError.GenericOperation
+                )
+                assertTrue(
+                    "Message should explain only decryption can be retried",
+                    (error.message ?: "").contains("Can only retry decryption", ignoreCase = true)
+                )
+            }
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
     }
     
     @Test
@@ -524,6 +559,170 @@ class OperationManagerTest {
     fun `OperationType enum values are correct`() {
         assertEquals("ENCRYPT", OperationType.ENCRYPT.name)
         assertEquals("DECRYPT", OperationType.DECRYPT.name)
+    }
+
+    @Test
+    fun `startDecrypt passes verifyFirst from formData into DecryptOptions`() = runTest {
+        // verifyFirst is a security option (integrity-verify-before-write). It is wired
+        // through the Go bridge (GoBridge.DecryptOptions.verifyFirst -> android.go) but
+        // OperationManager historically hardcoded it false. Capture the DecryptOptions
+        // handed to GoBridge.startDecrypt and prove the form value flows through.
+        // GoBridge is the Go mobile AAR (absent on the JVM classpath), so mock it;
+        // startDecrypt resolves an output path under context.filesDir, so back it with
+        // a real temp dir (the relaxed mock returns null otherwise).
+        val tmpDir = createTempDirectory(prefix = "opmgr_verifyfirst").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_vf")
+            val optionsSlot = slot<DecryptOptions>()
+            every {
+                GoBridge.startDecrypt(any(), any(), any(), any(), capture(optionsSlot))
+            } returns Result.success(Unit)
+
+            val formData = TestDataBuilders.createDecryptFormData().copy(verifyFirst = true)
+            val result = OperationManager.startDecrypt(mockContext, formData)
+
+            assertTrue("startDecrypt should succeed", result.isSuccess)
+            assertTrue("DecryptOptions must be captured", optionsSlot.isCaptured)
+            assertTrue(
+                "verifyFirst must flow from formData into the Go bridge call",
+                optionsSlot.captured.verifyFirst
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `startDecrypt does not auto-unzip so zip volumes stay exportable`() = runTest {
+        // INTEROP (core value): a desktop volume made from multiple files / compression
+        // decrypts to a .zip. Go's auto-unzip extracts to a SUBDIRECTORY and DELETES the
+        // zip (decrypt.go:816,847); Android then exports a single fixed output path, so
+        // the export reads a now-missing/directory path -> SaveFailed. Until a SAF
+        // tree-export exists, Android must NOT auto-unzip: the intact .zip stays the one
+        // exportable output (matches the CLI --auto-unzip default of false, decrypt.go:94).
+        // Capture the DecryptOptions handed to the Go bridge and prove autoUnzip is off.
+        val tmpDir = createTempDirectory(prefix = "opmgr_autounzip").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_unzip")
+            val optionsSlot = slot<DecryptOptions>()
+            every {
+                GoBridge.startDecrypt(any(), any(), any(), any(), capture(optionsSlot))
+            } returns Result.success(Unit)
+
+            val result = OperationManager.startDecrypt(
+                mockContext,
+                TestDataBuilders.createDecryptFormData()
+            )
+
+            assertTrue("startDecrypt should succeed", result.isSuccess)
+            assertTrue("DecryptOptions must be captured", optionsSlot.isCaptured)
+            assertFalse(
+                "auto-unzip must be OFF on Android (no SAF tree-export; the zip volume must stay exportable)",
+                optionsSlot.captured.autoUnzip
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `retryDecryptWithForce does not auto-unzip`() = runTest {
+        // Same interop invariant as startDecrypt, on the force-decrypt retry path
+        // (retryDecryptWithForce builds its own DecryptOptions). The slot captures the
+        // last GoBridge.startDecrypt call -- the retry -- which must set forceDecrypt
+        // (proving it is the retry) and keep autoUnzip off.
+        val tmpDir = createTempDirectory(prefix = "opmgr_autounzip_force").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_unzip_force")
+            val optionsSlot = slot<DecryptOptions>()
+            every {
+                GoBridge.startDecrypt(any(), any(), any(), any(), capture(optionsSlot))
+            } returns Result.success(Unit)
+
+            assertTrue(
+                "startDecrypt setup should succeed",
+                OperationManager.startDecrypt(
+                    mockContext,
+                    TestDataBuilders.createDecryptFormData()
+                ).isSuccess
+            )
+            val retry = OperationManager.retryDecryptWithForce()
+
+            assertTrue("retryDecryptWithForce should succeed", retry.isSuccess)
+            assertTrue("DecryptOptions must be captured", optionsSlot.isCaptured)
+            assertTrue("retry path must set forceDecrypt", optionsSlot.captured.forceDecrypt)
+            assertFalse(
+                "auto-unzip must be OFF on the force-retry path too",
+                optionsSlot.captured.autoUnzip
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `startEncrypt fails loud on a split-volume chunk`() = runTest {
+        // A .pcv.N chunk does NOT end in .pcv, so FormData.isEncrypt is true -- the work
+        // button would DOUBLE-ENCRYPT it. Android cannot recombine (single-file picker),
+        // so the operation must fail loud BEFORE reaching the Go bridge.
+        mockkObject(GoBridge)
+        try {
+            val formData = TestDataBuilders.createEncryptFormData(
+                selectedFilename = "secret.pcv.0",
+                copiedFilePath = "/data/test/input_file"
+            )
+            val result = OperationManager.startEncrypt(mockContext, formData)
+
+            assertTrue("Split chunk must fail", result.isFailure)
+            result.onFailure {
+                assertTrue(
+                    "Error should be SplitVolumeNotSupported",
+                    it is AppError.ValidationError.SplitVolumeNotSupported
+                )
+            }
+            // Must short-circuit before any Go work.
+            verify(exactly = 0) { GoBridge.startOperation() }
+        } finally {
+            unmockkObject(GoBridge)
+        }
+    }
+
+    @Test
+    fun `startDecrypt fails loud on a split-volume chunk`() = runTest {
+        // A desktop split volume selected on Android (secret.pcv.0) cannot be decrypted
+        // without recombining its sibling chunks, which Android has no way to supply.
+        // Fail loud instead of running the Go op on one chunk (confusing corrupt error).
+        mockkObject(GoBridge)
+        try {
+            val formData = TestDataBuilders.createDecryptFormData(
+                selectedFilename = "secret.pcv.0",
+                copiedFilePath = "/data/test/input_file"
+            )
+            val result = OperationManager.startDecrypt(mockContext, formData)
+
+            assertTrue("Split chunk must fail", result.isFailure)
+            result.onFailure {
+                assertTrue(
+                    "Error should be SplitVolumeNotSupported",
+                    it is AppError.ValidationError.SplitVolumeNotSupported
+                )
+            }
+            verify(exactly = 0) { GoBridge.startOperation() }
+        } finally {
+            unmockkObject(GoBridge)
+        }
     }
 }
 

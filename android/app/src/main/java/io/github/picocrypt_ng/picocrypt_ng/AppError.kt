@@ -130,6 +130,16 @@ sealed class AppError(
          * Passwords don't match (for encryption).
          */
         object PasswordsMismatch : ValidationError("Passwords do not match")
+
+        /**
+         * A numbered split-volume chunk (e.g. secret.pcv.0) was selected. Android cannot
+         * recombine chunks (single-file picker, no sibling access), so the operation is
+         * rejected with guidance to recombine on a desktop first.
+         */
+        object SplitVolumeNotSupported : ValidationError(
+            "Split volumes aren't supported on Android. Recombine the chunks on your " +
+                "computer first, then transfer the single .pcv file."
+        )
     }
     
     companion object {

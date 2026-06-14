@@ -113,14 +113,18 @@ jobs:
     - name: Run focused instrumented tests
       uses: ReactiveCircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009 # v2.37.0
       with:
-        api-level: 34
+        # API 36 (= targetSdk), not 34: needed for API 35+ FGS timeout / onTimeout.
+        api-level: 36
         arch: x86_64
         disable-animations: true
-        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+        # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
+        # (src/internal/crypto/kdf.go); the runner's default ~2.5 GiB emulator OOMs
+        # (lowmemorykiller kills the test process) mid crypto roundtrip.
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 6144 -cores 4 -camera-back none -camera-front none
         # Single-line: the runner executes each script line in its own `sh -c`,
         # so multi-line `cd`/`if`/`fi` constructs do not persist across lines.
         working-directory: android
-        script: TEST_CLASSES="io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest"; { [ "${{ inputs.test_scope }}" = "extended" ] && TEST_CLASSES="$TEST_CLASSES,io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest"; } || true; ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="$TEST_CLASSES"
+        script: TEST_CLASSES="io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCardTest,io.github.picocrypt_ng.picocrypt_ng.ui.components.DecryptOptionsCardTest"; { [ "${{ inputs.test_scope }}" = "extended" ] && TEST_CLASSES="$TEST_CLASSES,io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest"; } || true; ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="$TEST_CLASSES"
 
     - name: Upload instrumented test report
       if: always()

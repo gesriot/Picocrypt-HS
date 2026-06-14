@@ -1,0 +1,152 @@
+name: build-appimage
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      - "VERSION"
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # ubuntu-22.04 (glibc 2.35) is the portability floor. AppImage was dropped once
+    # "for better portability" (Changelog v1.34); building on the newest runner's glibc
+    # forward-binds symbols that fail on older distros and would reproduce that. GL and
+    # GPU-driver libraries are intentionally NOT bundled (linuxdeploy excludelist) -- they
+    # are provided by the host, which is what keeps the AppImage portable (incl. Nvidia).
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: stable
+        cache-dependency-path: src/go.sum
+
+    - name: Install packages
+      run: |
+        sudo apt update
+        sudo apt install -y gcc pkg-config libgl1-mesa-dev xorg-dev libgtk-3-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev libgl1 desktop-file-utils librsvg2-bin wget
+
+    - name: Build GUI
+      run: |
+        cd src
+        GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=1 go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+
+    - name: Fetch and verify AppImage tooling
+      run: |
+        # Pinned by sha256 and verified (fail loud), like UPX in build-linux. These are
+        # linuxdeploy/appimagetool "continuous" builds; if upstream republishes them this
+        # check fails and the pin must be refreshed -- intentional, not silent drift.
+        wget -O linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+        echo "514d4ffe2a2f757369b41863a4f63fbbb222c429652803ebc081cb16ba21ac25  linuxdeploy" | sha256sum --check --strict --status
+        wget -O appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+        echo "a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0  appimagetool" | sha256sum --check --strict --status
+        chmod +x linuxdeploy appimagetool
+        # linuxdeploy invokes appimagetool from PATH during --output appimage.
+        sudo mv appimagetool /usr/local/bin/appimagetool
+
+    - name: Build AppImage
+      env:
+        # GitHub runners lack FUSE; run the tools (and later the result) extracted.
+        APPIMAGE_EXTRACT_AND_RUN: "1"
+        # The Go binary is already stripped (-s -w) and the bundled system libs gain
+        # little from stripping; skipping it removes a fragile step (linuxdeploy's strip
+        # aborts on libraries using newer ELF sections, e.g. .relr.dyn) for ~2-3 MB.
+        NO_STRIP: "true"
+      run: |
+        VERSION=$(cat VERSION)
+        mkdir -p stage AppDir/usr/share/metainfo
+
+        # Desktop entry: point Exec at the bundled binary's basename.
+        cp dist/linux/io.github.picocrypt_ng.Picocrypt-NG.desktop stage/
+        sed -i 's|^Exec=.*|Exec=Picocrypt-NG %f|' stage/io.github.picocrypt_ng.Picocrypt-NG.desktop
+
+        # App icon (must match the desktop Icon= key) rendered from the same SVG as the .deb.
+        rsvg-convert --format png --width 256 --height 256 \
+          --output stage/io.github.picocrypt_ng.Picocrypt-NG.png images/key.svg
+
+        # AppStream metadata so AppImage-aware tooling can show app info / update sources.
+        cp dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml AppDir/usr/share/metainfo/
+
+        # Deterministic output filename (independent of the binary's internal version).
+        export OUTPUT="Picocrypt-NG-${VERSION}-x86_64.AppImage"
+        export VERSION
+        ./linuxdeploy \
+          --appdir AppDir \
+          --executable src/Picocrypt-NG \
+          --desktop-file stage/io.github.picocrypt_ng.Picocrypt-NG.desktop \
+          --icon-file stage/io.github.picocrypt_ng.Picocrypt-NG.png \
+          --output appimage
+        test -f "$OUTPUT"
+
+    - name: Smoke test AppImage
+      env:
+        APPIMAGE_EXTRACT_AND_RUN: "1"
+      run: |
+        VERSION=$(cat VERSION)
+        APP="Picocrypt-NG-${VERSION}-x86_64.AppImage"
+        # --version drives the embedded CLI (cli.Execute) and exits before Fyne/OpenGL
+        # init, so this needs no display. It still loads every DT_NEEDED shared library at
+        # startup, so a broken/incomplete bundle fails here instead of shipping silently.
+        out=$("./$APP" --version)
+        echo "$out"
+        echo "$out" | grep -qi picocrypt
+
+    - name: Prepare to upload artifacts
+      run: |
+        VERSION=$(cat VERSION)
+        mkdir -p out
+        mv "Picocrypt-NG-${VERSION}-x86_64.AppImage" out/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: build-appimage-amd64
+        # AppImage is already squashfs-compressed; re-zipping it gains nothing.
+        path: out/*
+        if-no-files-found: error
+        compression-level: 0
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v8
+      with:
+        name: build-appimage-amd64
+        path: artifacts
+
+    - name: Get version tag and checksum
+      run: |
+        VERSION=$(cat VERSION)
+        APP="Picocrypt-NG-${VERSION}-x86_64.AppImage"
+        {
+          echo "VERSION=$VERSION"
+          echo "APPIMAGE_NAME=$APP"
+          echo "CHECKSUM_APPIMAGE=$(sha256sum "artifacts/$APP" | cut -d ' ' -f1)"
+        } >> "$GITHUB_ENV"
+
+    - name: Release
+      uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
+      with:
+        files: artifacts/${{ env.APPIMAGE_NAME }}
+        tag_name: ${{ env.VERSION }}
+        append_body: true
+        body: |
+          **Linux (AppImage, amd64):**
+          `sha256(${{ env.APPIMAGE_NAME }})  ${{ env.CHECKSUM_APPIMAGE }}`

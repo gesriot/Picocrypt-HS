@@ -26,7 +26,14 @@ object OperationManager {
         if (formData.copiedFilePath.isEmpty()) {
             return@withContext Result.failure(AppError.ValidationError.NoFileSelected)
         }
-        
+
+        // A numbered split-volume chunk (secret.pcv.0) does not end in .pcv, so it lands
+        // on the encrypt path and would be DOUBLE-ENCRYPTED. Android cannot recombine
+        // (single-file picker), so reject it loudly before any work.
+        if (formData.isSplitVolumeChunk) {
+            return@withContext Result.failure(AppError.ValidationError.SplitVolumeNotSupported)
+        }
+
         if (!formData.isPasswordValid) {
             val error = if (formData.isEncrypt && !formData.isPasswordsMatch) {
                 AppError.ValidationError.PasswordsMismatch
@@ -35,10 +42,10 @@ object OperationManager {
             }
             return@withContext Result.failure(error)
         }
-        
+
         // Clean up old files before starting new operation to prevent contamination
         FileCopyService.cleanupOperationFilesBeforeStart(context)
-        
+
         // Generate output file path using FileCopyService
         val outputFilePath = FileCopyService.getOutputFilePath(context, formData.copiedFilePath, isEncrypt = true)
 
@@ -90,14 +97,21 @@ object OperationManager {
         if (formData.copiedFilePath.isEmpty()) {
             return@withContext Result.failure(AppError.ValidationError.NoFileSelected)
         }
-        
+
+        // A desktop split volume (secret.pcv.0) cannot be decrypted on Android without
+        // recombining its sibling chunks, which the single-file picker cannot supply.
+        // Fail loud instead of running the Go op on one chunk (a confusing corrupt error).
+        if (formData.isSplitVolumeChunk) {
+            return@withContext Result.failure(AppError.ValidationError.SplitVolumeNotSupported)
+        }
+
         if (!formData.isPasswordValid) {
             return@withContext Result.failure(AppError.ValidationError.InvalidPassword)
         }
-        
+
         // Clean up old files before starting new operation to prevent contamination
         FileCopyService.cleanupOperationFilesBeforeStart(context)
-        
+
         // Generate output file path using FileCopyService
         val outputFilePath = FileCopyService.getOutputFilePath(context, formData.copiedFilePath, isEncrypt = false)
 
@@ -107,8 +121,13 @@ object OperationManager {
         val options = DecryptOptions(
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             forceDecrypt = false,
-            verifyFirst = false,
-            autoUnzip = true, // Auto-unzip decrypted files
+            verifyFirst = formData.verifyFirst,
+            // INTEROP: Go auto-unzip extracts to a subdirectory and DELETES the zip
+            // (decrypt.go:816,847). Android exports a single fixed output path, so an
+            // unzipped output orphans the export -> SaveFailed. Keep OFF until a SAF
+            // tree-export exists; the intact .zip stays exportable. Matches the CLI
+            // --auto-unzip default (decrypt.go:94).
+            autoUnzip = false,
             sameLevel = false,
             recombine = false, // Split volumes are not supported in the Android app
             deniability = formData.decryptionInfo?.deniability ?: false
@@ -304,8 +323,8 @@ object OperationManager {
         val options = DecryptOptions(
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             forceDecrypt = true, // Enable force decrypt
-            verifyFirst = false,
-            autoUnzip = true,
+            verifyFirst = formData.verifyFirst,
+            autoUnzip = false, // See startDecrypt: off until SAF tree-export exists.
             sameLevel = false,
             recombine = false,
             deniability = formData.decryptionInfo?.deniability ?: false

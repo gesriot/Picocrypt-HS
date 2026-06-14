@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
@@ -84,6 +85,7 @@ class OperationForegroundService : Service() {
      * (6h / 24h on Android 15+). Cancel the operation and stop promptly to avoid a crash.
      */
     @OptIn(DelicateCoroutinesApi::class)
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onTimeout(startId: Int, fgsType: Int) {
         // Cancel on a process-lifetime scope: stopSelf() below cancels `scope`, so a cancel
         // launched on `scope` could be cancelled before it signals the native Go operation.

@@ -97,6 +97,37 @@ jobs:
       working-directory: android
       run: ./gradlew :app:assembleDebugAndroidTest
 
+    - name: Enable KVM
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+
+    - name: Run instrumented crypto roundtrip
+      uses: ReactiveCircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009 # v2.37.0
+      with:
+        # API 36 (= targetSdk), not 34: API 35+ FGS dataSync timeout and
+        # Service.onTimeout are only reachable here, so API 34 is a false green.
+        api-level: 36
+        arch: x86_64
+        disable-animations: true
+        # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
+        # (src/internal/crypto/kdf.go); the runner's default ~2.5 GiB emulator OOMs
+        # (lowmemorykiller kills the test process) mid crypto roundtrip.
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 6144 -cores 4 -camera-back none -camera-front none
+        working-directory: android
+        script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest
+
+    - name: Upload instrumented test report
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: pr-instrumented-test-report
+        path: |
+          android/app/build/reports/androidTests/connected/
+          android/app/build/outputs/androidTest-results/connected/
+        if-no-files-found: warn
+
     - name: Prepare artifacts
       run: |
         mkdir -p out
