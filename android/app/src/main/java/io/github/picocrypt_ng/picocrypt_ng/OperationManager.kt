@@ -107,7 +107,7 @@ object OperationManager {
         val options = DecryptOptions(
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             forceDecrypt = false,
-            verifyFirst = false,
+            verifyFirst = formData.verifyFirst,
             autoUnzip = true, // Auto-unzip decrypted files
             sameLevel = false,
             recombine = false, // Split volumes are not supported in the Android app
@@ -304,7 +304,7 @@ object OperationManager {
         val options = DecryptOptions(
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             forceDecrypt = true, // Enable force decrypt
-            verifyFirst = false,
+            verifyFirst = formData.verifyFirst,
             autoUnzip = true,
             sameLevel = false,
             recombine = false,

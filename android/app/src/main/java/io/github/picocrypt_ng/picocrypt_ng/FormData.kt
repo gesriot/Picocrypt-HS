@@ -25,6 +25,7 @@ data class FormData(
     val reedSolomon: Boolean,
     val paranoid: Boolean,
     val deniability: Boolean,
+    val verifyFirst: Boolean = false,
     val keyfileFilenames: List<KeyfileInfo>, // Keyfile info with internal path and display name
     val keyfileOrdered: Boolean,
     val decryptionInfo: DecryptionInfo? = null
@@ -74,6 +75,7 @@ data class FormData(
         if (reedSolomon != other.reedSolomon) return false
         if (paranoid != other.paranoid) return false
         if (deniability != other.deniability) return false
+        if (verifyFirst != other.verifyFirst) return false
         if (keyfileFilenames != other.keyfileFilenames) return false
         if (keyfileOrdered != other.keyfileOrdered) return false
         if (decryptionInfo != other.decryptionInfo) return false
@@ -90,6 +92,7 @@ data class FormData(
         result = 31 * result + reedSolomon.hashCode()
         result = 31 * result + paranoid.hashCode()
         result = 31 * result + deniability.hashCode()
+        result = 31 * result + verifyFirst.hashCode()
         result = 31 * result + keyfileFilenames.hashCode()
         result = 31 * result + keyfileOrdered.hashCode()
         result = 31 * result + (decryptionInfo?.hashCode() ?: 0)

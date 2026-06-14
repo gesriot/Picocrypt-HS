@@ -31,6 +31,7 @@ class MainViewModel(
         reedSolomon = false, // Always default, no persistence
         paranoid = false, // Always default, no persistence
         deniability = false, // Always default, no persistence
+        verifyFirst = false, // Always default, no persistence
         keyfileFilenames = emptyList(), // Always default, no persistence
         keyfileOrdered = false, // Always default, no persistence
         decryptionInfo = null // Never save decryption info (transient)
@@ -169,6 +170,7 @@ class MainViewModel(
             reedSolomon = false,
             paranoid = false,
             deniability = false,
+            verifyFirst = false,
             keyfileFilenames = emptyList(),
             keyfileOrdered = false,
             decryptionInfo = null

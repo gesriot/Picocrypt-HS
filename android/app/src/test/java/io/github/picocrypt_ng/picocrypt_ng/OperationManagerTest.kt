@@ -13,6 +13,7 @@ import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
 import io.mockk.verify
+import io.mockk.slot
 import kotlin.io.path.createTempDirectory
 
 /**
@@ -524,6 +525,41 @@ class OperationManagerTest {
     fun `OperationType enum values are correct`() {
         assertEquals("ENCRYPT", OperationType.ENCRYPT.name)
         assertEquals("DECRYPT", OperationType.DECRYPT.name)
+    }
+
+    @Test
+    fun `startDecrypt passes verifyFirst from formData into DecryptOptions`() = runTest {
+        // verifyFirst is a security option (integrity-verify-before-write). It is wired
+        // through the Go bridge (GoBridge.DecryptOptions.verifyFirst -> android.go) but
+        // OperationManager historically hardcoded it false. Capture the DecryptOptions
+        // handed to GoBridge.startDecrypt and prove the form value flows through.
+        // GoBridge is the Go mobile AAR (absent on the JVM classpath), so mock it;
+        // startDecrypt resolves an output path under context.filesDir, so back it with
+        // a real temp dir (the relaxed mock returns null otherwise).
+        val tmpDir = createTempDirectory(prefix = "opmgr_verifyfirst").toFile()
+        every { mockContext.filesDir } returns tmpDir
+
+        mockkObject(GoBridge)
+        try {
+            every { GoBridge.startOperation() } returns Result.success("op_vf")
+            val optionsSlot = slot<DecryptOptions>()
+            every {
+                GoBridge.startDecrypt(any(), any(), any(), any(), capture(optionsSlot))
+            } returns Result.success(Unit)
+
+            val formData = TestDataBuilders.createDecryptFormData().copy(verifyFirst = true)
+            val result = OperationManager.startDecrypt(mockContext, formData)
+
+            assertTrue("startDecrypt should succeed", result.isSuccess)
+            assertTrue("DecryptOptions must be captured", optionsSlot.isCaptured)
+            assertTrue(
+                "verifyFirst must flow from formData into the Go bridge call",
+                optionsSlot.captured.verifyFirst
+            )
+        } finally {
+            unmockkObject(GoBridge)
+            tmpDir.deleteRecursively()
+        }
     }
 }
 
