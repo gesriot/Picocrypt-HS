@@ -1,3 +1,8 @@
+# v2.15
+<ul>
+	<li>✓ <strong>Cross-platform passwords (Unicode)</strong>: passwords are normalized to Unicode NFC before key derivation, so a password with accented or non-Latin characters typed on macOS now decrypts on Windows/Linux and vice versa. Existing volumes still open — decryption also tries the as-typed and decomposed forms — and ASCII passwords are unaffected. The desktop and CLI show a short advisory when encrypting with a non-ASCII password.</li>
+</ul>
+
 # v2.14
 <ul>
 	<li>✓ <strong>Compression and deniability progress</strong>: both passes now report speed and ETA, like the main encrypt/decrypt pass</li>

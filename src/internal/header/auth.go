@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha3"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"hash"
 )
@@ -135,4 +136,14 @@ func NewKeyfileError(ordered bool) *AuthError {
 		KeyfileOrdered:   ordered,
 		Message:          msg,
 	}
+}
+
+// IsPasswordError reports whether err is an authentication failure attributable
+// to an incorrect password (rather than a keyfile mismatch or other error). The
+// decrypt path uses it to decide whether retrying with another password
+// normalization form (NFC/NFD/raw) could succeed; a keyfile error is
+// independent of the password and would fail identically for every form.
+func IsPasswordError(err error) bool {
+	var authErr *AuthError
+	return errors.As(err, &authErr) && authErr.PasswordIncorrect
 }

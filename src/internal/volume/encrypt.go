@@ -15,6 +15,7 @@ import (
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/keyfile"
 	"Picocrypt-NG/internal/log"
+	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 )
 
@@ -229,7 +230,9 @@ func encryptWriteHeader(ctx *OperationContext, req *EncryptRequest) error {
 func encryptDeriveKeys(ctx *OperationContext, req *EncryptRequest) error {
 	ctx.SetStatus("Deriving key...")
 
-	key, err := deriveVolumeKey([]byte(req.Password), ctx.Header.Salt, req.Paranoid)
+	// Feed the KDF the NFC-normalized password so new volumes derive a
+	// canonical, cross-platform-stable key regardless of how it was typed (#19).
+	key, err := deriveVolumeKey(pwnorm.EncodeForKDF(req.Password), ctx.Header.Salt, req.Paranoid)
 	if err != nil {
 		return err
 	}
