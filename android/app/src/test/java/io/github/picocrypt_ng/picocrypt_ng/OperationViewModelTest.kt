@@ -18,6 +18,10 @@ import org.junit.Test
 import io.github.picocrypt_ng.picocrypt_ng.testutils.MainDispatcherRule
 import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
+import io.mockk.every
+import io.mockk.verify
 
 /**
  * Unit tests for OperationViewModel.
@@ -162,6 +166,27 @@ class OperationViewModelTest {
         // but we verify the StateFlow is connected
         val managerState = OperationManager.currentOperation.first()
         assertEquals(managerState, operationState)
+    }
+
+    @Test
+    fun `startForegroundServiceSafely swallows a background-start IllegalStateException`() {
+        // On Android 12+ starting a foreground service from the background throws
+        // ForegroundServiceStartNotAllowedException (an IllegalStateException subclass).
+        // Because the service start happens AFTER the suspending op-start, the app may
+        // have backgrounded in that window. The Go operation is already running, so we
+        // must keep going (poll for progress) rather than crash the coroutine.
+        mockkObject(OperationForegroundService.Companion)
+        try {
+            every { OperationForegroundService.start(any()) } throws
+                IllegalStateException("ForegroundServiceStartNotAllowedException")
+
+            // Must not rethrow.
+            viewModel.startForegroundServiceSafely(mockContext)
+
+            verify { OperationForegroundService.start(any()) }
+        } finally {
+            unmockkObject(OperationForegroundService.Companion)
+        }
     }
 
     private fun resetOperationState() {

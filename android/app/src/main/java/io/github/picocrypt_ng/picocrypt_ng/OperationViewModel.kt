@@ -18,7 +18,22 @@ class OperationViewModel : ViewModel() {
     private var pollingJob: Job? = null
     private var backgroundPollingJob: Job? = null
     private var isForeground = true
-    
+
+    /**
+     * Starts the foreground service, swallowing a background-start failure. On Android
+     * 12+ ForegroundServiceStartNotAllowedException (an IllegalStateException subclass)
+     * is thrown if the app left the foreground during the suspending op-start. The Go
+     * operation is already running; callers still poll so progress and completion
+     * surface — just without the ongoing notification.
+     */
+    internal fun startForegroundServiceSafely(context: Context) {
+        try {
+            OperationForegroundService.start(context.applicationContext)
+        } catch (e: IllegalStateException) {
+            // Background-start not allowed; intentionally ignored (see KDoc).
+        }
+    }
+
     /**
      * Starts an encryption operation and begins polling progress.
      */
@@ -26,7 +41,7 @@ class OperationViewModel : ViewModel() {
         viewModelScope.launch {
             val result = OperationManager.startEncrypt(context, formData)
             result.onSuccess {
-                OperationForegroundService.start(context.applicationContext)
+                startForegroundServiceSafely(context)
                 startPolling()
             }
         }
@@ -39,7 +54,7 @@ class OperationViewModel : ViewModel() {
         viewModelScope.launch {
             val result = OperationManager.startDecrypt(context, formData)
             result.onSuccess {
-                OperationForegroundService.start(context.applicationContext)
+                startForegroundServiceSafely(context)
                 startPolling()
             }
         }
@@ -75,7 +90,7 @@ class OperationViewModel : ViewModel() {
             stopPolling()
             val result = OperationManager.retryOperation(context, formData)
             result.onSuccess {
-                OperationForegroundService.start(context.applicationContext)
+                startForegroundServiceSafely(context)
                 startPolling()
             }
         }
@@ -89,7 +104,7 @@ class OperationViewModel : ViewModel() {
             stopPolling()
             val result = OperationManager.retryDecryptWithForce()
             result.onSuccess {
-                OperationForegroundService.start(context.applicationContext)
+                startForegroundServiceSafely(context)
                 startPolling()
             }
         }
