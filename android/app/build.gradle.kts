@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import com.android.build.api.variant.FilterConfiguration.FilterType.ABI
 
 plugins {
     alias(libs.plugins.android.application)
@@ -13,6 +14,10 @@ val releaseSigningRequested = gradle.startParameter.taskNames.any { task ->
         lower.contains("bundlerelease") ||
         lower.contains("packagerelease")
 }
+
+// ABI splits only for release builds: keeps debug a single app-debug.apk (fast iteration
+// and the PR test build), while release ships per-ABI APKs for F-Droid/IzzyOnDroid.
+val abiSplitsEnabled = releaseSigningRequested
 
 val releaseSigningProps = mapOf(
     "PICOCRYPT_KEYSTORE_PATH" to providers.gradleProperty("PICOCRYPT_KEYSTORE_PATH").orNull,
@@ -68,6 +73,23 @@ android {
             )
         }
     }
+    dependenciesInfo {
+        // F-Droid/IzzyOnDroid: strip Google's signed, third-party-unverifiable dependency
+        // metadata blob from release artifacts so the build stays fully transparent.
+        includeInApk = false
+        includeInBundle = false
+    }
+    splits {
+        abi {
+            // Per-ABI APKs for F-Droid/IzzyOnDroid (~15 MB smaller each), plus a universal
+            // APK as a fallback. The native .so libs come from the gomobile AAR; AGP
+            // partitions them at packaging time.
+            isEnable = abiSplitsEnabled
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -88,6 +110,28 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_11)
+    }
+}
+
+// Give each per-ABI APK a unique versionCode so the per-ABI and universal artifacts can
+// coexist in a store/repo. Ordering armeabi-v7a < arm64-v8a < x86 < x86_64 (F-Droid serves
+// the highest installable code); the universal APK keeps the base code as the fallback.
+// Mirror this exactly in fdroiddata's VercodeOperation: [10 * %c + 1 .. 10 * %c + 4].
+val abiVersionCodeOffsets = mapOf(
+    "armeabi-v7a" to 1,
+    "arm64-v8a" to 2,
+    "x86" to 3,
+    "x86_64" to 4,
+)
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters.find { it.filterType == ABI }?.identifier ?: return@forEach
+            val offset = abiVersionCodeOffsets[abi] ?: return@forEach
+            val base = output.versionCode.get() ?: 0
+            output.versionCode.set(base * 10 + offset)
+        }
     }
 }
 
