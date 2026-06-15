@@ -72,12 +72,15 @@ State & lifecycle:
 - **FormData**: The selection model (kind + file lists) and form fields
 - **OperationForegroundService** (`dataSync`): Hosts a running operation with a progress
   notification so it survives backgrounding; self-stops when the operation finishes
+- **SettingsRepository**: SharedPreferences-backed setting holder for screenshot protection
+  (`FLAG_SECURE`), exposed as a `StateFlow`
 
 UI (`ui/components/`):
 - **FileCard** / **PasswordCard** / **KeyfileCard** / **AdvancedCard** / **CommentsCard**: input cards
 - **DecryptOptionsCard** / **DecryptionInfoCard**: decrypt-side options and header info
 - **WorkButton**: starts the encrypt/decrypt operation
 - **ProgressCard** / **ErrorDialog**: progress and error surfaces
+- **PrivacyCard**: always-visible card with the screenshot-protection toggle
 
 ## Integration Flow
 
