@@ -384,6 +384,13 @@ func TestStartEncryptPassesMultiFileSelection(t *testing.T) {
 }
 
 func TestStartEncryptFolderRoundTripsToZip(t *testing.T) {
+	if raceEnabled {
+		// This drives the real, memory-hard (~1 GiB) Argon2id KDF. Under -race's shadow
+		// memory times `go test ./...` package parallelism it OOM-kills the hosted amd64
+		// runner (SIGTERM / exit 143). It tests crypto, not concurrency, so -race adds no
+		// coverage; it still runs on the no-race matrix (arm64) and locally.
+		t.Skip("skipping real memory-hard Argon2id KDF round-trip under -race (OOMs CI runners)")
+	}
 	resetProgressMap()
 
 	root := t.TempDir()
