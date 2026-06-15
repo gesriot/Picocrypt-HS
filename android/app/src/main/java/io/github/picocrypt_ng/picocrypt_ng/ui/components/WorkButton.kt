@@ -43,7 +43,7 @@ fun WorkButton(
     var showErrorDialog by rememberSaveable { mutableStateOf<AppError?>(null) }
     
     val isOperationActive = operationState != null && !operationState!!.done
-    val isButtonEnabled = formData.isFormValid && !isOperationActive && formData.copiedFilePath.isNotEmpty()
+    val isButtonEnabled = formData.isFormValid && !isOperationActive && formData.hasSelectedInput
     var shouldStartOperation by remember { mutableStateOf(false) }
     
     // Start operation when button is clicked

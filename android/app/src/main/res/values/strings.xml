@@ -5,6 +5,9 @@
     <string name="choose_file">Choose a file</string>
     <string name="copying_file">Copying file…</string>
     <string name="choose_file_description">Choose file</string>
+    <string name="choose_single_file">Single file</string>
+    <string name="choose_multiple_files">Multiple files</string>
+    <string name="choose_folder">Folder</string>
     
     <!-- Password Card -->
     <string name="password">Password</string>
@@ -40,6 +43,7 @@
     <string name="reed_solomon">Reed-Solomon</string>
     <string name="paranoid">Paranoid</string>
     <string name="deniability">Deniability</string>
+    <string name="compress">Compress</string>
     <string name="expand_or_collapse">Expand or collapse</string>
 
     <!-- Decrypt Options Card -->

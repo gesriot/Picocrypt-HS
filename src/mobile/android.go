@@ -54,6 +54,9 @@ func DetectOperation(filePath string) (isEncrypt bool, err error) {
 type EncryptRequestJSON struct {
 	OperationID    string   `json:"operationID"`
 	InputFile      string   `json:"inputFile"`
+	InputFiles     []string `json:"inputFiles"`
+	OnlyFolders    []string `json:"onlyFolders"`
+	OnlyFiles      []string `json:"onlyFiles"`
 	OutputFile     string   `json:"outputFile"`
 	Comments       string   `json:"comments"`
 	Keyfiles       []string `json:"keyfiles"`
@@ -103,7 +106,7 @@ func StartEncrypt(requestJSON string, password []byte) string {
 	}
 
 	// Validate inputs
-	if req.InputFile == "" {
+	if req.InputFile == "" && len(req.InputFiles) == 0 {
 		return failOperation(req.OperationID, fmt.Errorf("input file is required"))
 	}
 	if req.OutputFile == "" {
@@ -149,6 +152,9 @@ func StartEncrypt(requestJSON string, password []byte) string {
 		// Build encrypt request
 		encryptReq := &volume.EncryptRequest{
 			InputFile:      req.InputFile,
+			InputFiles:     req.InputFiles,
+			OnlyFolders:    req.OnlyFolders,
+			OnlyFiles:      req.OnlyFiles,
 			OutputFile:     req.OutputFile,
 			Password:       pw,
 			Keyfiles:       req.Keyfiles,

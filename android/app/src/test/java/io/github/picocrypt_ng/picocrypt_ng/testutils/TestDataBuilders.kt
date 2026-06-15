@@ -5,6 +5,7 @@ import io.github.picocrypt_ng.picocrypt_ng.FormData
 import io.github.picocrypt_ng.picocrypt_ng.KeyfileInfo
 import io.github.picocrypt_ng.picocrypt_ng.OperationState
 import io.github.picocrypt_ng.picocrypt_ng.OperationType
+import io.github.picocrypt_ng.picocrypt_ng.SelectionKind
 
 /**
  * Test data builders for creating test objects.
@@ -41,6 +42,34 @@ object TestDataBuilders {
         )
     }
     
+    /**
+     * Creates a FormData for a FOLDER selection (folder/multi-file encrypt path).
+     * The staged input lives in [inputFiles]/[onlyFolders]; [copiedFilePath] is empty
+     * because a multi selection sends arrays, not a single inputFile.
+     */
+    fun createFolderEncryptFormData(
+        displayName: String = "MyDocs",
+        inputFiles: List<String> = listOf("/stage/MyDocs/a.txt", "/stage/MyDocs/sub/b.txt"),
+        onlyFolders: List<String> = listOf("/stage/MyDocs"),
+        password: String = "testpassword",
+    ): FormData = FormData(
+        selectedFilename = displayName,
+        copiedFilePath = "",
+        comments = "",
+        passwordInput = password.toCharArray(),
+        confirmPasswordInput = password.toCharArray(),
+        reedSolomon = false,
+        paranoid = false,
+        deniability = false,
+        keyfileFilenames = emptyList(),
+        keyfileOrdered = false,
+        inputFiles = inputFiles,
+        onlyFolders = onlyFolders,
+        selectionKind = SelectionKind.FOLDER,
+        suggestedOutputName = "$displayName.zip.pcv",
+        decryptionInfo = null,
+    )
+
     /**
      * Creates a FormData for decryption with default values.
      */

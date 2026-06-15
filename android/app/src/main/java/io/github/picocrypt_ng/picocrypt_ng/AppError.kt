@@ -108,6 +108,15 @@ sealed class AppError(
             userMessage: String = "Failed to save file",
             technicalMessage: String? = null
         ) : FileError(userMessage, technicalMessage)
+
+        /**
+         * Internal storage cannot hold the staged copy + temp zip + output volume.
+         * Folder/multi-file encryption peaks at ~3x the selection size before cleanup.
+         */
+        class InsufficientStorage(
+            userMessage: String = "Not enough free space to encrypt this selection",
+            technicalMessage: String? = null
+        ) : FileError(userMessage, technicalMessage)
     }
     
     /**

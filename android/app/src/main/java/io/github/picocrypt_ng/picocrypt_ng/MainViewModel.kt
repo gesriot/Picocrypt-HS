@@ -138,6 +138,11 @@ class MainViewModel(
                 copiedFilePath = "",
                 comments = "",
                 keyfileFilenames = emptyList(),
+                inputFiles = emptyList(),
+                onlyFolders = emptyList(),
+                onlyFiles = emptyList(),
+                selectionKind = SelectionKind.SINGLE_FILE,
+                suggestedOutputName = "",
                 decryptionInfo = null
             )
             
@@ -173,6 +178,11 @@ class MainViewModel(
             verifyFirst = false,
             keyfileFilenames = emptyList(),
             keyfileOrdered = false,
+            inputFiles = emptyList(),
+            onlyFolders = emptyList(),
+            onlyFiles = emptyList(),
+            selectionKind = SelectionKind.SINGLE_FILE,
+            suggestedOutputName = "",
             decryptionInfo = null
         )
         _formState.value = reset

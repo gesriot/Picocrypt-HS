@@ -28,16 +28,37 @@ data class FormData(
     val verifyFirst: Boolean = false,
     val keyfileFilenames: List<KeyfileInfo>, // Keyfile info with internal path and display name
     val keyfileOrdered: Boolean,
+    val compress: Boolean = false,
+    // Folder/multi-file selection (StagingService output). For SINGLE_FILE these stay
+    // empty and copiedFilePath carries the one input; for FOLDER/MULTI_FILE the staged
+    // tree is forwarded to Go as these arrays and copiedFilePath is empty.
+    val inputFiles: List<String> = emptyList(),
+    val onlyFolders: List<String> = emptyList(),
+    val onlyFiles: List<String> = emptyList(),
+    val selectionKind: SelectionKind = SelectionKind.SINGLE_FILE,
+    val suggestedOutputName: String = "",
     val decryptionInfo: DecryptionInfo? = null
 ) {
+    // A folder/multi selection always encrypts (Go zips it) and is never a decrypt or a
+    // split-volume chunk -- those are single-file concepts keyed off the filename.
     val isDecrypt: Boolean
-        get() = selectedFilename.isNotEmpty() && selectedFilename.endsWith(".pcv")
+        get() = selectionKind == SelectionKind.SINGLE_FILE &&
+            selectedFilename.isNotEmpty() && selectedFilename.endsWith(".pcv")
     val isEncrypt: Boolean
-        get() = selectedFilename.isNotEmpty() && !selectedFilename.endsWith(".pcv")
+        get() = selectionKind != SelectionKind.SINGLE_FILE ||
+            (selectedFilename.isNotEmpty() && !selectedFilename.endsWith(".pcv"))
     val isPasswordsMatch: Boolean
         get() = passwordInput.contentEquals(confirmPasswordInput)
     val isPasswordValid: Boolean
         get() = passwordInput.isNotEmpty() && ((isEncrypt && isPasswordsMatch) || isDecrypt)
+
+    /**
+     * True when a concrete input is selected: a single copied file, or a staged
+     * folder/multi-file selection. WorkButton gates the Encrypt button on this so
+     * folder/multi selections (which have an empty copiedFilePath) are not blocked.
+     */
+    val hasSelectedInput: Boolean
+        get() = copiedFilePath.isNotEmpty() || inputFiles.isNotEmpty()
 
     /**
      * True when the selected file is a numbered split-volume chunk (e.g. secret.pcv.0).
@@ -47,7 +68,7 @@ data class FormData(
      * target and double-encrypted.
      */
     val isSplitVolumeChunk: Boolean
-        get() = isSplitVolumeChunkName(selectedFilename)
+        get() = selectionKind == SelectionKind.SINGLE_FILE && isSplitVolumeChunkName(selectedFilename)
     
     /**
      * Clears password fields by zeroing the character arrays.
@@ -88,8 +109,14 @@ data class FormData(
         if (verifyFirst != other.verifyFirst) return false
         if (keyfileFilenames != other.keyfileFilenames) return false
         if (keyfileOrdered != other.keyfileOrdered) return false
+        if (compress != other.compress) return false
+        if (inputFiles != other.inputFiles) return false
+        if (onlyFolders != other.onlyFolders) return false
+        if (onlyFiles != other.onlyFiles) return false
+        if (selectionKind != other.selectionKind) return false
+        if (suggestedOutputName != other.suggestedOutputName) return false
         if (decryptionInfo != other.decryptionInfo) return false
-        
+
         return true
     }
     
@@ -105,6 +132,12 @@ data class FormData(
         result = 31 * result + verifyFirst.hashCode()
         result = 31 * result + keyfileFilenames.hashCode()
         result = 31 * result + keyfileOrdered.hashCode()
+        result = 31 * result + compress.hashCode()
+        result = 31 * result + inputFiles.hashCode()
+        result = 31 * result + onlyFolders.hashCode()
+        result = 31 * result + onlyFiles.hashCode()
+        result = 31 * result + selectionKind.hashCode()
+        result = 31 * result + suggestedOutputName.hashCode()
         result = 31 * result + (decryptionInfo?.hashCode() ?: 0)
         return result
     }

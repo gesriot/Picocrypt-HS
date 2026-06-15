@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,7 +37,10 @@ import io.github.picocrypt_ng.picocrypt_ng.GoBridge
 import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
 import io.github.picocrypt_ng.picocrypt_ng.R
 import androidx.compose.runtime.collectAsState
+import io.github.picocrypt_ng.picocrypt_ng.StagedSelection
+import io.github.picocrypt_ng.picocrypt_ng.StagingService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
@@ -169,12 +175,39 @@ fun ChooseFile(viewModel: MainViewModel) {
             }
         }
     }
-    
+
+    val scope = rememberCoroutineScope()
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        isCopying = true
+        scope.launch {
+            val result = StagingService.copyTreeToStaging(context, uri)
+            applyStagedSelection(viewModel, result)
+            isCopying = false
+        }
+    }
+
+    val filesPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        isCopying = true
+        scope.launch {
+            val result = StagingService.copyFilesToStaging(context, uris, System.currentTimeMillis() / 1000)
+            applyStagedSelection(viewModel, result)
+            isCopying = false
+        }
+    }
+
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp)
-            .clickable(enabled = !isCopying) { filePickerLauncher.launch("*/*") },
+            .clickable(enabled = !isCopying) { menuOpen = true },
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         if (isCopying) {
@@ -187,6 +220,44 @@ fun ChooseFile(viewModel: MainViewModel) {
                 contentDescription = stringResource(R.string.choose_file_description)
             )
         }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.choose_single_file)) },
+                onClick = { menuOpen = false; filePickerLauncher.launch("*/*") }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.choose_multiple_files)) },
+                onClick = { menuOpen = false; filesPickerLauncher.launch(arrayOf("*/*")) }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.choose_folder)) },
+                onClick = { menuOpen = false; folderPickerLauncher.launch(null) }
+            )
+        }
+    }
+}
+
+private fun applyStagedSelection(viewModel: MainViewModel, result: Result<StagedSelection>) {
+    result.onSuccess { sel ->
+        viewModel.resetFormToDefaults()
+        val base = viewModel.formState.value
+        viewModel.updateFormData(
+            base.copy(
+                selectedFilename = sel.displayName,
+                copiedFilePath = "",
+                inputFiles = sel.inputFiles,
+                onlyFolders = sel.onlyFolders,
+                onlyFiles = sel.onlyFiles,
+                selectionKind = sel.kind,
+                suggestedOutputName = sel.suggestedOutputName,
+                comments = "",
+                decryptionInfo = null,
+            )
+        )
+    }.onFailure { error ->
+        viewModel.setError(
+            (error as? AppError) ?: AppError.fromException(error as? Exception ?: Exception(error.message ?: "error"))
+        )
     }
 }
 

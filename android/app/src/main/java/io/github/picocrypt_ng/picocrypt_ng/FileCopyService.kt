@@ -407,7 +407,7 @@ object FileCopyService {
             
             // Clean up any remaining incomplete files (but not input/keyfiles)
             cleanupIncompleteFiles(context)
-            
+
             allSuccess
         } catch (e: CancellationException) {
             throw e

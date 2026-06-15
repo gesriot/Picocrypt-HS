@@ -133,11 +133,16 @@ object GoBridge {
         inputFile: String,
         outputFile: String,
         password: ByteArray,
-        options: EncryptOptions
+        options: EncryptOptions,
+        inputFiles: List<String> = emptyList(),
+        onlyFolders: List<String> = emptyList(),
+        onlyFiles: List<String> = emptyList()
     ): Result<Unit> {
         return try {
             // Build JSON request (password is passed separately as bytes, never in JSON)
-            val requestJson = buildEncryptRequestJson(operationID, inputFile, outputFile, options)
+            val requestJson = buildEncryptRequestJson(
+                operationID, inputFile, outputFile, options, inputFiles, onlyFolders, onlyFiles
+            )
 
             // Note: gomobile copies the array across JNI; that transient bridge copy is not reachable for zeroing (intrinsic to the binding).
             val errorMsg = Mobile.startEncrypt(requestJson, password)
@@ -276,10 +281,18 @@ object GoBridge {
         operationID: String,
         inputFile: String,
         outputFile: String,
-        options: EncryptOptions
+        options: EncryptOptions,
+        inputFiles: List<String> = emptyList(),
+        onlyFolders: List<String> = emptyList(),
+        onlyFiles: List<String> = emptyList()
     ): String = JSONObject().apply {
         put("operationID", operationID)
         put("inputFile", inputFile)
+        // Folder/multi-file selection arrays forwarded to the Go core (it zips them).
+        // Always present (empty for the single-file path) so the Go side reads a stable shape.
+        put("inputFiles", JSONArray().apply { inputFiles.forEach { put(it) } })
+        put("onlyFolders", JSONArray().apply { onlyFolders.forEach { put(it) } })
+        put("onlyFiles", JSONArray().apply { onlyFiles.forEach { put(it) } })
         put("outputFile", outputFile)
         put("comments", options.comments)
         put("keyfiles", JSONArray().apply { options.keyfiles.forEach { put(it) } })

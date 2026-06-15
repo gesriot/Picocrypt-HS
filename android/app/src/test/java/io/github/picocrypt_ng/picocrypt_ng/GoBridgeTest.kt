@@ -77,6 +77,55 @@ class GoBridgeTest {
     }
 
     @Test
+    fun buildEncryptRequestJson_includesCompressTrue() {
+        val json = GoBridge.buildEncryptRequestJson(
+            operationID = "op1",
+            inputFile = "/data/in.txt",
+            outputFile = "/data/out.pcv",
+            options = EncryptOptions(compress = true)
+        )
+        val obj = JSONObject(json)
+        assertTrue(obj.getBoolean("compress"))
+    }
+
+    @Test
+    fun buildEncryptRequestJson_includesSelectionArrays() {
+        // A folder/multi-file selection is forwarded to Go as inputFiles/onlyFolders/
+        // onlyFiles arrays (Go zips them). The single-file path leaves these empty.
+        // This asserts the REAL serialization so a dropped/renamed array fails the build.
+        val json = GoBridge.buildEncryptRequestJson(
+            operationID = "op1",
+            inputFile = "",
+            outputFile = "/data/out.pcv",
+            options = EncryptOptions(),
+            inputFiles = listOf("/s/Root/a.txt", "/s/Root/sub/b.txt"),
+            onlyFolders = listOf("/s/Root"),
+            onlyFiles = emptyList(),
+        )
+        val obj = JSONObject(json)
+        assertEquals(2, obj.getJSONArray("inputFiles").length())
+        assertEquals("/s/Root", obj.getJSONArray("onlyFolders").getString(0))
+        assertEquals(0, obj.getJSONArray("onlyFiles").length())
+    }
+
+    @Test
+    fun buildEncryptRequestJson_singleFileEmitsEmptySelectionArrays() {
+        // The single-file path must stay the degenerate case: inputFile carries the path
+        // and the three selection arrays are present but empty (Go treats it as one file).
+        val json = GoBridge.buildEncryptRequestJson(
+            operationID = "op1",
+            inputFile = "/data/in.txt",
+            outputFile = "/data/out.pcv",
+            options = EncryptOptions(),
+        )
+        val obj = JSONObject(json)
+        assertEquals("/data/in.txt", obj.getString("inputFile"))
+        assertEquals(0, obj.getJSONArray("inputFiles").length())
+        assertEquals(0, obj.getJSONArray("onlyFolders").length())
+        assertEquals(0, obj.getJSONArray("onlyFiles").length())
+    }
+
+    @Test
     fun `buildDecryptRequestJson serializes every option and never the password`() {
         val json = JSONObject(
             GoBridge.buildDecryptRequestJson(

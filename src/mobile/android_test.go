@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/volume"
@@ -327,10 +329,136 @@ func TestStartEncryptZeroesPasswordBytes(t *testing.T) {
 	_ = waitForDone(t, id)
 }
 
+func TestStartEncryptPassesMultiFileSelection(t *testing.T) {
+	resetProgressMap()
+
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.txt")
+	b := filepath.Join(dir, "b.txt")
+	for _, p := range []string{a, b} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outputPath := filepath.Join(dir, "out.pcv")
+
+	var captured *volume.EncryptRequest
+	orig := runEncrypt
+	runEncrypt = func(_ context.Context, req *volume.EncryptRequest) error {
+		captured = req
+		return nil
+	}
+	defer func() { runEncrypt = orig }()
+
+	id := StartOperation()
+	reqJSON, err := json.Marshal(EncryptRequestJSON{
+		OperationID: id,
+		InputFiles:  []string{a, b},
+		OnlyFiles:   []string{a, b},
+		OnlyFolders: []string{dir},
+		OutputFile:  outputPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := StartEncrypt(string(reqJSON), []byte("pw")); got != "" {
+		t.Fatalf("StartEncrypt(...) = %q, want empty", got)
+	}
+	_ = waitForDone(t, id)
+
+	if captured == nil {
+		t.Fatal("runEncrypt was not called")
+	}
+	if len(captured.InputFiles) != 2 || captured.InputFiles[0] != a || captured.InputFiles[1] != b {
+		t.Fatalf("InputFiles = %#v, want [%q %q]", captured.InputFiles, a, b)
+	}
+	if len(captured.OnlyFiles) != 2 {
+		t.Fatalf("OnlyFiles = %#v, want 2 entries", captured.OnlyFiles)
+	}
+	if len(captured.OnlyFolders) != 1 || captured.OnlyFolders[0] != dir {
+		t.Fatalf("OnlyFolders = %#v, want [%q]", captured.OnlyFolders, dir)
+	}
+	if captured.InputFile != "" {
+		t.Fatalf("InputFile = %q, want empty for multi-file selection", captured.InputFile)
+	}
+}
+
+func TestStartEncryptFolderRoundTripsToZip(t *testing.T) {
+	resetProgressMap()
+
+	root := t.TempDir()
+	folder := filepath.Join(root, "MyDocs")
+	if err := os.MkdirAll(filepath.Join(folder, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := filepath.Join(folder, "a.txt")
+	b := filepath.Join(folder, "sub", "b.txt")
+	if err := os.WriteFile(a, []byte("aaa"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("bbb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(root, "MyDocs.zip.pcv")
+
+	id := StartOperation()
+	reqJSON, err := json.Marshal(EncryptRequestJSON{
+		OperationID: id,
+		InputFiles:  []string{a, b},
+		OnlyFolders: []string{folder},
+		OutputFile:  out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := StartEncrypt(string(reqJSON), []byte("pw")); got != "" {
+		t.Fatalf("StartEncrypt = %q, want empty", got)
+	}
+	// Real Argon2id KDF takes ~3-4 s; use a longer deadline than waitForDone's 2 s.
+	if state := waitForDoneTimeout(t, id, 30*time.Second); state.Status == "Error" {
+		t.Fatalf("encrypt failed: %s", state.Error)
+	}
+
+	// Decrypt to a .zip and inspect entries.
+	zipOut := filepath.Join(root, "decrypted.zip")
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := volume.Decrypt(context.Background(), &volume.DecryptRequest{
+		InputFile:  out,
+		OutputFile: zipOut,
+		Password:   "pw",
+		RSCodecs:   rsCodecs,
+	}); err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+
+	zr, err := zip.OpenReader(zipOut)
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	defer func() { _ = zr.Close() }()
+	got := map[string]bool{}
+	for _, f := range zr.File {
+		got[f.Name] = true
+	}
+	for _, want := range []string{"MyDocs/a.txt", "MyDocs/sub/b.txt"} {
+		if !got[want] {
+			t.Fatalf("zip missing %q; entries=%v", want, got)
+		}
+	}
+}
+
 func waitForDone(t *testing.T, id string) *ProgressState {
 	t.Helper()
+	return waitForDoneTimeout(t, id, 2*time.Second)
+}
 
-	deadline := time.Now().Add(2 * time.Second)
+func waitForDoneTimeout(t *testing.T, id string, timeout time.Duration) *ProgressState {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		state, err := getProgress(id)
 		if err != nil {

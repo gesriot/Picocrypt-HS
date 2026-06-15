@@ -23,14 +23,21 @@ object OperationManager {
         context: Context,
         formData: FormData
     ): Result<String> = withContext(Dispatchers.IO) {
-        if (formData.copiedFilePath.isEmpty()) {
+        // A folder/multi-file selection encrypts the staged tree (inputFiles), not a
+        // single copiedFilePath. Validate the right source per selection kind.
+        val isMulti = formData.selectionKind != SelectionKind.SINGLE_FILE
+        if (!isMulti && formData.copiedFilePath.isEmpty()) {
+            return@withContext Result.failure(AppError.ValidationError.NoFileSelected)
+        }
+        if (isMulti && formData.inputFiles.isEmpty()) {
             return@withContext Result.failure(AppError.ValidationError.NoFileSelected)
         }
 
         // A numbered split-volume chunk (secret.pcv.0) does not end in .pcv, so it lands
         // on the encrypt path and would be DOUBLE-ENCRYPTED. Android cannot recombine
-        // (single-file picker), so reject it loudly before any work.
-        if (formData.isSplitVolumeChunk) {
+        // (single-file picker), so reject it loudly before any work. Only meaningful for
+        // a single-file selection (isSplitVolumeChunk is already SINGLE_FILE-gated).
+        if (!isMulti && formData.isSplitVolumeChunk) {
             return@withContext Result.failure(AppError.ValidationError.SplitVolumeNotSupported)
         }
 
@@ -46,7 +53,9 @@ object OperationManager {
         // Clean up old files before starting new operation to prevent contamination
         FileCopyService.cleanupOperationFilesBeforeStart(context)
 
-        // Generate output file path using FileCopyService
+        // Generate output file path using FileCopyService. For encrypt this is a fixed
+        // output_file.pcv regardless of the input path, so an empty copiedFilePath (multi
+        // selection) is fine.
         val outputFilePath = FileCopyService.getOutputFilePath(context, formData.copiedFilePath, isEncrypt = true)
 
         // Start operation
@@ -57,18 +66,23 @@ object OperationManager {
             paranoid = formData.paranoid,
             reedSolomon = formData.reedSolomon,
             deniability = formData.deniability,
-            compress = false, // Not supported in UI yet
+            compress = formData.compress,
             keyfiles = formData.keyfileFilenames.map { it.internalPath },
             keyfileOrdered = formData.keyfileOrdered
         )
-        
+
         // Encode the password to UTF-8 bytes without a String; GoBridge zeroes them.
+        // For a multi selection the single inputFile is empty and the staged arrays carry
+        // the inputs; for a single file the arrays are empty (the degenerate case).
         val result = GoBridge.startEncrypt(
             operationID,
-            formData.copiedFilePath,
+            if (isMulti) "" else formData.copiedFilePath,
             outputFilePath,
             formData.passwordInput.toUtf8BytesSecure(),
-            options
+            options,
+            inputFiles = formData.inputFiles,
+            onlyFolders = formData.onlyFolders,
+            onlyFiles = formData.onlyFiles
         )
         
         result.onSuccess {
@@ -242,8 +256,13 @@ object OperationManager {
                 outputFilePath = operation.outputFile,
                 keyfilePaths = keyfilePaths
             )
+
+            // A folder/multi selection stages plaintext copies under STAGING_DIR that the
+            // per-file cleanup above does not cover (it only knows the single input path).
+            // Wipe the staging tree so plaintext does not linger after the operation.
+            StagingService.wipeStaging(context)
         }
-        
+
         _currentOperation.value = null
     }
     
