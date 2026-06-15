@@ -414,8 +414,11 @@ func TestStartEncryptFolderRoundTripsToZip(t *testing.T) {
 	if got := StartEncrypt(string(reqJSON), []byte("pw")); got != "" {
 		t.Fatalf("StartEncrypt = %q, want empty", got)
 	}
-	// Real Argon2id KDF takes ~3-4 s; use a longer deadline than waitForDone's 2 s.
-	if state := waitForDoneTimeout(t, id, 30*time.Second); state.Status == "Error" {
+	// Real Argon2id KDF takes ~3-4 s locally, but it is memory-hard: a contended or
+	// low-memory CI runner can run it many times slower (a hosted amd64 runner has timed
+	// out at 30 s while arm64 passed). Use a generous deadline that absorbs CI variance
+	// without masking a genuine hang -- still well under Go's 10 min per-package timeout.
+	if state := waitForDoneTimeout(t, id, 120*time.Second); state.Status == "Error" {
 		t.Fatalf("encrypt failed: %s", state.Error)
 	}
 
