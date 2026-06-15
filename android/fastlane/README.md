@@ -52,8 +52,9 @@ git clutter.
 ## Status
 
 - [x] `images/icon.png` — 140×140 key logo (within F-Droid's 48–512 px range)
-- [x] `images/phoneScreenshots/1.png`, `2.png` — encrypt + decrypt screens (both ≤ 2:1;
-      `1.png` was side-padded from 2.17:1 to 1.99:1 to meet the limit)
+- [x] `images/phoneScreenshots/1.png`, `2.png` — main/encrypt screen (showing the Privacy &
+      Security screenshot-protection toggle) + decrypt screen (both ≤ 2:1; `1.png` is
+      1220×2420 ≈ 1.98:1, `2.png` ≈ 1.84:1)
 - [x] Per-ABI APK splits + per-ABI versionCodes (`app/build.gradle.kts`)
 - [x] AI-assistance disclosure — addressed upstream on the GitHub/IzzyOnDroid thread
 - [ ] Review `title.txt` / `short_description.txt` / `full_description.txt` — drafts, tune
