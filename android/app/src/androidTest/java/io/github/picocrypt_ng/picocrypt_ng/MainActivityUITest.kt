@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.WindowManager
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -77,6 +78,22 @@ class MainActivityUITest {
     fun mainActivity_hides_work_buttons_before_file_selection() {
         composeTestRule.onAllNodesWithText("Encrypt File").assertCountEquals(0)
         composeTestRule.onAllNodesWithText("Decrypt File").assertCountEquals(0)
+    }
+
+    @Test
+    fun chooseFileRow_folderIcon_doesNotMoveWhenMenuOpens() {
+        // Regression: the folder icon used to jump from the right edge toward the center when the
+        // "Choose a file" dropdown opened, because the DropdownMenu was a third child of the
+        // SpaceBetween Row (its zero-size popup anchor became an arrangement participant). The
+        // icon's bounds must be identical before and after the menu opens.
+        val before = composeTestRule.onNodeWithContentDescription("Choose file")
+            .getUnclippedBoundsInRoot()
+        composeTestRule.onNodeWithText("Choose a file").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Single file").assertIsDisplayed() // menu actually opened
+        val after = composeTestRule.onNodeWithContentDescription("Choose file")
+            .getUnclippedBoundsInRoot()
+        assertEquals("folder icon must not shift when the dropdown opens", before, after)
     }
 
     @Test
