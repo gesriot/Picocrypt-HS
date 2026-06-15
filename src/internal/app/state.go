@@ -36,7 +36,7 @@ import (
 var newRSCodecs = encoding.NewRSCodecs
 
 // Version is the application version string.
-const Version = "v2.14"
+const Version = "v2.15"
 
 // PasswordInputMode represents the visibility state of password inputs.
 type PasswordInputMode int

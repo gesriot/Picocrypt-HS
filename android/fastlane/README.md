@@ -27,7 +27,7 @@ must point at `android/fastlane` (this repo is a monorepo — the Android app li
 
 `versionCode` is derived from the repo-root `VERSION` file by the release workflow:
 `major*10000 + minor*100 + patch`. The first F-Droid release targets **2.15** → base
-versionCode `21500`. (`VERSION` is still `2.14`; it is bumped when the release is cut.)
+versionCode `21500` (`VERSION` is `2.15`).
 
 The release ships **per-ABI APKs** (AGP ABI splits, see `app/build.gradle.kts`): each ABI
 gets a distinct versionCode `base*10 + offset` (armeabi-v7a=1, arm64-v8a=2, x86=3,

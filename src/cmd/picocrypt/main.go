@@ -1,4 +1,4 @@
-// Picocrypt NG v2.14
+// Picocrypt NG v2.15
 // Copyright (c) Picocrypt NG developers
 // Released under GPL-3.0-only
 // https://github.com/Picocrypt-NG/Picocrypt-NG
@@ -20,8 +20,8 @@
 package main
 
 // version is the application version displayed in the window title.
-// Format: "vMAJOR.MINOR" (e.g., "v2.14")
-const version = "v2.14"
+// Format: "vMAJOR.MINOR" (e.g., "v2.15")
+const version = "v2.15"
 
 func main() {
 	run()
