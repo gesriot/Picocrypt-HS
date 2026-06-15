@@ -117,9 +117,9 @@ cat > "$WRAPPER_DIR/go" <<EOF
 #!/bin/sh
 set -e
 if [ -n "\$GOFLAGS" ]; then
-    export GOFLAGS="\$GOFLAGS -mod=mod"
+    export GOFLAGS="\$GOFLAGS -mod=mod -trimpath"
 else
-    export GOFLAGS="-mod=mod"
+    export GOFLAGS="-mod=mod -trimpath"
 fi
 exec "$REAL_GO" "\$@"
 EOF
@@ -129,9 +129,9 @@ cat > "$WRAPPER_DIR/gobind" <<EOF
 #!/bin/sh
 set -e
 if [ -n "\$GOFLAGS" ]; then
-    export GOFLAGS="\$GOFLAGS -mod=mod"
+    export GOFLAGS="\$GOFLAGS -mod=mod -trimpath"
 else
-    export GOFLAGS="-mod=mod"
+    export GOFLAGS="-mod=mod -trimpath"
 fi
 exec "$REAL_GOBIND" "\$@"
 EOF
