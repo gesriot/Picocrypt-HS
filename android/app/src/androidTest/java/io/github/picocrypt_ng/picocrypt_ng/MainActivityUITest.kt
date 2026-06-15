@@ -93,7 +93,10 @@ class MainActivityUITest {
         composeTestRule.onNodeWithText("Single file").assertIsDisplayed() // menu actually opened
         val after = composeTestRule.onNodeWithContentDescription("Choose file")
             .getUnclippedBoundsInRoot()
-        assertEquals("folder icon must not shift when the dropdown opens", before, after)
+        // The bug was a horizontal shift; compare the icon's left/right edges. Dp is a value class
+        // with structural equality, so this does not depend on DpRect overriding equals().
+        assertEquals("folder icon left edge must not move when the menu opens", before.left, after.left)
+        assertEquals("folder icon right edge must not move when the menu opens", before.right, after.right)
     }
 
     @Test
