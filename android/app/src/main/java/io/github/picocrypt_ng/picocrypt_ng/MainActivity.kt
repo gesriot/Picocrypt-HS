@@ -4,6 +4,7 @@ package io.github.picocrypt_ng.picocrypt_ng
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +27,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.picocrypt_ng.picocrypt_ng.FileCopyService
@@ -34,6 +37,7 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.AdvancedCard
@@ -45,6 +49,7 @@ import io.github.picocrypt_ng.picocrypt_ng.ui.components.FileCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.KeyfileCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.LogoBar
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.PasswordCard
+import io.github.picocrypt_ng.picocrypt_ng.ui.components.PrivacyCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.ProgressCard
 import io.github.picocrypt_ng.picocrypt_ng.ui.components.WorkButton
 import io.github.picocrypt_ng.picocrypt_ng.ui.theme.PicocryptNGTheme
@@ -87,6 +92,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         
+        // Apply screenshot protection before the first frame so the cold-start frame is
+        // already secure under the default-ON setting. Orthogonal to enableEdgeToEdge().
+        val settingsRepository = SettingsRepository.getInstance(this)
+        if (settingsRepository.screenshotProtectionEnabled.value) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+
         enableEdgeToEdge()
         setContent {
             PicocryptNGTheme {
@@ -94,6 +106,16 @@ class MainActivity : ComponentActivity() {
                     Column(modifier = Modifier.padding(innerPadding)) {
                         MainLayout()
                     }
+                }
+            }
+        }
+
+        // Apply runtime toggles of the screenshot-protection setting to the activity window.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                settingsRepository.screenshotProtectionEnabled.collect { secure ->
+                    if (secure) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 }
             }
         }
@@ -120,9 +142,14 @@ fun MainLayout() {
 
     // Observe form state from ViewModel
     val formData by mainViewModel.formState.collectAsState()
-    
+
     // Observe error state from ViewModel
     val errorMessage by mainViewModel.errorMessage.collectAsState()
+
+    // Screenshot-protection setting, observed from the process-singleton repository.
+    val context = LocalContext.current
+    val settingsRepository = remember { SettingsRepository.getInstance(context.applicationContext) }
+    val screenshotProtection by settingsRepository.screenshotProtectionEnabled.collectAsState()
     
     val scrollState = rememberScrollState()
     val focusManager = LocalFocusManager.current
@@ -197,6 +224,7 @@ fun MainLayout() {
     // the previous SpacerIf behavior without writing Compose state during composition.
     val visibleCards = buildList<@Composable () -> Unit> {
         if (isFileCardVisible) add { FileCard(mainViewModel) }
+        add { PrivacyCard(enabled = screenshotProtection, onChange = settingsRepository::setScreenshotProtectionEnabled) }
         if (isCommentsCardVisible) add { CommentsCard(mainViewModel) }
         if (isDecryptionInfoCardVisible) add { DecryptionInfoCard(mainViewModel) }
         if (isPasswordCardVisible) add { PasswordCard(mainViewModel) }

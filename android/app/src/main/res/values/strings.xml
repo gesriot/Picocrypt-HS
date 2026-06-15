@@ -98,6 +98,11 @@
     <string name="logo_icon">logo icon</string>
     <string name="logo_text">logo text</string>
 
+    <!-- Privacy & Security -->
+    <string name="privacy_security">Privacy &amp; Security</string>
+    <string name="prevent_screenshots">Prevent screenshots</string>
+    <string name="prevent_screenshots_description">Blocks screenshots and screen recording, and hides the app in the recent apps list.</string>
+
     <!-- Foreground Service -->
     <string name="fgs_channel_name">Operation Progress</string>
     <string name="fgs_encrypting">Encrypting</string>
