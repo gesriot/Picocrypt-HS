@@ -99,6 +99,12 @@ UI (`ui/components/`):
 - Selections are staged under app-internal storage
   (`/data/data/io.github.picocrypt_ng.picocrypt_ng/files/picocrypt_files/`, folder/multi-file under
   `picocrypt_files/staging/`); staging is wiped when the operation clears
+- Selection is **single-file XOR multi-file XOR folder**. Android's Storage Access Framework has no
+  picker that selects files *and* folders together in one dialog (`OpenMultipleDocuments` = files
+  only; `OpenDocumentTree` = exactly one folder), so a mixed "files + folder" selection is not
+  offered. Workaround: put the items in one folder and choose **Folder**. The Go core already accepts
+  a combined `inputFiles`/`onlyFolders`/`onlyFiles` list, so this is a SAF/UI limitation, not a core
+  one — additive mixed selection would be a UI/staging feature, not a core change
 - Progress is polled every 500ms by the UI ViewModel while visible, and every 1s by the foreground
   service when the app is backgrounded
 - Operations run in background threads (Go goroutines + Kotlin coroutines)
