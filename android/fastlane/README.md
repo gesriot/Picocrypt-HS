@@ -34,12 +34,20 @@ gets a distinct versionCode `base*10 + offset` (armeabi-v7a=1, arm64-v8a=2, x86=
 x86_64=4); the universal APK keeps `base`. fdroiddata mirrors this with
 `VercodeOperation: [10*%c+1 .. 10*%c+4]`.
 
-We keep **one** changelog file per release (`changelogs/<base>.txt`, e.g. `21500.txt`)
-and never commit per-ABI mirror files (`215001.txt` …) — they would multiply by four
-every release and pollute git history. Consequence: F-Droid/IzzyOnDroid show no
-per-version changelog for the per-ABI builds (the store description carries the feature
-list). If per-ABI changelogs are ever wanted, the fdroiddata build recipe can generate
-them transiently — they must not land in this repo's history.
+fastlane changelogs are keyed by versionCode, which doesn't fit ABI splits (4–5 distinct
+codes per release). Instead of committing N near-identical `<versionCode>.txt` files, we
+keep a **single `changelogs/default.txt`**, overwritten in place each release with that
+version's notes (≤ 500 bytes, ASCII). F-Droid uses `default.txt` as the changelog for any
+build that has no version-specific file (fdroidserver `insert_localized_app_metadata` in
+`update.py`), so every per-ABI build shows it — one file, no per-release accumulation, no
+git clutter.
+
+- **F-Droid** can also bake true per-versionCode changelogs at build time via a fdroiddata
+  prebuild (`cp default.txt $$VERCODE$$.txt`, scanned from the build checkout after
+  prebuild) — not needed while `default.txt` suffices, and it keeps this repo clean either way.
+- **IzzyOnDroid** reads the fastlane tree from the tagged commit and serves the prebuilt
+  APK (no build-time generation). If it doesn't honor `default.txt`, per-ABI builds show no
+  changelog there — acceptable; revisit during the IzzyOnDroid submission.
 
 ## Status
 
