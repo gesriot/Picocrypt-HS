@@ -1,6 +1,9 @@
 # v2.15
 <ul>
-	<li>✓ <strong>Cross-platform passwords (Unicode)</strong>: passwords are normalized to Unicode NFC before key derivation, so a password with accented or non-Latin characters typed on macOS now decrypts on Windows/Linux and vice versa. Existing volumes still open — decryption also tries the as-typed and decomposed forms — and ASCII passwords are unaffected. The desktop and CLI show a short advisory when encrypting with a non-ASCII password.</li>
+	<li>✓ <strong>Android: folder &amp; multi-file encryption</strong>: encrypt an entire folder (directory structure preserved) or several files at once instead of only a single file, with a new <strong>Compress</strong> toggle in advanced settings</li>
+	<li>✓ <strong>Cross-platform passwords (Unicode)</strong>: passwords are normalized to Unicode NFC before key derivation, so a password with accented or non-Latin characters typed on macOS now decrypts on Windows/Linux and vice versa. Existing volumes still open — decryption also tries the as-typed and decomposed forms — and ASCII passwords are unaffected. The reverse is not guaranteed for non-ASCII passwords: a volume encrypted with v2.15+ may not open in a pre-2.15 build, which doesn't normalize, unless the password is entered in NFC form; ASCII-password volumes stay compatible in both directions. The desktop and CLI show a short advisory when encrypting with a non-ASCII password.</li>
+	<li>✓ <strong>Android: per-ABI release APKs</strong>: releases now ship smaller per-architecture APKs (armeabi-v7a, arm64-v8a, x86, x86_64) alongside the universal APK</li>
+	<li>✓ <strong>Linux: signed AppImage + delta updates</strong>: the release AppImage is GPG-signed and ships AppImageUpdate (zsync) info for delta downloads</li>
 </ul>
 
 # v2.14
