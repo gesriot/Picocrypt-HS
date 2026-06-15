@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -215,24 +216,30 @@ fun ChooseFile(viewModel: MainViewModel) {
             Text(stringResource(R.string.copying_file))
         } else {
             Text(formData.selectedFilename.ifEmpty { stringResource(R.string.choose_file) })
-            Icon(
-                imageVector = Icons.Filled.Folder,
-                contentDescription = stringResource(R.string.choose_file_description)
-            )
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.choose_single_file)) },
-                onClick = { menuOpen = false; filePickerLauncher.launch("*/*") }
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.choose_multiple_files)) },
-                onClick = { menuOpen = false; filesPickerLauncher.launch(arrayOf("*/*")) }
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.choose_folder)) },
-                onClick = { menuOpen = false; folderPickerLauncher.launch(null) }
-            )
+            // Keep the folder icon and its dropdown in a Box: a DropdownMenu placed directly in
+            // this SpaceBetween Row would, while expanded, add a zero-size popup anchor as a third
+            // arrangement child, shoving the icon from the right edge toward the center. Anchoring
+            // the menu inside the Box keeps the Row at two children, so the icon never moves.
+            Box {
+                Icon(
+                    imageVector = Icons.Filled.Folder,
+                    contentDescription = stringResource(R.string.choose_file_description)
+                )
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.choose_single_file)) },
+                        onClick = { menuOpen = false; filePickerLauncher.launch("*/*") }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.choose_multiple_files)) },
+                        onClick = { menuOpen = false; filesPickerLauncher.launch(arrayOf("*/*")) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.choose_folder)) },
+                        onClick = { menuOpen = false; folderPickerLauncher.launch(null) }
+                    )
+                }
+            }
         }
     }
 }

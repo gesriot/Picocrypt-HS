@@ -35,6 +35,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.15" date="2026-06-16">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v215</url>
+      <description>
+        <ul>
+          <li>Android: encrypt a whole folder or multiple files at once, with a new Compress toggle</li>
+          <li>Android: optional screenshot protection (FLAG_SECURE) that also hides the app in recent apps</li>
+          <li>Cross-platform passwords are normalized to Unicode NFC so non-ASCII passwords work across operating systems</li>
+          <li>Android: smaller per-architecture release APKs alongside the universal APK</li>
+          <li>Linux: the AppImage is GPG-signed and ships delta-update (zsync) info</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.14" date="2026-06-14">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v214</url>
       <description>
