@@ -50,3 +50,54 @@ releases. To pull the latest signed build (delta download):
 ```
 appimageupdatetool ./Picocrypt-NG-<version>-x86_64.AppImage
 ```
+
+## Sigstore verification (keyless)
+
+Every release artifact is signed in CI with **keyless Sigstore** (GitHub Actions
+OIDC + Fulcio + the Rekor transparency log) — no maintainer key, nothing to leak.
+Each artifact ships with a `<artifact>.sigstore.json` bundle, and a build-provenance
+attestation is published to GitHub.
+
+> GitHub shows a `sha256:` digest next to each asset — that is an **integrity**
+> check against GitHub's storage. The signatures below add **authenticity**: proof
+> the artifact was produced by Picocrypt-NG's official CI, recorded in a public
+> transparency log.
+
+Install [cosign](https://docs.sigstore.dev/cosign/installation/) and the
+[GitHub CLI](https://cli.github.com/).
+
+### 1. Authenticity (cosign) — strict, pins the producing workflow
+
+```bash
+cosign verify-blob <artifact> \
+  --bundle <artifact>.sigstore.json \
+  --certificate-identity 'https://github.com/Picocrypt-NG/Picocrypt-NG/.github/workflows/<workflow>.yml@refs/heads/main' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+```
+
+### 2. Provenance (GitHub CLI) — strict
+
+```bash
+gh attestation verify <artifact> \
+  --repo Picocrypt-NG/Picocrypt-NG \
+  --signer-workflow Picocrypt-NG/Picocrypt-NG/.github/workflows/<workflow>.yml
+```
+
+### `<workflow>` per artifact
+
+| Artifact(s) | `<workflow>` |
+|---|---|
+| `*.AppImage`, `*.AppImage.zsync` | `build-appimage` |
+| `Picocrypt-NG`, `Picocrypt-NG-cli`, `Picocrypt-NG.deb`, `Picocrypt-NG-arm64`, `Picocrypt-NG-cli-arm64` | `build-linux` |
+| `Picocrypt-NG-portable.exe`, `Picocrypt-NG-cli.exe`, `Picocrypt-NG-Setup.exe` | `build-windows` |
+| `Picocrypt-NG-cli-Legacy.exe` | `build-windows-legacy` |
+| `Picocrypt-NG.dmg`, `Picocrypt-NG-cli-macos` | `build-macos` |
+| `*.snap` | `build-snapcraft` |
+| `*.apk` | `build-android` |
+
+A looser "is this any official Picocrypt-NG artifact" check replaces
+`--certificate-identity` with
+`--certificate-identity-regexp '^https://github.com/Picocrypt-NG/Picocrypt-NG/\.github/workflows/.+@refs/heads/main$'`.
+
+The `.sigstore.json` bundle embeds the Rekor inclusion proof, so `cosign verify-blob`
+can run fully offline given a `--trusted-root`.
