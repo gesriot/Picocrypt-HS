@@ -116,6 +116,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
     - uses: actions/checkout@v6
 
@@ -130,15 +132,18 @@ jobs:
         VERSION=$(cat VERSION)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-    - name: Generate checksums
+    - name: Verify artifacts present
       run: |
         set -euo pipefail
         test -s artifacts/build-macos/Picocrypt-NG.dmg
         test -s artifacts/build-macos/Picocrypt-NG-cli-macos
-        HASH=$(sha256sum artifacts/build-macos/Picocrypt-NG.dmg | cut -d ' ' -f1)
-        echo "CHECKSUM_PICOCRYPT_NG=$HASH" >> $GITHUB_ENV
-        HASH_CLI=$(sha256sum artifacts/build-macos/Picocrypt-NG-cli-macos | cut -d ' ' -f1)
-        echo "CHECKSUM_PICOCRYPT_NG_CLI_MACOS=$HASH_CLI" >> $GITHUB_ENV
+
+    - name: Sign and attest artifacts
+      uses: ./.github/actions/sign-and-attest
+      with:
+        paths: |
+          artifacts/build-macos/Picocrypt-NG.dmg
+          artifacts/build-macos/Picocrypt-NG-cli-macos
 
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
@@ -146,10 +151,6 @@ jobs:
         files: |
           artifacts/build-macos/Picocrypt-NG.dmg
           artifacts/build-macos/Picocrypt-NG-cli-macos
+          artifacts/build-macos/*.sigstore.json
         tag_name: ${{ env.VERSION }}
         make_latest: true
-        append_body: true
-        body: |
-          **macOS:**
-          `sha256(Picocrypt-NG.dmg)        ${{ env.CHECKSUM_PICOCRYPT_NG }}`
-          `sha256(Picocrypt-NG-cli-macos)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI_MACOS }}`
