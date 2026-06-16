@@ -167,6 +167,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
     - uses: actions/checkout@v6
 
@@ -176,15 +178,21 @@ jobs:
         name: build-appimage-amd64
         path: artifacts
 
-    - name: Get version tag and checksum
+    - name: Get version tag
       run: |
         VERSION=$(cat VERSION)
         APP="Picocrypt-NG-${VERSION}-x86_64.AppImage"
         {
           echo "VERSION=$VERSION"
           echo "APPIMAGE_NAME=$APP"
-          echo "CHECKSUM_APPIMAGE=$(sha256sum "artifacts/$APP" | cut -d ' ' -f1)"
         } >> "$GITHUB_ENV"
+
+    - name: Sign and attest artifacts
+      uses: ./.github/actions/sign-and-attest
+      with:
+        paths: |
+          artifacts/${{ env.APPIMAGE_NAME }}
+          artifacts/${{ env.APPIMAGE_NAME }}.zsync
 
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
@@ -194,8 +202,6 @@ jobs:
         files: |
           artifacts/${{ env.APPIMAGE_NAME }}
           artifacts/${{ env.APPIMAGE_NAME }}.zsync
+          artifacts/${{ env.APPIMAGE_NAME }}.sigstore.json
+          artifacts/${{ env.APPIMAGE_NAME }}.zsync.sigstore.json
         tag_name: ${{ env.VERSION }}
-        append_body: true
-        body: |
-          **Linux (AppImage, amd64):**
-          `sha256(${{ env.APPIMAGE_NAME }})  ${{ env.CHECKSUM_APPIMAGE }}`
