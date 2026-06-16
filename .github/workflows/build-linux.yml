@@ -237,6 +237,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
     - uses: actions/checkout@v6
 
@@ -250,13 +252,15 @@ jobs:
         VERSION=$(cat VERSION)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-    - name: Generate checksums
-      run: |
-        echo "CHECKSUM_PICOCRYPT_NG_AMD64=$(sha256sum artifacts/build-linux-amd64/Picocrypt-NG | cut -d ' ' -f1)" >> $GITHUB_ENV
-        echo "CHECKSUM_PICOCRYPT_NG_CLI_AMD64=$(sha256sum artifacts/build-linux-amd64/Picocrypt-NG-cli | cut -d ' ' -f1)" >> $GITHUB_ENV
-        echo "CHECKSUM_DEB_AMD64=$(sha256sum artifacts/build-linux-amd64/Picocrypt-NG.deb | cut -d ' ' -f1)" >> $GITHUB_ENV
-        echo "CHECKSUM_PICOCRYPT_NG_ARM64=$(sha256sum artifacts/build-linux-arm64/Picocrypt-NG-arm64 | cut -d ' ' -f1)" >> $GITHUB_ENV
-        echo "CHECKSUM_PICOCRYPT_NG_CLI_ARM64=$(sha256sum artifacts/build-linux-arm64/Picocrypt-NG-cli-arm64 | cut -d ' ' -f1)" >> $GITHUB_ENV
+    - name: Sign and attest artifacts
+      uses: ./.github/actions/sign-and-attest
+      with:
+        paths: |
+          artifacts/build-linux-amd64/Picocrypt-NG
+          artifacts/build-linux-amd64/Picocrypt-NG-cli
+          artifacts/build-linux-amd64/Picocrypt-NG.deb
+          artifacts/build-linux-arm64/Picocrypt-NG-arm64
+          artifacts/build-linux-arm64/Picocrypt-NG-cli-arm64
 
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
@@ -267,14 +271,7 @@ jobs:
           artifacts/build-linux-amd64/Picocrypt-NG.deb
           artifacts/build-linux-arm64/Picocrypt-NG-arm64
           artifacts/build-linux-arm64/Picocrypt-NG-cli-arm64
+          artifacts/build-linux-amd64/*.sigstore.json
+          artifacts/build-linux-arm64/*.sigstore.json
         tag_name: ${{ env.VERSION }}
         make_latest: true
-        append_body: true
-        body: |
-          **Linux (amd64):**
-          `sha256(Picocrypt-NG)        ${{ env.CHECKSUM_PICOCRYPT_NG_AMD64 }}`
-          `sha256(Picocrypt-NG-cli)    ${{ env.CHECKSUM_PICOCRYPT_NG_CLI_AMD64 }}`
-          `sha256(Picocrypt-NG.deb)    ${{ env.CHECKSUM_DEB_AMD64 }}`
-          **Linux (arm64):**
-          `sha256(Picocrypt-NG-arm64)      ${{ env.CHECKSUM_PICOCRYPT_NG_ARM64 }}`
-          `sha256(Picocrypt-NG-cli-arm64)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI_ARM64 }}`
