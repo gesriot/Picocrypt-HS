@@ -16,6 +16,8 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
 
 // isMobile returns true if running on a mobile device
@@ -489,35 +491,35 @@ func (a *App) updateMobileAdvancedSection() {
 // buildMobileEncryptOptions creates encrypt options for mobile
 func (a *App) buildMobileEncryptOptions() {
 	// Checkboxes with more spacing
-	a.paranoidCheck = widget.NewCheck("Paranoid mode", func(checked bool) {
+	a.paranoidCheck = ttwidget.NewCheck("Paranoid mode", func(checked bool) {
 		a.State.Paranoid = checked
 	})
 	a.paranoidCheck.SetChecked(a.State.Paranoid)
 
-	a.compressCheck = widget.NewCheck("Compress files", func(checked bool) {
+	a.compressCheck = ttwidget.NewCheck("Compress files", func(checked bool) {
 		a.State.Compress = checked
 		// Auto-toggle .zip suffix in output filename
 		a.updateOutputFileForCompress(checked)
 	})
 	a.compressCheck.SetChecked(a.State.Compress)
 
-	a.reedSolomonCheck = widget.NewCheck("Reed-Solomon", func(checked bool) {
+	a.reedSolomonCheck = ttwidget.NewCheck("Reed-Solomon", func(checked bool) {
 		a.State.ReedSolomon = checked
 	})
 	a.reedSolomonCheck.SetChecked(a.State.ReedSolomon)
 
-	a.deleteCheck = widget.NewCheck("Delete files", func(checked bool) {
+	a.deleteCheck = ttwidget.NewCheck("Delete files", func(checked bool) {
 		a.State.Delete = checked
 	})
 	a.deleteCheck.SetChecked(a.State.Delete)
 
-	a.deniabilityCheck = widget.NewCheck("Deniability", func(checked bool) {
+	a.deniabilityCheck = ttwidget.NewCheck("Deniability", func(checked bool) {
 		a.State.Deniability = checked
 		a.updateUIState()
 	})
 	a.deniabilityCheck.SetChecked(a.State.Deniability)
 
-	a.recursivelyCheck = widget.NewCheck("Recursively", func(checked bool) {
+	a.recursivelyCheck = ttwidget.NewCheck("Recursively", func(checked bool) {
 		a.State.Recursively = checked
 		if checked {
 			a.State.Compress = false
@@ -535,7 +537,7 @@ func (a *App) buildMobileEncryptOptions() {
 	row3 := container.NewGridWithColumns(2, a.deniabilityCheck, a.recursivelyCheck)
 
 	// Split section
-	a.splitCheck = widget.NewCheck("Split:", func(checked bool) {
+	a.splitCheck = ttwidget.NewCheck("Split:", func(checked bool) {
 		a.State.Split = checked
 		a.updateUIState()
 	})
@@ -553,7 +555,7 @@ func (a *App) buildMobileEncryptOptions() {
 		a.updateUIState()
 	}
 
-	a.splitUnitSelect = widget.NewSelect(a.State.SplitUnits, func(selected string) {
+	a.splitUnitSelect = ttwidget.NewSelect(a.State.SplitUnits, func(selected string) {
 		for i, unit := range a.State.SplitUnits {
 			if unit == selected {
 				// #nosec G115 -- i is bounded by SplitUnits length (5 items: KiB, MiB, GiB, TiB, Total)
@@ -574,17 +576,17 @@ func (a *App) buildMobileEncryptOptions() {
 
 // buildMobileDecryptOptions creates decrypt options for mobile
 func (a *App) buildMobileDecryptOptions() {
-	a.forceDecryptCheck = widget.NewCheck("Force decrypt", func(checked bool) {
+	a.forceDecryptCheck = ttwidget.NewCheck("Force decrypt", func(checked bool) {
 		a.State.Keep = checked
 	})
 	a.forceDecryptCheck.SetChecked(a.State.Keep)
 
-	a.verifyFirstCheck = widget.NewCheck("Verify first", func(checked bool) {
+	a.verifyFirstCheck = ttwidget.NewCheck("Verify first", func(checked bool) {
 		a.State.VerifyFirst = checked
 	})
 	a.verifyFirstCheck.SetChecked(a.State.VerifyFirst)
 
-	a.deleteCheck = widget.NewCheck("Delete encrypted", func(checked bool) {
+	a.deleteCheck = ttwidget.NewCheck("Delete encrypted", func(checked bool) {
 		a.State.Delete = checked
 	})
 	a.deleteCheck.SetChecked(a.State.Delete)

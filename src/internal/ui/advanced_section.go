@@ -10,6 +10,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
 
 // updateAdvancedSection updates the advanced options based on mode.
@@ -62,41 +64,46 @@ func (a *App) updateAdvancedSection() {
 // buildEncryptOptions creates encrypt mode options.
 func (a *App) buildEncryptOptions() {
 	// Row 1: Paranoid + Compress
-	a.paranoidCheck = widget.NewCheck("Paranoid mode", func(checked bool) {
+	a.paranoidCheck = ttwidget.NewCheck("Paranoid mode", func(checked bool) {
 		a.State.Paranoid = checked
 	})
+	a.paranoidCheck.SetToolTip("Provides the highest level of security attainable")
 	a.paranoidCheck.SetChecked(a.State.Paranoid)
 
-	a.compressCheck = widget.NewCheck("Compress files", func(checked bool) {
+	a.compressCheck = ttwidget.NewCheck("Compress files", func(checked bool) {
 		a.State.Compress = checked
 		// Auto-toggle .zip suffix in output filename
 		a.updateOutputFileForCompress(checked)
 	})
+	a.compressCheck.SetToolTip("Compress files with Deflate before encrypting")
 	a.compressCheck.SetChecked(a.State.Compress)
 
 	row1 := container.NewGridWithColumns(2, a.paranoidCheck, a.compressCheck)
 
 	// Row 2: Reed-Solomon + Delete files
-	a.reedSolomonCheck = widget.NewCheck("Reed-Solomon", func(checked bool) {
+	a.reedSolomonCheck = ttwidget.NewCheck("Reed-Solomon", func(checked bool) {
 		a.State.ReedSolomon = checked
 	})
+	a.reedSolomonCheck.SetToolTip("Prevent file corruption with erasure coding")
 	a.reedSolomonCheck.SetChecked(a.State.ReedSolomon)
 
-	a.deleteCheck = widget.NewCheck("Delete files", func(checked bool) {
+	a.deleteCheck = ttwidget.NewCheck("Delete files", func(checked bool) {
 		a.State.Delete = checked
 	})
+	a.deleteCheck.SetToolTip("Delete the input files after encryption")
 	a.deleteCheck.SetChecked(a.State.Delete)
 
 	row2 := container.NewGridWithColumns(2, a.reedSolomonCheck, a.deleteCheck)
 
 	// Row 3: Deniability + Recursively
-	a.deniabilityCheck = widget.NewCheck("Deniability", func(checked bool) {
+	a.deniabilityCheck = ttwidget.NewCheck("Deniability", func(checked bool) {
 		a.State.Deniability = checked
 		a.updateUIState()
 	})
+	a.deniabilityCheck.SetToolTip("Warning: only use this if you know what it does!")
 	a.deniabilityCheck.SetChecked(a.State.Deniability)
 
-	a.recursivelyCheck = widget.NewCheck("Recursively", func(checked bool) {
+	a.recursivelyCheck = ttwidget.NewCheck("Recursively", func(checked bool) {
 		a.State.Recursively = checked
 		if checked {
 			a.State.Compress = false
@@ -106,15 +113,17 @@ func (a *App) buildEncryptOptions() {
 		}
 		a.updateUIState()
 	})
+	a.recursivelyCheck.SetToolTip("Warning: only use this if you know what it does!")
 	a.recursivelyCheck.SetChecked(a.State.Recursively)
 
 	row3 := container.NewGridWithColumns(2, a.deniabilityCheck, a.recursivelyCheck)
 
 	// Row 4: Split into chunks
-	a.splitCheck = widget.NewCheck("Split:", func(checked bool) {
+	a.splitCheck = ttwidget.NewCheck("Split:", func(checked bool) {
 		a.State.Split = checked
 		a.updateUIState() // Update status to show increased disk space requirement
 	})
+	a.splitCheck.SetToolTip("Split the output file into smaller chunks")
 	a.splitCheck.SetChecked(a.State.Split)
 
 	a.splitSizeEntry = widget.NewEntry()
@@ -129,7 +138,7 @@ func (a *App) buildEncryptOptions() {
 		a.updateUIState() // Update status to show increased disk space requirement
 	}
 
-	a.splitUnitSelect = widget.NewSelect(a.State.SplitUnits, func(selected string) {
+	a.splitUnitSelect = ttwidget.NewSelect(a.State.SplitUnits, func(selected string) {
 		for i, unit := range a.State.SplitUnits {
 			if unit == selected {
 				// #nosec G115 -- i is bounded by SplitUnits length (5 items: KiB, MiB, GiB, TiB, Total)
@@ -138,6 +147,7 @@ func (a *App) buildEncryptOptions() {
 			}
 		}
 	})
+	a.splitUnitSelect.SetToolTip("Choose the chunk units")
 	a.splitUnitSelect.SetSelectedIndex(int(a.State.SplitSelected))
 
 	splitRow := container.NewBorder(nil, nil,
@@ -155,25 +165,28 @@ func (a *App) buildEncryptOptions() {
 // buildDecryptOptions creates decrypt mode options.
 func (a *App) buildDecryptOptions() {
 	// Row 1: Force decrypt + Verify first
-	a.forceDecryptCheck = widget.NewCheck("Force decrypt", func(checked bool) {
+	a.forceDecryptCheck = ttwidget.NewCheck("Force decrypt", func(checked bool) {
 		a.State.Keep = checked
 	})
+	a.forceDecryptCheck.SetToolTip("Override security measures when decrypting")
 	a.forceDecryptCheck.SetChecked(a.State.Keep)
 
-	a.verifyFirstCheck = widget.NewCheck("Verify first", func(checked bool) {
+	a.verifyFirstCheck = ttwidget.NewCheck("Verify first", func(checked bool) {
 		a.State.VerifyFirst = checked
 	})
+	a.verifyFirstCheck.SetToolTip("Verify integrity before decryption (slower but more secure)")
 	a.verifyFirstCheck.SetChecked(a.State.VerifyFirst)
 
 	row1 := container.NewGridWithColumns(2, a.forceDecryptCheck, a.verifyFirstCheck)
 
 	// Row 2: Delete volume + Auto unzip
-	a.deleteVolumeCheck = widget.NewCheck("Delete volume", func(checked bool) {
+	a.deleteVolumeCheck = ttwidget.NewCheck("Delete volume", func(checked bool) {
 		a.State.Delete = checked
 	})
+	a.deleteVolumeCheck.SetToolTip("Delete the volume after a successful decryption")
 	a.deleteVolumeCheck.SetChecked(a.State.Delete)
 
-	a.autoUnzipCheck = widget.NewCheck("Auto unzip", func(checked bool) {
+	a.autoUnzipCheck = ttwidget.NewCheck("Auto unzip", func(checked bool) {
 		a.State.AutoUnzip = checked
 		if !checked {
 			a.State.SameLevel = false
@@ -183,14 +196,16 @@ func (a *App) buildDecryptOptions() {
 		}
 		a.updateUIState()
 	})
+	a.autoUnzipCheck.SetToolTip("Extract .zip upon decryption (may overwrite files)")
 	a.autoUnzipCheck.SetChecked(a.State.AutoUnzip)
 
 	row2 := container.NewGridWithColumns(2, a.deleteVolumeCheck, a.autoUnzipCheck)
 
 	// Row 3: Same level (only if auto unzip is relevant)
-	a.sameLevelCheck = widget.NewCheck("Same level", func(checked bool) {
+	a.sameLevelCheck = ttwidget.NewCheck("Same level", func(checked bool) {
 		a.State.SameLevel = checked
 	})
+	a.sameLevelCheck.SetToolTip("Extract .zip contents to same folder as volume")
 	a.sameLevelCheck.SetChecked(a.State.SameLevel)
 
 	row3 := container.NewGridWithColumns(2, a.sameLevelCheck, widget.NewLabel(""))
