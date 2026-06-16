@@ -103,6 +103,8 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
     - uses: actions/checkout@v6
 
@@ -118,19 +120,17 @@ jobs:
         $version = Get-Content -Path "VERSION"
         echo "VERSION=$version" >> $env:GITHUB_ENV
 
-    - name: Generate checksums
-      shell: pwsh
-      run: |
-        $hash = Get-FileHash "artifacts/build-windows-legacy/Picocrypt-NG-cli-Legacy.exe" -Algorithm SHA256
-        echo "CHECKSUM_LEGACY_CLI=$($hash.Hash)" >> $env:GITHUB_ENV
+    - name: Sign and attest artifacts
+      uses: ./.github/actions/sign-and-attest
+      with:
+        paths: |
+          artifacts/build-windows-legacy/Picocrypt-NG-cli-Legacy.exe
 
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
       with:
-        files: artifacts/build-windows-legacy/Picocrypt-NG-cli-Legacy.exe
+        files: |
+          artifacts/build-windows-legacy/Picocrypt-NG-cli-Legacy.exe
+          artifacts/build-windows-legacy/*.sigstore.json
         tag_name: ${{ env.VERSION }}
         make_latest: true
-        append_body: true
-        body: |
-          **Windows Legacy CLI (Windows 7/8):**
-          `sha256(Picocrypt-NG-cli-Legacy.exe)  ${{ env.CHECKSUM_LEGACY_CLI }}`

@@ -177,6 +177,8 @@ jobs:
     runs-on: windows-2025
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
     - uses: actions/checkout@v6
 
@@ -192,15 +194,13 @@ jobs:
         $version = Get-Content -Path "VERSION"
         echo "VERSION=$version" >> $env:GITHUB_ENV
 
-    - name: Generate checksums
-      shell: pwsh
-      run: |
-        $hash = Get-FileHash "artifacts/build-windows/Picocrypt-NG-portable.exe" -Algorithm SHA256
-        echo "CHECKSUM_PICOCRYPT_NG_PORTABLE=$($hash.Hash)" >> $env:GITHUB_ENV
-        $hashCli = Get-FileHash "artifacts/build-windows/Picocrypt-NG-cli.exe" -Algorithm SHA256
-        echo "CHECKSUM_PICOCRYPT_NG_CLI=$($hashCli.Hash)" >> $env:GITHUB_ENV
-        $hashSetup = Get-FileHash "artifacts/build-windows/Picocrypt-NG-Setup.exe" -Algorithm SHA256
-        echo "CHECKSUM_PICOCRYPT_NG_SETUP=$($hashSetup.Hash)" >> $env:GITHUB_ENV
+    - name: Sign and attest artifacts
+      uses: ./.github/actions/sign-and-attest
+      with:
+        paths: |
+          artifacts/build-windows/Picocrypt-NG-portable.exe
+          artifacts/build-windows/Picocrypt-NG-cli.exe
+          artifacts/build-windows/Picocrypt-NG-Setup.exe
 
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
@@ -209,11 +209,6 @@ jobs:
           artifacts/build-windows/Picocrypt-NG-portable.exe
           artifacts/build-windows/Picocrypt-NG-cli.exe
           artifacts/build-windows/Picocrypt-NG-Setup.exe
+          artifacts/build-windows/*.sigstore.json
         tag_name: ${{ env.VERSION }}
         make_latest: true
-        append_body: true
-        body: |
-          **Windows:**
-          `sha256(Picocrypt-NG-Setup.exe)     ${{ env.CHECKSUM_PICOCRYPT_NG_SETUP }}`
-          `sha256(Picocrypt-NG-portable.exe)  ${{ env.CHECKSUM_PICOCRYPT_NG_PORTABLE }}`
-          `sha256(Picocrypt-NG-cli.exe)       ${{ env.CHECKSUM_PICOCRYPT_NG_CLI }}`
