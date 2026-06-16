@@ -6,8 +6,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -270,60 +268,6 @@ func (e *PasswordEntry) SetHidden(hidden bool) {
 // IsHidden returns whether the password is currently hidden.
 func (e *PasswordEntry) IsHidden() bool {
 	return e.hidden
-}
-
-// TooltipButton is a button with a tooltip that shows on hover.
-type TooltipButton struct {
-	widget.Button
-	tooltip string
-	popup   *widget.PopUp
-}
-
-var _ desktop.Hoverable = (*TooltipButton)(nil)
-
-// NewTooltipButton creates a new button with a tooltip.
-func NewTooltipButton(label string, tooltip string, onTapped func()) *TooltipButton {
-	b := &TooltipButton{tooltip: tooltip}
-	b.Text = label
-	b.OnTapped = onTapped
-	b.ExtendBaseWidget(b)
-	return b
-}
-
-// SetTooltip updates the tooltip text.
-func (b *TooltipButton) SetTooltip(tooltip string) {
-	b.tooltip = tooltip
-}
-
-// MouseIn is called when the mouse enters the button - shows tooltip.
-func (b *TooltipButton) MouseIn(e *desktop.MouseEvent) {
-	if b.tooltip == "" || b.Disabled() {
-		return
-	}
-	c := fyne.CurrentApp().Driver().CanvasForObject(b)
-	if c == nil {
-		return
-	}
-	// Use canvas.Text for simple single-line tooltip
-	text := canvas.NewText(b.tooltip, theme.Color(theme.ColorNameForeground))
-	text.TextSize = theme.CaptionTextSize()
-	// Add padding around the text
-	bg := canvas.NewRectangle(theme.Color(theme.ColorNameOverlayBackground))
-	content := container.NewStack(bg, container.NewPadded(text))
-	b.popup = widget.NewPopUp(content, c)
-	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(b)
-	b.popup.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+b.Size().Height+2))
-}
-
-// MouseMoved is called when the mouse moves within the button.
-func (b *TooltipButton) MouseMoved(e *desktop.MouseEvent) {}
-
-// MouseOut is called when the mouse leaves the button - hides tooltip.
-func (b *TooltipButton) MouseOut() {
-	if b.popup != nil {
-		b.popup.Hide()
-		b.popup = nil
-	}
 }
 
 // ColoredLabel is a label with custom text color.
