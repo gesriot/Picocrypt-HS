@@ -72,6 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
     - uses: actions/checkout@v6
 
@@ -86,23 +88,17 @@ jobs:
         VERSION=$(cat VERSION)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-    - name: Generate checksums
-      run: |
-        cd out
-        for snap in *.snap; do
-          hash=$(sha256sum "$snap" | cut -d ' ' -f1)
-          name=$(basename "$snap")
-          echo "CHECKSUM_SNAP=$hash" >> $GITHUB_ENV
-          echo "SNAP_NAME=$name" >> $GITHUB_ENV
-        done
+    - name: Sign and attest artifacts
+      uses: ./.github/actions/sign-and-attest
+      with:
+        paths: |
+          out/*.snap
 
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
       with:
-        files: out/*.snap
+        files: |
+          out/*.snap
+          out/*.sigstore.json
         tag_name: ${{ env.VERSION }}
         make_latest: true
-        append_body: true
-        body: |
-          **Linux (Snap):**
-          `sha256(${{ env.SNAP_NAME }})  ${{ env.CHECKSUM_SNAP }}`
