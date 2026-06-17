@@ -70,6 +70,8 @@ AI tools (LLMs) are used in this project to assist with development — writing 
 
 All crypto-critical code (`crypto/`, `header/`, `keyfile/`, `volume/`) is reviewed and approved by a human before merging. AI-generated suggestions in these packages are treated with the same skepticism as any untrusted diff: they are read carefully, tested against golden vectors, and never merged on AI confidence alone.
 
+The cryptographic design and on-disk volume format derive from Picocrypt, which completed a [Radically Open Security](https://www.radicallyopensecurity.com/) audit in 2024 with no major findings. Picocrypt NG refactored that audited single-file implementation into the modular `crypto/`, `header/`, `keyfile/`, and `volume/` packages; the original audited build is archived (`src/testdata/legacy/`) and the refactored code is regression-pinned against it and against frozen golden/interop vectors — so neither a refactor nor an AI-assisted change can silently alter the audited cryptographic behavior or the volume format. The v2 format additions (HMAC-SHA3-512 header authentication and verify-first decryption) implement the audit's own recommendations (PCC-001, PCC-004).
+
 AI assistance does not replace human judgment on security decisions.
 
 ## Pull Requests

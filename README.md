@@ -119,7 +119,7 @@ For more information on how Picocrypt NG handles cryptography, see <a href="Inte
 
 # AI Usage
 
-AI tools (LLMs) assist development in this project. All crypto-critical code receives human review before merging. See [CONTRIBUTING.md](CONTRIBUTING.md#ai-assistance) for details.
+AI tools (LLMs) assist development in this project. The cryptographic core derives from the audited Picocrypt (Radically Open Security, 2024 — no major findings) and stays regression-pinned to the archived audited build and frozen golden vectors, so AI-assisted changes cannot silently alter the audited behavior or the volume format. All crypto-critical code receives human review before merging. See [CONTRIBUTING.md](CONTRIBUTING.md#ai-assistance) for details.
 
 # FAQ
 **Does the "Delete files" feature shred files?**
