@@ -49,7 +49,7 @@ func mustReadFile(t *testing.T, relPath string) []byte {
 }
 
 func TestActiveReleaseMetadataVersions(t *testing.T) {
-	const want = "2.15"
+	const want = "2.16"
 
 	t.Run("root_VERSION", func(t *testing.T) {
 		got := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
@@ -90,9 +90,9 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 			name string
 			re   *regexp.Regexp
 		}{
-			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,15,0,0\r?$`)},
-			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,15,0,0\r?$`)},
-			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.15"\r?$`)},
+			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,16,0,0\r?$`)},
+			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,16,0,0\r?$`)},
+			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.16"\r?$`)},
 		}
 		for _, req := range required {
 			t.Run(req.name, func(t *testing.T) {

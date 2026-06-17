@@ -35,6 +35,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.16" date="2026-06-17">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v216</url>
+      <description>
+        <ul>
+          <li>Release artifacts are signed with keyless cosign and a GitHub build-provenance attestation</li>
+          <li>Desktop: advanced-settings tooltips no longer flicker or jump</li>
+          <li>Android: key material is zeroed after use, saved file names are sanitized, and cloud backup is disabled</li>
+          <li>Privacy: the app no longer writes log files to disk</li>
+          <li>Reliability: incomplete output is cleaned up if an operation is interrupted mid-stream</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.15" date="2026-06-16">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v215</url>
       <description>

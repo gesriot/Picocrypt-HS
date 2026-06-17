@@ -1,0 +1,6 @@
+v2.16
+- Signed releases: the APK is now signed with keyless cosign and ships with a build-provenance attestation you can verify against the GitHub Actions build that produced it.
+- Hardening: keyfile and password bytes are wiped from memory after use, names of saved files are sanitized before writing, and Android cloud backup is disabled so your data is never copied off-device.
+- Clearer errors: a failure to start an operation is now shown instead of being silently dropped.
+- Privacy: the app no longer writes any log files.
+- Reliability: incomplete output is cleaned up automatically if an operation is interrupted.

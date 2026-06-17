@@ -1,3 +1,14 @@
+# v2.16
+<ul>
+	<li>✓ <strong>Signed releases</strong>: every release artifact (Windows, macOS, Linux, AppImage, Snap, Android) is now signed with keyless <a href="https://github.com/sigstore/cosign">cosign</a> and published with a build-provenance attestation, so a download can be verified against the exact GitHub Actions workflow that produced it; the old SHA-256 text blocks in the release notes are dropped in favor of verifiable signatures</li>
+	<li>✓ <strong>Desktop: stable tooltips</strong>: advanced-settings tooltips no longer flicker or jump — the flicker-prone custom tooltip was replaced with the fyne-tooltip library (#79)</li>
+	<li>✓ <strong>Android: hardening</strong>: generated keyfile bytes and password buffers are zeroed after use, names of saved files are sanitized before writing, and the app opts out of Android cloud backup so volumes and settings are never copied off-device</li>
+	<li>✓ <strong>Android: clearer errors</strong>: a failure to start an operation is now surfaced to the user instead of being silently swallowed</li>
+	<li>✓ <strong>Privacy: no on-disk logs</strong>: the file-logging sink was removed, so the app never writes log files that could reveal file names or activity</li>
+	<li>✓ <strong>Reliability</strong>: incomplete output is cleaned up if an operation is interrupted mid-stream — split, recombine, and write failures no longer leave stray chunks or half-written files behind</li>
+	<li>✓ <strong>Internal</strong>: removed dead code across the crypto, volume, and app packages, pinned crypto/keyfile/encoding paths to known-answer test vectors, and fixed documentation drift (API.md, ARCHITECTURE.md, CONTRIBUTING.md)</li>
+</ul>
+
 # v2.15
 <ul>
 	<li>✓ <strong>Android: folder &amp; multi-file encryption</strong>: encrypt an entire folder (directory structure preserved) or several files at once instead of only a single file, with a new <strong>Compress</strong> toggle in advanced settings</li>
