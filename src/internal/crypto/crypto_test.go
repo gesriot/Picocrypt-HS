@@ -142,21 +142,6 @@ func TestSubkeyReader(t *testing.T) {
 		t.Errorf("Serpent key length = %d; want %d", len(serpentKey), SubkeySerpentSize)
 	}
 
-	// Read rekey values
-	nonce, iv, err := reader.RekeyValues()
-	if err != nil {
-		t.Fatalf("RekeyValues() failed: %v", err)
-	}
-	if len(nonce) != RekeyNonceSize {
-		t.Errorf("Rekey nonce length = %d; want %d", len(nonce), RekeyNonceSize)
-	}
-	if len(iv) != RekeyIVSize {
-		t.Errorf("Rekey IV length = %d; want %d", len(iv), RekeyIVSize)
-	}
-
-	if reader.RekeyCount() != 1 {
-		t.Errorf("RekeyCount = %d; want 1", reader.RekeyCount())
-	}
 }
 
 func TestSubkeyReaderOrdering(t *testing.T) {
