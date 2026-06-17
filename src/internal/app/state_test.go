@@ -178,27 +178,92 @@ func TestStateReset(t *testing.T) {
 func TestStateResetUI(t *testing.T) {
 	state := mustNewState(t)
 
-	// Set progress-related flags
+	// Set progress-related flags that ResetUI must PRESERVE (the delta vs Reset).
 	state.Working = true
 	state.ShowProgress = true
 	state.CanCancel = true
 
-	// Set other state
+	// Set other state that ResetUI must clear.
 	state.Mode = "encrypt"
 	state.Password = "secret"
 
-	// ResetUI should NOT reset progress flags
+	// ResetUI preserves the progress flags; Reset clears them.
+	// Swapping this call to state.Reset() must turn the assertions below RED.
 	state.ResetUI()
 
-	// Note: Working is reset by ResetUI based on the code
+	// Progress-related flags: ResetUI must NOT touch these.
+	if !state.Working {
+		t.Error("Working should be preserved by ResetUI (Reset clears it; ResetUI does not)")
+	}
+	if !state.ShowProgress {
+		t.Error("ShowProgress should be preserved by ResetUI (Reset clears it; ResetUI does not)")
+	}
+	if !state.CanCancel {
+		t.Error("CanCancel should be preserved by ResetUI (Reset clears it; ResetUI does not)")
+	}
 
-	// Other state should be reset
+	// Other state should be reset by both Reset and ResetUI.
 	if state.Mode != "" {
 		t.Errorf("Mode = %q; want empty", state.Mode)
 	}
 	if state.Password != "" {
 		t.Error("Password should be empty")
 	}
+}
+
+// TestStateResetUIVsReset asserts the exact behavioral delta between ResetUI and
+// Reset: Reset clears Working, ShowProgress, CanCancel, and Scanning; ResetUI
+// preserves all four. A test that passes whether we call Reset or ResetUI is not
+// a real test (Rule 9). This test pins the delta so swapping Reset↔ResetUI
+// makes it FAIL. ModalID is preserved by both; it is not part of the delta.
+func TestStateResetUIVsReset(t *testing.T) {
+	// Verify Reset DOES clear the progress flags (control group).
+	t.Run("Reset clears progress flags", func(t *testing.T) {
+		s := mustNewState(t)
+		s.Working = true
+		s.ShowProgress = true
+		s.CanCancel = true
+		s.Scanning = true
+
+		s.Reset()
+
+		if s.Working {
+			t.Error("Reset: Working should be false after Reset")
+		}
+		if s.ShowProgress {
+			t.Error("Reset: ShowProgress should be false after Reset")
+		}
+		if s.CanCancel {
+			t.Error("Reset: CanCancel should be false after Reset")
+		}
+		if s.Scanning {
+			t.Error("Reset: Scanning should be false after Reset")
+		}
+	})
+
+	// Verify ResetUI does NOT clear the same flags.
+	t.Run("ResetUI preserves progress flags", func(t *testing.T) {
+		s := mustNewState(t)
+		s.Working = true
+		s.ShowProgress = true
+		s.CanCancel = true
+		s.Scanning = true
+
+		s.ResetUI()
+
+		if !s.Working {
+			t.Error("ResetUI: Working should remain true (only Reset clears it)")
+		}
+		if !s.ShowProgress {
+			t.Error("ResetUI: ShowProgress should remain true (only Reset clears it)")
+		}
+		if !s.CanCancel {
+			t.Error("ResetUI: CanCancel should remain true (only Reset clears it)")
+		}
+		if !s.Scanning {
+			t.Error("ResetUI: Scanning should remain true (only Reset clears it)")
+		}
+	})
 }
 
 func TestStateResetAfterOperation(t *testing.T) {

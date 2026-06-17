@@ -3,10 +3,13 @@ package cli
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"Picocrypt-NG/internal/header"
 )
 
 // TestCLIRoundTrip encrypts a fixed plaintext then decrypts it using the real
@@ -175,6 +178,16 @@ func TestCLIRoundTrip(t *testing.T) {
 			if tc.wantErr {
 				if decErr == nil {
 					t.Fatal("expected decrypt error (wrong password), got nil")
+				}
+				// A bare non-nil check passes even on a crash or unrelated error.
+				// Assert the specific auth type so the test is falsifiable: a
+				// wrong-password error MUST be *header.AuthError with
+				// PasswordIncorrect=true (Rule 9). errors.Is on a plain sentinel
+				// would not match because decrypt.go returns *header.AuthError
+				// (not perrors.ErrAuthFailed) for header-phase auth failures.
+				var authErr *header.AuthError
+				if !errors.As(decErr, &authErr) || !authErr.PasswordIncorrect {
+					t.Fatalf("wrong-password decrypt error = %v; want *header.AuthError{PasswordIncorrect:true}", decErr)
 				}
 				return
 			}
