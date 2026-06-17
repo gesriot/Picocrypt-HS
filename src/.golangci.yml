@@ -43,12 +43,6 @@ linters:
         linters:
           - gosec
         text: G115
-      # G302: log file is intentionally readable by monitoring tools
-      # (documented at internal/log/log.go EnableFileLogging).
-      - path: internal/log/
-        linters:
-          - gosec
-        text: G302
       # Platform false positive: appendOpenedPath/flushOpenedPaths and the
       # openedPathsNotify handler are called only from macos_open_darwin.go
       # (//go:build darwin), which the linux lint host never compiles, so the
