@@ -4,7 +4,7 @@
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - GCC (for CGO)
 - Platform dependencies:
   - Linux: `libgtk-3-dev`, `libgl1-mesa-dev`, `xorg-dev`

@@ -220,7 +220,6 @@ These packages implement the cryptographic operations and must be modified with 
 ### `internal/app/`
 - **state.go**: Centralized application state (replaces global variables)
 - **reporter.go**: Progress reporting interface for UI updates
-- **runner.go**: Operation orchestration with goroutine management
 
 ### `internal/ui/`
 - **app.go**: Main window and Dear ImGui integration
