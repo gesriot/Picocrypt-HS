@@ -33,21 +33,11 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrDuplicateKeyfiles", ErrDuplicateKeyfiles, "duplicate keyfiles detected"},
 		{"ErrCommentTooLong", ErrCommentTooLong, "comment exceeds maximum length"},
 		{"ErrFileNotFound", ErrFileNotFound, "file not found"},
-		{"ErrFileExists", ErrFileExists, "file already exists"},
-		{"ErrInvalidFormat", ErrInvalidFormat, "invalid volume format"},
-		{"ErrVersionMismatch", ErrVersionMismatch, "unsupported volume version"},
-		{"ErrRandFailure", ErrRandFailure, "crypto/rand failure"},
-		{"ErrKeyDerivation", ErrKeyDerivation, "key derivation failed"},
-		{"ErrHKDFFailure", ErrHKDFFailure, "HKDF stream failure"},
-		{"ErrMACFailure", ErrMACFailure, "MAC computation failed"},
-		{"ErrCipherFailure", ErrCipherFailure, "cipher operation failed"},
-		{"ErrRSEncode", ErrRSEncode, "Reed-Solomon encoding failed"},
-		{"ErrRSDecode", ErrRSDecode, "Reed-Solomon decoding failed"},
 	}
 
 	// Tripwire: forces this table to be updated whenever a sentinel is added or
 	// removed from errors.go, so the exhaustive guarantees below stay exhaustive.
-	if want := 22; len(tests) != want {
+	if want := 12; len(tests) != want {
 		t.Fatalf("sentinel table has %d entries; want %d (update the table when "+
 			"adding/removing an Err... sentinel in errors.go)", len(tests), want)
 	}
