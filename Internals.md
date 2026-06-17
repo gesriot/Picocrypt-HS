@@ -222,9 +222,9 @@ These packages implement the cryptographic operations and must be modified with 
 - **reporter.go**: Progress reporting interface for UI updates
 
 ### `internal/ui/`
-- **app.go**: Main window and Dear ImGui integration
+- **app.go**: Main window and Fyne GUI integration
 - **drop.go**: Drag-and-drop file handling
-- **modals.go**: Modal dialogs (password generator, keyfile selection)
+- **dialogs.go**: Modal dialogs (password generator, keyfile selection)
 - **state.go**: UI-specific state helpers
 
 ### `internal/util/`

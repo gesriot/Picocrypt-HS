@@ -33,7 +33,7 @@ The codebase follows a strict one-directional layer hierarchy (`cmd → ui/cli/w
 - **One core, four frontends.** The `volume.ProgressReporter` interface (5 methods) and `OperationContext` decouple the pipeline from any UI. GUI, CLI, WASM, and Android all drive the same `volume.Encrypt()`/`Decrypt()`.
 - **Build tags, not runtime switches.** GUI vs CLI vs WASM are selected at compile time (`//go:build !cli` / `cli` / `js && wasm`); per-OS variants use file-name conventions (`diskspace_windows.go`, `macos_open_darwin.go`).
 - **Golden vectors gate compatibility.** Any change to crypto/header/volume must keep `golden_test.go` green — it decrypts reference 2.08/2.09 volumes from `src/testdata/golden/` and guards byte-level format stability.
-- **Secrets are zeroed.** `crypto.SecureZero` + RAII-style `Close()` on `KeyMaterial`/`OperationContext`; all key material is wiped on every exit path (verified by `zeroing_exit_test.go`).
+- **Secrets are zeroed.** `crypto.SecureZero` + RAII-style `Close()` on `CipherSuite`/`OperationContext`; all key material is wiped on every exit path (verified by `zeroing_exit_test.go`).
 - **Resilience extras.** Reed-Solomon header (and optional payload) encoding, plausible deniability (an extra headerless XChaCha20 wrap), keyfiles (ordered = sequential hash, unordered = XOR), and volume splitting.
 - **Atomic output.** Pipelines write `<out>.incomplete`, `Sync()`, then rename — no partial outputs survive a crash.
 

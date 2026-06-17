@@ -242,11 +242,14 @@ func TestKeyMaterialZeroed(t *testing.T) {
 	})
 
 	t.Run("live key survives the no-keyfile decrypt then Close zeros it", func(t *testing.T) {
-		// No keyfile: decrypt.go's v2 path self-assigns `ctx.Key = key` (Pitfall 1,
-		// same backing array), so the SINGLE Argon2-derived slice the recorder
-		// captures IS the FINAL live ctx.Key that survives to Close(). Asserting it
-		// zeroed proves Close()'s SecureZeroMultiple reaches the live key — deleting
-		// context.go:324 leaves rec.captured[0] non-zero and fails this.
+		// No keyfile: the v2 path never reassigns ctx.Key after derivation, so the
+		// SINGLE Argon2-derived slice the recorder captures IS the FINAL live ctx.Key
+		// that survives to Close(). Asserting it zeroed confirms the live key is wiped
+		// on the normal exit path. Note this slice is zeroed by BOTH CipherSuite.Close()
+		// (NewCipherSuite shares ctx.Key's backing array) and OperationContext.Close()'s
+		// SecureZeroMultiple, so it does not isolate the latter; the dedicated guard for
+		// context.go's SecureZeroMultiple is the sibling "Close zeros the FINAL live
+		// key/..." subtest below (which fails if that call is removed).
 		rsCodecs, err := encoding.NewRSCodecs()
 		if err != nil {
 			t.Fatalf("NewRSCodecs: %v", err)

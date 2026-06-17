@@ -128,4 +128,3 @@ func (req *DecryptRequest) ValidateCredentials(keyfilesRequired bool) error {
 
 	return nil
 }
-
