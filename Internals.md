@@ -16,6 +16,41 @@ Picocrypt NG uses the following cryptographic primitives:
 
 All primitives used are from the well-known [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) module.
 
+# Key Schedule & Subkey Stream
+This section documents the exact key-derivation order so an independent decryptor can be written. Source: `internal/crypto/kdf.go` (`SubkeyReader`) and `internal/volume/decrypt.go` (`decryptVerifyAuth`).
+
+## Master key
+1. `key = Argon2id(password, salt)` — salt is the 16-byte Argon2 salt from the header; parameters per mode (normal: 4 passes, 1 GiB, 4 threads; paranoid: 8 passes, 1 GiB, 8 threads), output 32 bytes.
+2. Keyfile key (if keyfiles are used) is XORed into the master key. The **timing** of this XOR differs between v1 and v2 (see below).
+
+## HKDF subkey stream
+A single `HKDF-SHA3-256(key, hkdfSalt)` stream produces all subkeys, read **sequentially** in a fixed order. `hkdfSalt` is the 32-byte HKDF salt from the header. The `SubkeyReader` enforces the read order via a state machine — reading out of order, or skipping a subkey, shifts every later subkey and makes the volume undecryptable.
+
+**v2.00+ subkey order (`Picocrypt-NG`):**
+
+| Stream offset | Size | Subkey |
+| ------------- | ---- | ------ |
+| 0   | 64 | Header subkey — keys the HMAC-SHA3-512 over the header fields (v2 only) |
+| 64  | 32 | MAC subkey — keys the payload MAC (BLAKE2b-512 normal / HMAC-SHA3-512 paranoid) |
+| 96  | 32 | Serpent key (paranoid mode cascade) |
+| 128+ | 24 + 16 | Per rekey cycle: XChaCha20 nonce (24) then Serpent IV (16) |
+
+**v1.x subkey order (original Picocrypt — no header subkey):**
+
+| Stream offset | Size | Subkey |
+| ------------- | ---- | ------ |
+| 0   | 32 | MAC subkey |
+| 32  | 32 | Serpent key |
+| 64+ | 24 + 16 | Per rekey cycle: XChaCha20 nonce (24) then Serpent IV (16) |
+
+## Keyfile-XOR timing: v1 vs v2
+The two formats differ in **when** the keyfile key is XORed relative to HKDF initialization:
+
+- **v1.x — XOR before HKDF.** `key = Argon2(password, salt)`, then `key = key XOR keyfileKey`, then `hkdf = HKDF-SHA3-256(key, hkdfSalt)`. The keyfile contribution flows into the entire subkey stream (MAC subkey, Serpent key, rekey values).
+- **v2.00+ — HKDF before XOR.** `key = Argon2(password, salt)`, then `hkdf = HKDF-SHA3-256(key, hkdfSalt)` (using the password-only key), then `key = key XOR keyfileKey`. The XOR affects **only the XChaCha20 key**; the HKDF stream (header/MAC/Serpent subkeys) is derived from the password-only key.
+
+Getting either the subkey order or the XOR timing wrong yields the wrong subkeys and authentication fails. The `SubkeyReader.HeaderSubkey()` call is the v2-only first read; v1 starts directly at `MACSubkey()`.
+
 # Password Normalization
 A visually identical password can be encoded as different UTF-8 bytes depending on the platform's keyboard/input method (e.g. composed `é` U+00E9 vs decomposed `e` + U+0301). Because the password bytes feed Argon2id directly, two such forms would derive different keys, so a volume encrypted on one platform could not be decrypted on another.
 
@@ -30,6 +65,8 @@ This is implemented in `internal/password` and applied at every key-derivation c
 
 # Counter Overflow
 Since XChaCha20 has a max message size of 256 GiB, Picocrypt NG will use the HKDF-SHA3 mentioned above to generate a new nonce for XChaCha20 and a new IV for Serpent if the total encrypted data is more than 60 GiB. While this threshold can be increased up to 256 GiB, Picocrypt NG uses 60 GiB to prevent any edge cases with blocks or the counter used by Serpent.
+
+Each rekey cycle reads the next **24-byte XChaCha20 nonce** followed by the next **16-byte Serpent IV** from the HKDF subkey stream described above (starting at stream offset 128 for v2, offset 64 for v1). The MAC subkey is never re-read, so the payload MAC spans the entire stream across all rekey boundaries. Note this is distinct from the deniability layer's rekeying (see [Deniability](#deniability)), which derives its new nonce from `SHA3-256(old_nonce)` rather than from an HKDF stream.
 
 # Header Format
 A Picocrypt NG volume's header is encoded with Reed-Solomon by default since it is, after all, the most important part of the entire file. An encoded value will take up three times the size of the unencoded value.
@@ -101,6 +138,22 @@ Plausible deniability in Picocrypt NG is achieved by simply re-encrypting the vo
 ```
 [argon2 salt][xchacha20 nonce][encrypted stream of bytes]
 ```
+
+**Layout (`internal/volume/deniability.go`).** The wrapper prepends exactly two raw, unencoded fields before the encrypted inner volume:
+
+| Offset | Size | Field |
+| ------ | ---- | ----- |
+| 0  | 16 | Argon2 salt (random) |
+| 16 | 24 | XChaCha20 nonce (random) |
+| 40 | …  | XChaCha20-encrypted inner volume (the complete regular `.pcv`) |
+
+Neither field is Reed-Solomon encoded — they are written as raw bytes so the volume is indistinguishable from random data.
+
+**Key derivation.** The deniability key is `Argon2id(NFC(password), salt)` using **normal-mode** parameters regardless of the inner volume's mode: 4 passes, 1 GiB memory, 4 threads, 32-byte output. (The inner volume keeps its own independent salt/key in its header.)
+
+**Rekeying.** The deniability layer rekeys every 60 GiB, but unlike the inner volume it does **not** use an HKDF stream. The new nonce is `nonce = SHA3-256(old_nonce)[:24]` (`crypto.DeniabilityRekey`); the Argon2 key is unchanged.
+
+**Detection.** A regular volume begins with an RS5-encoded version field; a deniable wrapper begins with random salt/nonce bytes that fail to decode as a known version. To decrypt, read salt(16) + nonce(24), derive the key, and XChaCha20-decrypt the remainder; the result is a normal Picocrypt volume parsed as described above.
 
 **Security Note:** The deniability layer intentionally uses unauthenticated encryption (XChaCha20 without a MAC). Adding authentication would defeat the purpose of deniability, as the MAC would be identifiable metadata. The inner volume remains fully authenticated, so data integrity is still protected.
 
