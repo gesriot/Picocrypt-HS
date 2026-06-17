@@ -142,9 +142,9 @@ func TestMacOSReleaseWorkflowPublishesCLIFromFlatArtifact(t *testing.T) {
 		t.Fatalf("macOS upload artifact path = %#v, want flat release-staging/", uploadStep.With["path"])
 	}
 
-	checksumStep := mustStepNamed(t, releaseJob, "Generate checksums")
-	mustContain(t, checksumStep.Run, "set -euo pipefail")
-	mustContain(t, checksumStep.Run, "test -s artifacts/build-macos/Picocrypt-NG-cli-macos")
+	verifyStep := mustStepNamed(t, releaseJob, "Verify artifacts present")
+	mustContain(t, verifyStep.Run, "set -euo pipefail")
+	mustContain(t, verifyStep.Run, "test -s artifacts/build-macos/Picocrypt-NG-cli-macos")
 
 	releaseStep := mustHaveStepUsingPrefix(t, releaseJob, "softprops/action-gh-release@")
 	files, ok := releaseStep.With["files"].(string)
