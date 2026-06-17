@@ -117,6 +117,10 @@ For more information on how Picocrypt NG handles cryptography, see <a href="Inte
 
 <strong>Picocrypt NG operates under the assumption that the host machine it is running on is safe and trusted. If that is not the case, no piece of software will be secure, and you will have much bigger problems to worry about. As such, Picocrypt NG is designed for the offline security of volumes and does not attempt to protect against side-channel analysis.</strong>
 
+# AI Usage
+
+AI tools (LLMs) assist development in this project. All crypto-critical code receives human review before merging. See [CONTRIBUTING.md](CONTRIBUTING.md#ai-assistance) for details.
+
 # FAQ
 **Does the "Delete files" feature shred files?**
 

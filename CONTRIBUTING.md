@@ -64,6 +64,14 @@ if subtle.ConstantTimeCompare(mac1, mac2) != 1 {
 nonce, err := crypto.RandomBytes(24)
 ```
 
+## AI Assistance
+
+AI tools (LLMs) are used in this project to assist with development — writing boilerplate, drafting tests, exploring refactoring options, and reviewing documentation.
+
+All crypto-critical code (`crypto/`, `header/`, `keyfile/`, `volume/`) is reviewed and approved by a human before merging. AI-generated suggestions in these packages are treated with the same skepticism as any untrusted diff: they are read carefully, tested against golden vectors, and never merged on AI confidence alone.
+
+AI assistance does not replace human judgment on security decisions.
+
 ## Pull Requests
 
 ### Before Submitting
