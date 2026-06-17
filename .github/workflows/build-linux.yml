@@ -262,9 +262,15 @@ jobs:
           artifacts/build-linux-arm64/Picocrypt-NG-arm64
           artifacts/build-linux-arm64/Picocrypt-NG-cli-arm64
 
+    - name: Generate release notes
+      uses: ./.github/actions/release-body
+      with:
+        version: ${{ env.VERSION }}
+
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
       with:
+        body_path: ${{ github.workspace }}/release-body.md
         files: |
           artifacts/build-linux-amd64/Picocrypt-NG
           artifacts/build-linux-amd64/Picocrypt-NG-cli

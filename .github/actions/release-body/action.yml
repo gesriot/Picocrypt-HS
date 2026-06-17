@@ -1,0 +1,40 @@
+name: 'Generate release body'
+description: >-
+  Generate the GitHub release notes (downloads table + "what's new" extracted
+  from Changelog.md + Sigstore verification section) into a file for
+  softprops/action-gh-release `body_path`. The body is deterministic from the
+  version and changelog, so every build workflow produces the identical text and
+  can set it as the release body regardless of which job creates the release
+  first (race-safe). Replaces the old hand-written SHA-256 block.
+
+inputs:
+  version:
+    description: Release version, e.g. 2.16
+    required: true
+  output:
+    description: Where to write the Markdown body (relative paths resolve against the workspace)
+    required: false
+    default: release-body.md
+  changelog:
+    description: Changelog source (relative paths resolve against the workspace)
+    required: false
+    default: Changelog.md
+
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        OUTPUT: ${{ inputs.output }}
+        CHANGELOG: ${{ inputs.changelog }}
+        ACTION_PATH: ${{ github.action_path }}
+        WORKSPACE: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        case "$CHANGELOG" in /*) ;; *) CHANGELOG="$WORKSPACE/$CHANGELOG";; esac
+        case "$OUTPUT" in /*) ;; *) OUTPUT="$WORKSPACE/$OUTPUT";; esac
+        bash "$ACTION_PATH/gen-release-body.sh" "$VERSION" "$CHANGELOG" "$OUTPUT"
+        echo "::group::generated release body ($OUTPUT)"
+        cat "$OUTPUT"
+        echo "::endgroup::"

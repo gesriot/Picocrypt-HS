@@ -126,9 +126,15 @@ jobs:
         paths: |
           artifacts/build-windows-legacy/Picocrypt-NG-cli-Legacy.exe
 
+    - name: Generate release notes
+      uses: ./.github/actions/release-body
+      with:
+        version: ${{ env.VERSION }}
+
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
       with:
+        body_path: ${{ github.workspace }}/release-body.md
         files: |
           artifacts/build-windows-legacy/Picocrypt-NG-cli-Legacy.exe
           artifacts/build-windows-legacy/*.sigstore.json
