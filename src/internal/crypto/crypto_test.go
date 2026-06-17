@@ -230,6 +230,15 @@ func TestDeniabilityRekey(t *testing.T) {
 		t.Errorf("New nonce length = %d; want 24", len(newNonce))
 	}
 
+	// Known-answer: deniability rekey derives the nonce as SHA3-256(oldNonce)[:24].
+	// This pins the exact hash function (SHA3-256, not SHA3-512/BLAKE2/etc.) and the
+	// truncation length, so a regression in the hash selection turns the test red.
+	// Computed independently via crypto/sha3 over nonce[i]=byte(i*2).
+	const wantDenyNonce = "8a60ad32d225f2bc1256300009bba2ab79d38807f02db12d"
+	if got := hex.EncodeToString(newNonce); got != wantDenyNonce {
+		t.Errorf("DeniabilityRekey nonce = %s; want %s (SHA3-256(oldNonce)[:24])", got, wantDenyNonce)
+	}
+
 	// New nonce should be different from old
 	if bytes.Equal(nonce, newNonce) {
 		t.Error("New nonce should be different from old nonce")
@@ -239,6 +248,45 @@ func TestDeniabilityRekey(t *testing.T) {
 	_, newNonce2, _ := DeniabilityRekey(key, nonce)
 	if !bytes.Equal(newNonce, newNonce2) {
 		t.Error("DeniabilityRekey should be deterministic")
+	}
+}
+
+func TestNormalModeCipherKAT(t *testing.T) {
+	// Normal-mode (paranoid=false) CipherSuite.Encrypt over an all-zero plaintext
+	// yields the raw XChaCha20 keystream. With a fixed key and nonce that keystream
+	// is deterministic, so this pins the exact cipher: a swapped/misconfigured
+	// stream cipher (or an accidental Serpent layer) produces different bytes and
+	// fails the test. The expected value was captured from the real code and
+	// independently confirmed to equal an unauthenticated XChaCha20 keystream over
+	// 64 zero bytes for key=0x01*32, nonce=0x02*24.
+	const wantKeystream = "b6bb0ee1dfec94dd5ebe93cf321db795e112a340f10d8a821569fa381fc5e69dcfdf41c006df49785248aa7a4c11392b0d10e3155689f8b2d84e5216c840054b"
+
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = 0x01
+	}
+	nonce := make([]byte, 24)
+	for i := range nonce {
+		nonce[i] = 0x02
+	}
+	// Unused in normal mode but required by the constructor signature.
+	serpentKey := make([]byte, 32)
+	serpentIV := make([]byte, 16)
+	hkdfSalt := make([]byte, 32)
+
+	mac, _ := NewMAC(make([]byte, 32), false)
+	hkdf := NewHKDFStream(key, hkdfSalt)
+
+	suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, false)
+	if err != nil {
+		t.Fatalf("NewCipherSuite() failed: %v", err)
+	}
+
+	dst := make([]byte, 64)
+	suite.Encrypt(dst, make([]byte, 64))
+
+	if got := hex.EncodeToString(dst); got != wantKeystream {
+		t.Errorf("normal-mode keystream = %s; want %s", got, wantKeystream)
 	}
 }
 
