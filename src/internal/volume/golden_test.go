@@ -240,6 +240,30 @@ func TestGoldenV209CorpusPresent(t *testing.T) {
 	}
 }
 
+// TestGoldenBasicCorpusPresent hard-fails if ANY fixture decrypted by
+// TestGoldenDecryption / TestGoldenCompressedDecryption is missing. Those suites
+// per-case t.Skipf on a missing file, so a deleted/renamed golden would silently
+// stop being exercised (a frozen-format regression could pass unnoticed, Rule 12).
+// This guard makes their absence a hard CI failure instead.
+func TestGoldenBasicCorpusPresent(t *testing.T) {
+	testdataPath := findTestdata(t)
+
+	required := make([]string, 0, len(goldenTestCases)+len(goldenCompressedTestCases))
+	for _, tc := range goldenTestCases {
+		required = append(required, tc.file)
+	}
+	for _, tc := range goldenCompressedTestCases {
+		required = append(required, tc.file)
+	}
+
+	for _, name := range required {
+		path := filepath.Join(testdataPath, name)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("required golden asset missing: %s (%v)", path, err)
+		}
+	}
+}
+
 func TestGoldenDecryption(t *testing.T) {
 	restore := useProductionTestKDF()
 	defer restore()
@@ -257,9 +281,9 @@ func TestGoldenDecryption(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			inputPath := filepath.Join(testdataPath, tc.file)
 
-			// Skip if file doesn't exist
-			if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-				t.Skipf("Golden file not found: %s", inputPath)
+			// Required corpus (TestGoldenBasicCorpusPresent); fail-loud if missing.
+			if _, err := os.Stat(inputPath); err != nil {
+				t.Fatalf("required golden file missing: %s (%v)", inputPath, err)
 			}
 
 			// Create temp output file
@@ -329,9 +353,9 @@ func TestGoldenCompressedDecryption(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			inputPath := filepath.Join(testdataPath, tc.file)
 
-			// Skip if file doesn't exist
-			if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-				t.Skipf("Golden file not found: %s", inputPath)
+			// Required corpus (TestGoldenBasicCorpusPresent); fail-loud if missing.
+			if _, err := os.Stat(inputPath); err != nil {
+				t.Fatalf("required golden file missing: %s (%v)", inputPath, err)
 			}
 
 			tmpDir := t.TempDir()

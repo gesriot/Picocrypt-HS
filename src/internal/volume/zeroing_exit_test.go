@@ -1,12 +1,14 @@
 package volume
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 )
 
@@ -237,5 +239,92 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		for i, key := range rec.captured {
 			assertAllZero(t, fmt.Sprintf("full-RS retry: orphaned Argon2 key pass %d", i), key)
 		}
+	})
+
+	t.Run("live key survives the no-keyfile decrypt then Close zeros it", func(t *testing.T) {
+		// No keyfile: decrypt.go's v2 path self-assigns `ctx.Key = key` (Pitfall 1,
+		// same backing array), so the SINGLE Argon2-derived slice the recorder
+		// captures IS the FINAL live ctx.Key that survives to Close(). Asserting it
+		// zeroed proves Close()'s SecureZeroMultiple reaches the live key — deleting
+		// context.go:324 leaves rec.captured[0] non-zero and fails this.
+		rsCodecs, err := encoding.NewRSCodecs()
+		if err != nil {
+			t.Fatalf("NewRSCodecs: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		const password = "live-key-zeroed-pw"
+		plaintext := []byte("live-key fixture: no keyfile, ctx.Key self-assigned and zeroed by Close().")
+		inputPath := filepath.Join(tmpDir, "live_in.txt")
+		if err := os.WriteFile(inputPath, plaintext, 0600); err != nil {
+			t.Fatalf("write input: %v", err)
+		}
+
+		encryptedPath := filepath.Join(tmpDir, "live_in.txt.pcv")
+		encReq := &EncryptRequest{
+			InputFile:  inputPath,
+			OutputFile: encryptedPath,
+			Password:   password,
+			Reporter:   &GoldenTestReporter{},
+			RSCodecs:   rsCodecs,
+		}
+		if err := Encrypt(context.Background(), encReq); err != nil {
+			t.Fatalf("Encrypt: %v", err)
+		}
+
+		rec, restore := useRecordingKDF(t)
+		defer restore()
+
+		decryptedPath := filepath.Join(tmpDir, "live_out.txt")
+		decReq := &DecryptRequest{
+			InputFile:  encryptedPath,
+			OutputFile: decryptedPath,
+			Password:   password,
+			Reporter:   &GoldenTestReporter{},
+			RSCodecs:   rsCodecs,
+		}
+		if err := Decrypt(context.Background(), decReq); err != nil {
+			t.Fatalf("Decrypt: %v", err)
+		}
+
+		got, err := os.ReadFile(decryptedPath)
+		if err != nil {
+			t.Fatalf("read decrypted output: %v", err)
+		}
+		if string(got) != string(plaintext) {
+			t.Fatalf("decrypted content mismatch (live key wiped before use?)")
+		}
+
+		if len(rec.captured) != 1 {
+			t.Fatalf("expected exactly 1 Argon2 derivation (no keyfile, no retry), got %d", len(rec.captured))
+		}
+		assertAllZero(t, "no-keyfile: FINAL live ctx.Key after Close()", rec.captured[0])
+	})
+
+	t.Run("Close zeros the FINAL live key/keyfileKey/keyfileHash/passwordBytes", func(t *testing.T) {
+		// Direct Close() contract over ALL FOUR []byte key fields it must wipe at
+		// context.go:324. Distinct backing arrays per field so each assertion is
+		// independent; deleting the SecureZeroMultiple(...) call leaves every one
+		// non-zero. (The recorder seam observes only Key; keyfileKey/keyfileHash/
+		// passwordBytes are not KDF outputs, so this is the observable anchor for
+		// the remaining three fields.)
+		ctx := &OperationContext{
+			Key:           bytes.Repeat([]byte{0x11}, crypto.Argon2KeySize),
+			KeyfileKey:    bytes.Repeat([]byte{0x22}, crypto.Argon2KeySize),
+			KeyfileHash:   bytes.Repeat([]byte{0x33}, 32),
+			passwordBytes: bytes.Repeat([]byte{0x44}, 12),
+		}
+		// Hold the backing arrays BEFORE Close() nils the fields (Pitfall 2).
+		key := ctx.Key
+		keyfileKey := ctx.KeyfileKey
+		keyfileHash := ctx.KeyfileHash
+		passwordBytes := ctx.passwordBytes
+
+		ctx.Close()
+
+		assertAllZero(t, "FINAL live key", key)
+		assertAllZero(t, "FINAL live keyfileKey", keyfileKey)
+		assertAllZero(t, "FINAL live keyfileHash", keyfileHash)
+		assertAllZero(t, "FINAL live passwordBytes", passwordBytes)
 	})
 }

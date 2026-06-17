@@ -756,9 +756,11 @@ func TestRoundTripSplit(t *testing.T) {
 	}
 	if len(chunks) < 2 {
 		t.Logf("Only %d chunk(s) created - file might be too small for splitting", len(chunks))
-		// Still try to decrypt the first chunk if it exists
+		// A 100 KiB input split into 10 KiB chunks MUST produce multiple chunks;
+		// zero chunks means splitting silently failed — fail loud (Rule 12), never
+		// skip a broken split as if it were an environment gap.
 		if len(chunks) == 0 {
-			t.Skip("No chunks created - splitting might not be working")
+			t.Fatalf("split produced zero chunks for %q (splitting is broken)", encryptedPath)
 		}
 	}
 	t.Logf("Created %d chunks", len(chunks))
@@ -2231,11 +2233,25 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	}
 
 	err = Decrypt(context.Background(), decReqForce)
-	// ForceDecrypt may succeed or fail depending on corruption severity
+	// Documented ForceDecrypt behavior: salt corruption yields a wrong Argon2 key,
+	// so BOTH the header MAC and the payload MAC mismatch — but ForceDecrypt bypasses
+	// those gates (decrypt.go:323) and finalizes the volume anyway (decrypt.go:816),
+	// marking it Kept and producing an output file. Assert that observable outcome so
+	// this half can fail (e.g. if ForceDecrypt silently aborted or stopped setting
+	// Kept) rather than passing for either result.
 	if err != nil {
-		t.Logf("ForceDecrypt also failed (severe tampering): %v", err)
-	} else {
-		t.Log("ForceDecrypt succeeded - data may be partially recovered")
+		t.Fatalf("ForceDecrypt should proceed past the damaged header, got error: %v", err)
+	}
+	if !kept {
+		t.Fatal("ForceDecrypt finalized a MAC-mismatched volume but did not set Kept=true")
+	}
+	forcedOutput := decryptedPath + ".forced"
+	info, statErr := os.Stat(forcedOutput)
+	if statErr != nil {
+		t.Fatalf("ForceDecrypt did not produce an output file at %s: %v", forcedOutput, statErr)
+	}
+	if info.Size() == 0 {
+		t.Fatalf("ForceDecrypt produced an empty output file at %s", forcedOutput)
 	}
 
 	t.Log("V2 header tamper detection: SUCCESS")
