@@ -297,4 +297,3 @@ func TestDecryptRequestValidateCredentials(t *testing.T) {
 		})
 	}
 }
-
