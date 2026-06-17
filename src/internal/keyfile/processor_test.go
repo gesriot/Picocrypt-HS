@@ -2,6 +2,7 @@ package keyfile
 
 import (
 	"bytes"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -133,6 +134,136 @@ func TestProcessEmpty(t *testing.T) {
 		if b != 0 {
 			t.Errorf("Key[%d] = %d; want 0", i, b)
 		}
+	}
+}
+
+// TestProcessOrderedKAT pins the ordered derivation to an independently-computed
+// vector. Ordered = SHA3-256("alpha" || "beta"). Expected hex computed via
+// python3 hashlib.sha3_256(b"alpha"+b"beta"). This freezes the on-disk key
+// derivation: any change to the hash input (extra byte, wrong order, different
+// algorithm) breaks the pinned value.
+func TestProcessOrderedKAT(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.key"), []byte("alpha"), 0600); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.key"), []byte("beta"), 0600); err != nil {
+		t.Fatalf("write beta: %v", err)
+	}
+
+	paths := []string{
+		filepath.Join(dir, "alpha.key"),
+		filepath.Join(dir, "beta.key"),
+	}
+
+	const wantHex = "72cdf5098734302203ae678e6bc85e1cff67ad36976f390ade6f04cc257eff5a"
+	want, err := hex.DecodeString(wantHex)
+	if err != nil {
+		t.Fatalf("decode want: %v", err)
+	}
+
+	result, err := Process(paths, true, nil)
+	if err != nil {
+		t.Fatalf("Process(ordered) failed: %v", err)
+	}
+
+	if !bytes.Equal(result.Key, want) {
+		t.Errorf("ordered Key = %x; want %s", result.Key, wantHex)
+	}
+}
+
+// TestProcessUnorderedKAT pins the unordered derivation to an independently-computed
+// vector and verifies its defining properties. Unordered =
+// SHA3-256("alpha") XOR SHA3-256("beta"). Expected hex computed via python3
+// (per-file hashlib.sha3_256 then byte-wise XOR). Also asserts order-independence
+// (XOR commutativity) and that it is distinct from the ordered derivation.
+func TestProcessUnorderedKAT(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.key"), []byte("alpha"), 0600); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.key"), []byte("beta"), 0600); err != nil {
+		t.Fatalf("write beta: %v", err)
+	}
+
+	alpha := filepath.Join(dir, "alpha.key")
+	beta := filepath.Join(dir, "beta.key")
+
+	const wantHex = "d73f056aaf0c6df2771b3d213ba9dcc2fae1f4b2c121af4ece834aedec329a20"
+	want, err := hex.DecodeString(wantHex)
+	if err != nil {
+		t.Fatalf("decode want: %v", err)
+	}
+
+	resultAB, err := Process([]string{alpha, beta}, false, nil)
+	if err != nil {
+		t.Fatalf("Process(unordered, AB) failed: %v", err)
+	}
+	if !bytes.Equal(resultAB.Key, want) {
+		t.Errorf("unordered Key = %x; want %s", resultAB.Key, wantHex)
+	}
+
+	// Order-independence: swapping inputs must yield the same Key (XOR commutativity).
+	resultBA, err := Process([]string{beta, alpha}, false, nil)
+	if err != nil {
+		t.Fatalf("Process(unordered, BA) failed: %v", err)
+	}
+	if !bytes.Equal(resultAB.Key, resultBA.Key) {
+		t.Errorf("unordered must be order-independent: AB=%x BA=%x", resultAB.Key, resultBA.Key)
+	}
+
+	// Distinctness: the unordered derivation must differ from the ordered one.
+	ordered, err := Process([]string{alpha, beta}, true, nil)
+	if err != nil {
+		t.Fatalf("Process(ordered) failed: %v", err)
+	}
+	if bytes.Equal(resultAB.Key, ordered.Key) {
+		t.Error("unordered Key must differ from ordered Key")
+	}
+}
+
+// TestProcessProgressBoundedMonotonic asserts the progress callback values form
+// a monotonic non-decreasing sequence bounded by 1.0. This guards the progress
+// contract documented on ProgressFunc (0.0-1.0): a regression that emitted a
+// value > 1.0 or that went backwards would break this.
+func TestProcessProgressBoundedMonotonic(t *testing.T) {
+	dir := t.TempDir()
+
+	// Multi-MiB file across two files to force several callback invocations.
+	content := bytes.Repeat([]byte("y"), 1024*1024*3) // 3 MiB
+	if err := os.WriteFile(filepath.Join(dir, "p1.key"), content, 0600); err != nil {
+		t.Fatalf("write p1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "p2.key"), content, 0600); err != nil {
+		t.Fatalf("write p2: %v", err)
+	}
+
+	paths := []string{
+		filepath.Join(dir, "p1.key"),
+		filepath.Join(dir, "p2.key"),
+	}
+
+	var values []float32
+	_, err := Process(paths, true, func(p float32) {
+		values = append(values, p)
+	})
+	if err != nil {
+		t.Fatalf("Process with progress failed: %v", err)
+	}
+
+	if len(values) == 0 {
+		t.Fatal("progress callback was never called")
+	}
+
+	var prev float32
+	for i, v := range values {
+		if v > 1.0 {
+			t.Errorf("progress[%d] = %f; must be <= 1.0", i, v)
+		}
+		if v < prev {
+			t.Errorf("progress[%d] = %f decreased from previous %f; must be monotonic", i, v, prev)
+		}
+		prev = v
 	}
 }
 

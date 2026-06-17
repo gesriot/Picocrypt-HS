@@ -2,6 +2,8 @@ package volume
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 
 	"Picocrypt-NG/internal/encoding"
@@ -60,83 +62,82 @@ func buildEncodedChunks(t *testing.T, rs *encoding.RSCodecs, nFullChunks, lastLe
 	return plain, enc
 }
 
-// expectedDecode reproduces decodeWithRSFast's append sequence using the per-chunk
-// encoding.Decode loop, so the test compares the function against an independent
-// reconstruction of the exact same bytes (the D-05 byte-identical guard).
-func expectedDecode(t *testing.T, data []byte, rs *encoding.RSCodecs, isLast, padded, fastDecode bool) []byte {
-	t.Helper()
-	var result []byte
-	fullBlockEncodedSize := util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
+// Frozen decode vectors (D-05). These were computed ONCE from the real
+// decodeWithRSFast over the deterministic inputs built by buildEncodedChunks /
+// buildEncodedMiB, then pinned here. Pinning the OUTPUT (not re-deriving it from
+// the same per-chunk loop the function uses) means a regression in the decode
+// branches — chunk striding, last-chunk Unpad, full-block detection — changes the
+// produced bytes and fails the test, instead of changing both sides in lockstep
+// the way the previous expectedDecode reimplementation did.
+//
+// partialDecodeHex is the decode of buildEncodedChunks(t, rs, 2, 5): two full
+// 128-byte chunks plus a 5-byte trailing chunk PKCS#7-padded to 128 before
+// encoding. The trailing "a0a1a2a3a4" (5 bytes) confirms Unpad strips exactly the
+// padding — a >=/> Unpad regression or a wrong last-chunk slice would change it.
+const partialDecodeHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" +
+	"202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f" +
+	"404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f" +
+	"606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f" +
+	"0708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526" +
+	"2728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40414243444546" +
+	"4748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60616263646566" +
+	"6768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80818283848586" +
+	"a0a1a2a3a4"
 
-	if len(data) == fullBlockEncodedSize {
-		for i := 0; i < fullBlockEncodedSize; i += encoding.RS128EncodedSize {
-			decoded, err := encoding.Decode(rs.RS128, data[i:i+encoding.RS128EncodedSize], fastDecode)
-			if err != nil {
-				t.Fatalf("expected Decode (full) at %d: %v", i, err)
-			}
-			if isLast && i == fullBlockEncodedSize-encoding.RS128EncodedSize && padded {
-				decoded = encoding.Unpad(decoded)
-			}
-			result = append(result, decoded...)
-		}
-		return result
-	}
+// fullDecodeSHA256 is SHA-256 of the decode of buildEncodedMiB(t, rs): one full
+// 1 MiB block (8192 chunks). The decoded output is 1 MiB, so it is pinned as a
+// frozen digest rather than an inline literal; any change to the full-block
+// branch (the len(data)==rsEncodedBlockSize path) alters these bytes and the digest.
+const fullDecodeSHA256 = "fbbab289f7f94b25736c58be46a994c441fd02552cc6022352e3d86d2fab7c83"
 
-	chunks := len(data)/encoding.RS128EncodedSize - 1
-	for i := range chunks {
-		decoded, err := encoding.Decode(rs.RS128, data[i*encoding.RS128EncodedSize:(i+1)*encoding.RS128EncodedSize], fastDecode)
-		if err != nil {
-			t.Fatalf("expected Decode (partial) at chunk %d: %v", i, err)
-		}
-		result = append(result, decoded...)
-	}
-	lastChunkStart := chunks * encoding.RS128EncodedSize
-	lastChunkEnd := min(lastChunkStart+encoding.RS128EncodedSize, len(data))
-	decoded, err := encoding.Decode(rs.RS128, data[lastChunkStart:lastChunkEnd], fastDecode)
-	if err != nil {
-		t.Fatalf("expected Decode (last) at %d: %v", lastChunkStart, err)
-	}
-	result = append(result, encoding.Unpad(decoded)...)
-	return result
-}
-
-// TestDecodeWithRSFast asserts decodeWithRSFast output is byte-identical to an
-// independent per-chunk encoding.Decode reconstruction across the full-MiB,
-// partial, and padded-last-chunk branches in both fast and full modes (D-05).
+// TestDecodeWithRSFast asserts decodeWithRSFast output equals frozen vectors
+// across the full-MiB block branch and the partial / padded-last-chunk branch, in
+// both fast and full decode modes (D-05). The vectors are pinned bytes computed
+// once from real code — NOT a re-implementation of the function's own branches.
 func TestDecodeWithRSFast(t *testing.T) {
 	rs, err := encoding.NewRSCodecs()
 	if err != nil {
 		t.Fatalf("NewRSCodecs: %v", err)
 	}
 
-	_, fullEnc := buildEncodedMiB(t, rs)
-	// Partial block: 3 full chunks + a 50-byte padded trailing chunk.
-	_, partialEnc := buildEncodedChunks(t, rs, 3, 50)
-
-	tests := []struct {
-		name       string
-		data       []byte
-		isLast     bool
-		padded     bool
-		fastDecode bool
-	}{
-		{"full-MiB fast", fullEnc, false, false, true},
-		{"full-MiB full", fullEnc, false, false, false},
-		{"full-MiB last padded fast", fullEnc, true, true, true},
-		{"full-MiB last padded full", fullEnc, true, true, false},
-		{"partial fast", partialEnc, true, true, true},
-		{"partial full", partialEnc, true, true, false},
+	wantPartial, err := hex.DecodeString(partialDecodeHex)
+	if err != nil {
+		t.Fatalf("decode frozen partial vector: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := decodeWithRSFast(tt.data, rs, tt.isLast, tt.padded, false, tt.fastDecode)
+	// Partial block: 2 full chunks + a 5-byte padded trailing chunk.
+	_, partialEnc := buildEncodedChunks(t, rs, 2, 5)
+	for _, fastDecode := range []bool{true, false} {
+		name := "partial full"
+		if fastDecode {
+			name = "partial fast"
+		}
+		t.Run(name, func(t *testing.T) {
+			got, err := decodeWithRSFast(partialEnc, rs, true, true, false, fastDecode)
 			if err != nil {
 				t.Fatalf("decodeWithRSFast: unexpected error %v", err)
 			}
-			want := expectedDecode(t, tt.data, rs, tt.isLast, tt.padded, tt.fastDecode)
-			if !bytes.Equal(got, want) {
-				t.Errorf("decodeWithRSFast output mismatch: got %d bytes, want %d bytes", len(got), len(want))
+			if !bytes.Equal(got, wantPartial) {
+				t.Errorf("partial decode mismatch:\n got %s\nwant %s", hex.EncodeToString(got), partialDecodeHex)
+			}
+		})
+	}
+
+	// Full 1 MiB block branch, both decode modes; the output is pinned by digest.
+	_, fullEnc := buildEncodedMiB(t, rs)
+	for _, fastDecode := range []bool{true, false} {
+		name := "full-MiB full"
+		if fastDecode {
+			name = "full-MiB fast"
+		}
+		t.Run(name, func(t *testing.T) {
+			got, err := decodeWithRSFast(fullEnc, rs, false, false, false, fastDecode)
+			if err != nil {
+				t.Fatalf("decodeWithRSFast: unexpected error %v", err)
+			}
+			sum := sha256.Sum256(got)
+			if gotHex := hex.EncodeToString(sum[:]); gotHex != fullDecodeSHA256 {
+				t.Errorf("full-MiB decode digest mismatch: got %s, want %s (len=%d)", gotHex, fullDecodeSHA256, len(got))
 			}
 		})
 	}

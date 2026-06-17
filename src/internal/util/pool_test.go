@@ -61,6 +61,20 @@ func TestSmallPool(t *testing.T) {
 	PutSmallBuffer(buf)
 }
 
+func TestBufferPoolPutZerosMismatchedBuffer(t *testing.T) {
+	p := NewBufferPool(MiB)
+	b := p.Get()
+	for i := range b {
+		b[i] = 0xAA
+	}
+	p.Put(b[:10]) // wrong length on purpose
+	for i := 0; i < cap(b); i++ {
+		if b[:cap(b)][i] != 0 {
+			t.Fatalf("byte %d not zeroed after Put of mismatched slice", i)
+		}
+	}
+}
+
 func BenchmarkBufferPoolGetPut(b *testing.B) {
 	pool := NewBufferPool(MiB)
 

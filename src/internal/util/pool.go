@@ -38,14 +38,14 @@ var zeroPage [4096]byte
 // Put returns a buffer to the pool after zeroing it.
 // The buffer should not be used after calling Put.
 func (p *BufferPool) Put(b []byte) {
-	if len(b) != p.size {
-		// Don't return mismatched buffers to avoid corruption
-		return
+	// Zero the full backing array first — buffers may contain plaintext, and a
+	// caller may Put a sub-slice (len < size); the tail must still be wiped.
+	full := b[:cap(b)]
+	for i := 0; i < len(full); i += len(zeroPage) {
+		copy(full[i:], zeroPage[:])
 	}
-	// Zero before returning - buffers may contain plaintext.
-	// Uses copy() which has observable effects compiler must preserve.
-	for i := 0; i < len(b); i += len(zeroPage) {
-		copy(b[i:], zeroPage[:])
+	if len(b) != p.size {
+		return // Zeroed above; don't pool mismatched buffers (avoids corruption).
 	}
 	p.pool.Put(&b)
 }

@@ -237,9 +237,7 @@ func (a *App) updateAdvancedDisableState() {
 }
 
 func (a *App) updateAdvancedDisableStateFromSnapshot(snap app.UISnapshot) {
-	hasCredentials := snap.KeyfileCount > 0 || snap.Password != ""
-	passwordsMatch := snap.Mode != "encrypt" || snap.Password == snap.CPassword
-	advancedDisabled := !hasCredentials || !passwordsMatch
+	advancedDisabled := !snap.CanStart()
 
 	if snap.Mode != "decrypt" {
 		a.updateEncryptOptionsState(advancedDisabled, snap)

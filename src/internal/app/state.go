@@ -345,23 +345,35 @@ func (s *State) SetScanning(scanning bool) {
 	s.Scanning = scanning
 }
 
-// CanStart returns true if the operation can be started.
-func (s *State) CanStart() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+// canStart is the single source of truth for the start-gate condition, shared by
+// the live State.CanStart() and the render-path UISnapshot.CanStart() (DRY).
+func canStart(mode, password, cpassword string, keyfileCount int) bool {
 	// Need either password or keyfiles
-	hasCredentials := len(s.Keyfiles) > 0 || s.Password != ""
+	hasCredentials := keyfileCount > 0 || password != ""
 	if !hasCredentials {
 		return false
 	}
 
 	// For encryption, passwords must match
-	if s.Mode == "encrypt" && s.Password != s.CPassword {
+	if mode == "encrypt" && password != cpassword {
 		return false
 	}
 
 	return true
+}
+
+// CanStart returns true if the operation can be started.
+func (s *State) CanStart() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return canStart(s.Mode, s.Password, s.CPassword, len(s.Keyfiles))
+}
+
+// CanStart returns true if the operation can be started, evaluated against this
+// render-path snapshot. UI code uses this so the start-gate boolean lives in
+// exactly one place (canStart) shared with State.CanStart.
+func (snap UISnapshot) CanStart() bool {
+	return canStart(snap.Mode, snap.Password, snap.CPassword, snap.KeyfileCount)
 }
 
 // TogglePasswordVisibility toggles password show/hide.

@@ -115,6 +115,13 @@ When using `--split-unit=Total`, `--split-size` specifies the total number of ch
 |------|-------|------|-------------|
 | `--quiet` | `-q` | bool | Suppress progress output |
 | `--yes` | `-y` | bool | Overwrite output file without prompting |
+| `--follow-symlinks` | | bool | Follow symlinks to regular files |
+
+### Global Flags (all commands)
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--temp-dir` | string | Directory for temp files (overrides automatic selection) |
 
 ### Decrypt Command
 
@@ -470,7 +477,7 @@ Ensure all chunk files are in the same directory before decryption.
 
 ## Version
 
-This documentation applies to Picocrypt NG v2.11 and later.
+This documentation applies to Picocrypt NG v2.15 and later.
 
 ## See Also
 

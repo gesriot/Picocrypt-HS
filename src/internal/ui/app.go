@@ -560,9 +560,7 @@ func (a *App) updateUIState() {
 	}
 
 	// Advanced section and Start button
-	hasCredentials := snap.KeyfileCount > 0 || snap.Password != ""
-	passwordsMatch := snap.Mode != "encrypt" || snap.Password == snap.CPassword
-	advancedAndStartDisabled := !hasCredentials || !passwordsMatch
+	advancedAndStartDisabled := !snap.CanStart()
 
 	// Update advanced section checkboxes/inputs (from advanced_section.go)
 	a.updateAdvancedDisableStateFromSnapshot(snap)

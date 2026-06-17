@@ -98,6 +98,7 @@ func resetEncryptFlagsForDirTest() {
 	encOutput = ""
 	encPassword = ""
 	encKeyfiles = nil
+	encKeyfileOrder = false
 	encParanoid = false
 	encReedSolomon = false
 	encDeniability = false

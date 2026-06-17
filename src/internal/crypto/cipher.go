@@ -57,6 +57,14 @@ func NewCipherSuite(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkd
 // Order: [Serpent-CTR if paranoid] -> XChaCha20 -> MAC(ciphertext)
 //
 // CRITICAL: This exact order MUST be preserved.
+//
+// Aliasing contract:
+//   - Paranoid mode: dst and src MUST NOT alias (share backing memory). The
+//     implementation writes intermediate Serpent output to dst and then reads it
+//     back via "copy(src, dst)" before the ChaCha20 pass; aliased buffers corrupt
+//     the output silently.
+//   - Non-paranoid mode: in-place operation (dst == src) is permitted and is
+//     relied upon by the WASM frontend.
 func (cs *CipherSuite) Encrypt(dst, src []byte) {
 	if cs.paranoid {
 		cs.serpent.XORKeyStream(dst, src)
@@ -73,6 +81,14 @@ func (cs *CipherSuite) Encrypt(dst, src []byte) {
 // Order: MAC(ciphertext) -> XChaCha20 -> [Serpent-CTR if paranoid]
 //
 // CRITICAL: This exact order MUST be preserved.
+//
+// Aliasing contract:
+//   - Paranoid mode: dst and src MUST NOT alias (share backing memory). The
+//     implementation writes ChaCha20 output to dst and then reads it back via
+//     "copy(src, dst)" before the Serpent pass; aliased buffers corrupt the
+//     output silently.
+//   - Non-paranoid mode: in-place operation (dst == src) is permitted and is
+//     relied upon by the WASM frontend.
 func (cs *CipherSuite) Decrypt(dst, src []byte) {
 	// MAC the ciphertext first (verify-then-decrypt)
 	cs.mac.Write(src)

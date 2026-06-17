@@ -55,6 +55,19 @@ func TestPadUnpadRoundtrip(t *testing.T) {
 	}
 }
 
+func TestUnpadFullPaddingBlock(t *testing.T) {
+	// len(data) % BlockSize == 0 → Pad appends a full 0x80 block (PKCS#7 full block).
+	data := bytes.Repeat([]byte{0xAB}, BlockSize)
+	padded := Pad(data)
+	if len(padded) != 2*BlockSize {
+		t.Fatalf("Pad(multiple) len = %d; want %d", len(padded), 2*BlockSize)
+	}
+	last := padded[BlockSize:] // pure padding: 128 bytes of 0x80 (value 128)
+	if got := Unpad(last); len(got) != 0 {
+		t.Fatalf("full padding block must Unpad to empty; got %d bytes", len(got))
+	}
+}
+
 func TestUnpadInvalidData(t *testing.T) {
 	// Empty data should return empty
 	result := Unpad([]byte{})

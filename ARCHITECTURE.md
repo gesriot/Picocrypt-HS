@@ -4,25 +4,16 @@
 
 ```
 src/
-├── cmd/picocrypt/          # Entry point
-│   └── main.go
+├── cmd/
+│   ├── picocrypt/         # CLI + GUI entry point
+│   └── wasm/              # WASM entry point
 │
 ├── internal/
 │   ├── app/               # Application state and progress reporting
 │   │   ├── state.go       # Centralized UI state
-│   │   ├── reporter.go    # Progress callbacks
-│   │   └── runner.go      # Operation orchestration
+│   │   └── reporter.go    # Progress callbacks
 │   │
-│   ├── ui/                # Fyne GUI
-│   │   ├── app.go         # Main window
-│   │   ├── drop.go        # Drag-and-drop
-│   │   └── ...
-│   │
-│   ├── volume/            # High-level encrypt/decrypt (AUDIT-CRITICAL)
-│   │   ├── encrypt.go     # Encryption pipeline
-│   │   ├── decrypt.go     # Decryption pipeline
-│   │   ├── context.go     # Operation context with cleanup
-│   │   └── deniability.go # Plausible deniability
+│   ├── cli/               # Cobra CLI commands (encrypt/decrypt)
 │   │
 │   ├── crypto/            # Cryptographic primitives (AUDIT-CRITICAL)
 │   │   ├── cipher.go      # XChaCha20, Serpent
@@ -30,6 +21,22 @@ src/
 │   │   ├── mac.go         # BLAKE2b, HMAC-SHA3
 │   │   ├── rekey.go       # Cipher rekeying for >60 GiB
 │   │   └── zeroing.go     # Secure memory zeroing
+│   │
+│   ├── diskspace/         # Available disk space checks
+│   ├── distmeta/          # Distribution metadata (version strings)
+│   ├── docs/              # Embedded documentation
+│   │
+│   ├── encoding/          # Reed-Solomon and padding
+│   │   ├── rs.go          # Error correction
+│   │   └── padding.go     # PKCS#7
+│   │
+│   ├── errors/            # Typed sentinel errors
+│   │
+│   ├── fileops/           # File operations
+│   │   ├── zip.go         # Zip creation
+│   │   ├── unpack.go      # Zip extraction
+│   │   ├── split.go       # File splitting
+│   │   └── recombine.go   # Chunk recombination
 │   │
 │   ├── header/            # Volume header format (AUDIT-CRITICAL)
 │   │   ├── format.go      # Header structure
@@ -40,20 +47,29 @@ src/
 │   ├── keyfile/           # Keyfile processing (AUDIT-CRITICAL)
 │   │   └── processor.go   # Ordered/unordered hashing
 │   │
-│   ├── encoding/          # Reed-Solomon and padding
-│   │   ├── rs.go          # Error correction
-│   │   └── padding.go     # PKCS#7
+│   ├── log/               # Logging seam (null logger by default)
+│   ├── password/          # Password normalization (Unicode NFC)
 │   │
-│   ├── fileops/           # File operations
-│   │   ├── zip.go         # Zip creation
-│   │   ├── unpack.go      # Zip extraction
-│   │   ├── split.go       # File splitting
-│   │   └── recombine.go   # Chunk recombination
+│   ├── ui/                # Fyne GUI
+│   │   ├── app.go         # Main window
+│   │   ├── drop.go        # Drag-and-drop
+│   │   └── ...
 │   │
-│   └── util/              # Utilities
-│       ├── constants.go   # Size constants
-│       ├── format.go      # Progress/speed formatting
-│       └── passgen.go     # Password generation
+│   ├── util/              # Utilities
+│   │   ├── constants.go   # Size constants
+│   │   ├── format.go      # Progress/speed formatting
+│   │   └── passgen.go     # Password generation
+│   │
+│   ├── volume/            # High-level encrypt/decrypt (AUDIT-CRITICAL)
+│   │   ├── encrypt.go     # Encryption pipeline
+│   │   ├── decrypt.go     # Decryption pipeline
+│   │   ├── context.go     # Operation context with cleanup
+│   │   └── deniability.go # Plausible deniability
+│   │
+│   ├── wasm/              # WASM bindings
+│   └── workflowpolicy/    # CI/release workflow policy checks
+│
+├── mobile/                # gomobile bindings
 │
 └── testdata/
     ├── golden/            # v1/v2 compatibility test vectors

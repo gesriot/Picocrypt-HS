@@ -44,9 +44,12 @@ class OperationViewModel : ViewModel() {
                 startForegroundServiceSafely(context)
                 startPolling()
             }
+            result.onFailure { e ->
+                OperationManager.surfaceStartFailure(OperationType.ENCRYPT, e)
+            }
         }
     }
-    
+
     /**
      * Starts a decryption operation and begins polling progress.
      */
@@ -56,6 +59,9 @@ class OperationViewModel : ViewModel() {
             result.onSuccess {
                 startForegroundServiceSafely(context)
                 startPolling()
+            }
+            result.onFailure { e ->
+                OperationManager.surfaceStartFailure(OperationType.DECRYPT, e)
             }
         }
     }
@@ -88,14 +94,21 @@ class OperationViewModel : ViewModel() {
     fun retryOperation(context: Context, formData: FormData) {
         viewModelScope.launch {
             stopPolling()
+            // Capture the original operation type before retryOperation nulls _currentOperation
+            // (OperationManager.retryOperation sets _currentOperation = null at line 326 before
+            // delegating to startEncrypt/startDecrypt, so reading it after the call always yields null).
+            val originalType = OperationManager.currentOperation.value?.type ?: OperationType.ENCRYPT
             val result = OperationManager.retryOperation(context, formData)
             result.onSuccess {
                 startForegroundServiceSafely(context)
                 startPolling()
             }
+            result.onFailure { e ->
+                OperationManager.surfaceStartFailure(originalType, e)
+            }
         }
     }
-    
+
     /**
      * Retries decryption with force decrypt enabled.
      */
@@ -106,6 +119,9 @@ class OperationViewModel : ViewModel() {
             result.onSuccess {
                 startForegroundServiceSafely(context)
                 startPolling()
+            }
+            result.onFailure { e ->
+                OperationManager.surfaceStartFailure(OperationType.DECRYPT, e)
             }
         }
     }

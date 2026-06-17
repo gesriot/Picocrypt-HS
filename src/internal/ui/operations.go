@@ -28,12 +28,7 @@ func (a *App) onClickStart() {
 		return
 	}
 
-	hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
-	if !hasCredentials {
-		return
-	}
-
-	if a.State.Mode == "encrypt" && a.State.Password != a.State.CPassword {
+	if !a.State.CanStart() {
 		return
 	}
 

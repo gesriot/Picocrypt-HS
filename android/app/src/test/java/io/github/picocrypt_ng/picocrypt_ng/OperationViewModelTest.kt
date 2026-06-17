@@ -17,10 +17,11 @@ import org.junit.Rule
 import org.junit.Test
 import io.github.picocrypt_ng.picocrypt_ng.testutils.MainDispatcherRule
 import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
+import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
-import io.mockk.every
 import io.mockk.verify
 
 /**
@@ -72,32 +73,49 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `startEncrypt handles validation failure without leaking work`() = runTest(mainDispatcherRule.testDispatcher) {
-        val formData = TestDataBuilders.createEncryptFormData(
-            copiedFilePath = "",
-            password = "test",
-            confirmPassword = "test"
-        )
+    fun `startEncrypt surfaces a start failure as a terminal error state`() = runTest(mainDispatcherRule.testDispatcher) {
+        // Mock startEncrypt to return failure on the test dispatcher so the
+        // onFailure → surfaceStartFailure path runs deterministically.
+        // surfaceStartFailure must call the real implementation to update _currentOperation.
+        mockkObject(OperationManager)
+        try {
+            val error = AppError.ValidationError.NoFileSelected
+            coEvery { OperationManager.startEncrypt(any(), any()) } returns Result.failure(error)
+            every { OperationManager.surfaceStartFailure(any(), any()) } answers { callOriginal() }
 
-        viewModel.startEncrypt(mockContext, formData)
+            viewModel.startEncrypt(mockContext, TestDataBuilders.createEncryptFormData())
+            advanceUntilIdle()
 
-        advanceUntilIdle()
-
-        assertNull("Invalid encrypt input should not start an operation", viewModel.operationState.value)
+            val state = viewModel.operationState.value
+            assertNotNull("A start failure must surface as an error state (not silent null)", state)
+            assertTrue("Error state must be terminal (done=true)", state!!.done)
+            assertNotNull("Error state must carry the error", state.error)
+            assertEquals(OperationType.ENCRYPT, state.type)
+        } finally {
+            unmockkObject(OperationManager)
+        }
     }
 
     @Test
-    fun `startDecrypt handles validation failure without leaking work`() = runTest(mainDispatcherRule.testDispatcher) {
-        val formData = TestDataBuilders.createDecryptFormData(
-            copiedFilePath = "",
-            password = "test"
-        )
+    fun `startDecrypt surfaces a start failure as a terminal error state`() = runTest(mainDispatcherRule.testDispatcher) {
+        // Mirror of the encrypt test on the decrypt path.
+        mockkObject(OperationManager)
+        try {
+            val error = AppError.ValidationError.NoFileSelected
+            coEvery { OperationManager.startDecrypt(any(), any()) } returns Result.failure(error)
+            every { OperationManager.surfaceStartFailure(any(), any()) } answers { callOriginal() }
 
-        viewModel.startDecrypt(mockContext, formData)
+            viewModel.startDecrypt(mockContext, TestDataBuilders.createDecryptFormData())
+            advanceUntilIdle()
 
-        advanceUntilIdle()
-
-        assertNull("Invalid decrypt input should not start an operation", viewModel.operationState.value)
+            val state = viewModel.operationState.value
+            assertNotNull("A start failure must surface as an error state (not silent null)", state)
+            assertTrue("Error state must be terminal (done=true)", state!!.done)
+            assertNotNull("Error state must carry the error", state.error)
+            assertEquals(OperationType.DECRYPT, state.type)
+        } finally {
+            unmockkObject(OperationManager)
+        }
     }
     
     @Test

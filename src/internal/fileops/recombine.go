@@ -14,6 +14,14 @@ import (
 	"Picocrypt-NG/internal/util"
 )
 
+// recombineCloseFn is the function used to close a source chunk file.
+// Overridable in tests to simulate close failures.
+var recombineCloseFn = (*os.File).Close
+
+// recombineSyncFn is the function used to sync the output file.
+// Overridable in tests to simulate sync failures.
+var recombineSyncFn = (*os.File).Sync
+
 func parseUnsignedChunkIndex(s string) (int, bool) {
 	if s == "" {
 		return 0, false
@@ -167,13 +175,17 @@ func Recombine(opts RecombineOptions) error {
 			}
 		}
 
-		if err := fin.Close(); err != nil {
+		if err := recombineCloseFn(fin); err != nil {
+			_ = fout.Close()
+			_ = os.Remove(opts.OutputPath)
 			return fmt.Errorf("close chunk %d: %w", i, err)
 		}
 	}
 
 	// Sync to ensure all data is flushed to disk before caller reads the file
-	if err := fout.Sync(); err != nil {
+	if err := recombineSyncFn(fout); err != nil {
+		_ = fout.Close()
+		_ = os.Remove(opts.OutputPath)
 		return fmt.Errorf("sync output file: %w", err)
 	}
 

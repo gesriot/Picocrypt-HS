@@ -173,6 +173,34 @@ object OperationManager {
     }
     
     /**
+     * Surfaces a start failure as a terminal error OperationState so the UI can show it
+     * (e.g. via OperationUiState.Failed) instead of silently swallowing the Result.failure.
+     * Only writes if _currentOperation is null (i.e. the start truly failed before
+     * establishing a state); does not clobber an already-running operation.
+     */
+    fun surfaceStartFailure(type: OperationType, error: Throwable) {
+        val appError = if (error is AppError) error
+                       else AppError.OperationError.GenericOperation(
+                           error.message ?: "Operation failed to start",
+                           error.message
+                       )
+        _currentOperation.update { current ->
+            if (current != null) current  // Don't clobber an already-running op.
+            else OperationState(
+                id = "",
+                type = type,
+                inputFile = "",
+                outputFile = "",
+                status = "Error",
+                progress = 0f,
+                info = appError.userMessage,
+                done = true,
+                error = appError
+            )
+        }
+    }
+
+    /**
      * Polls progress for the current operation.
      */
     suspend fun pollProgress(): OperationState? = withContext(Dispatchers.IO) {

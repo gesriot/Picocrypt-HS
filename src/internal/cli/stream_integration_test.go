@@ -569,11 +569,11 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 		}
 	})
 
-	t.Run("wrong password via stdin decrypt fails", func(t *testing.T) {
+	t.Run("wrong password via stdin decrypt fails with auth error", func(t *testing.T) {
 		inputData := []byte("secret")
 		encFile := filepath.Join(tmpDir, "wrong-pw.pcv")
 
-		// Encrypt with correct password
+		// Encrypt with correct password.
 		cmd := exec.Command(binaryPath, "encrypt",
 			"-i", "-",
 			"-o", encFile,
@@ -585,8 +585,13 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 			t.Fatalf("encrypt failed: %v\nOutput: %s", err, output)
 		}
 
-		// Try decrypt with wrong password
-		encrypted, _ := os.ReadFile(encFile)
+		// Try decrypt with wrong password — must fail with the auth sentinel text
+		// ("authentication failed" from perrors.ErrAuthFailed). A generic non-nil
+		// check passes even if the binary crashes or prints a different error.
+		encrypted, err := os.ReadFile(encFile)
+		if err != nil {
+			t.Fatalf("reading encrypted file: %v", err)
+		}
 		cmd = exec.Command(binaryPath, "decrypt",
 			"-i", "-",
 			"-o", "-",
@@ -596,11 +601,19 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 
 		output, err := cmd.CombinedOutput()
 		if err == nil {
-			t.Error("expected error for wrong password")
+			t.Fatal("expected error for wrong password, got nil")
 		}
-		// Should fail with auth error
-		if !bytes.Contains(output, []byte("incorrect")) && !bytes.Contains(output, []byte("failed")) {
-			t.Logf("Output: %s", output)
+		// For v2 volumes (the default), a wrong password is caught at the
+		// header-auth phase before the MAC tail is ever reached. The decrypt
+		// pipeline returns *header.AuthError (NewV2PasswordOrTamperError),
+		// whose message is "The password is incorrect or header is tampered".
+		// The CLI prints that verbatim via reporter.PrintError("%v", err).
+		// Asserting this specific substring ensures a crash or unrelated error
+		// doesn't silently pass (bare non-nil check would not be falsifiable).
+		const wantMsg = "password is incorrect"
+		if !bytes.Contains(output, []byte(wantMsg)) {
+			t.Errorf("wrong-password error must contain %q; got: %s",
+				wantMsg, output)
 		}
 	})
 }

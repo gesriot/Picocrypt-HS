@@ -194,17 +194,6 @@ func EnableDebugLogging() {
 	SetLogger(NewSimpleLogger(os.Stderr, LevelDebug))
 }
 
-// EnableFileLogging enables logging to a file.
-func EnableFileLogging(path string, level Level) error {
-	// #nosec G302,G304 -- logs intentionally readable by monitoring tools; path from user config
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return err
-	}
-	SetLogger(NewSimpleLogger(f, level))
-	return nil
-}
-
 // Package-level logging functions that use the default logger
 
 // Debug logs a debug message.

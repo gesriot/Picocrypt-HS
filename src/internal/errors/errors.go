@@ -26,21 +26,7 @@ var (
 	ErrCommentTooLong    = errors.New("comment exceeds maximum length")
 
 	// File errors
-	ErrFileNotFound    = errors.New("file not found")
-	ErrFileExists      = errors.New("file already exists")
-	ErrInvalidFormat   = errors.New("invalid volume format")
-	ErrVersionMismatch = errors.New("unsupported volume version")
-
-	// Crypto errors
-	ErrRandFailure   = errors.New("crypto/rand failure")
-	ErrKeyDerivation = errors.New("key derivation failed")
-	ErrHKDFFailure   = errors.New("HKDF stream failure")
-	ErrMACFailure    = errors.New("MAC computation failed")
-	ErrCipherFailure = errors.New("cipher operation failed")
-
-	// Reed-Solomon errors
-	ErrRSEncode = errors.New("Reed-Solomon encoding failed")
-	ErrRSDecode = errors.New("Reed-Solomon decoding failed")
+	ErrFileNotFound = errors.New("file not found")
 )
 
 // CryptoError represents an error during cryptographic operations.

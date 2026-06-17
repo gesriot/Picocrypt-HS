@@ -79,7 +79,7 @@ object StagingService {
                 val total = treeSize(tree)
                 val usable = usableSpace(context)
                 if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(total, usable))
-                val rootName = tree.name ?: "folder"
+                val rootName = sanitizeName(tree.name ?: "folder")
                 val root = File(stagingDir(context), rootName)
                 val files = mutableListOf<String>()
                 copyChildren(context, tree, root, files)
@@ -103,11 +103,23 @@ object StagingService {
             }
         }
 
+    /**
+     * Strips path-traversal characters from a SAF display name so it cannot
+     * escape the staging directory when used in File(parent, name).
+     */
+    internal fun sanitizeName(name: String): String =
+        File(name).name                        // strips any leading path segments
+            .replace("..", "")                 // remove remaining ".." sequences
+            .replace('/', '_')                 // replace any residual separators
+            .replace('\\', '_')
+            .ifEmpty { "_" }                   // never produce an empty name
+
     private fun copyChildren(context: Context, dir: DocumentFile, dest: File, out: MutableList<String>) {
         dest.mkdirs()
         for (child in dir.listFiles()) {
             if (child.isVirtual) continue
-            val name = child.name ?: continue
+            val rawName = child.name ?: continue
+            val name = sanitizeName(rawName)
             when {
                 child.isDirectory -> copyChildren(context, child, File(dest, name), out)
                 child.isFile -> {
@@ -132,7 +144,7 @@ object StagingService {
                 val used = mutableSetOf<String>()
                 val files = mutableListOf<String>()
                 for (uri in uris) {
-                    val display = queryDisplayName(context, uri) ?: "file"
+                    val display = sanitizeName(queryDisplayName(context, uri) ?: "file")
                     val name = resolveCollision(used, display)
                     used.add(name)
                     val target = File(dir, name)

@@ -7,37 +7,36 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.TextObfuscationMode
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.SecureTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import io.github.picocrypt_ng.picocrypt_ng.FormData
 import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
 import androidx.compose.runtime.collectAsState
 import io.github.picocrypt_ng.picocrypt_ng.R
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 
 /**
@@ -97,6 +96,13 @@ private fun findEditTextViews(root: View): List<android.widget.EditText> {
     return result
 }
 
+/**
+ * Copies a [CharSequence] (e.g. [TextFieldState.text]) into a [CharArray] without
+ * the interned-String round-trip the old value-based field forced. The stdlib
+ * [CharArray]-producing helpers are defined on [String] only, not [CharSequence].
+ */
+private fun CharSequence.toCharArray(): CharArray = CharArray(length) { this[it] }
+
 @Composable
 fun PasswordIcon(visible: Boolean, onClick: () -> Unit) {
     val image = if (visible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
@@ -109,19 +115,17 @@ fun PasswordIcon(visible: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun Password(
-    value: String,
-    onChange: (String) -> Unit,
+    state: TextFieldState,
     visible: Boolean,
     icon: @Composable (() -> Unit)?,
     isError: Boolean
 ) {
-    TextField(
-        value = value,
-        onValueChange = { onChange(it) },
+    SecureTextField(
+        state = state,
         label = { Text(stringResource(R.string.password)) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         isError = isError,
-        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        textObfuscationMode = if (visible) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
         trailingIcon = icon,
         modifier = Modifier.fillMaxWidth(),
         supportingText = { if (isError) Text(stringResource(R.string.enter_password)) })
@@ -130,19 +134,17 @@ fun Password(
 
 @Composable
 fun ConfirmPassword(
-    value: String,
-    onChange: (String) -> Unit,
+    state: TextFieldState,
     visible: Boolean,
     icon: @Composable (() -> Unit)?,
     isError: Boolean,
 ) {
-    TextField(
-        value = value,
-        onValueChange = { onChange(it) },
+    SecureTextField(
+        state = state,
         label = { Text(stringResource(R.string.confirm_password)) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         isError = isError,
-        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        textObfuscationMode = if (visible) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
         trailingIcon = icon,
         modifier = Modifier.fillMaxWidth(),
         supportingText = { if (isError) Text(stringResource(R.string.passwords_must_match)) })
@@ -167,72 +169,47 @@ fun PasswordCard(
         Column(
             modifier = Modifier.padding(8.dp)
         ) {
-            // Use copiedFilePath as key so passwords reset when file changes
-            // Store as String for UI, convert to CharArray when updating ViewModel
-            var passwordValue by remember(formData.copiedFilePath) { mutableStateOf("") }
-            var confirmPasswordValue by remember(formData.copiedFilePath) { mutableStateOf("") }
-            var debounceJob by remember { mutableStateOf<Job?>(null) }
-            val coroutineScope = rememberCoroutineScope()
-            
-            // Sync local state with ViewModel state when it changes externally
-            // Convert CharArray to String for UI display
-            LaunchedEffect(formData.passwordInput, formData.confirmPasswordInput) {
-                // Only update if ViewModel state differs from local state
-                // This handles cases where form is reset or cleared
-                val currentPasswordString = String(formData.passwordInput)
-                val currentConfirmString = String(formData.confirmPasswordInput)
-                
-                if (currentPasswordString != passwordValue) {
-                    passwordValue = currentPasswordString
-                }
-                if (currentConfirmString != confirmPasswordValue) {
-                    confirmPasswordValue = currentConfirmString
-                }
-            }
-            
-            // Clean up debounce job when file changes or composable is disposed
+            // State-based secure input (Google's recommended pattern). Use plain
+            // remember { TextFieldState() } rather than rememberTextFieldState():
+            // the latter is rememberSaveable-backed and would write the secret to
+            // the Bundle on process death, defeating the migration's intent.
+            val passwordState = remember { TextFieldState() }
+            val confirmPasswordState = remember { TextFieldState() }
+
+            // Reset the secure buffers when the selected file changes.
             DisposableEffect(formData.copiedFilePath) {
                 onDispose {
-                    debounceJob?.cancel()
-                    debounceJob = null
+                    passwordState.clearText()
+                    confirmPasswordState.clearText()
                 }
             }
-            
-            fun updatePasswords(password: String? = null, confirm: String? = null) {
-                // Update local state immediately for UI responsiveness
-                if (password != null) {
-                    passwordValue = password
-                }
-                if (confirm != null) {
-                    confirmPasswordValue = confirm
-                }
-                
-                // Cancel previous debounce job
-                debounceJob?.cancel()
-                
-                // Debounce ViewModel update to batch rapid changes
-                debounceJob = coroutineScope.launch {
-                    delay(150) // 150ms debounce - balances responsiveness with batching
-                    
-                    // Convert String to CharArray for secure storage
-                    // Use atomic update method from ViewModel
-                    viewModel.updatePasswords(
-                        password = passwordValue.takeIf { password != null }?.toCharArray(),
-                        confirmPassword = confirmPasswordValue.takeIf { confirm != null }?.toCharArray()
-                    )
-                }
+
+            // Forward edits to the ViewModel as CharArray, without an interned String
+            // intermediate. snapshotFlow replaces the old debounce + String sync.
+            // distinctUntilChanged (by content) guards against re-emits that don't
+            // change the text: snapshotFlow emits on subscribe, and forwarding an
+            // empty CharArray would zero the ViewModel's existing password via fill
+            // on every recomposition of this card.
+            LaunchedEffect(passwordState) {
+                snapshotFlow { passwordState.text }
+                    .distinctUntilChanged { a, b -> a.contentEquals(b) }
+                    .collect { viewModel.updatePasswords(password = it.toCharArray()) }
             }
+            LaunchedEffect(confirmPasswordState) {
+                snapshotFlow { confirmPasswordState.text }
+                    .distinctUntilChanged { a, b -> a.contentEquals(b) }
+                    .collect { viewModel.updatePasswords(confirmPassword = it.toCharArray()) }
+            }
+
             Password(
-                value = passwordValue,
-                onChange = { updatePasswords(password = it) },
+                state = passwordState,
                 visible = visible,
                 icon = { PasswordIcon(visible) { visible = !visible } },
                 isError = formData.passwordInput.isEmpty()
             )
             if (formData.isEncrypt) {
                 ConfirmPassword(
-                    value = confirmPasswordValue,
-                    onChange = { updatePasswords(confirm = it) },
+                    state = confirmPasswordState,
                     visible = visible,
                     isError = !formData.isPasswordsMatch,
                     icon = { PasswordIcon(visible) { visible = !visible } })

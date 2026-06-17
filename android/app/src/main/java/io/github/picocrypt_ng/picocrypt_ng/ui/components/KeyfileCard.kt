@@ -162,9 +162,11 @@ fun NewKeyfile(viewModel: MainViewModel) {
                     } ?: false
                 } catch (e: Exception) {
                     false
+                } finally {
+                    randomBytes.fill(0) // zero key material after write
                 }
             }
-            
+
             if (!writeSuccess) {
                 errorMessage = keyfileWriteFailedMsg
                 showErrorDialog = true
