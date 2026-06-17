@@ -5,14 +5,15 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/widget"
+
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
 
 // assertCheckboxWiring verifies a build...Options checkbox is present, correctly
 // labeled, and that its OnChanged closure drives the mapped State field in both
 // directions. OnChanged is invoked directly (not SetChecked, which no-ops when
 // the value is unchanged) so the production callback runs unconditionally.
-func assertCheckboxWiring(t *testing.T, c *widget.Check, wantLabel string, getField func() bool) {
+func assertCheckboxWiring(t *testing.T, c *ttwidget.Check, wantLabel string, getField func() bool) {
 	t.Helper()
 	if c == nil {
 		t.Fatalf("checkbox %q is nil", wantLabel)
@@ -234,7 +235,7 @@ func TestEncryptAdvancedOptionsNeverSoftLock(t *testing.T) {
 
 		for _, c := range []struct {
 			name string
-			box  *widget.Check
+			box  *ttwidget.Check
 		}{
 			{"Paranoid mode", a.paranoidCheck},
 			{"Compress files", a.compressCheck},
@@ -246,6 +247,57 @@ func TestEncryptAdvancedOptionsNeverSoftLock(t *testing.T) {
 		} {
 			if c.box.Disabled() {
 				t.Errorf("#56 regression: %q is disabled under Paranoid+Reed-Solomon+Deniability; this combo must not lock any option", c.name)
+			}
+		}
+	})
+}
+
+func TestAdvancedOptionsSetTooltips(t *testing.T) {
+	newTestFyneApp(t)
+
+	t.Run("encrypt", func(t *testing.T) {
+		a := createTestApp(t)
+		a.advancedContainer = container.NewVBox()
+		a.buildEncryptOptions()
+
+		for _, c := range []struct {
+			name string
+			tt   interface{ ToolTip() string }
+			want string
+		}{
+			{"Paranoid mode", a.paranoidCheck, "Provides the highest level of security attainable"},
+			{"Compress files", a.compressCheck, "Compress files with Deflate before encrypting"},
+			{"Reed-Solomon", a.reedSolomonCheck, "Prevent file corruption with erasure coding"},
+			{"Delete files", a.deleteCheck, "Delete the input files after encryption"},
+			{"Deniability", a.deniabilityCheck, "Warning: only use this if you know what it does!"},
+			{"Recursively", a.recursivelyCheck, "Warning: only use this if you know what it does!"},
+			{"Split:", a.splitCheck, "Split the output file into smaller chunks"},
+			{"split units", a.splitUnitSelect, "Choose the chunk units"},
+		} {
+			if got := c.tt.ToolTip(); got != c.want {
+				t.Errorf("%s tooltip = %q, want %q", c.name, got, c.want)
+			}
+		}
+	})
+
+	t.Run("decrypt", func(t *testing.T) {
+		a := createTestApp(t)
+		a.advancedContainer = container.NewVBox()
+		a.buildDecryptOptions()
+
+		for _, c := range []struct {
+			name string
+			tt   interface{ ToolTip() string }
+			want string
+		}{
+			{"Force decrypt", a.forceDecryptCheck, "Override security measures when decrypting"},
+			{"Verify first", a.verifyFirstCheck, "Verify integrity before decryption (slower but more secure)"},
+			{"Delete volume", a.deleteVolumeCheck, "Delete the volume after a successful decryption"},
+			{"Auto unzip", a.autoUnzipCheck, "Extract .zip upon decryption (may overwrite files)"},
+			{"Same level", a.sameLevelCheck, "Extract .zip contents to same folder as volume"},
+		} {
+			if got := c.tt.ToolTip(); got != c.want {
+				t.Errorf("%s tooltip = %q, want %q", c.name, got, c.want)
 			}
 		}
 	})

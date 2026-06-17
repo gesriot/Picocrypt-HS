@@ -49,6 +49,9 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	fynetooltip "github.com/dweymouth/fyne-tooltip"
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
 
 //go:embed key.png
@@ -137,22 +140,22 @@ type App struct {
 	changeBtn *widget.Button
 
 	// Advanced options (encrypt mode)
-	paranoidCheck    *widget.Check
-	compressCheck    *widget.Check
-	reedSolomonCheck *widget.Check
-	deleteCheck      *widget.Check
-	deniabilityCheck *widget.Check
-	recursivelyCheck *widget.Check
-	splitCheck       *widget.Check
+	paranoidCheck    *ttwidget.Check
+	compressCheck    *ttwidget.Check
+	reedSolomonCheck *ttwidget.Check
+	deleteCheck      *ttwidget.Check
+	deniabilityCheck *ttwidget.Check
+	recursivelyCheck *ttwidget.Check
+	splitCheck       *ttwidget.Check
 	splitSizeEntry   *widget.Entry
-	splitUnitSelect  *widget.Select
+	splitUnitSelect  *ttwidget.Select
 
 	// Advanced options (decrypt mode)
-	forceDecryptCheck *widget.Check
-	verifyFirstCheck  *widget.Check
-	deleteVolumeCheck *widget.Check
-	autoUnzipCheck    *widget.Check
-	sameLevelCheck    *widget.Check
+	forceDecryptCheck *ttwidget.Check
+	verifyFirstCheck  *ttwidget.Check
+	deleteVolumeCheck *ttwidget.Check
+	autoUnzipCheck    *ttwidget.Check
+	sameLevelCheck    *ttwidget.Check
 
 	// Modals
 	passgenModal   dialog.Dialog
@@ -242,6 +245,9 @@ func (a *App) Run(startupPaths []string) {
 	a.Window.SetCloseIntercept(func() {
 		snap := a.State.UISnapshot()
 		if !snap.Working && !snap.ShowProgress {
+			if !isMobile() {
+				fynetooltip.DestroyWindowToolTipLayer(a.Window.Canvas())
+			}
 			a.Window.Close()
 		}
 	})
@@ -275,6 +281,9 @@ func (a *App) Run(startupPaths []string) {
 
 	a.scheduleStartupPaths(startupPaths)
 
+	if !isMobile() {
+		content = fynetooltip.AddWindowToolTipLayer(content, a.Window.Canvas())
+	}
 	a.Window.SetContent(content)
 	a.Window.ShowAndRun()
 }

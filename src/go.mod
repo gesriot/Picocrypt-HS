@@ -8,6 +8,7 @@ require (
 	github.com/Picocrypt/infectious v0.0.0-20250713161924-ae9b3ccb49d7
 	github.com/Picocrypt/serpent v0.0.0-20240830233833-9ad6ab254fd7
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
+	github.com/dweymouth/fyne-tooltip v0.4.0
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260406072232-3ac4aa2bb164
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -37,7 +38,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade // indirect
 	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/nicksnyder/go-i18n/v2 v2.6.1 // indirect

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/test"
 	fynetheme "fyne.io/fyne/v2/theme"
 )
 
@@ -311,43 +310,6 @@ func TestDisabledEntry(t *testing.T) {
 
 		if entry.Text != "Test content" {
 			t.Errorf("Expected text 'Test content', got '%s'", entry.Text)
-		}
-	})
-}
-
-// TestTooltipButton tests the tooltip button widget.
-func TestTooltipButton(t *testing.T) {
-	newTestFyneApp(t)
-
-	t.Run("NewTooltipButton", func(t *testing.T) {
-		tapped := false
-		btn := NewTooltipButton("Click", "This is a tooltip", func() {
-			tapped = true
-		})
-
-		if btn == nil {
-			t.Fatal("Expected non-nil button")
-		}
-		if btn.Text != "Click" {
-			t.Errorf("Expected text 'Click', got '%s'", btn.Text)
-		}
-		if btn.tooltip != "This is a tooltip" {
-			t.Errorf("Expected tooltip 'This is a tooltip', got '%s'", btn.tooltip)
-		}
-
-		// Simulate tap
-		test.Tap(btn)
-		if !tapped {
-			t.Error("Expected OnTapped to be called")
-		}
-	})
-
-	t.Run("SetTooltip", func(t *testing.T) {
-		btn := NewTooltipButton("Click", "Initial", nil)
-		btn.SetTooltip("Updated tooltip")
-
-		if btn.tooltip != "Updated tooltip" {
-			t.Errorf("Expected tooltip 'Updated tooltip', got '%s'", btn.tooltip)
 		}
 	})
 }
