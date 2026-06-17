@@ -529,6 +529,73 @@ func TestCipherSuiteMAC(t *testing.T) {
 	}
 }
 
+// TestCipherAliasingParanoid pins the supported usage: separate dst/src buffers
+// in paranoid mode. Paranoid Encrypt writes Serpent output to dst then reads it
+// back via copy(src, dst) before the ChaCha20 pass; aliased buffers (dst==src)
+// would corrupt the output silently — that contract violation is NOT tested here
+// (undefined behaviour). This test verifies that the CORRECT usage (non-aliased
+// buffers) round-trips plaintext exactly.
+func TestCipherAliasingParanoid(t *testing.T) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 24)
+	serpentKey := make([]byte, 32)
+	serpentIV := make([]byte, 16)
+	hkdfSalt := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+		serpentKey[i] = byte(i + 33)
+	}
+	for i := range nonce {
+		nonce[i] = byte(i + 65)
+	}
+	for i := range serpentIV {
+		serpentIV[i] = byte(i + 89)
+	}
+
+	plaintext := []byte("paranoid-mode aliasing contract: separate buffers only")
+
+	macKey := make([]byte, 32)
+
+	// --- Encrypt with separate dst / src ---
+	encMAC, _ := NewMAC(macKey, true)
+	hkdfEnc := NewHKDFStream(key, hkdfSalt)
+	encSuite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, encMAC, hkdfEnc, true)
+	if err != nil {
+		t.Fatalf("NewCipherSuite(encrypt) failed: %v", err)
+	}
+
+	src := make([]byte, len(plaintext))
+	copy(src, plaintext)
+	ciphertext := make([]byte, len(plaintext)) // separate backing array — the required contract
+	encSuite.Encrypt(ciphertext, src)
+
+	if bytes.Equal(ciphertext, plaintext) {
+		t.Fatal("Encrypt: ciphertext must differ from plaintext")
+	}
+
+	// --- Decrypt with separate dst / src ---
+	decMAC, _ := NewMAC(macKey, true)
+	hkdfDec := NewHKDFStream(key, hkdfSalt)
+	decSuite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, decMAC, hkdfDec, true)
+	if err != nil {
+		t.Fatalf("NewCipherSuite(decrypt) failed: %v", err)
+	}
+
+	encData := make([]byte, len(ciphertext))
+	copy(encData, ciphertext)
+	recovered := make([]byte, len(encData)) // separate backing array — the required contract
+	decSuite.Decrypt(recovered, encData)
+
+	if !bytes.Equal(recovered, plaintext) {
+		t.Errorf("Decrypt round-trip failed: got %q; want %q", recovered, plaintext)
+	}
+
+	// MACs must match (Encrypt-then-MAC on both sides over identical ciphertext bytes).
+	if !bytes.Equal(encSuite.Sum(), decSuite.Sum()) {
+		t.Error("Encrypt/Decrypt MAC mismatch with separate buffers")
+	}
+}
+
 func TestCipherSuiteEncryptDecrypt(t *testing.T) {
 	key := make([]byte, 32)
 	nonce := make([]byte, 24)
