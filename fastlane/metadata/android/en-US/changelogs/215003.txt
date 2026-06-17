@@ -1,0 +1,5 @@
+v2.15
+- Encrypt a whole folder (structure preserved) or multiple files at once, not just a single file; new Compress toggle in advanced settings.
+- Cross-platform passwords: non-ASCII passwords are normalized (Unicode NFC), so a password typed on another OS decrypts here; existing volumes still open.
+- Smaller downloads: per-architecture APKs (arm64-v8a, armeabi-v7a, x86, x86_64) alongside the universal APK.
+- Privacy: optional screenshot protection — blocks screenshots and screen recording and hides the app in recent apps; on by default, toggle on the main screen.

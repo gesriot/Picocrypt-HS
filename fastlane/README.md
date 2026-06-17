@@ -19,9 +19,9 @@ fastlane/metadata/android/<locale>/
 
 `en-US` is required as the fallback locale. Only `en-US` is populated so far.
 
-F-Droid looks for this folder relative to the build's `subdir`; the fdroiddata recipe
-must point at `android/fastlane` (this repo is a monorepo — the Android app lives in
-`android/`, desktop sources in `src/`).
+The fastlane tree lives at the repository root, where F-Droid and IzzyOnDroid expect it by
+default (this repo is a monorepo — the Android app lives in `android/`, desktop sources in
+`src/`).
 
 ## versionCode
 
@@ -34,20 +34,13 @@ gets a distinct versionCode `base*10 + offset` (armeabi-v7a=1, arm64-v8a=2, x86=
 x86_64=4); the universal APK keeps `base`. fdroiddata mirrors this with
 `VercodeOperation: [10*%c+1 .. 10*%c+4]`.
 
-fastlane changelogs are keyed by versionCode, which doesn't fit ABI splits (4–5 distinct
-codes per release). Instead of committing N near-identical `<versionCode>.txt` files, we
-keep a **single `changelogs/default.txt`**, overwritten in place each release with that
-version's notes (≤ 500 bytes, ASCII). F-Droid uses `default.txt` as the changelog for any
-build that has no version-specific file (fdroidserver `insert_localized_app_metadata` in
-`update.py`), so every per-ABI build shows it — one file, no per-release accumulation, no
-git clutter.
-
-- **F-Droid** can also bake true per-versionCode changelogs at build time via a fdroiddata
-  prebuild (`cp default.txt $$VERCODE$$.txt`, scanned from the build checkout after
-  prebuild) — not needed while `default.txt` suffices, and it keeps this repo clean either way.
-- **IzzyOnDroid** reads the fastlane tree from the tagged commit and serves the prebuilt
-  APK (no build-time generation). If it doesn't honor `default.txt`, per-ABI builds show no
-  changelog there — acceptable; revisit during the IzzyOnDroid submission.
+fastlane changelogs are keyed by versionCode. ABI splits produce 5 codes per release — the
+universal APK keeps the base code and each ABI gets `base*10 + offset` — so a release ships
+one `<versionCode>.txt` per code with identical notes (≤ 500 bytes, ASCII): e.g. 2.16 →
+`21600.txt` (universal) plus `216001`–`216004.txt`. IzzyOnDroid reads the fastlane tree from
+the tagged commit and serves the prebuilt APK without generating changelogs at build time, so
+committing the per-code files is what makes the changelog show there; F-Droid matches the same
+files by versionCode. Earlier releases' files are kept as history.
 
 ## Status
 
