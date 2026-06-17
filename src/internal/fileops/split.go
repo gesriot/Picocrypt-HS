@@ -85,6 +85,18 @@ func ChunkSizeToBytes(chunkSize int, unit SplitUnit) (int64, error) {
 	return size * unitBytes, nil
 }
 
+// cleanupChunkOnError closes fout (if open), removes the in-progress chunk, and
+// removes every completed chunk produced so far. Used by all Split error paths.
+func cleanupChunkOnError(fout *os.File, chunkPath string, chunks []string) {
+	if fout != nil {
+		_ = fout.Close()
+	}
+	_ = os.Remove(chunkPath)
+	for _, c := range chunks {
+		_ = os.Remove(c)
+	}
+}
+
 // Split divides a file into multiple sequential chunks for easier storage/transfer.
 //
 // Output files are named with numeric suffixes: inputPath.0, inputPath.1, inputPath.2, etc.
@@ -141,20 +153,14 @@ func Split(opts SplitOptions) ([]string, error) {
 
 	for i := range numChunks {
 		if opts.Cancel != nil && opts.Cancel() {
-			// Clean up partial chunks
-			for _, chunk := range chunks {
-				_ = os.Remove(chunk)
-			}
+			cleanupChunkOnError(nil, "", chunks)
 			return nil, errors.New("operation cancelled")
 		}
 
 		chunkPath := fmt.Sprintf("%s.%d.incomplete", opts.InputPath, i)
 		fout, err := CreateSecureNoSymlink(chunkPath)
 		if err != nil {
-			// Clean up partial chunks
-			for _, chunk := range chunks {
-				_ = os.Remove(chunk)
-			}
+			cleanupChunkOnError(nil, "", chunks)
 			return nil, fmt.Errorf("create chunk %d: %w", i, err)
 		}
 
@@ -163,11 +169,7 @@ func Split(opts SplitOptions) ([]string, error) {
 
 		for chunkDone < chunkSize {
 			if opts.Cancel != nil && opts.Cancel() {
-				_ = fout.Close()
-				_ = os.Remove(chunkPath)
-				for _, chunk := range chunks {
-					_ = os.Remove(chunk)
-				}
+				cleanupChunkOnError(fout, chunkPath, chunks)
 				return nil, errors.New("operation cancelled")
 			}
 
@@ -180,11 +182,7 @@ func Split(opts SplitOptions) ([]string, error) {
 			n, readErr := fin.Read(buf)
 			if n > 0 {
 				if _, err := fout.Write(buf[:n]); err != nil {
-					_ = fout.Close()
-					_ = os.Remove(chunkPath)
-					for _, chunk := range chunks {
-						_ = os.Remove(chunk)
-					}
+					cleanupChunkOnError(fout, chunkPath, chunks)
 					return nil, fmt.Errorf("write chunk %d: %w", i, err)
 				}
 				chunkDone += int64(n)
@@ -203,27 +201,26 @@ func Split(opts SplitOptions) ([]string, error) {
 				break
 			}
 			if readErr != nil {
-				_ = fout.Close()
-				_ = os.Remove(chunkPath)
-				for _, chunk := range chunks {
-					_ = os.Remove(chunk)
-				}
+				cleanupChunkOnError(fout, chunkPath, chunks)
 				return nil, fmt.Errorf("read for chunk %d: %w", i, readErr)
 			}
 		}
 
 		// Sync to ensure data is flushed before renaming
 		if err := fout.Sync(); err != nil {
+			cleanupChunkOnError(fout, chunkPath, chunks)
 			return nil, fmt.Errorf("sync chunk %d: %w", i, err)
 		}
 
 		if err := fout.Close(); err != nil {
+			cleanupChunkOnError(nil, chunkPath, chunks) // fout already closed by failed Close
 			return nil, fmt.Errorf("close chunk %d: %w", i, err)
 		}
 
 		// Rename to final name
 		finalPath := fmt.Sprintf("%s.%d", opts.InputPath, i)
 		if err := os.Rename(chunkPath, finalPath); err != nil {
+			cleanupChunkOnError(nil, chunkPath, chunks) // fout already closed above
 			return nil, fmt.Errorf("rename chunk %d: %w", i, err)
 		}
 

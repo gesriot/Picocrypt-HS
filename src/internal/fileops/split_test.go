@@ -607,6 +607,44 @@ func TestChunkSizeToBytes(t *testing.T) {
 	}
 }
 
+// TestSplitTailErrorCleansUp asserts that when the Rename step fails (destination
+// is a directory), no .incomplete or chunk files are left behind.
+// Before the fix this fails because the tail error paths do not clean up.
+func TestSplitTailErrorCleansUp(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "test.pcv")
+
+	// Small file → exactly 1 chunk so the Rename is the very next step after Sync/Close.
+	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("A"), 1024), 0644); err != nil {
+		t.Fatalf("create input: %v", err)
+	}
+
+	// Block the rename: pre-create the final name as a NON-EMPTY directory so that
+	// (a) os.Rename(file, dir) fails with EISDIR/EEXIST, and (b) the Split pre-cleanup
+	// os.Remove call fails (non-empty dir), so the blocker survives to the rename step.
+	finalPath := inputPath + ".0"
+	if err := os.MkdirAll(filepath.Join(finalPath, "sentinel"), 0755); err != nil {
+		t.Fatalf("create blocking dir: %v", err)
+	}
+
+	_, err := Split(SplitOptions{
+		InputPath: inputPath,
+		ChunkSize: 4, // 4 KiB chunk — larger than the file, so 1 chunk
+		Unit:      SplitUnitKiB,
+	})
+	if err == nil {
+		t.Fatal("expected rename error, got nil")
+	}
+
+	// The .incomplete file must be cleaned up by Split on the rename error path.
+	// (The blocking dir itself is pre-created by this test and is not a Split artifact.)
+	incompleteGlob := inputPath + ".*.incomplete"
+	leftover, _ := filepath.Glob(incompleteGlob)
+	if len(leftover) > 0 {
+		t.Errorf("leftover .incomplete files after tail rename error: %v", leftover)
+	}
+}
+
 // TestRecombineLargeChunks tests recombining larger chunks.
 func TestRecombineLargeChunks(t *testing.T) {
 	tmpDir := t.TempDir()
