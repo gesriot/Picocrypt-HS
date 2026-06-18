@@ -305,23 +305,27 @@ func TestKeyMaterialZeroed(t *testing.T) {
 	})
 
 	t.Run("Close zeros the FINAL live key/keyfileKey/keyfileHash/passwordBytes", func(t *testing.T) {
-		// Direct Close() contract over ALL FOUR []byte key fields it must wipe at
-		// context.go:324. Distinct backing arrays per field so each assertion is
-		// independent; deleting the SecureZeroMultiple(...) call leaves every one
-		// non-zero. (The recorder seam observes only Key; keyfileKey/keyfileHash/
-		// passwordBytes are not KDF outputs, so this is the observable anchor for
-		// the remaining three fields.)
+		// Direct Close() contract over ALL FOUR key fields it must wipe at
+		// context.go's Close(): the three *crypto.Secret fields (Key/KeyfileKey/
+		// passwordBytes) zeroed via the ctx.secrets registry, plus the NON-SECRET
+		// KeyfileHash cleared defensively. Distinct backing arrays per field so each
+		// assertion is independent; deleting the registry sweep leaves every Secret
+		// non-zero, and dropping the KeyfileHash SecureZero leaves it non-zero.
+		// The Secret fields are populated through the setters so they are registered
+		// in ctx.secrets exactly as the production pipeline registers them.
 		ctx := &OperationContext{
-			Key:           bytes.Repeat([]byte{0x11}, crypto.Argon2KeySize),
-			KeyfileKey:    bytes.Repeat([]byte{0x22}, crypto.Argon2KeySize),
-			KeyfileHash:   bytes.Repeat([]byte{0x33}, 32),
-			passwordBytes: bytes.Repeat([]byte{0x44}, 12),
+			KeyfileHash: bytes.Repeat([]byte{0x33}, 32),
 		}
-		// Hold the backing arrays BEFORE Close() nils the fields (Pitfall 2).
-		key := ctx.Key
-		keyfileKey := ctx.KeyfileKey
+		ctx.setKey(bytes.Repeat([]byte{0x11}, crypto.Argon2KeySize))
+		ctx.setKeyfileKey(bytes.Repeat([]byte{0x22}, crypto.Argon2KeySize))
+		ctx.setPasswordBytes(bytes.Repeat([]byte{0x44}, 12))
+
+		// Hold the backing arrays BEFORE Close() drops the fields (Pitfall 2).
+		// Bytes() borrows the live backing array, which Close() zeros in place.
+		key := ctx.Key.Bytes()
+		keyfileKey := ctx.KeyfileKey.Bytes()
 		keyfileHash := ctx.KeyfileHash
-		passwordBytes := ctx.passwordBytes
+		passwordBytes := ctx.passwordBytes.Bytes()
 
 		ctx.Close()
 

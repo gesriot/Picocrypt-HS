@@ -137,10 +137,11 @@ type OperationContext struct {
 	Header *header.VolumeHeader
 
 	// Cryptographic state
-	Key           []byte               // Argon2-derived key (possibly XORed with keyfile key)
-	KeyfileKey    []byte               // 32-byte key derived from keyfile(s)
-	KeyfileHash   []byte               // SHA3-256(KeyfileKey) for verification
-	passwordBytes []byte               // KDF input for the current password form being tried (#19)
+	Key           *crypto.Secret       // Argon2-derived key (possibly XORed with keyfile key)
+	KeyfileKey    *crypto.Secret       // 32-byte key derived from keyfile(s)
+	KeyfileHash   []byte               // SHA3-256(KeyfileKey) for verification (NON-SECRET: stored in header)
+	passwordBytes *crypto.Secret       // KDF input for the current password form being tried (#19)
+	secrets       []*crypto.Secret     // every Secret this context owns; Close() iterates this
 	SubkeyReader  *crypto.SubkeyReader // HKDF stream for deriving MAC/Serpent subkeys
 	CipherSuite   *crypto.CipherSuite  // Initialized cipher suite (XChaCha20 + optional Serpent)
 
@@ -255,50 +256,54 @@ func (ctx *OperationContext) TempZipReader(r io.Reader) io.Reader {
 	return r
 }
 
-// setKey zeros the previous Key backing array before replacing it with k.
+// adopt registers s so Close() will zero it, and returns s.
+func (ctx *OperationContext) adopt(s *crypto.Secret) *crypto.Secret {
+	ctx.secrets = append(ctx.secrets, s)
+	return s
+}
+
+// setKey replaces the derived key, zeroing the orphaned predecessor.
 //
 // SEC-05 / WR-01: mid-operation reassignments of ctx.Key (the v1/v2 keyfile XOR at
-// decrypt.go:303/:343 and the full-RS retry re-derive at decryptDeriveKeys:223)
-// produce a NEW slice (keyfile.XORWithKey allocates, processor.go:216; Argon2
-// re-derive allocates), orphaning the old backing array. OperationContext.Close()
-// (the end-of-operation sweep, D-03) structurally cannot reach those predecessors
-// because the field has already moved on. Zeroing here closes that window.
+// decrypt.go and the full-RS retry re-derive at decryptDeriveKeys) produce a NEW
+// slice (keyfile.XORWithKey allocates; Argon2 re-derive allocates), orphaning the
+// old backing array. Routing every replacement through Secret.Set zeros that
+// predecessor immediately instead of waiting for Close().
 //
-// Pitfall 1 (self-assign guard): the no-keyfile v1 path does `ctx.Key = key` where
-// key IS ctx.Key (same backing array, decrypt.go:303). A naive zero-then-assign
-// would wipe the LIVE key and break decryption. The pointer-identity guard
-// (&k[0] != &ctx.Key[0]) skips zeroing in that case; the len(k)==0 guard avoids
-// indexing an empty slice. Reuses the single crypto.SecureZero primitive (no second
-// zeroing primitive — CONVENTIONS).
+// The aliasing/self-assign guard now lives in crypto.Secret.Set: the no-keyfile v1
+// path does `ctx.setKey(key)` where key IS ctx.Key's backing array, and Set's
+// pointer-identity guard skips zeroing so the LIVE key survives.
 func (ctx *OperationContext) setKey(k []byte) {
-	if ctx.Key != nil && (len(k) == 0 || &k[0] != &ctx.Key[0]) {
-		crypto.SecureZero(ctx.Key)
+	if ctx.Key == nil {
+		ctx.Key = ctx.adopt(crypto.SecretFrom(k))
+		return
 	}
-	ctx.Key = k
+	ctx.Key.Set(k)
 }
 
-// setKeyfileKey zeros the previous KeyfileKey backing array before replacing it.
-// Analogous to setKey: the full-RS retry re-processes keyfiles (decryptProcessKeyfiles:247),
-// orphaning the prior keyfile-key buffer that Close() can no longer reach. Same
-// pointer-identity self-assign guard.
+// setKeyfileKey replaces the keyfile-derived key, zeroing the orphaned predecessor.
+// Analogous to setKey: the full-RS retry re-processes keyfiles (decryptProcessKeyfiles),
+// orphaning the prior keyfile-key buffer. Secret.Set zeros it before reassignment.
 func (ctx *OperationContext) setKeyfileKey(k []byte) {
-	if ctx.KeyfileKey != nil && (len(k) == 0 || &k[0] != &ctx.KeyfileKey[0]) {
-		crypto.SecureZero(ctx.KeyfileKey)
+	if ctx.KeyfileKey == nil {
+		ctx.KeyfileKey = ctx.adopt(crypto.SecretFrom(k))
+		return
 	}
-	ctx.KeyfileKey = k
+	ctx.KeyfileKey.Set(k)
 }
 
-// setPasswordBytes zeros the previous password byte form before storing the new
+// setPasswordBytes replaces the current password byte form, zeroing the previous
 // one. The decrypt path sets this per candidate normalization form (#19); the
-// winning form is reused by the RS / verify-first re-derivation paths and is
-// zeroed by Close. The same pointer-identity self-assign guard as setKey applies.
+// winning form is reused by the RS / verify-first re-derivation paths and is zeroed
+// by Close. Secret.Set carries the same pointer-identity self-assign guard.
 // (The password also lives in req.Password as an immutable, un-zeroable string —
 // see Close's SECURITY note.)
 func (ctx *OperationContext) setPasswordBytes(b []byte) {
-	if ctx.passwordBytes != nil && (len(b) == 0 || &b[0] != &ctx.passwordBytes[0]) {
-		crypto.SecureZero(ctx.passwordBytes)
+	if ctx.passwordBytes == nil {
+		ctx.passwordBytes = ctx.adopt(crypto.SecretFrom(b))
+		return
 	}
-	ctx.passwordBytes = b
+	ctx.passwordBytes.Set(b)
 }
 
 // Close securely zeros all sensitive cryptographic material in the context.
@@ -320,12 +325,18 @@ func (ctx *OperationContext) Close() {
 		return
 	}
 
-	// Zero main key material
-	crypto.SecureZeroMultiple(ctx.Key, ctx.KeyfileKey, ctx.KeyfileHash, ctx.passwordBytes)
+	// Zero every owned secret via the registry (Key/KeyfileKey/passwordBytes).
+	for _, s := range ctx.secrets {
+		s.Close()
+	}
+	ctx.secrets = nil
 	ctx.Key = nil
 	ctx.KeyfileKey = nil
-	ctx.KeyfileHash = nil
 	ctx.passwordBytes = nil
+
+	// KeyfileHash is NON-SECRET (written to the header) but cleared defensively.
+	crypto.SecureZero(ctx.KeyfileHash)
+	ctx.KeyfileHash = nil
 
 	// Close cipher suite (zeros internal key)
 	if ctx.CipherSuite != nil {

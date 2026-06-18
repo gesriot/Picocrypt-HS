@@ -236,7 +236,7 @@ func encryptDeriveKeys(ctx *OperationContext, req *EncryptRequest) error {
 	if err != nil {
 		return err
 	}
-	ctx.Key = key
+	ctx.setKey(key)
 
 	return nil
 }
@@ -257,7 +257,7 @@ func encryptProcessKeyfiles(ctx *OperationContext, req *EncryptRequest) error {
 		return err
 	}
 
-	ctx.KeyfileKey = result.Key
+	ctx.setKeyfileKey(result.Key)
 	ctx.KeyfileHash = result.Hash
 
 	return nil
@@ -267,7 +267,7 @@ func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error {
 	ctx.SetStatus("Calculating values...")
 
 	// v2: Initialize HKDF BEFORE keyfile XOR
-	hkdfStream := crypto.NewHKDFStream(ctx.Key, ctx.Header.HKDFSalt)
+	hkdfStream := crypto.NewHKDFStream(ctx.Key.Bytes(), ctx.Header.HKDFSalt)
 	ctx.SubkeyReader = crypto.NewSubkeyReader(hkdfStream)
 
 	// Read header subkey for v2 MAC
@@ -286,7 +286,7 @@ func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error {
 func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	// Apply keyfile XOR to key (AFTER HKDF init for v2).
 	if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
-		if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
+		if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey.Bytes()) {
 			return perrors.ErrDuplicateKeyfiles
 		}
 		// SEC-05/WR-01: route the XOR reassignment through setKey for symmetry
@@ -296,9 +296,9 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 		// (encryptComputeAuth read HeaderSubkey, so the stream's PRK is fixed) and
 		// the cipher uses the XOR result, not the original key. The pointer-identity
 		// guard means the no-keyfile path (this branch skipped) is never wiped.
-		ctx.setKey(keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey))
+		ctx.setKey(keyfile.XORWithKey(ctx.Key.Bytes(), ctx.KeyfileKey.Bytes()))
 	}
-	key := ctx.Key
+	key := ctx.Key.Bytes()
 
 	// Read remaining subkeys
 	macSubkey, err := ctx.SubkeyReader.MACSubkey()
