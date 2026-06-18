@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
@@ -443,39 +444,81 @@ func TestUpdateKeyfileLabel(t *testing.T) {
 	}
 }
 
+// TestSetStatus pins the binding between SetStatus's two args and the two fields it
+// writes. Two DISTINCT non-default rows ({text, color} pairs that differ in BOTH
+// components) are required so the test fails if SetStatus ignores an arg, writes a
+// constant, or swaps text↔color (a single row that happened to match a default could
+// not catch a no-op). Both fields are asserted independently per row.
 func TestSetStatus(t *testing.T) {
-	state := mustNewState(t)
-
-	state.SetStatus("Testing", util.GREEN)
-
-	if state.MainStatus != "Testing" {
-		t.Errorf("MainStatus = %q; want 'Testing'", state.MainStatus)
+	tests := []struct {
+		name  string
+		text  string
+		color color.RGBA
+	}{
+		{name: "working/red", text: "Working…", color: util.RED},
+		{name: "done/green", text: "Done", color: util.GREEN},
 	}
-	if state.MainStatusColor != util.GREEN {
-		t.Error("MainStatusColor should be GREEN")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := mustNewState(t)
+			state.SetStatus(tt.text, tt.color)
+
+			if state.MainStatus != tt.text {
+				t.Errorf("MainStatus = %q; want %q", state.MainStatus, tt.text)
+			}
+			if state.MainStatusColor != tt.color {
+				t.Errorf("MainStatusColor = %v; want %v", state.MainStatusColor, tt.color)
+			}
+		})
 	}
 }
 
+// TestSetPopupStatus pins that SetPopupStatus writes its arg AND that a later call
+// overwrites an earlier value. The second sequential write ("B" after "A") is the
+// load-bearing assertion: a set-once mutation (writing only when empty) or one that
+// ignores its arg would keep "A" and fail here, where a single write could not tell
+// "stored the arg" from "stored a constant that happened to match".
 func TestSetPopupStatus(t *testing.T) {
 	state := mustNewState(t)
 
-	state.SetPopupStatus("Processing...")
+	state.SetPopupStatus("A")
+	if state.PopupStatus != "A" {
+		t.Errorf("PopupStatus = %q; want %q", state.PopupStatus, "A")
+	}
 
-	if state.PopupStatus != "Processing..." {
-		t.Errorf("PopupStatus = %q; want 'Processing...'", state.PopupStatus)
+	state.SetPopupStatus("B")
+	if state.PopupStatus != "B" {
+		t.Errorf("PopupStatus = %q after second write; want %q (the setter must overwrite, not set-once)", state.PopupStatus, "B")
 	}
 }
 
+// TestSetProgress pins both args of SetProgress to their fields. Two rows with
+// distinct fraction AND info (0.0/"0%" and 1.0/"100%") catch an arg-swap (fraction
+// vs info are different types so a swap won't compile, but a constant fraction or a
+// dropped info would slip past a single row), a constant return, or a dropped write.
 func TestSetProgress(t *testing.T) {
-	state := mustNewState(t)
-
-	state.SetProgress(0.5, "50%")
-
-	if state.Progress != 0.5 {
-		t.Errorf("Progress = %f; want 0.5", state.Progress)
+	tests := []struct {
+		name     string
+		fraction float32
+		info     string
+	}{
+		{name: "zero", fraction: 0.0, info: "0%"},
+		{name: "full", fraction: 1.0, info: "100%"},
 	}
-	if state.ProgressInfo != "50%" {
-		t.Errorf("ProgressInfo = %q; want '50%%'", state.ProgressInfo)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := mustNewState(t)
+			state.SetProgress(tt.fraction, tt.info)
+
+			if state.Progress != tt.fraction {
+				t.Errorf("Progress = %f; want %f", state.Progress, tt.fraction)
+			}
+			if state.ProgressInfo != tt.info {
+				t.Errorf("ProgressInfo = %q; want %q", state.ProgressInfo, tt.info)
+			}
+		})
 	}
 }
 
