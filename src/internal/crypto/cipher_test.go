@@ -8,11 +8,10 @@ import (
 // TestCipherSuiteCloseWipesSerpentSchedule asserts that Close() wipes the
 // expanded Serpent key schedule held by the paranoid suite. The schedule is a
 // [132]uint32 derived from the Serpent key; if it survives Close it is residual
-// key material. The check encrypts a fixed block with the captured cipher both
-// before and after Close: after the wipe the block must behave as a zero-key
-// cipher (i.e. produce a different ciphertext than the keyed one, matching a
-// freshly built zero-key Serpent block). Skips gracefully if the linked serpent
-// build predates Zero().
+// key material. The check encrypts a fixed block before Close (capturing the
+// keyed ciphertext), then encrypts the same block again after Close and asserts
+// the two outputs DIFFER — proving the key material is gone. Skips gracefully
+// if the linked serpent build predates Zero().
 func TestCipherSuiteCloseWipesSerpentSchedule(t *testing.T) {
 	key := bytes.Repeat([]byte{1}, 32)
 	nonce := bytes.Repeat([]byte{2}, 24)

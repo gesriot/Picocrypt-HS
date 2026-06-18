@@ -310,6 +310,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 		if err != nil {
 			return err
 		}
+		defer crypto.SecureZero(subkeyHeader)
 
 		// Verify header MAC
 		authResult := header.VerifyV2Header(subkeyHeader, ctx.Header, ctx.KeyfileHash)

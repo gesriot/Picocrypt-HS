@@ -131,6 +131,9 @@ func TestSecretCloseIdempotentAndNilSafe(t *testing.T) {
 	if nilS.Bytes() != nil {
 		t.Fatal("nil Secret.Bytes must be nil")
 	}
+	if nilS.Len() != 0 {
+		t.Fatal("nil Secret.Len must be 0")
+	}
 	s := SecretFrom([]byte{9})
 	s.Close()
 	s.Close() // double close must not panic
@@ -148,15 +151,10 @@ func TestSecretSetWipesOldButNotSelfAssign(t *testing.T) {
 	}
 	// self-assign: setting the SAME backing array must NOT wipe the live key
 	live := s.Bytes()
+	want := append([]byte(nil), live...)
 	s.Set(live)
-	allZero := true
-	for _, x := range live {
-		if x != 0 {
-			allZero = false
-		}
-	}
-	if allZero {
-		t.Fatal("self-assign wiped the live key — guard broken")
+	if !bytes.Equal(live, want) {
+		t.Fatal("self-assign changed the live key — guard broken")
 	}
 }
 

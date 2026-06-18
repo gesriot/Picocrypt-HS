@@ -277,6 +277,7 @@ func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error {
 	if err != nil {
 		return err
 	}
+	defer crypto.SecureZero(subkeyHeader)
 
 	// Compute header MAC
 	ctx.Header.KeyHash = header.ComputeV2HeaderMAC(subkeyHeader, ctx.Header, ctx.KeyfileHash)
