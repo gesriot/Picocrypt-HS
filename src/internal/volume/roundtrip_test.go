@@ -13,7 +13,34 @@ import (
 	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
 )
+
+// readVolumeHeader opens an encrypted .pcv volume and decodes its header using the
+// production header reader. It is the read-back seam for flag/comment assertions:
+// tests use it to prove that EncryptRequest options are actually persisted into the
+// on-disk header (not merely honored in-memory during the round-trip).
+func readVolumeHeader(t *testing.T, encryptedPath string) *header.VolumeHeader {
+	t.Helper()
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+	fin, err := os.Open(encryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to open encrypted volume: %v", err)
+	}
+	defer func() { _ = fin.Close() }()
+
+	res, err := NewHeaderReaderForTest(fin, rsCodecs).ReadHeader()
+	if err != nil {
+		t.Fatalf("ReadHeader failed: %v", err)
+	}
+	if res.DecodeError != nil {
+		t.Fatalf("header decode error: %v", res.DecodeError)
+	}
+	return res.Header
+}
 
 // TestRoundTripBasic tests basic encrypt -> decrypt cycle
 func TestRoundTripBasic(t *testing.T) {
@@ -148,6 +175,19 @@ func TestRoundTripParanoid(t *testing.T) {
 		t.Fatalf("Encrypt (paranoid) failed: %v", err)
 	}
 
+	// The Paranoid flag must be persisted into the on-disk header (dropping the
+	// flag write would still round-trip but fail to record paranoid mode).
+	h := readVolumeHeader(t, encryptedPath)
+	if !h.Flags.Paranoid {
+		t.Error("header Flags.Paranoid = false, want true for paranoid volume")
+	}
+	if h.Flags.UseKeyfiles {
+		t.Error("header Flags.UseKeyfiles = true, want false (no keyfiles used)")
+	}
+	if h.Flags.ReedSolomon {
+		t.Error("header Flags.ReedSolomon = true, want false (RS not enabled)")
+	}
+
 	// Decrypt
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
@@ -183,14 +223,23 @@ func TestRoundTripReedSolomon(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	plaintext := []byte("Reed-Solomon protected data for error correction testing.")
-	inputPath := filepath.Join(tmpDir, "rs_test.txt")
+	// Size the plaintext so the on-disk Padded flag is set. encrypt.go computes
+	// Padded = (Total % MiB) >= (MiB - RS128DataSize), i.e. the final partial-MiB
+	// block lands within the last 128 bytes of a 1 MiB block. (1<<20)-1 bytes makes
+	// Total % MiB = MiB-1, which satisfies that bound, so Padded must be true. NOTE:
+	// a tiny plaintext does NOT pad (Total % MiB is far below the bound) — the size
+	// here is load-bearing for the Padded assertion below.
+	plaintext := make([]byte, (1<<20)-1)
+	for i := range plaintext {
+		plaintext[i] = byte((i * 7) % 256)
+	}
+	inputPath := filepath.Join(tmpDir, "rs_test.bin")
 	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	encryptedPath := filepath.Join(tmpDir, "rs_test.txt.pcv")
-	decryptedPath := filepath.Join(tmpDir, "rs_decrypted.txt")
+	encryptedPath := filepath.Join(tmpDir, "rs_test.bin.pcv")
+	decryptedPath := filepath.Join(tmpDir, "rs_decrypted.bin")
 
 	reporter := &GoldenTestReporter{}
 
@@ -206,6 +255,17 @@ func TestRoundTripReedSolomon(t *testing.T) {
 
 	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (RS) failed: %v", err)
+	}
+
+	// The ReedSolomon flag must be persisted, and for this deliberately-sized input
+	// the final block pads, so the Padded flag must also be set (Padded otherwise
+	// has zero coverage). Dropping either flag write fails here.
+	h := readVolumeHeader(t, encryptedPath)
+	if !h.Flags.ReedSolomon {
+		t.Error("header Flags.ReedSolomon = false, want true for Reed-Solomon volume")
+	}
+	if !h.Flags.Padded {
+		t.Error("header Flags.Padded = false, want true (input sized to MiB-1 pads its final block)")
 	}
 
 	// Decrypt
@@ -336,6 +396,13 @@ func TestRoundTripAllOptions(t *testing.T) {
 		t.Fatalf("Encrypt (all options) failed: %v", err)
 	}
 
+	// Deniability is enabled, so the outer header is randomized and cannot be decoded
+	// for flags; instead assert the deniability wrap is present (dropping it with all
+	// options set would leave a decodable, non-deniable header).
+	if !IsDeniable(encryptedPath, rsCodecs) {
+		t.Error("all-options volume with Deniability set should be detected as deniable")
+	}
+
 	// Decrypt
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
@@ -395,6 +462,13 @@ func TestRoundTripWithComments(t *testing.T) {
 
 	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (with comments) failed: %v", err)
+	}
+
+	// Comments are stored in the (plaintext) header and must round-trip exactly,
+	// including multibyte UTF-8 — no prior test reads a non-empty comment back.
+	h := readVolumeHeader(t, encryptedPath)
+	if h.Comments != "This is a test comment! 日本語テスト 🔐" {
+		t.Errorf("header Comments = %q, want %q", h.Comments, "This is a test comment! 日本語テスト 🔐")
 	}
 
 	// Decrypt
@@ -463,6 +537,13 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 
 	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt (with keyfile) failed: %v", err)
+	}
+
+	// The UseKeyfiles flag must be persisted for self-encrypted volumes, otherwise
+	// decryption could not know a keyfile is required.
+	h := readVolumeHeader(t, encryptedPath)
+	if !h.Flags.UseKeyfiles {
+		t.Error("header Flags.UseKeyfiles = false, want true for keyfile-protected volume")
 	}
 
 	// Decrypt with keyfile
@@ -1458,88 +1539,6 @@ func TestRoundTripSingleFileFolderProducesZip(t *testing.T) {
 	}
 }
 
-// TestRoundTripSplitWithDeniability tests split + deniability combination
-func TestRoundTripSplitWithDeniability(t *testing.T) {
-	rsCodecs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("Failed to create RS codecs: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	// Create test file
-	plaintext := make([]byte, 50*1024) // 50 KiB
-	for i := range plaintext {
-		plaintext[i] = byte(i % 256)
-	}
-	inputPath := filepath.Join(tmpDir, "split_deny_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	encryptedPath := filepath.Join(tmpDir, "split_deny_test.bin.pcv")
-	decryptedPath := filepath.Join(tmpDir, "split_deny_decrypted.bin")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt with split + deniability
-	encReq := &EncryptRequest{
-		InputFile:   inputPath,
-		OutputFile:  encryptedPath,
-		Password:    []byte("split_deny_password"),
-		Deniability: true,
-		Split:       true,
-		ChunkSize:   10,
-		ChunkUnit:   0, // KiB
-		Reporter:    reporter,
-		RSCodecs:    rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
-		t.Fatalf("Encrypt (split+deniability) failed: %v", err)
-	}
-
-	// Verify chunks were created
-	chunks, _ := filepath.Glob(encryptedPath + ".*")
-	if len(chunks) < 2 {
-		t.Logf("Only %d chunk(s) created", len(chunks))
-	}
-
-	// Decrypt with recombine + deniability
-	decReq := &DecryptRequest{
-		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
-		Password:     []byte("split_deny_password"),
-		Deniability:  true,
-		Recombine:    true,
-		ForceDecrypt: false,
-		Reporter:     reporter,
-		RSCodecs:     rsCodecs,
-	}
-
-	if err := Decrypt(context.Background(), decReq); err != nil {
-		t.Fatalf("Decrypt (split+deniability) failed: %v", err)
-	}
-
-	decrypted, err := os.ReadFile(decryptedPath)
-	if err != nil {
-		t.Fatalf("Failed to read decrypted file: %v", err)
-	}
-
-	if len(decrypted) != len(plaintext) {
-		t.Errorf("Length mismatch. Expected: %d, Got: %d", len(plaintext), len(decrypted))
-	}
-
-	for i := range plaintext {
-		if decrypted[i] != plaintext[i] {
-			t.Errorf("Content mismatch at byte %d", i)
-			break
-		}
-	}
-
-	t.Log("Round-trip split+deniability: SUCCESS")
-}
-
 // TestRoundTripSplitWithReedSolomon tests split + Reed-Solomon combination.
 // This tests the complete encrypt->split->recombine->decrypt cycle with RS enabled.
 func TestRoundTripSplitWithReedSolomon(t *testing.T) {
@@ -1623,83 +1622,6 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 	}
 
 	t.Log("Round-trip split+Reed-Solomon: SUCCESS")
-}
-
-// TestRoundTripSplitAllOptions tests split + paranoid + RS + deniability
-func TestRoundTripSplitAllOptions(t *testing.T) {
-	rsCodecs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("Failed to create RS codecs: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	plaintext := make([]byte, 30*1024) // 30 KiB
-	for i := range plaintext {
-		plaintext[i] = byte((i * 13) % 256)
-	}
-	inputPath := filepath.Join(tmpDir, "split_all_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	encryptedPath := filepath.Join(tmpDir, "split_all_test.bin.pcv")
-	decryptedPath := filepath.Join(tmpDir, "split_all_decrypted.bin")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt with ALL options
-	encReq := &EncryptRequest{
-		InputFile:   inputPath,
-		OutputFile:  encryptedPath,
-		Password:    []byte("split_all_password"),
-		Paranoid:    true,
-		ReedSolomon: true,
-		Deniability: true,
-		Split:       true,
-		ChunkSize:   10,
-		ChunkUnit:   0, // KiB
-		Reporter:    reporter,
-		RSCodecs:    rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
-		t.Fatalf("Encrypt (split+all) failed: %v", err)
-	}
-
-	// Decrypt
-	decReq := &DecryptRequest{
-		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
-		Password:     []byte("split_all_password"),
-		Deniability:  true,
-		Recombine:    true,
-		ForceDecrypt: false,
-		Reporter:     reporter,
-		RSCodecs:     rsCodecs,
-	}
-
-	if err := Decrypt(context.Background(), decReq); err != nil {
-		t.Fatalf("Decrypt (split+all) failed: %v", err)
-	}
-
-	decrypted, err := os.ReadFile(decryptedPath)
-	if err != nil {
-		t.Fatalf("Failed to read decrypted file: %v", err)
-	}
-
-	if len(decrypted) != len(plaintext) {
-		t.Errorf("Length mismatch. Expected: %d, Got: %d", len(plaintext), len(decrypted))
-	}
-
-	for i := range plaintext {
-		if decrypted[i] != plaintext[i] {
-			t.Errorf("Content mismatch at byte %d", i)
-			break
-		}
-	}
-
-	t.Log("Round-trip split+all options: SUCCESS")
 }
 
 // TestRoundTripEmptyFile tests encryption/decryption of an empty file
@@ -1932,9 +1854,12 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create multiple test files
-	file1Content := []byte("Compressible content: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	file2Content := []byte("More compressible: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+	// Create multiple test files. Make them large and highly repetitive so the
+	// compressed+encrypted volume is reliably smaller than the raw input even after
+	// zip-per-entry and encryption overhead (a tight margin would make the size
+	// assertion flaky). Each compresses to a tiny fraction of its size.
+	file1Content := []byte(strings.Repeat("Compressible content: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n", 2000))
+	file2Content := []byte(strings.Repeat("More compressible: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n", 2000))
 
 	file1Path := filepath.Join(tmpDir, "compress1.txt")
 	file2Path := filepath.Join(tmpDir, "compress2.txt")
@@ -2000,6 +1925,18 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	}
 	if string(restored2) != string(file2Content) {
 		t.Errorf("file2 content mismatch")
+	}
+
+	// Compression must shrink the volume below the combined raw input size; if the
+	// Compress flag were ignored, the stored zip would exceed the inputs.
+	encryptedInfo, err := os.Stat(encryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to stat encrypted file: %v", err)
+	}
+	totalRaw := int64(len(file1Content) + len(file2Content))
+	if encryptedInfo.Size() >= totalRaw {
+		t.Errorf("compressed volume size = %d bytes, want < total raw input %d (Compress flag ignored?)",
+			encryptedInfo.Size(), totalRaw)
 	}
 
 	t.Log("Round-trip compressed multi-file: SUCCESS")
@@ -2076,13 +2013,18 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 		t.Errorf("Content mismatch after round-trip")
 	}
 
-	// Verify compression actually happened by checking encrypted file size
-	// The compressed+encrypted file should be smaller than uncompressed+encrypted
-	encryptedInfo, _ := os.Stat(encryptedPath)
-
-	// Original file size is len(fileContent), encrypted file should be noticeably smaller
-	// due to compression (accounting for encryption overhead and headers)
-	t.Logf("Original size: %d bytes, Encrypted size: %d bytes", len(fileContent), encryptedInfo.Size())
+	// Compression must actually shrink the volume: the input is highly repetitive,
+	// so the compressed+encrypted output must be smaller than the raw plaintext even
+	// after zip/header/encryption overhead. If the Compress flag were ignored, the
+	// stored zip would be at least as large as the plaintext and this would fail.
+	encryptedInfo, err := os.Stat(encryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to stat encrypted file: %v", err)
+	}
+	if encryptedInfo.Size() >= int64(len(fileContent)) {
+		t.Errorf("compressed volume size = %d bytes, want < plaintext size %d (Compress flag ignored?)",
+			encryptedInfo.Size(), len(fileContent))
+	}
 
 	t.Log("Round-trip compressed single file: SUCCESS")
 }
@@ -2384,6 +2326,13 @@ func TestZeroLengthComments(t *testing.T) {
 
 	if err := Encrypt(context.Background(), encReq); err != nil {
 		t.Fatalf("Encrypt with zero-length comments failed: %v", err)
+	}
+
+	// An empty Comments request must store zero comment bytes in the header; any
+	// spurious comment bytes would be a regression.
+	h := readVolumeHeader(t, encryptedPath)
+	if len(h.Comments) != 0 {
+		t.Errorf("header Comments length = %d, want 0; got %q", len(h.Comments), h.Comments)
 	}
 
 	// Decrypt

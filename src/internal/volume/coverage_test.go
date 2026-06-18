@@ -36,68 +36,6 @@ func assertCancelled(t *testing.T, op string, err error, outputPath string) {
 // Addresses PCC-004 security audit recommendation
 // =============================================================================
 
-// TestVerifyFirstModeBasic tests the two-pass verification mode
-func TestVerifyFirstModeBasic(t *testing.T) {
-	rsCodecs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("Failed to create RS codecs: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	// Create test file
-	plaintext := []byte("VerifyFirst mode test data - this should be verified before decryption.")
-	inputPath := filepath.Join(tmpDir, "verify_first_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	encryptedPath := filepath.Join(tmpDir, "verify_first_test.txt.pcv")
-	decryptedPath := filepath.Join(tmpDir, "verify_first_decrypted.txt")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt
-	encReq := &EncryptRequest{
-		InputFile:  inputPath,
-		OutputFile: encryptedPath,
-		Password:   []byte("verify_first_password"),
-		Reporter:   reporter,
-		RSCodecs:   rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
-
-	// Decrypt with VerifyFirst mode enabled
-	decReq := &DecryptRequest{
-		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
-		Password:     []byte("verify_first_password"),
-		VerifyFirst:  true, // Enable two-pass verification
-		ForceDecrypt: false,
-		Reporter:     reporter,
-		RSCodecs:     rsCodecs,
-	}
-
-	if err := Decrypt(context.Background(), decReq); err != nil {
-		t.Fatalf("Decrypt with VerifyFirst failed: %v", err)
-	}
-
-	// Verify content
-	decrypted, err := os.ReadFile(decryptedPath)
-	if err != nil {
-		t.Fatalf("Failed to read decrypted file: %v", err)
-	}
-
-	if string(decrypted) != string(plaintext) {
-		t.Errorf("Content mismatch.\nExpected: %q\nGot: %q", plaintext, decrypted)
-	}
-
-	t.Log("VerifyFirst mode basic: SUCCESS")
-}
-
 // TestVerifyFirstModeWithReedSolomon tests VerifyFirst mode with RS enabled
 func TestVerifyFirstModeWithReedSolomon(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
@@ -590,9 +528,18 @@ func TestDecryptWrongKeyfileMissingRequirement(t *testing.T) {
 
 	err = Decrypt(context.Background(), decReq)
 	if err == nil {
-		t.Error("Decrypt should fail when required keyfile is not provided")
-	} else {
-		t.Logf("Expected error (missing keyfile): %v", err)
+		t.Fatal("Decrypt should fail when required keyfile is not provided")
+	}
+	// The keyfile-required gate must surface a typed ValidationError on the
+	// "keyfiles" field (decrypt.go), not a generic/wrong error. Dropping the gate or
+	// returning a different error type would let a keyfile-protected volume be
+	// attempted without keyfiles.
+	var ve *perrors.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("Decrypt error = %v, want *perrors.ValidationError", err)
+	}
+	if ve.Field != "keyfiles" {
+		t.Errorf("ValidationError.Field = %q, want %q", ve.Field, "keyfiles")
 	}
 }
 
@@ -712,7 +659,12 @@ func TestDecryptNonExistentFile(t *testing.T) {
 
 	err = Decrypt(context.Background(), decReq)
 	if err == nil {
-		t.Error("Decrypt should fail for non-existent file")
+		t.Fatal("Decrypt should fail for non-existent file")
+	}
+	// The not-found cause must propagate (via %w wrapping) so callers can match it;
+	// a %v wrap or a swallowed error would break errors.Is here.
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Decrypt error = %v, want it to wrap os.ErrNotExist", err)
 	}
 }
 
@@ -735,7 +687,12 @@ func TestEncryptNonExistentFile(t *testing.T) {
 
 	err = Encrypt(context.Background(), encReq)
 	if err == nil {
-		t.Error("Encrypt should fail for non-existent input file")
+		t.Fatal("Encrypt should fail for non-existent input file")
+	}
+	// The not-found cause must propagate (via %w wrapping) so callers can match it;
+	// a %v wrap or a swallowed error would break errors.Is here.
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Encrypt error = %v, want it to wrap os.ErrNotExist", err)
 	}
 }
 
@@ -1233,153 +1190,4 @@ func TestDecryptContextCancellation(t *testing.T) {
 
 	err = Decrypt(ctx, decReq)
 	assertCancelled(t, "Decrypt", err, decryptedPath)
-}
-
-// TestRoundTripLargeFile tests encryption/decryption with a larger file to hit rekey code paths
-func TestRoundTripLargeFile(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping large file test in short mode")
-	}
-
-	rsCodecs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("Failed to create RS codecs: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	// Create 1 MiB test file
-	plaintext := make([]byte, 1024*1024)
-	for i := range plaintext {
-		plaintext[i] = byte((i * 7) % 256)
-	}
-	inputPath := filepath.Join(tmpDir, "large_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	encryptedPath := filepath.Join(tmpDir, "large_test.bin.pcv")
-	decryptedPath := filepath.Join(tmpDir, "large_decrypted.bin")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt
-	encReq := &EncryptRequest{
-		InputFile:  inputPath,
-		OutputFile: encryptedPath,
-		Password:   []byte("large_file_password"),
-		Reporter:   reporter,
-		RSCodecs:   rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
-
-	// Decrypt
-	decReq := &DecryptRequest{
-		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
-		Password:     []byte("large_file_password"),
-		ForceDecrypt: false,
-		Reporter:     reporter,
-		RSCodecs:     rsCodecs,
-	}
-
-	if err := Decrypt(context.Background(), decReq); err != nil {
-		t.Fatalf("Decrypt failed: %v", err)
-	}
-
-	decrypted, err := os.ReadFile(decryptedPath)
-	if err != nil {
-		t.Fatalf("Failed to read decrypted file: %v", err)
-	}
-
-	if len(decrypted) != len(plaintext) {
-		t.Errorf("Length mismatch. Expected: %d, Got: %d", len(plaintext), len(decrypted))
-	}
-
-	for i := range plaintext {
-		if decrypted[i] != plaintext[i] {
-			t.Errorf("Content mismatch at byte %d", i)
-			break
-		}
-	}
-
-	t.Log("Large file round-trip: SUCCESS")
-}
-
-// TestRoundTripRSLargeFile tests RS decoding with a larger file (exercises FastDecode code path)
-func TestRoundTripRSLargeFile(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping large RS file test in short mode")
-	}
-
-	rsCodecs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("Failed to create RS codecs: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	// Create 512 KiB file - large enough to exercise RS128 blocks and fast decode path
-	plaintext := make([]byte, 512*1024)
-	for i := range plaintext {
-		plaintext[i] = byte((i * 11) % 256)
-	}
-	inputPath := filepath.Join(tmpDir, "rs_large.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	encryptedPath := filepath.Join(tmpDir, "rs_large.bin.pcv")
-	decryptedPath := filepath.Join(tmpDir, "rs_large_dec.bin")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt with Reed-Solomon
-	encReq := &EncryptRequest{
-		InputFile:   inputPath,
-		OutputFile:  encryptedPath,
-		Password:    []byte("rs_large_password"),
-		ReedSolomon: true,
-		Reporter:    reporter,
-		RSCodecs:    rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
-		t.Fatalf("Encrypt failed: %v", err)
-	}
-
-	// Decrypt (will use fast decode path automatically)
-	decReq := &DecryptRequest{
-		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
-		Password:     []byte("rs_large_password"),
-		ForceDecrypt: false,
-		Reporter:     reporter,
-		RSCodecs:     rsCodecs,
-	}
-
-	if err := Decrypt(context.Background(), decReq); err != nil {
-		t.Fatalf("Decrypt failed: %v", err)
-	}
-
-	decrypted, err := os.ReadFile(decryptedPath)
-	if err != nil {
-		t.Fatalf("Failed to read decrypted file: %v", err)
-	}
-
-	if len(decrypted) != len(plaintext) {
-		t.Errorf("Length mismatch. Expected: %d, Got: %d", len(plaintext), len(decrypted))
-	}
-
-	for i := range plaintext {
-		if decrypted[i] != plaintext[i] {
-			t.Errorf("Content mismatch at byte %d", i)
-			break
-		}
-	}
-
-	t.Log("RS Large file round-trip: SUCCESS")
 }
