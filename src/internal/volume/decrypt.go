@@ -277,8 +277,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 			}
 		}
 
-		// For v1, XOR keyfile key into main key BEFORE HKDF
-		key := ctx.Key.Bytes()
+		// For v1, XOR keyfile key into main key BEFORE HKDF, owning the result first.
 		if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
 			// DATA-02: a legacy v1 volume may have been authored with an
 			// even-count duplicate keyfile set whose unordered XOR cancels to
@@ -292,19 +291,15 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 				log.Warn("duplicate keyfiles detected (keys cancel out)")
 				ctx.SetStatus("Warning: duplicate keyfiles detected (keys cancel out)...")
 			}
-			key = keyfile.XORWithKey(ctx.Key.Bytes(), ctx.KeyfileKey.Bytes())
+			// XORWithKey returns a NEW slice; setKey zeros the orphaned Argon2
+			// backing array and adopts the result. No two-step window.
+			ctx.setKey(keyfile.XORWithKey(ctx.Key.Bytes(), ctx.KeyfileKey.Bytes()))
 		}
+		// (no keyfiles: ctx.Key already holds the password key — self-assign-safe)
 
-		// Initialize HKDF with XORed key (v1 behavior)
-		hkdfStream := crypto.NewHKDFStream(key, ctx.Header.HKDFSalt)
+		// Initialize HKDF with the (possibly XORed) owned key.
+		hkdfStream := crypto.NewHKDFStream(ctx.Key.Bytes(), ctx.Header.HKDFSalt)
 		ctx.SubkeyReader = crypto.NewSubkeyReader(hkdfStream)
-
-		// Store the XORed key for cipher initialization.
-		// SEC-05/WR-01: with keyfiles, `key` is a NEW XOR-result slice and the old
-		// Argon2 backing array is orphaned — setKey zeros it. With NO keyfiles,
-		// `key == ctx.Key` (self-assign, Pitfall 1) and the pointer-identity guard
-		// skips zeroing so the LIVE key survives.
-		ctx.setKey(key)
 	} else {
 		// v2: HKDF initialized BEFORE keyfile XOR
 		hkdfStream := crypto.NewHKDFStream(ctx.Key.Bytes(), ctx.Header.HKDFSalt)
