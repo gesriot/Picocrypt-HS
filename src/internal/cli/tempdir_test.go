@@ -119,6 +119,13 @@ func TestBuildCandidates_StdoutOutput(t *testing.T) {
 			t.Error("should not include '-' as candidate directory")
 		}
 	}
+
+	// Ordering must be preserved when output is stdout: system temp stays first.
+	// Mutation: a stdout path that corrupts candidate ordering would move
+	// os.TempDir() off the front and turn this red.
+	if len(candidates) == 0 || candidates[0] != os.TempDir() {
+		t.Errorf("first candidate should be os.TempDir(), got %v", candidates)
+	}
 }
 
 func TestIsWritable(t *testing.T) {
@@ -163,25 +170,6 @@ func TestRequiredSpace(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("requiredSpace(%d) = %d, want %d", tt.estimated, got, tt.want)
 		}
-	}
-}
-
-func TestUserCacheDir(t *testing.T) {
-	dir, err := userCacheDir()
-	if err != nil {
-		t.Fatalf("userCacheDir() error = %v", err)
-	}
-	if dir == "" {
-		t.Error("expected non-empty cache dir")
-	}
-
-	// Verify directory exists
-	info, err := os.Stat(dir)
-	if err != nil {
-		t.Fatalf("cache dir does not exist: %v", err)
-	}
-	if !info.IsDir() {
-		t.Error("cache dir is not a directory")
 	}
 }
 
@@ -252,6 +240,13 @@ func TestBuildCandidatesForStdin_StdoutOutput(t *testing.T) {
 	}
 	if candidates[0] != cacheDir {
 		t.Errorf("first candidate should be user cache dir %s, got %s", cacheDir, candidates[0])
+	}
+
+	// The system-temp fallback must survive the stdout branch. Mutation: a stdout
+	// path that drops the os.TempDir() fallback would leave only the cache dir and
+	// turn this red.
+	if len(candidates) < 2 || candidates[1] != os.TempDir() {
+		t.Errorf("second candidate should be os.TempDir(), got %v", candidates)
 	}
 }
 

@@ -12,60 +12,6 @@ import (
 	"Picocrypt-NG/internal/header"
 )
 
-func TestReporter(t *testing.T) {
-	t.Run("NewReporter", func(t *testing.T) {
-		r := NewReporter(false)
-		if r == nil {
-			t.Fatal("NewReporter returned nil")
-		}
-		if r.quiet {
-			t.Error("quiet should be false")
-		}
-
-		r = NewReporter(true)
-		if !r.quiet {
-			t.Error("quiet should be true")
-		}
-	})
-
-	t.Run("SetStatus", func(t *testing.T) {
-		r := NewReporter(false)
-		r.SetStatus("test status")
-		if r.status != "test status" {
-			t.Errorf("expected 'test status', got %q", r.status)
-		}
-	})
-
-	t.Run("SetProgress", func(t *testing.T) {
-		r := NewReporter(false)
-		r.SetProgress(0.5, "50%")
-		if r.progress != 0.5 {
-			t.Errorf("expected progress 0.5, got %f", r.progress)
-		}
-		if r.info != "50%" {
-			t.Errorf("expected info '50%%', got %q", r.info)
-		}
-	})
-
-	t.Run("Cancel", func(t *testing.T) {
-		r := NewReporter(false)
-		if r.IsCancelled() {
-			t.Error("should not be cancelled initially")
-		}
-		r.Cancel()
-		if !r.IsCancelled() {
-			t.Error("should be cancelled after Cancel()")
-		}
-	})
-
-	t.Run("SetCanCancel", func(t *testing.T) {
-		r := NewReporter(false)
-		// Should be a no-op, just ensure it doesn't panic
-		r.SetCanCancel(true)
-		r.SetCanCancel(false)
-	})
-}
-
 func TestEncryptValidation(t *testing.T) {
 	// Save original args
 	origArgs := os.Args
@@ -515,31 +461,100 @@ func corruptCLITestPayload(t *testing.T, path string) {
 	}
 }
 
+// TestSplitVolumeDetection drives runDecrypt's split-volume auto-detection
+// (decrypt.go:181-189). With decQuiet=false the guidance line must reach stderr
+// and decRecombine must flip to true only when the trailing ".pcv.<n>" suffix is
+// numeric. A non-numeric suffix (Sscanf fails) and a plain ".pcv" path must both
+// leave decRecombine false and emit no guidance.
+//
+// Mutation: dropping the Sscanf numeric-suffix guard would flip decRecombine on
+// "test.pcv.notanumber"; dropping the guidance fmt.Fprintln would drop the
+// "Detected split volume" message on the positive case.
 func TestSplitVolumeDetection(t *testing.T) {
-	t.Run("detects split volume pattern", func(t *testing.T) {
-		// Create temp files that look like split volumes
+	origInput, origPassword := decInput, decPassword
+	origRecombine, origQuiet := decRecombine, decQuiet
+	t.Cleanup(func() {
+		decInput = origInput
+		decPassword = origPassword
+		decRecombine = origRecombine
+		decQuiet = origQuiet
+	})
+
+	// runDecryptCapturingStderr swaps os.Stderr for a pipe, runs the decrypt
+	// command (which fails downstream — the inputs are not valid volumes — but
+	// only after the detection branch runs), and returns the captured stderr.
+	runDecryptCapturingStderr := func(t *testing.T, input string) string {
+		t.Helper()
+		decInput = input
+		decPassword = "test"
+		decRecombine = false
+		decQuiet = false // guidance message only prints when not quiet
+
+		old := os.Stderr
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stderr = w
+
+		_ = decryptCmd.RunE(decryptCmd, []string{})
+
+		_ = w.Close()
+		os.Stderr = old
+
+		var buf bytes.Buffer
+		if _, err := buf.ReadFrom(r); err != nil {
+			t.Fatalf("reading captured stderr: %v", err)
+		}
+		return buf.String()
+	}
+
+	t.Run("numeric chunk suffix detected and recombine set", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		splitFile := filepath.Join(tmpDir, "test.pcv.0")
 		if err := os.WriteFile(splitFile, []byte("chunk0"), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		decInput = splitFile
-		decPassword = "test"
-		decRecombine = false
-		decQuiet = true
-
-		// The validation will fail (not a valid pcv), but we can check if recombine was set
-		cmd := decryptCmd
-		_ = cmd.RunE(cmd, []string{})
+		stderr := runDecryptCapturingStderr(t, splitFile)
 
 		if !decRecombine {
-			t.Error("should have detected split volume and set recombine=true")
+			t.Error("numeric chunk suffix should set decRecombine=true")
+		}
+		if !strings.Contains(stderr, "Detected split volume") {
+			t.Errorf("expected split-volume guidance on stderr, got: %q", stderr)
+		}
+	})
+
+	t.Run("non-numeric chunk suffix is not a split volume", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		notChunk := filepath.Join(tmpDir, "test.pcv.notanumber")
+		if err := os.WriteFile(notChunk, []byte("not a chunk"), 0644); err != nil {
+			t.Fatal(err)
 		}
 
-		// Reset
-		decRecombine = false
-		decQuiet = false
+		stderr := runDecryptCapturingStderr(t, notChunk)
+
+		if decRecombine {
+			t.Error("non-numeric .pcv. suffix must not set decRecombine")
+		}
+		if strings.Contains(stderr, "Detected split volume") {
+			t.Errorf("non-numeric suffix must not emit split-volume guidance, got: %q", stderr)
+		}
+	})
+
+	t.Run("plain .pcv path is not a split volume", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		plain := filepath.Join(tmpDir, "test.pcv")
+		if err := os.WriteFile(plain, []byte("plain volume"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		_ = runDecryptCapturingStderr(t, plain)
+
+		if decRecombine {
+			t.Error("plain .pcv path must not set decRecombine")
+		}
 	})
 }
 
@@ -744,6 +759,12 @@ func TestReporterOutput(t *testing.T) {
 
 		if !strings.Contains(buf.String(), "error message") {
 			t.Errorf("PrintError should always output, got: %q", buf.String())
+		}
+		// PrintError prepends "Error: " (reporter.go:101). A leading newline may
+		// precede it when progress was shown; strip it before asserting prefix.
+		// Mutation: dropping the "Error: " prefix in PrintError would turn this red.
+		if got := strings.TrimLeft(buf.String(), "\n"); !strings.HasPrefix(got, "Error: ") {
+			t.Errorf("PrintError output should be %q-prefixed, got: %q", "Error: ", buf.String())
 		}
 	})
 }
