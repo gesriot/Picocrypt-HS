@@ -22,11 +22,11 @@ func TestTempZipCiphers(t *testing.T) {
 	if ciphers.Reader == nil {
 		t.Error("Reader cipher should not be nil")
 	}
-	if len(ciphers.key) != 32 {
-		t.Errorf("Key length = %d; want 32", len(ciphers.key))
+	if ciphers.key.Len() != 32 {
+		t.Errorf("Key length = %d; want 32", ciphers.key.Len())
 	}
-	if len(ciphers.nonce) != 12 {
-		t.Errorf("Nonce length = %d; want 12", len(ciphers.nonce))
+	if ciphers.nonce.Len() != 12 {
+		t.Errorf("Nonce length = %d; want 12", ciphers.nonce.Len())
 	}
 }
 
@@ -36,9 +36,9 @@ func TestTempZipCiphersClose(t *testing.T) {
 		t.Fatalf("NewTempZipCiphers() failed: %v", err)
 	}
 
-	// Save references to check zeroing
-	keyRef := ciphers.key
-	nonceRef := ciphers.nonce
+	// Save references to the backing arrays before Close() to verify zeroing
+	keyRef := ciphers.key.Bytes()
+	nonceRef := ciphers.nonce.Bytes()
 
 	ciphers.Close()
 
@@ -64,10 +64,10 @@ func TestTempZipCiphersClose(t *testing.T) {
 		t.Error("Reader should be nil after Close()")
 	}
 	if ciphers.key != nil {
-		t.Error("key should be nil after Close()")
+		t.Error("key Secret should be nil after Close()")
 	}
 	if ciphers.nonce != nil {
-		t.Error("nonce should be nil after Close()")
+		t.Error("nonce Secret should be nil after Close()")
 	}
 }
 
