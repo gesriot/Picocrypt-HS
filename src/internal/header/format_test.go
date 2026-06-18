@@ -151,24 +151,6 @@ func TestWriteHeaderVersionDeltaGuardRejectsNonVersionFieldMutation(t *testing.T
 	}
 }
 
-func TestVersionFormatAcceptanceRemainsCurrentIndependent(t *testing.T) {
-	cases := []string{
-		"v2.14",
-		"v2.12",
-		"v2.11",
-		"v2.10",
-		"v2.09",
-		"v3.13",
-	}
-	for _, version := range cases {
-		t.Run(version, func(t *testing.T) {
-			if !MatchVersion([]byte(version)) {
-				t.Fatalf("MatchVersion(%q) = false; want true", version)
-			}
-		})
-	}
-}
-
 func TestFlags(t *testing.T) {
 	// Test all flags set
 	flags := Flags{

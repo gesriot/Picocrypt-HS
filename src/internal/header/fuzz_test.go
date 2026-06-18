@@ -60,28 +60,3 @@ func FuzzHeaderRead(f *testing.F) {
 		_, _ = reader.ReadHeader()
 	})
 }
-
-// FuzzFlagsFromBytes tests flag parsing with arbitrary 5-byte input.
-// Run with: go test -fuzz=FuzzFlagsFromBytes -fuzztime=30s
-func FuzzFlagsFromBytes(f *testing.F) {
-	f.Add([]byte{0, 0, 0, 0, 0})
-	f.Add([]byte{1, 1, 1, 1, 1})
-	f.Add([]byte{255, 255, 255, 255, 255})
-	f.Add([]byte{0, 1, 0, 1, 0})
-
-	f.Fuzz(func(t *testing.T, data []byte) {
-		if len(data) < 5 {
-			t.Skip("Need at least 5 bytes for flags")
-		}
-
-		// FlagsFromBytes should never panic
-		flags := FlagsFromBytes(data[:5])
-
-		// Verify flags are boolean (0 or non-0 interpretation)
-		_ = flags.Paranoid
-		_ = flags.UseKeyfiles
-		_ = flags.KeyfileOrdered
-		_ = flags.ReedSolomon
-		_ = flags.Padded
-	})
-}

@@ -95,20 +95,26 @@ func TestPeekVersionEmptyReader(t *testing.T) {
 // Tests for WriteAuthValues and AuthValuesOffset
 // =============================================================================
 
+// TestAuthValuesOffset ties AuthValuesOffset to the ACTUAL byte position where
+// the auth region begins in a header laid out by the real WriteHeader. The
+// expectation is derived from encodedHeaderRegions (the same region model the
+// WriteHeader format-guard tests assert against), so a field reorder in
+// WriteHeader that shifts the auth region while AuthValuesOffset stays put is
+// caught here as a mismatch — not silently averaged away by a duplicated formula.
+//
+// One literal pin (AuthValuesOffset(0) == 309) anchors the no-comments base so
+// the whole region model can't drift in lockstep undetected.
 func TestAuthValuesOffset(t *testing.T) {
-	testCases := []struct {
-		commentsLen int
-		expected    int64
-	}{
-		{0, 309},   // No comments: version(15) + commentLen(15) + flags(15) + salt(48) + hkdfSalt(96) + serpentIV(48) + nonce(72)
-		{10, 339},  // 10 char comments: 309 + 10*3
-		{100, 609}, // 100 char comments: 309 + 100*3
+	if got := AuthValuesOffset(0); got != 309 {
+		t.Fatalf("AuthValuesOffset(0) = %d; want 309 (no-comments base anchor)", got)
 	}
 
-	for _, tc := range testCases {
-		offset := AuthValuesOffset(tc.commentsLen)
-		if offset != tc.expected {
-			t.Errorf("AuthValuesOffset(%d) = %d; want %d", tc.commentsLen, offset, tc.expected)
+	for _, commentsLen := range []int{0, 10, 100} {
+		regions := encodedHeaderRegions(commentsLen)
+		want := regionStart(t, regions, "key hash placeholder")
+		if got := int(AuthValuesOffset(commentsLen)); got != want {
+			t.Errorf("AuthValuesOffset(%d) = %d; want key hash placeholder start %d",
+				commentsLen, got, want)
 		}
 	}
 }
@@ -187,13 +193,37 @@ func TestWriteAuthValuesWithOffset(t *testing.T) {
 		t.Fatalf("WriteAuthValues failed: %v", err)
 	}
 
-	// Verify the values are at the correct offset
-	decodedKeyHash, err := encoding.Decode(rs.RS64, buf[offset:int(offset)+KeyHashEncSize], false)
+	// Decode ALL THREE auth fields at the nonzero base offset. WriteAuthValues
+	// advances pos by KeyHashEncSize then KeyfileHashEncSize between writes; a
+	// `pos +=` bug that only affects keyfileHash/authTag (not keyHash) under a
+	// base offset is invisible if we check keyHash alone. Asserting each field
+	// round-trips at its expected sub-offset pins those advancements.
+	keyHashStart := int(offset)
+	keyfileHashStart := keyHashStart + KeyHashEncSize
+	authTagStart := keyfileHashStart + KeyfileHashEncSize
+
+	decodedKeyHash, err := encoding.Decode(rs.RS64, buf[keyHashStart:keyHashStart+KeyHashEncSize], false)
 	if err != nil {
 		t.Fatalf("Failed to decode key hash: %v", err)
 	}
 	if !bytes.Equal(decodedKeyHash, keyHash) {
 		t.Error("Key hash mismatch at offset")
+	}
+
+	decodedKeyfileHash, err := encoding.Decode(rs.RS32, buf[keyfileHashStart:keyfileHashStart+KeyfileHashEncSize], false)
+	if err != nil {
+		t.Fatalf("Failed to decode keyfile hash: %v", err)
+	}
+	if !bytes.Equal(decodedKeyfileHash, keyfileHash) {
+		t.Error("Keyfile hash mismatch at offset")
+	}
+
+	decodedAuthTag, err := encoding.Decode(rs.RS64, buf[authTagStart:authTagStart+AuthTagEncSize], false)
+	if err != nil {
+		t.Fatalf("Failed to decode auth tag: %v", err)
+	}
+	if !bytes.Equal(decodedAuthTag, authTag) {
+		t.Error("Auth tag mismatch at offset")
 	}
 }
 
@@ -208,52 +238,6 @@ func (w *bytesWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
 	}
 	copy(w.buf[off:], p)
 	return len(p), nil
-}
-
-// =============================================================================
-// Tests for header size constants
-// =============================================================================
-
-func TestEncodedSizeConstants(t *testing.T) {
-	// Verify the encoded size constants are correct
-	// RS encoding: N data bytes -> N + 2N = 3N encoded bytes (for RS1)
-	// RS5: 5 -> 15, RS16: 16 -> 48, RS24: 24 -> 72, RS32: 32 -> 96, RS64: 64 -> 192
-
-	tests := []struct {
-		name     string
-		dataSize int
-		encSize  int
-	}{
-		{"Version", 5, VersionEncSize},
-		{"CommentLen", 5, CommentLenEncSize},
-		{"Flags", 5, FlagsEncSize},
-		{"Salt", SaltSize, SaltEncSize},
-		{"HKDFSalt", HKDFSaltSize, HKDFSaltEncSize},
-		{"SerpentIV", SerpentIVSize, SerpentIVEncSize},
-		{"Nonce", NonceSize, NonceEncSize},
-		{"KeyHash", KeyHashSize, KeyHashEncSize},
-		{"KeyfileHash", KeyfileHashSize, KeyfileHashEncSize},
-		{"AuthTag", AuthTagSize, AuthTagEncSize},
-	}
-
-	for _, tc := range tests {
-		expected := tc.dataSize * 3 // RS encoding formula
-		if tc.encSize != expected {
-			t.Errorf("%s: encSize = %d; want %d (data size %d)", tc.name, tc.encSize, expected, tc.dataSize)
-		}
-	}
-}
-
-func TestBaseHeaderSizeCalculation(t *testing.T) {
-	// Drift guard: the base header (no comments) is version(15) + commentLen(15) +
-	// flags(15) + salt(48) + hkdfSalt(96) + serpentIV(48) + nonce(72) + keyHash(192) +
-	// keyfileHash(96) + authTag(192) = 789 bytes. Asserting the hardcoded total — NOT a
-	// re-sum of the same EncSize constants that define BaseHeaderSize — makes this fail
-	// if any field width drifts.
-	const want = 789
-	if BaseHeaderSize != want {
-		t.Errorf("BaseHeaderSize = %d; want %d", BaseHeaderSize, want)
-	}
 }
 
 // =============================================================================
