@@ -121,15 +121,23 @@ func StartEncrypt(requestJSON string, password []byte) string {
 	// captures pw (a copy), so deferring the zero here is safe.
 	pw := string(password)
 
+	// Capture only the operation ID for the delayed cleanup so the
+	// credential-bearing worker goroutine below can drop pw/req the instant it
+	// returns, instead of holding them alive across the 60s poll window.
+	opID := req.OperationID
+
 	// Start the operation in a goroutine
 	go func() {
 
 		defer func() {
-			// Delay cleanup to allow UI to poll for final status
-			// Extended to 60 seconds to handle cases where app is backgrounded
-			// and user returns after operation completes
-			time.Sleep(60 * time.Second)
-			cleanupOperation(req.OperationID)
+			// Delay cleanup to allow UI to poll for final status (60s handles the
+			// app being backgrounded). Run it in its OWN goroutine capturing only
+			// opID, so this worker goroutine returns immediately after
+			// completeOperation, releasing pw/req/encryptReq before the sleep.
+			go func() {
+				time.Sleep(60 * time.Second)
+				cleanupOperation(opID)
+			}()
 		}()
 
 		// Recover from panics to prevent silent failures
@@ -228,14 +236,22 @@ func StartDecrypt(requestJSON string, password []byte) string {
 	// captures pw (a copy), so deferring the zero here is safe.
 	pw := string(password)
 
+	// Capture only the operation ID for the delayed cleanup so the
+	// credential-bearing worker goroutine below can drop pw/req the instant it
+	// returns, instead of holding them alive across the 60s poll window.
+	opID := req.OperationID
+
 	// Start the operation in a goroutine
 	go func() {
 		defer func() {
-			// Delay cleanup to allow UI to poll for final status
-			// Extended to 60 seconds to handle cases where app is backgrounded
-			// and user returns after operation completes
-			time.Sleep(60 * time.Second)
-			cleanupOperation(req.OperationID)
+			// Delay cleanup to allow UI to poll for final status (60s handles the
+			// app being backgrounded). Run it in its OWN goroutine capturing only
+			// opID, so this worker goroutine returns immediately after
+			// completeOperation, releasing pw/req/decryptReq before the sleep.
+			go func() {
+				time.Sleep(60 * time.Second)
+				cleanupOperation(opID)
+			}()
 		}()
 
 		defer func() {
