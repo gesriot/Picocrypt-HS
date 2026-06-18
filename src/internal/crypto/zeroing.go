@@ -5,7 +5,6 @@ package crypto
 
 import (
 	"crypto/subtle"
-	"hash"
 )
 
 // SecureZero overwrites a byte slice with zeros to prevent sensitive data
@@ -32,14 +31,5 @@ func SecureZero(b []byte) {
 func SecureZeroMultiple(slices ...[]byte) {
 	for _, s := range slices {
 		SecureZero(s)
-	}
-}
-
-// SecureZeroHash resets a hash.Hash state to prevent partial hash data
-// from remaining in memory. Note: not all Hash implementations may fully
-// clear their internal state on Reset().
-func SecureZeroHash(h hash.Hash) {
-	if h != nil {
-		h.Reset()
 	}
 }
