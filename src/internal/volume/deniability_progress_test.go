@@ -3,6 +3,7 @@ package volume
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,19 +26,35 @@ func (r *etaStatusReporter) Update()                                {}
 func (r *etaStatusReporter) IsCancelled() bool                      { return false }
 
 // assertStreamingSpeedAndETA fails unless the captured statuses prove a real
-// streaming progress pass for the named operation. It is mutation-sensitive against
-// the production status format ("... at %.2f MiB/s (ETA: %s)"):
-//   - (a) at least two statuses match the "MiB/s"+"ETA:" shape (a single sample
-//     would mean no streaming loop, just one bookend report);
-//   - (b) at least one sample carries a parsed speed strictly > 0 (a "0.00 MiB/s"
-//     status means the speed math never ran / was stubbed out);
-//   - (c) at least one sample carries a non-empty token after "ETA: " (a dropped
-//     ETA field would leave the parenthesis empty).
+// streaming progress pass for the named operation. It delegates to the pure
+// streamingSpeedAndETAProblems so the accept/reject policy is unit-testable
+// against captured real-world status batches (see
+// TestStreamingSpeedAndETAAcceptsCoarseClockZeroSpeed).
 func assertStreamingSpeedAndETA(t *testing.T, op string, statuses []string) {
 	t.Helper()
+	for _, p := range streamingSpeedAndETAProblems(statuses) {
+		t.Errorf("%s: %s; statuses=%v", op, p, statuses)
+	}
+}
 
+// streamingSpeedAndETAProblems returns one reason per way the captured statuses
+// fail to prove a streaming throughput+ETA pass, or nil if they pass. It is
+// mutation-sensitive against the production status format
+// ("... at %.2f MiB/s (ETA: %s)"):
+//   - (a) at least two statuses match the "MiB/s"+"ETA:" shape (a single sample
+//     would mean no streaming loop, just one bookend report);
+//   - (b) at least one sample carries a PARSEABLE speed token in the "%.2f MiB/s"
+//     slot (a missing/garbled number means the speed math was dropped). The value
+//     is deliberately NOT required to be > 0: util.Statify legitimately reports
+//     0.00 MiB/s when elapsed<=0, which happens on low-resolution-clock platforms
+//     (the go-legacy-win7 toolchain) where a small payload finishes inside one
+//     timer tick. Pinning speed>0 here flaked the windows-legacy release runner;
+//     the positive-speed math is pinned deterministically in util.TestStatify.
+//   - (c) at least one sample carries a non-empty token after "ETA: " (a dropped
+//     ETA field would leave the parenthesis empty).
+func streamingSpeedAndETAProblems(statuses []string) []string {
 	matches := 0
-	sawPositiveSpeed := false
+	sawParseableSpeed := false
 	sawNonEmptyETA := false
 	for _, s := range statuses {
 		if !strings.Contains(s, "MiB/s") || !strings.Contains(s, "ETA:") {
@@ -50,8 +67,8 @@ func assertStreamingSpeedAndETA(t *testing.T, op string, statuses []string) {
 		if prefix, _, ok := strings.Cut(s, " MiB/s"); ok {
 			fields := strings.Fields(prefix)
 			if len(fields) > 0 {
-				if speed, err := strconv.ParseFloat(fields[len(fields)-1], 64); err == nil && speed > 0 {
-					sawPositiveSpeed = true
+				if speed, err := strconv.ParseFloat(fields[len(fields)-1], 64); err == nil && speed >= 0 {
+					sawParseableSpeed = true
 				}
 			}
 		}
@@ -65,15 +82,17 @@ func assertStreamingSpeedAndETA(t *testing.T, op string, statuses []string) {
 		}
 	}
 
+	var problems []string
 	if matches < 2 {
-		t.Errorf("%s: got %d speed+ETA statuses, want >=2 (streaming should report multiple samples); statuses=%v", op, matches, statuses)
+		problems = append(problems, fmt.Sprintf("got %d speed+ETA statuses, want >=2 (streaming should report multiple samples)", matches))
 	}
-	if !sawPositiveSpeed {
-		t.Errorf("%s: no status reported a speed > 0 MiB/s; statuses=%v", op, statuses)
+	if !sawParseableSpeed {
+		problems = append(problems, `no status carried a parseable speed in the "%.2f MiB/s" slot`)
 	}
 	if !sawNonEmptyETA {
-		t.Errorf("%s: no status reported a non-empty ETA token; statuses=%v", op, statuses)
+		problems = append(problems, "no status reported a non-empty ETA token")
 	}
+	return problems
 }
 
 // TestDeniabilityReportsSpeedAndETA verifies both deniability passes report a
@@ -123,4 +142,24 @@ func TestDeniabilityReportsSpeedAndETA(t *testing.T) {
 		t.Fatalf("RemoveDeniability: %v", err)
 	}
 	assertStreamingSpeedAndETA(t, "RemoveDeniability", remRep.statuses)
+}
+
+// TestStreamingSpeedAndETAAcceptsCoarseClockZeroSpeed pins that a streaming pass
+// whose every sample reads 0.00 MiB/s is still accepted as a real throughput+ETA
+// report. This is the exact RemoveDeniability batch captured from the
+// windows-legacy release runner (go-legacy-win7), where a 2 MiB payload finished
+// inside one timer tick so util.Statify's elapsed<=0 guard reported 0.00 MiB/s on
+// every sample. Requiring speed>0 here flaked that runner; reintroducing it would
+// re-break this batch. The positive-speed math is pinned deterministically in
+// util.TestStatify instead.
+func TestStreamingSpeedAndETAAcceptsCoarseClockZeroSpeed(t *testing.T) {
+	statuses := []string{
+		"Removing deniability protection...",
+		"Removing deniability at 0.00 MiB/s (ETA: 00:00:00)",
+		"Removing deniability at 0.00 MiB/s (ETA: 00:00:00)",
+		"Removing deniability at 0.00 MiB/s (ETA: 00:00:00)",
+	}
+	if problems := streamingSpeedAndETAProblems(statuses); len(problems) != 0 {
+		t.Errorf("coarse-clock streaming batch wrongly rejected: %v; statuses=%v", problems, statuses)
+	}
 }
