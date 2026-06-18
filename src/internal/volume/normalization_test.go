@@ -91,14 +91,14 @@ func roundTripVolume(t *testing.T, encPW, decPW string, deniability bool) error 
 	out := filepath.Join(dir, "out.txt")
 
 	if err := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: in, OutputFile: vol, Password: encPW, Deniability: deniability,
+		InputFile: in, OutputFile: vol, Password: []byte(encPW), Deniability: deniability,
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err != nil {
 		t.Fatalf("encrypt: %v", err)
 	}
 
 	if err := Decrypt(context.Background(), &DecryptRequest{
-		InputFile: vol, OutputFile: out, Password: decPW, Deniability: deniability,
+		InputFile: vol, OutputFile: out, Password: []byte(decPW), Deniability: deniability,
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err != nil {
 		return err
@@ -132,7 +132,7 @@ func TestEncryptNormalizesPasswordToNFC(t *testing.T) {
 	defer restore()
 
 	if err := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: in, OutputFile: out, Password: decomposedPassword,
+		InputFile: in, OutputFile: out, Password: []byte(decomposedPassword),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err != nil {
 		t.Fatalf("Encrypt: %v", err)
@@ -158,7 +158,7 @@ func TestEncryptDeniabilityNormalizesPasswordToNFC(t *testing.T) {
 	defer restore()
 
 	if err := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: in, OutputFile: out, Password: decomposedPassword, Deniability: true,
+		InputFile: in, OutputFile: out, Password: []byte(decomposedPassword), Deniability: true,
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err != nil {
 		t.Fatalf("Encrypt: %v", err)
@@ -228,7 +228,7 @@ func TestDecryptOpensLegacyNFDVolumeViaNFDCandidate(t *testing.T) {
 	// Stored key derives from the raw NFD bytes regardless of normalization.
 	restoreEnc := legacyKDF([]byte(decomposedPassword))
 	encErr := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: in, OutputFile: vol, Password: composedPassword,
+		InputFile: in, OutputFile: vol, Password: []byte(composedPassword),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	})
 	restoreEnc() // restore the byte-sensitive KDF for decryption
@@ -238,7 +238,7 @@ func TestDecryptOpensLegacyNFDVolumeViaNFDCandidate(t *testing.T) {
 
 	// User types the composed form; only the NFD candidate reproduces the key.
 	if err := Decrypt(context.Background(), &DecryptRequest{
-		InputFile: vol, OutputFile: out, Password: composedPassword,
+		InputFile: vol, OutputFile: out, Password: []byte(composedPassword),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err != nil {
 		t.Fatalf("legacy NFD volume failed to open via NFD candidate: %v", err)
@@ -273,7 +273,7 @@ func TestDecryptOpensLegacyRawVolumeViaRawCandidate(t *testing.T) {
 
 	restoreEnc := legacyKDF([]byte(nonCanonical))
 	encErr := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: in, OutputFile: vol, Password: nonCanonical,
+		InputFile: in, OutputFile: vol, Password: []byte(nonCanonical),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	})
 	restoreEnc()
@@ -282,7 +282,7 @@ func TestDecryptOpensLegacyRawVolumeViaRawCandidate(t *testing.T) {
 	}
 
 	if err := Decrypt(context.Background(), &DecryptRequest{
-		InputFile: vol, OutputFile: out, Password: nonCanonical,
+		InputFile: vol, OutputFile: out, Password: []byte(nonCanonical),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err != nil {
 		t.Fatalf("legacy raw volume failed to open via raw candidate: %v", err)
@@ -325,7 +325,7 @@ func TestDecryptASCIIPasswordTriesSingleCandidate(t *testing.T) {
 	out := filepath.Join(dir, "out.txt")
 
 	if err := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: in, OutputFile: vol, Password: "ascii-password",
+		InputFile: in, OutputFile: vol, Password: []byte("ascii-password"),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err != nil {
 		t.Fatalf("encrypt: %v", err)
@@ -337,7 +337,7 @@ func TestDecryptASCIIPasswordTriesSingleCandidate(t *testing.T) {
 	// Wrong ASCII password: the candidate loop runs to exhaustion, so the
 	// derivation count equals the number of candidate forms.
 	if err := Decrypt(context.Background(), &DecryptRequest{
-		InputFile: vol, OutputFile: out, Password: "wrong-ascii-password",
+		InputFile: vol, OutputFile: out, Password: []byte("wrong-ascii-password"),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err == nil {
 		t.Fatal("decrypt with a wrong password unexpectedly succeeded")
@@ -368,7 +368,7 @@ func TestDecryptForceDecryptUsesPasswordAsTyped(t *testing.T) {
 	out := filepath.Join(dir, "out.txt")
 
 	if err := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: in, OutputFile: vol, Password: composedPassword,
+		InputFile: in, OutputFile: vol, Password: []byte(composedPassword),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	}); err != nil {
 		t.Fatalf("encrypt: %v", err)
@@ -380,7 +380,7 @@ func TestDecryptForceDecryptUsesPasswordAsTyped(t *testing.T) {
 	// Decomposed form under ForceDecrypt: the KDF must see the raw decomposed
 	// bytes, not the NFC form that try-both would normalize to.
 	_ = Decrypt(context.Background(), &DecryptRequest{
-		InputFile: vol, OutputFile: out, Password: decomposedPassword, ForceDecrypt: true,
+		InputFile: vol, OutputFile: out, Password: []byte(decomposedPassword), ForceDecrypt: true,
 		Reporter: &GoldenTestReporter{}, RSCodecs: rsCodecs,
 	})
 	if !bytes.Equal(fedToKDF, []byte(decomposedPassword)) {

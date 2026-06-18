@@ -264,7 +264,7 @@ func TestV1DuplicateKeyfileWarnOnly(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    pcvPath,
 		OutputFile:   outputPath,
-		Password:     password,
+		Password:     []byte(password),
 		Keyfiles:     dupKeyfiles,
 		ForceDecrypt: false,
 		Reporter:     reporter,

@@ -75,7 +75,7 @@ func TestRekeyCounterChunkIndependence(t *testing.T) {
 		req := &EncryptRequest{
 			InputFile:   inputPath,
 			OutputFile:  out,
-			Password:    "rekey-counter-lock",
+			Password:    []byte("rekey-counter-lock"),
 			ReedSolomon: false,
 			Reporter:    &GoldenTestReporter{},
 			RSCodecs:    rs,

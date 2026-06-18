@@ -26,7 +26,7 @@ func TestNonASCIIPasswordNote(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			note := nonASCIIPasswordNote(tc.confirm, tc.password)
+			note := nonASCIIPasswordNote(tc.confirm, []byte(tc.password))
 			if got := note != ""; got != tc.wantNote {
 				t.Errorf("nonASCIIPasswordNote(confirm=%v, %q) note=%q, want note present=%v",
 					tc.confirm, tc.password, note, tc.wantNote)
@@ -56,7 +56,7 @@ func TestReadPasswordLine(t *testing.T) {
 			if err != nil {
 				t.Fatalf("readPasswordLine() error = %v", err)
 			}
-			if got != tc.want {
+			if string(got) != tc.want {
 				t.Fatalf("readPasswordLine() = %q, want %q", got, tc.want)
 			}
 		})

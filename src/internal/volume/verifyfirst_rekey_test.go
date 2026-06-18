@@ -67,7 +67,7 @@ func TestVerifyFirstRekeyAbove60GiB(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   password,
+		Password:   []byte(password),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}
@@ -81,7 +81,7 @@ func TestVerifyFirstRekeyAbove60GiB(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     password,
+		Password:     []byte(password),
 		VerifyFirst:  true,
 		ForceDecrypt: false,
 		Reporter:     &GoldenTestReporter{},

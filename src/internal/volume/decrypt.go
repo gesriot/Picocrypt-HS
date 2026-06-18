@@ -360,7 +360,9 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 func decryptDeriveProcessVerify(ctx *OperationContext, req *DecryptRequest) error {
 	candidates := pwnorm.Candidates(req.Password)
 	if req.ForceDecrypt {
-		candidates = [][]byte{[]byte(req.Password)}
+		// Own a copy so setPasswordBytes adopts an independent slice (it may zero
+		// the predecessor); never alias the caller's req.Password backing array.
+		candidates = [][]byte{append([]byte(nil), req.Password...)}
 	}
 
 	var lastErr error

@@ -58,13 +58,15 @@ type EncryptRequest struct {
 
 	// Credentials - at least one required
 	//
-	// SECURITY (SEC-05): Password is an immutable Go string. Strings cannot be
-	// zeroed in place (they are immutable and freely copied/relocated by the GC),
-	// so the password and its transient []byte(Password) copy outlive Close().
-	// Guaranteed password zeroing is intentionally out of scope (CONCERNS 3.1;
-	// ROADMAP "Out of Scope: Guaranteed password zeroing"); only []byte key
-	// material derived from it is zeroed.
-	Password       string   // User password (processed through Argon2id) — see SECURITY note above
+	// SECURITY (SEC-05): Password is an owned []byte, so the caller controls its
+	// lifetime and zeros it (crypto.SecureZero) after the operation. The KDF
+	// carrier is []byte end-to-end (CLI/wasm/mobile boundaries) — there is no
+	// intermediate immutable string copy on those paths. Residual: the Fyne GUI's
+	// widget.Entry yields a Go string in app.State.Password; ui/operations.go
+	// converts it to an owned []byte here and zeros that copy, but the original
+	// string still lingers until GC (intentionally out of scope — CONCERNS 3.1;
+	// ROADMAP "Out of Scope: Guaranteed password zeroing").
+	Password       []byte   // User password (processed through Argon2id) — see SECURITY note above
 	Keyfiles       []string // Paths to keyfile(s) for additional security
 	KeyfileOrdered bool     // If true, keyfile order matters (sequential hash vs XOR)
 
@@ -96,10 +98,10 @@ type DecryptRequest struct {
 
 	// Credentials - must match encryption parameters
 	//
-	// SECURITY (SEC-05): immutable Go string — cannot be zeroed in place (GC +
-	// string immutability). Out of scope, same as EncryptRequest.Password above
-	// (CONCERNS 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing").
-	Password string   // User password — see SECURITY note above
+	// SECURITY (SEC-05): owned []byte zeroed by the caller after use — same
+	// ownership model and GUI residual as EncryptRequest.Password above (CONCERNS
+	// 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing").
+	Password []byte   // User password — see SECURITY note above
 	Keyfiles []string // Keyfile paths (validated against hash stored in header)
 
 	// Decryption options
@@ -296,8 +298,8 @@ func (ctx *OperationContext) setKeyfileKey(k []byte) {
 // one. The decrypt path sets this per candidate normalization form (#19); the
 // winning form is reused by the RS / verify-first re-derivation paths and is zeroed
 // by Close. Secret.Set carries the same pointer-identity self-assign guard.
-// (The password also lives in req.Password as an immutable, un-zeroable string —
-// see Close's SECURITY note.)
+// (The password also lives in req.Password as an owned []byte zeroed by the
+// caller after the operation — see Close's SECURITY note.)
 func (ctx *OperationContext) setPasswordBytes(b []byte) {
 	if ctx.passwordBytes == nil {
 		ctx.passwordBytes = ctx.adopt(crypto.SecretFrom(b))
@@ -312,14 +314,16 @@ func (ctx *OperationContext) setPasswordBytes(b []byte) {
 // SECURITY: Always call Close() when done with an operation to minimize
 // the window during which key material is recoverable from memory.
 //
-// SECURITY (password limitation): Close() zeros only []byte key material. The
-// user password lives in immutable Go strings (EncryptRequest.Password /
-// DecryptRequest.Password, and their app/state.go counterparts) plus their
-// transient []byte(req.Password) copies. Go strings are immutable and freely
-// copied/relocated by the garbage collector, so in-place password zeroing is
-// impossible — it is intentionally out of scope (CONCERNS 3.1; ROADMAP "Out of
-// Scope: Guaranteed password zeroing"). This is an honest, accepted limitation,
-// mirroring crypto.SecureZero's own GC/optimization caveat.
+// SECURITY (password limitation): Close() zeros only []byte key material it
+// owns. EncryptRequest.Password / DecryptRequest.Password are now owned []byte
+// zeroed by the caller (CLI/wasm/mobile pass []byte end-to-end with no
+// intermediate string). The remaining residual is the Fyne GUI: widget.Entry
+// stores the typed password as a Go string in app.State.Password, which is
+// immutable and freely copied/relocated by the GC, so that one copy cannot be
+// zeroed in place — ui/operations.go converts it to an owned []byte for the
+// request and zeros that, but the string lingers until GC. This is intentionally
+// out of scope (CONCERNS 3.1; ROADMAP "Out of Scope: Guaranteed password
+// zeroing"), mirroring crypto.SecureZero's own GC/optimization caveat.
 func (ctx *OperationContext) Close() {
 	if ctx == nil {
 		return

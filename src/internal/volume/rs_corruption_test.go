@@ -62,7 +62,7 @@ func encryptRSVolume(t *testing.T, plaintext []byte, password string) string {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    password,
+		Password:    []byte(password),
 		ReedSolomon: true,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rsCodecs,
@@ -141,7 +141,7 @@ func TestFullRSDecodeRetryStateReset(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    pcvPath,
 		OutputFile:   outputPath,
-		Password:     password,
+		Password:     []byte(password),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/volume"
@@ -299,18 +300,22 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get password
-	password := encPassword
+	// Get password. Owned []byte from boundary to KDF; zeroed when this returns.
+	// A closure (not `defer crypto.SecureZero(password)`) so the FINAL value is
+	// zeroed — password is reassigned below by the stdin/interactive readers, and
+	// a plain defer would bind the initial []byte(encPassword) at defer time.
+	password := []byte(encPassword)
+	defer func() { crypto.SecureZero(password) }()
 	if encPasswordStdin {
 		var err error
 		password, err = ReadPasswordFromStdin()
 		if err != nil {
 			return err
 		}
-		if password == "" && len(encKeyfiles) == 0 {
+		if len(password) == 0 && len(encKeyfiles) == 0 {
 			return fmt.Errorf("password input: %w", ErrPasswordEmpty)
 		}
-	} else if password == "" {
+	} else if len(password) == 0 {
 		// Prompt for password interactively
 		// Allow empty password only if keyfiles are provided
 		hasKeyfiles := len(encKeyfiles) > 0

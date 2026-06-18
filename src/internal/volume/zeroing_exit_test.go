@@ -101,7 +101,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		encReq := &EncryptRequest{
 			InputFile:  inputPath,
 			OutputFile: encryptedPath,
-			Password:   password,
+			Password:   []byte(password),
 			Keyfiles:   []string{keyfilePath},
 			Reporter:   &GoldenTestReporter{},
 			RSCodecs:   rsCodecs,
@@ -117,7 +117,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		decReq := &DecryptRequest{
 			InputFile:  encryptedPath,
 			OutputFile: decryptedPath,
-			Password:   password,
+			Password:   []byte(password),
 			Keyfiles:   []string{keyfilePath},
 			Reporter:   &GoldenTestReporter{},
 			RSCodecs:   rsCodecs,
@@ -179,7 +179,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		encReq := &EncryptRequest{
 			InputFile:   inputPath,
 			OutputFile:  pcvPath,
-			Password:    password,
+			Password:    []byte(password),
 			Keyfiles:    []string{keyfilePath},
 			ReedSolomon: true,
 			Reporter:    &GoldenTestReporter{},
@@ -200,7 +200,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		decReq := &DecryptRequest{
 			InputFile:    pcvPath,
 			OutputFile:   outputPath,
-			Password:     password,
+			Password:     []byte(password),
 			Keyfiles:     []string{keyfilePath},
 			ForceDecrypt: false,
 			Reporter:     reporter,
@@ -267,7 +267,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		encReq := &EncryptRequest{
 			InputFile:  inputPath,
 			OutputFile: encryptedPath,
-			Password:   password,
+			Password:   []byte(password),
 			Reporter:   &GoldenTestReporter{},
 			RSCodecs:   rsCodecs,
 		}
@@ -282,7 +282,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		decReq := &DecryptRequest{
 			InputFile:  encryptedPath,
 			OutputFile: decryptedPath,
-			Password:   password,
+			Password:   []byte(password),
 			Reporter:   &GoldenTestReporter{},
 			RSCodecs:   rsCodecs,
 		}

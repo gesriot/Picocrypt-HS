@@ -66,7 +66,7 @@ func decrypt(this js.Value, args []js.Value) (result any) {
 	passwordBytes := []byte(args[1].String())
 	defer crypto.SecureZero(passwordBytes)
 
-	plaintext, errCode := wasm.DecryptVolume(fileData, string(passwordBytes))
+	plaintext, errCode := wasm.DecryptVolume(fileData, passwordBytes)
 	if errCode != 0 {
 		return errCode
 	}
@@ -106,7 +106,7 @@ func encrypt(this js.Value, args []js.Value) (result any) {
 	passwordBytes := []byte(args[1].String())
 	defer crypto.SecureZero(passwordBytes)
 
-	ciphertext, errCode := wasm.EncryptVolume(fileData, string(passwordBytes))
+	ciphertext, errCode := wasm.EncryptVolume(fileData, passwordBytes)
 	if errCode != 0 {
 		return errCode
 	}

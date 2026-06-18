@@ -40,7 +40,7 @@ func TestRoundTripBasic(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "testpassword123",
+		Password:    []byte("testpassword123"),
 		Paranoid:    false,
 		ReedSolomon: false,
 		Deniability: false,
@@ -61,7 +61,7 @@ func TestRoundTripBasic(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "testpassword123",
+		Password:     []byte("testpassword123"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -99,7 +99,7 @@ func TestEncryptRejectsOverflowingChunkSizeEarly(t *testing.T) {
 	req := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: outputPath,
-		Password:   "testpassword123",
+		Password:   []byte("testpassword123"),
 		Split:      true,
 		ChunkSize:  1 << 23, // 2^23 TiB overflows int64 when scaled to bytes
 		ChunkUnit:  fileops.SplitUnitTiB,
@@ -138,7 +138,7 @@ func TestRoundTripParanoid(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "paranoid_password",
+		Password:   []byte("paranoid_password"),
 		Paranoid:   true,
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -152,7 +152,7 @@ func TestRoundTripParanoid(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "paranoid_password",
+		Password:     []byte("paranoid_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -198,7 +198,7 @@ func TestRoundTripReedSolomon(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "rs_password",
+		Password:    []byte("rs_password"),
 		ReedSolomon: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -212,7 +212,7 @@ func TestRoundTripReedSolomon(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "rs_password",
+		Password:     []byte("rs_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -258,7 +258,7 @@ func TestRoundTripDeniability(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "deny_password",
+		Password:    []byte("deny_password"),
 		Deniability: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -277,7 +277,7 @@ func TestRoundTripDeniability(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "deny_password",
+		Password:     []byte("deny_password"),
 		Deniability:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -324,7 +324,7 @@ func TestRoundTripAllOptions(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "full_options_password",
+		Password:    []byte("full_options_password"),
 		Paranoid:    true,
 		ReedSolomon: true,
 		Deniability: true,
@@ -340,7 +340,7 @@ func TestRoundTripAllOptions(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "full_options_password",
+		Password:     []byte("full_options_password"),
 		Deniability:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -387,7 +387,7 @@ func TestRoundTripWithComments(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "comments_password",
+		Password:   []byte("comments_password"),
 		Comments:   "This is a test comment! 日本語テスト 🔐",
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -401,7 +401,7 @@ func TestRoundTripWithComments(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "comments_password",
+		Password:     []byte("comments_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -455,7 +455,7 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "password_with_keyfile",
+		Password:   []byte("password_with_keyfile"),
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -469,7 +469,7 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "password_with_keyfile",
+		Password:     []byte("password_with_keyfile"),
 		Keyfiles:     []string{keyfilePath},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -527,7 +527,7 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:      inputPath,
 		OutputFile:     encryptedPath,
-		Password:       "multi_keyfile_pass",
+		Password:       []byte("multi_keyfile_pass"),
 		Keyfiles:       []string{keyfile1, keyfile2},
 		KeyfileOrdered: false,
 		Reporter:       reporter,
@@ -542,7 +542,7 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "multi_keyfile_pass",
+		Password:     []byte("multi_keyfile_pass"),
 		Keyfiles:     []string{keyfile2, keyfile1}, // Reversed order
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -600,7 +600,7 @@ func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:      inputPath,
 		OutputFile:     encryptedPath,
-		Password:       "ordered_keyfile_pass",
+		Password:       []byte("ordered_keyfile_pass"),
 		Keyfiles:       []string{keyfile1, keyfile2},
 		KeyfileOrdered: true,
 		Reporter:       reporter,
@@ -615,7 +615,7 @@ func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "ordered_keyfile_pass",
+		Password:     []byte("ordered_keyfile_pass"),
 		Keyfiles:     []string{keyfile1, keyfile2},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -674,7 +674,7 @@ func TestWrongKeyfileFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "keyfile_password",
+		Password:   []byte("keyfile_password"),
 		Keyfiles:   []string{correctKeyfile},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -688,7 +688,7 @@ func TestWrongKeyfileFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "keyfile_password",
+		Password:     []byte("keyfile_password"),
 		Keyfiles:     []string{wrongKeyfile},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -737,7 +737,7 @@ func TestRoundTripSplit(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "split_password",
+		Password:   []byte("split_password"),
 		Split:      true,
 		ChunkSize:  10,
 		ChunkUnit:  0, // SplitUnitKiB
@@ -770,7 +770,7 @@ func TestRoundTripSplit(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath, // Base path - recombine will look for .0, .1, etc.
 		OutputFile:   decryptedPath,
-		Password:     "split_password",
+		Password:     []byte("split_password"),
 		Recombine:    true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -826,7 +826,7 @@ func TestRoundTripDecryptFromFirstChunkWithRecombine(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "split_password",
+		Password:   []byte("split_password"),
 		Split:      true,
 		ChunkSize:  8,
 		ChunkUnit:  0,
@@ -845,7 +845,7 @@ func TestRoundTripDecryptFromFirstChunkWithRecombine(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    firstChunk,
 		OutputFile:   decryptedPath,
-		Password:     "split_password",
+		Password:     []byte("split_password"),
 		Recombine:    true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -894,7 +894,7 @@ func TestWrongPasswordFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "correct_password",
+		Password:   []byte("correct_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -907,7 +907,7 @@ func TestWrongPasswordFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "wrong_password",
+		Password:     []byte("wrong_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -961,7 +961,7 @@ func TestAutoUnzip(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  zipPath,
 		OutputFile: encryptedPath,
-		Password:   "autounzip_password",
+		Password:   []byte("autounzip_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -978,7 +978,7 @@ func TestAutoUnzip(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "autounzip_password",
+		Password:     []byte("autounzip_password"),
 		AutoUnzip:    true,
 		SameLevel:    false, // Extract to directory containing the zip
 		ForceDecrypt: false,
@@ -1052,7 +1052,7 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  zipPath,
 		OutputFile: encryptedPath,
-		Password:   "samelevel_password",
+		Password:   []byte("samelevel_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1069,7 +1069,7 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "samelevel_password",
+		Password:     []byte("samelevel_password"),
 		AutoUnzip:    true,
 		SameLevel:    true, // Extract to same directory as volume
 		ForceDecrypt: false,
@@ -1129,7 +1129,7 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  zipPath,
 		OutputFile: encryptedPath,
-		Password:   "rollback_password",
+		Password:   []byte("rollback_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1151,7 +1151,7 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "rollback_password",
+		Password:     []byte("rollback_password"),
 		AutoUnzip:    true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -1250,7 +1250,7 @@ func TestRoundTripAutoUnzipMultipleFilesFromDifferentDirs(t *testing.T) {
 		InputFiles: []string{fileA, fileB},
 		OnlyFiles:  []string{fileA, fileB},
 		OutputFile: encryptedPath,
-		Password:   "pw",
+		Password:   []byte("pw"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1261,7 +1261,7 @@ func TestRoundTripAutoUnzipMultipleFilesFromDifferentDirs(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encryptedPath,
 		OutputFile: outputPath,
-		Password:   "pw",
+		Password:   []byte("pw"),
 		AutoUnzip:  true,
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -1315,7 +1315,7 @@ func TestRoundTripMultiFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFiles: []string{file1Path, file2Path, file3Path},
 		OutputFile: encryptedPath,
-		Password:   "multifile_password",
+		Password:   []byte("multifile_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1333,7 +1333,7 @@ func TestRoundTripMultiFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "multifile_password",
+		Password:     []byte("multifile_password"),
 		AutoUnzip:    true,
 		SameLevel:    true,
 		ForceDecrypt: false,
@@ -1409,7 +1409,7 @@ func TestRoundTripSingleFileFolderProducesZip(t *testing.T) {
 		InputFiles:  []string{innerPath},
 		OnlyFolders: []string{folder},
 		OutputFile:  encryptedPath,
-		Password:    "pw",
+		Password:    []byte("pw"),
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
 	}
@@ -1421,7 +1421,7 @@ func TestRoundTripSingleFileFolderProducesZip(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encryptedPath,
 		OutputFile: decryptedPath,
-		Password:   "pw",
+		Password:   []byte("pw"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1486,7 +1486,7 @@ func TestRoundTripSplitWithDeniability(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "split_deny_password",
+		Password:    []byte("split_deny_password"),
 		Deniability: true,
 		Split:       true,
 		ChunkSize:   10,
@@ -1509,7 +1509,7 @@ func TestRoundTripSplitWithDeniability(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "split_deny_password",
+		Password:     []byte("split_deny_password"),
 		Deniability:  true,
 		Recombine:    true,
 		ForceDecrypt: false,
@@ -1574,7 +1574,7 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "split_rs_password",
+		Password:    []byte("split_rs_password"),
 		ReedSolomon: true,
 		Split:       true,
 		ChunkSize:   50, // 50 KiB chunks
@@ -1595,7 +1595,7 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "split_rs_password",
+		Password:     []byte("split_rs_password"),
 		Recombine:    true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -1652,7 +1652,7 @@ func TestRoundTripSplitAllOptions(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "split_all_password",
+		Password:    []byte("split_all_password"),
 		Paranoid:    true,
 		ReedSolomon: true,
 		Deniability: true,
@@ -1671,7 +1671,7 @@ func TestRoundTripSplitAllOptions(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "split_all_password",
+		Password:     []byte("split_all_password"),
 		Deniability:  true,
 		Recombine:    true,
 		ForceDecrypt: false,
@@ -1726,7 +1726,7 @@ func TestRoundTripEmptyFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "empty_file_password",
+		Password:   []byte("empty_file_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1739,7 +1739,7 @@ func TestRoundTripEmptyFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "empty_file_password",
+		Password:     []byte("empty_file_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -1796,7 +1796,7 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "split_keyfile_password",
+		Password:   []byte("split_keyfile_password"),
 		Keyfiles:   []string{keyfilePath},
 		Split:      true,
 		ChunkSize:  10,
@@ -1813,7 +1813,7 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "split_keyfile_password",
+		Password:     []byte("split_keyfile_password"),
 		Keyfiles:     []string{keyfilePath},
 		Recombine:    true,
 		ForceDecrypt: false,
@@ -1867,7 +1867,7 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "corrupt_test_password",
+		Password:    []byte("corrupt_test_password"),
 		ReedSolomon: false,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rsCodecs,
@@ -1890,7 +1890,7 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 	if err := Decrypt(context.Background(), &DecryptRequest{
 		InputFile:  encryptedPath,
 		OutputFile: rejectedPath,
-		Password:   "corrupt_test_password",
+		Password:   []byte("corrupt_test_password"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}); err == nil {
@@ -1907,7 +1907,7 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 	if err := Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   keptPath,
-		Password:     "corrupt_test_password",
+		Password:     []byte("corrupt_test_password"),
 		ForceDecrypt: true,
 		Kept:         &kept,
 		Reporter:     &GoldenTestReporter{},
@@ -1955,7 +1955,7 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFiles: []string{file1Path, file2Path},
 		OutputFile: encryptedPath,
-		Password:   "compress_multifile_password",
+		Password:   []byte("compress_multifile_password"),
 		Compress:   true, // Enable compression
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -1973,7 +1973,7 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "compress_multifile_password",
+		Password:     []byte("compress_multifile_password"),
 		AutoUnzip:    true,
 		SameLevel:    true,
 		ForceDecrypt: false,
@@ -2031,7 +2031,7 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFiles: []string{filePath},
 		OutputFile: encryptedPath,
-		Password:   "compress_single_password",
+		Password:   []byte("compress_single_password"),
 		Compress:   true, // Enable compression for single file
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2053,7 +2053,7 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "compress_single_password",
+		Password:     []byte("compress_single_password"),
 		AutoUnzip:    true,
 		SameLevel:    true,
 		ForceDecrypt: false,
@@ -2109,7 +2109,7 @@ func TestRoundTripCompressedSingleFileViaInputFileField(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  filePath,
 		OutputFile: encryptedPath,
-		Password:   "compress_inputfile_password",
+		Password:   []byte("compress_inputfile_password"),
 		Compress:   true,
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2124,7 +2124,7 @@ func TestRoundTripCompressedSingleFileViaInputFileField(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "compress_inputfile_password",
+		Password:     []byte("compress_inputfile_password"),
 		AutoUnzip:    true,
 		SameLevel:    true,
 		ForceDecrypt: false,
@@ -2166,7 +2166,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "tamper_test_password",
+		Password:   []byte("tamper_test_password"),
 		Comments:   "", // Empty comments for predictable header size
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2207,7 +2207,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    tamperedPath,
 		OutputFile:   decryptedPath,
-		Password:     "tamper_test_password",
+		Password:     []byte("tamper_test_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -2225,7 +2225,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	decReqForce := &DecryptRequest{
 		InputFile:    tamperedPath,
 		OutputFile:   decryptedPath + ".forced",
-		Password:     "tamper_test_password",
+		Password:     []byte("tamper_test_password"),
 		ForceDecrypt: true,
 		Kept:         &kept,
 		Reporter:     reporter,
@@ -2294,7 +2294,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:      inputPath,
 		OutputFile:     encryptedPath,
-		Password:       "ordered_keyfile_password",
+		Password:       []byte("ordered_keyfile_password"),
 		Keyfiles:       []string{keyfile1Path, keyfile2Path},
 		KeyfileOrdered: true,
 		Reporter:       reporter,
@@ -2309,7 +2309,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	decReqCorrect := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "ordered_keyfile_password",
+		Password:     []byte("ordered_keyfile_password"),
 		Keyfiles:     []string{keyfile1Path, keyfile2Path}, // Correct order
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2336,7 +2336,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	decReqWrong := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath + ".wrong",
-		Password:     "ordered_keyfile_password",
+		Password:     []byte("ordered_keyfile_password"),
 		Keyfiles:     []string{keyfile2Path, keyfile1Path}, // WRONG order!
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2376,7 +2376,7 @@ func TestZeroLengthComments(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "zero_comments_password",
+		Password:   []byte("zero_comments_password"),
 		Comments:   "", // Explicitly empty
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2390,7 +2390,7 @@ func TestZeroLengthComments(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "zero_comments_password",
+		Password:     []byte("zero_comments_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -2448,7 +2448,7 @@ func TestRoundTripKeyfileOnly(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "", // Empty password - keyfile only!
+		Password:   []byte(""), // Empty password - keyfile only!
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2462,7 +2462,7 @@ func TestRoundTripKeyfileOnly(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "", // Empty password
+		Password:     []byte(""), // Empty password
 		Keyfiles:     []string{keyfilePath},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2518,7 +2518,7 @@ func TestRoundTripKeyfileOnlyParanoid(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "",
+		Password:   []byte(""),
 		Keyfiles:   []string{keyfilePath},
 		Paranoid:   true,
 		Reporter:   reporter,
@@ -2533,7 +2533,7 @@ func TestRoundTripKeyfileOnlyParanoid(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encryptedPath,
 		OutputFile: decryptedPath,
-		Password:   "",
+		Password:   []byte(""),
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2588,7 +2588,7 @@ func TestDeniabilityKeyfileOnly(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "", // Empty password
+		Password:    []byte(""), // Empty password
 		Keyfiles:    []string{keyfilePath},
 		Deniability: true,
 		Reporter:    reporter,
@@ -2608,7 +2608,7 @@ func TestDeniabilityKeyfileOnly(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:   encryptedPath,
 		OutputFile:  decryptedPath,
-		Password:    "", // Empty password for deniability wrapper
+		Password:    []byte(""), // Empty password for deniability wrapper
 		Keyfiles:    []string{keyfilePath},
 		Deniability: true,
 		Reporter:    reporter,
@@ -2663,7 +2663,7 @@ func TestDeniabilityPasswordAndKeyfiles(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "deniability_password",
+		Password:    []byte("deniability_password"),
 		Keyfiles:    []string{keyfilePath},
 		Deniability: true,
 		Reporter:    reporter,
@@ -2678,7 +2678,7 @@ func TestDeniabilityPasswordAndKeyfiles(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:   encryptedPath,
 		OutputFile:  decryptedPath,
-		Password:    "deniability_password",
+		Password:    []byte("deniability_password"),
 		Keyfiles:    []string{keyfilePath},
 		Deniability: true,
 		Reporter:    reporter,
@@ -2735,7 +2735,7 @@ func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "correct_password",
+		Password:   []byte("correct_password"),
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2749,7 +2749,7 @@ func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "wrong_password", // Wrong!
+		Password:     []byte("wrong_password"), // Wrong!
 		Keyfiles:     []string{keyfilePath},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2772,7 +2772,7 @@ func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
 	decReqCorrect := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "correct_password",
+		Password:     []byte("correct_password"),
 		Keyfiles:     []string{keyfilePath},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2832,7 +2832,7 @@ func TestKeyfileOnlyWrongKeyfileFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "",
+		Password:   []byte(""),
 		Keyfiles:   []string{correctKeyfile},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2846,7 +2846,7 @@ func TestKeyfileOnlyWrongKeyfileFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "",
+		Password:     []byte(""),
 		Keyfiles:     []string{wrongKeyfile},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2890,7 +2890,7 @@ func TestDeniabilityWrongPasswordFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "correct_deniability_password",
+		Password:    []byte("correct_deniability_password"),
 		Deniability: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -2904,7 +2904,7 @@ func TestDeniabilityWrongPasswordFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "wrong_deniability_password",
+		Password:     []byte("wrong_deniability_password"),
 		Deniability:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2951,7 +2951,7 @@ func TestDuplicateKeyfilesRejected(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:      inputPath,
 		OutputFile:     encryptedPath,
-		Password:       "duplicate_keyfile_password",
+		Password:       []byte("duplicate_keyfile_password"),
 		Keyfiles:       []string{keyfilePath, keyfilePath}, // Same keyfile twice!
 		KeyfileOrdered: false,                              // Unordered = XOR cancellation
 		Reporter:       reporter,

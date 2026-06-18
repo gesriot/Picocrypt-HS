@@ -136,7 +136,7 @@ func TestVerifyFirstProgressNoOvershoot(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   filepath.Join(t.TempDir(), "verify_first_progress.out"),
-		Password:     password,
+		Password:     []byte(password),
 		VerifyFirst:  true,
 		ForceDecrypt: false,
 		Reporter:     rec,

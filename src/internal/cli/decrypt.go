@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/volume"
@@ -237,8 +238,12 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get password
-	password := decPassword
+	// Get password. Owned []byte from boundary to KDF; zeroed when this returns.
+	// A closure (not `defer crypto.SecureZero(password)`) so the FINAL value is
+	// zeroed — password is reassigned below by the stdin/interactive readers, and
+	// a plain defer would bind the initial []byte(decPassword) at defer time.
+	password := []byte(decPassword)
+	defer func() { crypto.SecureZero(password) }()
 	if decPasswordStdin {
 		var err error
 		password, err = ReadPasswordFromStdin()
@@ -263,7 +268,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	// Try to read header to check if keyfiles are required
 	// Note: with deniability, we can't read the header until wrapper is removed
 	var volumeUsesKeyfiles bool
-	if password == "" && !decDeniability {
+	if len(password) == 0 && !decDeniability {
 		hdr, err := readHeaderInfo(inputFile, rsCodecs)
 		if err == nil {
 			volumeUsesKeyfiles = hdr.Flags.UseKeyfiles
@@ -274,7 +279,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prompt for password interactively if not provided via -p/-P
-	if password == "" {
+	if len(password) == 0 {
 		hasKeyfiles := len(decKeyfiles) > 0
 
 		// With deniability, we can't know if volume uses keyfiles until wrapper is removed.

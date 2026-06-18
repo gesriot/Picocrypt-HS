@@ -61,7 +61,7 @@ func TestVerifyFirstModeBasic(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "verify_first_password",
+		Password:   []byte("verify_first_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -74,7 +74,7 @@ func TestVerifyFirstModeBasic(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "verify_first_password",
+		Password:     []byte("verify_first_password"),
 		VerifyFirst:  true, // Enable two-pass verification
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -122,7 +122,7 @@ func TestVerifyFirstModeWithReedSolomon(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "verify_first_rs_password",
+		Password:    []byte("verify_first_rs_password"),
 		ReedSolomon: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -136,7 +136,7 @@ func TestVerifyFirstModeWithReedSolomon(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "verify_first_rs_password",
+		Password:     []byte("verify_first_rs_password"),
 		VerifyFirst:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -183,7 +183,7 @@ func TestVerifyFirstModeParanoid(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "verify_first_paranoid_password",
+		Password:   []byte("verify_first_paranoid_password"),
 		Paranoid:   true,
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -197,7 +197,7 @@ func TestVerifyFirstModeParanoid(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "verify_first_paranoid_password",
+		Password:     []byte("verify_first_paranoid_password"),
 		VerifyFirst:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -250,7 +250,7 @@ func TestVerifyFirstModeWithKeyfiles(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "verify_first_kf_password",
+		Password:   []byte("verify_first_kf_password"),
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -264,7 +264,7 @@ func TestVerifyFirstModeWithKeyfiles(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "verify_first_kf_password",
+		Password:     []byte("verify_first_kf_password"),
 		Keyfiles:     []string{keyfilePath},
 		VerifyFirst:  true,
 		ForceDecrypt: false,
@@ -312,7 +312,7 @@ func TestVerifyFirstModeCorruptedData(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "verify_first_corrupt_password",
+		Password:   []byte("verify_first_corrupt_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -342,7 +342,7 @@ func TestVerifyFirstModeCorruptedData(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "verify_first_corrupt_password",
+		Password:     []byte("verify_first_corrupt_password"),
 		VerifyFirst:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -382,7 +382,7 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "verify_force_password",
+		Password:   []byte("verify_force_password"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}); err != nil {
@@ -409,7 +409,7 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 	if err := Decrypt(context.Background(), &DecryptRequest{
 		InputFile:   encryptedPath,
 		OutputFile:  rejectedPath,
-		Password:    "verify_force_password",
+		Password:    []byte("verify_force_password"),
 		VerifyFirst: true,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rsCodecs,
@@ -426,7 +426,7 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 	if err := Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   keptPath,
-		Password:     "verify_force_password",
+		Password:     []byte("verify_force_password"),
 		VerifyFirst:  true,
 		ForceDecrypt: true,
 		Kept:         &kept,
@@ -472,7 +472,7 @@ func TestVerifyFirstAllOptions(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "verify_all_password",
+		Password:    []byte("verify_all_password"),
 		Paranoid:    true,
 		ReedSolomon: true,
 		Keyfiles:    []string{keyfilePath},
@@ -488,7 +488,7 @@ func TestVerifyFirstAllOptions(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "verify_all_password",
+		Password:     []byte("verify_all_password"),
 		Keyfiles:     []string{keyfilePath},
 		VerifyFirst:  true,
 		ForceDecrypt: false,
@@ -567,7 +567,7 @@ func TestDecryptWrongKeyfileMissingRequirement(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "kf_required_password",
+		Password:   []byte("kf_required_password"),
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -581,7 +581,7 @@ func TestDecryptWrongKeyfileMissingRequirement(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "kf_required_password",
+		Password:     []byte("kf_required_password"),
 		Keyfiles:     nil, // No keyfile provided!
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -623,7 +623,7 @@ func TestDecryptCancellation(t *testing.T) {
 	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "cancel_password",
+		Password:   []byte("cancel_password"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}); err != nil {
@@ -634,7 +634,7 @@ func TestDecryptCancellation(t *testing.T) {
 	err = Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "cancel_password",
+		Password:     []byte("cancel_password"),
 		ForceDecrypt: false,
 		Reporter:     &CancellableReporter{cancelAfter: 0},
 		RSCodecs:     rsCodecs,
@@ -678,7 +678,7 @@ func TestEncryptCommentsTooLong(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "long_comments_password",
+		Password:   []byte("long_comments_password"),
 		Comments:   longComments,
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
@@ -704,7 +704,7 @@ func TestDecryptNonExistentFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    filepath.Join(tmpDir, "nonexistent.pcv"),
 		OutputFile:   filepath.Join(tmpDir, "output.txt"),
-		Password:     "password",
+		Password:     []byte("password"),
 		ForceDecrypt: false,
 		Reporter:     &GoldenTestReporter{},
 		RSCodecs:     rsCodecs,
@@ -728,7 +728,7 @@ func TestEncryptNonExistentFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  filepath.Join(tmpDir, "nonexistent.txt"),
 		OutputFile: filepath.Join(tmpDir, "output.pcv"),
-		Password:   "password",
+		Password:   []byte("password"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}
@@ -767,7 +767,7 @@ func TestDeniabilityRoundTripWithVerifyFirst(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "deny_verify_password",
+		Password:    []byte("deny_verify_password"),
 		Deniability: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -786,7 +786,7 @@ func TestDeniabilityRoundTripWithVerifyFirst(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "deny_verify_password",
+		Password:     []byte("deny_verify_password"),
 		Deniability:  true,
 		VerifyFirst:  true, // Use two-pass verification
 		ForceDecrypt: false,
@@ -844,7 +844,7 @@ func TestIsDeniableNormalFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "normal_password",
+		Password:    []byte("normal_password"),
 		Deniability: false, // No deniability
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rsCodecs,
@@ -890,7 +890,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  regularPath,
-		Password:    "regular_password",
+		Password:    []byte("regular_password"),
 		Deniability: false,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rsCodecs,
@@ -1066,7 +1066,7 @@ func TestEncryptWithNilReporter(t *testing.T) {
 	req := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: filepath.Join(tmpDir, "plain.txt.pcv"),
-		Password:   "pw",
+		Password:   []byte("pw"),
 		Reporter:   nil,
 		RSCodecs:   rsCodecs,
 	}
@@ -1094,7 +1094,7 @@ func TestDecryptWithNilReporter(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "pw",
+		Password:   []byte("pw"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}
@@ -1105,7 +1105,7 @@ func TestDecryptWithNilReporter(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encryptedPath,
 		OutputFile: outputPath,
-		Password:   "pw",
+		Password:   []byte("pw"),
 		Reporter:   nil,
 		RSCodecs:   rsCodecs,
 	}
@@ -1138,7 +1138,7 @@ func TestEncryptCancellation(t *testing.T) {
 	err = Encrypt(context.Background(), &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "cancel_password",
+		Password:   []byte("cancel_password"),
 		Reporter:   &CancellableReporter{cancelAfter: 0},
 		RSCodecs:   rsCodecs,
 	})
@@ -1174,7 +1174,7 @@ func TestEncryptContextCancellation(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "ctx_cancel_password",
+		Password:   []byte("ctx_cancel_password"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}
@@ -1210,7 +1210,7 @@ func TestDecryptContextCancellation(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "ctx_cancel_password",
+		Password:   []byte("ctx_cancel_password"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}
@@ -1226,7 +1226,7 @@ func TestDecryptContextCancellation(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encryptedPath,
 		OutputFile: decryptedPath,
-		Password:   "ctx_cancel_password",
+		Password:   []byte("ctx_cancel_password"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rsCodecs,
 	}
@@ -1267,7 +1267,7 @@ func TestRoundTripLargeFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "large_file_password",
+		Password:   []byte("large_file_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1280,7 +1280,7 @@ func TestRoundTripLargeFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "large_file_password",
+		Password:     []byte("large_file_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -1341,7 +1341,7 @@ func TestRoundTripRSLargeFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "rs_large_password",
+		Password:    []byte("rs_large_password"),
 		ReedSolomon: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -1355,7 +1355,7 @@ func TestRoundTripRSLargeFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "rs_large_password",
+		Password:     []byte("rs_large_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,

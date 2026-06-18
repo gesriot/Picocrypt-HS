@@ -23,7 +23,7 @@ const (
 
 // DecryptVolume decrypts a Picocrypt volume from memory.
 // Returns (plaintext, 0) on success, or (nil, errorCode) on failure.
-func DecryptVolume(volumeData []byte, password string) ([]byte, int) {
+func DecryptVolume(volumeData, password []byte) ([]byte, int) {
 	// Initialize RS codecs
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {

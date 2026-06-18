@@ -81,7 +81,7 @@ func TestDecryptShortReadsRSBlockAligned(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encPath,
-		Password:    "short-read-decrypt",
+		Password:    []byte("short-read-decrypt"),
 		ReedSolomon: true,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rs,
@@ -96,7 +96,7 @@ func TestDecryptShortReadsRSBlockAligned(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encPath,
 		OutputFile: decPath,
-		Password:   "short-read-decrypt",
+		Password:   []byte("short-read-decrypt"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rs,
 	}
@@ -134,7 +134,7 @@ func TestEncryptShortReadsRoundTrip(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encPath,
-		Password:    "short-read-encrypt",
+		Password:    []byte("short-read-encrypt"),
 		ReedSolomon: true,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rs,
@@ -148,7 +148,7 @@ func TestEncryptShortReadsRoundTrip(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encPath,
 		OutputFile: decPath,
-		Password:   "short-read-encrypt",
+		Password:   []byte("short-read-encrypt"),
 		Reporter:   &GoldenTestReporter{},
 		RSCodecs:   rs,
 	}
@@ -185,7 +185,7 @@ func TestVerifyFirstShortReadsRSBlockAligned(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encPath,
-		Password:    "short-read-verifyfirst",
+		Password:    []byte("short-read-verifyfirst"),
 		ReedSolomon: true,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rs,
@@ -200,7 +200,7 @@ func TestVerifyFirstShortReadsRSBlockAligned(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:   encPath,
 		OutputFile:  decPath,
-		Password:    "short-read-verifyfirst",
+		Password:    []byte("short-read-verifyfirst"),
 		VerifyFirst: true,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rs,

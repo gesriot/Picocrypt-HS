@@ -37,7 +37,7 @@ var isDeniableReadVersion = func(r io.Reader, buf []byte) (int, error) {
 //
 // CRITICAL: Deniability uses its own Argon2 derivation (4 passes, 1 GiB, 4 threads)
 // and stores salt(16) + nonce(24) at the beginning of the file.
-func AddDeniability(volumePath, password string, reporter ProgressReporter) error {
+func AddDeniability(volumePath string, password []byte, reporter ProgressReporter) error {
 	if reporter != nil {
 		reporter.SetStatus("Adding plausible deniability...")
 		reporter.SetCanCancel(false)
@@ -210,7 +210,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 //
 // CRITICAL: Must read salt(16) + nonce(24) from the beginning,
 // then decrypt with XChaCha20 using Argon2-derived key.
-func RemoveDeniability(volumePath, password string, reporter ProgressReporter, rs *encoding.RSCodecs) (string, error) {
+func RemoveDeniability(volumePath string, password []byte, reporter ProgressReporter, rs *encoding.RSCodecs) (string, error) {
 	if reporter != nil {
 		reporter.SetStatus("Removing deniability protection...")
 		reporter.SetProgress(0, "")
@@ -388,7 +388,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 // form matches. Trying several canonical forms of the same password does not
 // weaken the wrapper: each candidate must still yield a recognizable inner
 // header. ASCII passwords yield a single candidate, so there is no extra work.
-func selectDeniabilityKey(password string, salt, nonce, probe []byte, rs *encoding.RSCodecs) ([]byte, error) {
+func selectDeniabilityKey(password []byte, salt, nonce, probe []byte, rs *encoding.RSCodecs) ([]byte, error) {
 	for _, cand := range pwnorm.Candidates(password) {
 		key := deriveDeniabilityKey(cand, salt)
 		cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)

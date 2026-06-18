@@ -50,7 +50,7 @@ func TestDeniabilityReportsSpeedAndETA(t *testing.T) {
 		t.Fatalf("write add input: %v", err)
 	}
 	addRep := &etaStatusReporter{}
-	if err := AddDeniability(addPath, "pw", addRep); err != nil {
+	if err := AddDeniability(addPath, []byte("pw"), addRep); err != nil {
 		t.Fatalf("AddDeniability: %v", err)
 	}
 	if !hasSpeedAndETA(addRep.statuses) {
@@ -67,17 +67,17 @@ func TestDeniabilityReportsSpeedAndETA(t *testing.T) {
 	}
 	volPath := filepath.Join(tmpDir, "vol.pcv")
 	if err := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: plainPath, OutputFile: volPath, Password: "pw",
+		InputFile: plainPath, OutputFile: volPath, Password: []byte("pw"),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rs,
 	}); err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
-	if err := AddDeniability(volPath, "pw", &etaStatusReporter{}); err != nil {
+	if err := AddDeniability(volPath, []byte("pw"), &etaStatusReporter{}); err != nil {
 		t.Fatalf("AddDeniability(volume): %v", err)
 	}
 
 	remRep := &etaStatusReporter{}
-	if _, err := RemoveDeniability(volPath, "pw", remRep, rs); err != nil {
+	if _, err := RemoveDeniability(volPath, []byte("pw"), remRep, rs); err != nil {
 		t.Fatalf("RemoveDeniability: %v", err)
 	}
 	if !hasSpeedAndETA(remRep.statuses) {
