@@ -5,8 +5,8 @@ go 1.26.0
 require (
 	fyne.io/fyne/v2 v2.7.4
 	github.com/BurntSushi/toml v1.6.0
+	github.com/Picocrypt-NG/serpent v0.1.0
 	github.com/Picocrypt/infectious v0.0.0-20250713161924-ae9b3ccb49d7
-	github.com/Picocrypt/serpent v0.0.0-20240830233833-9ad6ab254fd7
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
 	github.com/dweymouth/fyne-tooltip v0.4.0
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260406072232-3ac4aa2bb164

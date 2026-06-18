@@ -6,9 +6,13 @@ import (
 	"hash"
 	"io"
 
-	"github.com/Picocrypt/serpent"
+	"github.com/Picocrypt-NG/serpent"
 	"golang.org/x/crypto/chacha20"
 )
+
+// zeroizer is implemented by cipher blocks that can wipe their expanded key
+// schedule (e.g. the Picocrypt-NG/serpent fork's *subkeys.Zero()).
+type zeroizer interface{ Zero() }
 
 // CipherSuite holds the initialized ciphers and MAC for encryption/decryption.
 // This manages the XChaCha20 and optional Serpent-CTR ciphers.
@@ -164,6 +168,9 @@ func (cs *CipherSuite) Close() {
 	SecureZero(cs.key)
 	cs.key = nil
 	cs.chacha = nil
+	if z, ok := cs.serpentS.(zeroizer); ok {
+		z.Zero()
+	}
 	cs.serpent = nil
 	cs.serpentS = nil
 	cs.mac = nil
