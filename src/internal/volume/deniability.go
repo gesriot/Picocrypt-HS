@@ -105,7 +105,9 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	// Derive key using Argon2 (normal mode parameters). NFC-normalize the
 	// password so a deniable volume — which has no readable header to fall back
 	// on — is cross-platform-decryptable (#19).
-	key := deriveDeniabilityKey(pwnorm.EncodeForKDF(password), salt)
+	kdfInput := pwnorm.EncodeForKDF(password)
+	defer crypto.SecureZero(kdfInput)
+	key := deriveDeniabilityKey(kdfInput, salt)
 	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)

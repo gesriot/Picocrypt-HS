@@ -232,7 +232,9 @@ func encryptDeriveKeys(ctx *OperationContext, req *EncryptRequest) error {
 
 	// Feed the KDF the NFC-normalized password so new volumes derive a
 	// canonical, cross-platform-stable key regardless of how it was typed (#19).
-	key, err := deriveVolumeKey(pwnorm.EncodeForKDF(req.Password), ctx.Header.Salt, req.Paranoid)
+	kdfInput := pwnorm.EncodeForKDF(req.Password)
+	defer crypto.SecureZero(kdfInput)
+	key, err := deriveVolumeKey(kdfInput, ctx.Header.Salt, req.Paranoid)
 	if err != nil {
 		return err
 	}
