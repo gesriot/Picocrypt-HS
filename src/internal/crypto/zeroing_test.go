@@ -108,6 +108,66 @@ func TestSecureZeroConcurrent(t *testing.T) {
 	}
 }
 
+func TestSecretCloseZeros(t *testing.T) {
+	b := []byte{1, 2, 3, 4}
+	s := SecretFrom(b)
+	if s.Len() != 4 || string(s.Bytes()) != string([]byte{1, 2, 3, 4}) {
+		t.Fatal("Secret did not adopt bytes")
+	}
+	s.Close()
+	for i, x := range b { // b still aliases the (now zeroed) backing array
+		if x != 0 {
+			t.Fatalf("byte %d not zeroed: %d", i, x)
+		}
+	}
+	if s.Bytes() != nil || s.Len() != 0 {
+		t.Fatal("closed Secret must report nil/0")
+	}
+}
+
+func TestSecretCloseIdempotentAndNilSafe(t *testing.T) {
+	var nilS *Secret
+	nilS.Close() // must not panic
+	if nilS.Bytes() != nil {
+		t.Fatal("nil Secret.Bytes must be nil")
+	}
+	s := SecretFrom([]byte{9})
+	s.Close()
+	s.Close() // double close must not panic
+}
+
+func TestSecretSetWipesOldButNotSelfAssign(t *testing.T) {
+	old := []byte{7, 7, 7, 7}
+	s := SecretFrom(old)
+	next := []byte{8, 8, 8, 8}
+	s.Set(next)
+	for i, x := range old {
+		if x != 0 {
+			t.Fatalf("old backing array byte %d not wiped: %d", i, x)
+		}
+	}
+	// self-assign: setting the SAME backing array must NOT wipe the live key
+	live := s.Bytes()
+	s.Set(live)
+	allZero := true
+	for _, x := range live {
+		if x != 0 {
+			allZero = false
+		}
+	}
+	if allZero {
+		t.Fatal("self-assign wiped the live key — guard broken")
+	}
+}
+
+func TestSecretStringRedacts(t *testing.T) {
+	s := SecretFrom([]byte("topsecret"))
+	defer s.Close()
+	if got := s.String(); got != "crypto.Secret([REDACTED])" {
+		t.Fatalf("String must redact, got %q", got)
+	}
+}
+
 // TestSecureZeroMultipleConcurrent tests SecureZeroMultiple under concurrent access.
 func TestSecureZeroMultipleConcurrent(t *testing.T) {
 	const numGoroutines = 50
