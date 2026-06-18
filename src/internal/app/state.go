@@ -188,11 +188,19 @@ func NewState() (*State, error) {
 		MainStatusColor:    util.WHITE,
 		PasswordMode:       PasswordModeHidden,
 		PasswordStateLabel: "Show",
-		PassgenLength:      32,
-		SplitSelected:      1, // Default to MiB
-		SplitUnits:         []string{"KiB", "MiB", "GiB", "TiB", "Total"},
-		FastDecode:         true,
-		DPI:                1.0,
+		// Password generator defaults must match resetUILocked(): all character
+		// classes ON (so the generator works before any reset) and PassgenCopy
+		// OFF (do not auto-copy a generated password to the OS clipboard).
+		PassgenLength:  32,
+		PassgenUpper:   true,
+		PassgenLower:   true,
+		PassgenNums:    true,
+		PassgenSymbols: true,
+		PassgenCopy:    false,
+		SplitSelected:  1, // Default to MiB
+		SplitUnits:     []string{"KiB", "MiB", "GiB", "TiB", "Total"},
+		FastDecode:     true,
+		DPI:            1.0,
 
 		// Reed-Solomon codecs
 		RSCodecs: rs,

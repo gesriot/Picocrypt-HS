@@ -711,6 +711,34 @@ func TestPassgenCopyDefaultsOff(t *testing.T) {
 	})
 }
 
+// TestPassgenCharClassesDefaultOn asserts the four password-generator character
+// classes default to ON, and — crucially — that NewState() agrees with Reset().
+// resetUILocked() sets all four true, but a freshly-constructed State (before any
+// ResetUI) must too: otherwise the generator dialog opens with every class
+// unchecked and Generate is a no-op (dialogs.go guards against zero classes).
+// This is a desync tripwire between the construction literal and the reset path,
+// mirroring TestPassgenCopyDefaultsOff for the opposite-default sibling field.
+func TestPassgenCharClassesDefaultOn(t *testing.T) {
+	classes := func(s *State) [4]bool {
+		return [4]bool{s.PassgenUpper, s.PassgenLower, s.PassgenNums, s.PassgenSymbols}
+	}
+	want := [4]bool{true, true, true, true}
+
+	t.Run("NewState", func(t *testing.T) {
+		if got := classes(mustNewState(t)); got != want {
+			t.Fatalf("NewState passgen classes = %v; want %v — a fresh State must have all classes ON so the generator works before any reset", got, want)
+		}
+	})
+	t.Run("agrees with Reset", func(t *testing.T) {
+		s := mustNewState(t)
+		s.PassgenUpper, s.PassgenLower, s.PassgenNums, s.PassgenSymbols = false, false, false, false
+		s.Reset()
+		if got := classes(s); got != want {
+			t.Fatalf("after Reset passgen classes = %v; want %v", got, want)
+		}
+	})
+}
+
 // TestStateVersion is a desync tripwire, not a tautology: it asserts the
 // app.Version const stays in lockstep with the canonical root VERSION file
 // (app.Version must be "v" + <VERSION>). A version bump that edits VERSION but
