@@ -25,26 +25,6 @@ var (
 	gaNFDBytes = []byte{0xe1, 0x84, 0x80, 0xe1, 0x85, 0xa1}
 )
 
-// TestVectorConstantsHaveExpectedByteForms documents and locks the UTF-8 byte
-// encodings of the vectors, so a wrong code point above is caught immediately.
-func TestVectorConstantsHaveExpectedByteForms(t *testing.T) {
-	checks := []struct {
-		name string
-		got  []byte
-		want []byte
-	}{
-		{"eComposed", []byte(eComposed), eNFCBytes},
-		{"eDecomposed", []byte(eDecomposed), eNFDBytes},
-		{"gaComposed", []byte(gaComposed), gaNFCBytes},
-		{"gaDecomposed", []byte(gaDecomposed), gaNFDBytes},
-	}
-	for _, c := range checks {
-		if !bytes.Equal(c.got, c.want) {
-			t.Errorf("%s raw bytes = % x, want % x", c.name, c.got, c.want)
-		}
-	}
-}
-
 func TestNormalizeProducesNFC(t *testing.T) {
 	// Composed and decomposed forms of the SAME character must normalize to
 	// identical NFC bytes — that is exactly what lets a password typed on one

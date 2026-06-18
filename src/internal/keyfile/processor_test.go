@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"golang.org/x/crypto/sha3"
 )
 
 func createTestKeyfiles(t *testing.T, dir string, contents map[string][]byte) []string {
@@ -60,17 +58,10 @@ func TestProcessOrdered(t *testing.T) {
 		t.Fatalf("Process(CBA, ordered=true) failed: %v", err)
 	}
 
-	// Ordered: different order should produce different keys
+	// Ordered: different order should produce different keys.
+	// (The hash-of-key relationship is pinned independently by TestProcessOrderedKAT.)
 	if bytes.Equal(resultABC.Key, resultCBA.Key) {
 		t.Error("Ordered processing: different order should produce different keys")
-	}
-
-	// Verify the hash is correct (SHA3-256 of key)
-	h := sha3.New256()
-	h.Write(resultABC.Key)
-	expectedHash := h.Sum(nil)
-	if !bytes.Equal(resultABC.Hash, expectedHash) {
-		t.Error("Hash should be SHA3-256 of key")
 	}
 
 	_ = paths // use all paths to avoid unused variable warning
@@ -265,40 +256,12 @@ func TestProcessProgressBoundedMonotonic(t *testing.T) {
 		}
 		prev = v
 	}
-}
 
-func TestProcessProgress(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create a larger file to ensure multiple progress updates
-	largeContent := bytes.Repeat([]byte("x"), 1024*1024*2) // 2 MiB
-	createTestKeyfiles(t, dir, map[string][]byte{
-		"large.key": largeContent,
-	})
-
-	var progressCalls int
-	var lastProgress float32
-
-	result, err := Process([]string{filepath.Join(dir, "large.key")}, true, func(p float32) {
-		progressCalls++
-		lastProgress = p
-	})
-
-	if err != nil {
-		t.Fatalf("Process with progress failed: %v", err)
-	}
-
-	if progressCalls == 0 {
-		t.Error("Progress callback was never called")
-	}
-
-	// Last progress should be ~1.0
-	if lastProgress < 0.99 {
-		t.Errorf("Last progress = %f; want ~1.0", lastProgress)
-	}
-
-	if len(result.Key) != 32 {
-		t.Errorf("Key length = %d; want 32", len(result.Key))
+	// Final progress must reach ~1.0: the callback contract promises completion
+	// is reported, so a regression that stops short (e.g. off-by-one byte
+	// accounting) would leave the last value below 0.99.
+	if last := values[len(values)-1]; last < 0.99 {
+		t.Errorf("final progress = %f; want >= 0.99 (completion must be reported)", last)
 	}
 }
 

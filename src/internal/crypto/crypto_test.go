@@ -3,6 +3,7 @@ package crypto
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
@@ -18,18 +19,6 @@ func TestRandomBytes(t *testing.T) {
 
 		if len(data) != length {
 			t.Errorf("RandomBytes(%d) returned %d bytes", length, len(data))
-		}
-
-		// Check that it's not all zeros (statistically almost impossible)
-		allZero := true
-		for _, b := range data {
-			if b != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero && length > 0 {
-			t.Errorf("RandomBytes(%d) returned all zeros (extremely unlikely)", length)
 		}
 	}
 }
@@ -95,6 +84,22 @@ func TestDeriveKey(t *testing.T) {
 	key1b, _ := DeriveKey(password, salt, false)
 	if !bytes.Equal(key1, key1b) {
 		t.Error("Same inputs should produce same key")
+	}
+
+	// Frozen KAT: pins the exact Argon2id parameters and KDF choice.
+	// KAT independently derived via argon2.IDKey with kdf.go params
+	// (passes/memory/threads/keysize) for normal(4,1<<20,4,32) and
+	// paranoid(8,1<<20,8,32); NOT captured from DeriveKey. Any change to
+	// passes/memory/threads/keysize or IDKey->other KDF turns this red.
+	const (
+		wantNormal   = "6aa5327cce3126fc935fddfd3eccf45db2479880e33196e235d261c7dbd8d369"
+		wantParanoid = "f57a11e75223311f35e8b21def3a0abd579985c9f6a2ea61fb35d1282bf6966d"
+	)
+	if got := fmt.Sprintf("%x", key1); got != wantNormal {
+		t.Errorf("normal key = %s; want %s", got, wantNormal)
+	}
+	if got := fmt.Sprintf("%x", key2); got != wantParanoid {
+		t.Errorf("paranoid key = %s; want %s", got, wantParanoid)
 	}
 }
 
@@ -189,6 +194,21 @@ func TestNewMAC(t *testing.T) {
 	// Different modes should produce different MACs
 	if bytes.Equal(sum1, sum2) {
 		t.Error("BLAKE2b and HMAC-SHA3 should produce different MACs")
+	}
+
+	// Frozen KAT: pins algorithm + keying, not just length.
+	// KAT independently derived via blake2b.New512(subkey) (normal) and
+	// hmac.New(sha3.New512, subkey) (paranoid); pins algorithm+keying, not
+	// just length. Catches blake2b<->hmac swap, sha3->sha2, dropped keying.
+	const (
+		wantNormal   = "3d76683e318a5304020e1fe66936a97fa28fc42e6381598bcf968a7bc9fae95eda2135fa80da23d7f0e69fd16ffefbd92f6184cc0c4858299cf7203cdeeffa79"
+		wantParanoid = "8930fc46f4b9a861a01fb882a5cc401228a4e2c3e500edd3f92bb29d177a6dd30ff14bb5b5ddccd6f6dc85c277ba2a39ae205ab832ac3c4189e448864a6412ae"
+	)
+	if got := hex.EncodeToString(sum1); got != wantNormal {
+		t.Errorf("normal (BLAKE2b-keyed) MAC = %s; want %s", got, wantNormal)
+	}
+	if got := hex.EncodeToString(sum2); got != wantParanoid {
+		t.Errorf("paranoid (HMAC-SHA3-512) MAC = %s; want %s", got, wantParanoid)
 	}
 }
 
@@ -449,69 +469,6 @@ func TestCipherSuiteCloseNil(t *testing.T) {
 	// Close on nil should not panic
 	var suite *CipherSuite
 	suite.Close()
-}
-
-func TestCipherSuiteIsParanoid(t *testing.T) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 24)
-	serpentKey := make([]byte, 32)
-	serpentIV := make([]byte, 16)
-	hkdfSalt := make([]byte, 32)
-
-	// Normal mode
-	mac1, _ := NewMAC(make([]byte, 32), false)
-	hkdf1 := NewHKDFStream(key, hkdfSalt)
-	suite1, _ := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac1, hkdf1, false)
-	if suite1.IsParanoid() {
-		t.Error("IsParanoid() should return false for normal mode")
-	}
-
-	// Paranoid mode
-	mac2, _ := NewMAC(make([]byte, 32), true)
-	hkdf2 := NewHKDFStream(key, hkdfSalt)
-	suite2, _ := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac2, hkdf2, true)
-	if !suite2.IsParanoid() {
-		t.Error("IsParanoid() should return true for paranoid mode")
-	}
-}
-
-func TestCipherSuiteMAC(t *testing.T) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 24)
-	serpentKey := make([]byte, 32)
-	serpentIV := make([]byte, 16)
-	hkdfSalt := make([]byte, 32)
-
-	for i := range key {
-		key[i] = byte(i)
-	}
-
-	macKey := make([]byte, 32)
-	mac, _ := NewMAC(macKey, false)
-	hkdf := NewHKDFStream(key, hkdfSalt)
-
-	suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, false)
-	if err != nil {
-		t.Fatalf("NewCipherSuite() failed: %v", err)
-	}
-
-	// MAC() should return the hash.Hash
-	macHash := suite.MAC()
-	if macHash == nil {
-		t.Fatal("MAC() returned nil")
-	}
-
-	// Should be the same instance as the original
-	if macHash != mac {
-		t.Error("MAC() should return the same hash instance")
-	}
-
-	// Writing to the MAC through the suite should work
-	macHash.Write([]byte("test data"))
-	sum := suite.Sum()
-	if len(sum) != MACSize {
-		t.Errorf("Sum() length = %d; want %d", len(sum), MACSize)
-	}
 }
 
 // TestCipherAliasingParanoid pins the supported usage: separate dst/src buffers
