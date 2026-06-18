@@ -20,12 +20,12 @@ var (
 func TestWASMEncryptNormalizesPassword(t *testing.T) {
 	original := []byte("cross-platform web volume")
 
-	ciphertext, errCode := EncryptVolume(original, nfdPassword)
+	ciphertext, errCode := EncryptVolume(original, []byte(nfdPassword))
 	if errCode != 0 {
 		t.Fatalf("encrypt failed with error code %d", errCode)
 	}
 
-	plaintext, errCode := DecryptVolume(ciphertext, nfcPassword)
+	plaintext, errCode := DecryptVolume(ciphertext, []byte(nfcPassword))
 	if errCode != 0 {
 		t.Fatalf("decrypt with composed form failed (code %d): encrypt did not normalize to NFC", errCode)
 	}
@@ -50,11 +50,11 @@ func TestWASMDecryptTriesNormalizationForms(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			original := []byte("web cross-form payload")
-			ciphertext, errCode := EncryptVolume(original, tc.encrypt)
+			ciphertext, errCode := EncryptVolume(original, []byte(tc.encrypt))
 			if errCode != 0 {
 				t.Fatalf("encrypt failed with error code %d", errCode)
 			}
-			plaintext, errCode := DecryptVolume(ciphertext, tc.decrypt)
+			plaintext, errCode := DecryptVolume(ciphertext, []byte(tc.decrypt))
 			if errCode != 0 {
 				t.Fatalf("decrypt failed with error code %d (try-both not applied?)", errCode)
 			}

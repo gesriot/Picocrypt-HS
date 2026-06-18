@@ -53,7 +53,7 @@ func TestVerifyFirstCorrectableRS(t *testing.T) {
 		decReq := &DecryptRequest{
 			InputFile:    pcvPath,
 			OutputFile:   outputPath,
-			Password:     password,
+			Password:     []byte(password),
 			VerifyFirst:  true,
 			ForceDecrypt: false,
 			Reporter:     reporter,
@@ -105,7 +105,7 @@ func TestVerifyFirstCorrectableRS(t *testing.T) {
 		decReq := &DecryptRequest{
 			InputFile:    pcvPath,
 			OutputFile:   outputPath,
-			Password:     password,
+			Password:     []byte(password),
 			VerifyFirst:  true,
 			ForceDecrypt: false,
 			Reporter:     &GoldenTestReporter{},

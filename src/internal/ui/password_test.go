@@ -82,39 +82,54 @@ func TestPasswordStrengthScoring(t *testing.T) {
 	}
 }
 
-// TestPasswordVisibilityToggle tests show/hide password functionality.
+// TestPasswordVisibilityToggle drives the real show/hide button built in
+// buildPasswordSection. The "Show"/"Hide" strings are state-machine values, not
+// copy: the button text IS PasswordStateLabel, and tapping flips both the label
+// and the masking on BOTH entries. The test taps the rendered button and asserts
+// (a) the button's drawn .Text pivots Show→Hide→Show, (b) IsPasswordHidden
+// tracks it, and (c) passwordEntry/cPasswordEntry masking follows. It fails if
+// the toggle stops re-labelling the button or stops un/re-masking the entries.
 func TestPasswordVisibilityToggle(t *testing.T) {
-	newTestFyneApp(t)
+	fyneApp := newTestFyneApp(t)
 
-	a := createTestApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
 
-	// Initially hidden
-	if !a.State.IsPasswordHidden() {
-		t.Error("Password should be hidden initially")
-	}
-	if a.State.PasswordStateLabel != "Show" {
-		t.Errorf("Label should be 'Show', got %q", a.State.PasswordStateLabel)
-	}
+	fyne.DoAndWait(func() {
+		// Initially hidden: button reads "Show", both entries masked.
+		if !a.State.IsPasswordHidden() {
+			t.Error("Password should be hidden initially")
+		}
+		if a.showHideBtn.Text != "Show" {
+			t.Errorf("button text should be 'Show', got %q", a.showHideBtn.Text)
+		}
+		if !a.passwordEntry.IsHidden() || !a.cPasswordEntry.IsHidden() {
+			t.Error("both entries should be masked initially")
+		}
 
-	// Toggle to show
-	a.State.TogglePasswordVisibility()
+		// Tap to reveal: button reads "Hide", entries unmasked.
+		a.showHideBtn.OnTapped()
+		if a.State.IsPasswordHidden() {
+			t.Error("Password should be visible after toggle")
+		}
+		if a.showHideBtn.Text != "Hide" {
+			t.Errorf("button text should be 'Hide' after toggle, got %q", a.showHideBtn.Text)
+		}
+		if a.passwordEntry.IsHidden() || a.cPasswordEntry.IsHidden() {
+			t.Error("both entries should be unmasked while shown")
+		}
 
-	if a.State.IsPasswordHidden() {
-		t.Error("Password should be visible after toggle")
-	}
-	if a.State.PasswordStateLabel != "Hide" {
-		t.Errorf("Label should be 'Hide', got %q", a.State.PasswordStateLabel)
-	}
-
-	// Toggle back to hide
-	a.State.TogglePasswordVisibility()
-
-	if !a.State.IsPasswordHidden() {
-		t.Error("Password should be hidden after second toggle")
-	}
-	if a.State.PasswordStateLabel != "Show" {
-		t.Errorf("Label should be 'Show', got %q", a.State.PasswordStateLabel)
-	}
+		// Tap again to hide: button reads "Show", entries re-masked.
+		a.showHideBtn.OnTapped()
+		if !a.State.IsPasswordHidden() {
+			t.Error("Password should be hidden after second toggle")
+		}
+		if a.showHideBtn.Text != "Show" {
+			t.Errorf("button text should be 'Show' after second toggle, got %q", a.showHideBtn.Text)
+		}
+		if !a.passwordEntry.IsHidden() || !a.cPasswordEntry.IsHidden() {
+			t.Error("both entries should be re-masked after hiding")
+		}
+	})
 }
 
 // TestPasswordPasteButton drives the real paste-button OnTapped handler built in

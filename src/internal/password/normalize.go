@@ -26,16 +26,22 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// Normalize returns pw in Unicode Normalization Form C (NFC).
-func Normalize(pw string) string {
-	return norm.NFC.String(pw)
+// Normalize returns pw in Unicode NFC as bytes (operates on []byte to avoid an
+// immutable, un-zeroable string copy of the password).
+func Normalize(pw []byte) []byte {
+	return norm.NFC.Bytes(pw)
 }
 
-// EncodeForKDF returns the NFC-normalized password as UTF-8 bytes to feed the
-// KDF when ENCRYPTING, so new volumes derive a canonical, cross-platform-stable
-// key regardless of how the password was typed.
-func EncodeForKDF(pw string) []byte {
-	return []byte(Normalize(pw))
+// EncodeForKDF returns the NFC-normalized password as a FRESH, independently
+// owned []byte to feed the KDF when ENCRYPTING, so new volumes derive a
+// canonical, cross-platform-stable key regardless of how the password was typed.
+//
+// It never aliases pw, so the caller may SecureZero the result without affecting
+// pw (which may still be needed downstream, e.g. the deniability path reads
+// req.Password after the encrypt-path kdfInput has been deferred-zeroed). NFC of
+// an ASCII or already-composed password is byte-equal to the input but a copy.
+func EncodeForKDF(pw []byte) []byte {
+	return append([]byte(nil), Normalize(pw)...)
 }
 
 // Candidates returns the ordered, de-duplicated password byte forms to try when
@@ -59,20 +65,20 @@ func EncodeForKDF(pw string) []byte {
 // fails to verify (i.e. a wrong password or a legacy non-NFC volume).
 //
 // Returned slices are independent allocations, so a caller may zero each one
-// after use without affecting the others.
-func Candidates(pw string) [][]byte {
+// after use without affecting the others (none aliases pw or another candidate).
+func Candidates(pw []byte) [][]byte {
 	if !ContainsNonASCII(pw) {
 		// ASCII is invariant under every normalization form, so a single
 		// candidate suffices and there is no extra KDF work for the common case.
-		return [][]byte{[]byte(pw)}
+		return [][]byte{append([]byte(nil), pw...)}
 	}
 
-	// Distinct allocations (not norm.*.Bytes, which may alias) so the caller can
-	// zero each candidate independently.
+	// Distinct allocations (norm.*.Bytes may alias its input or return a shared
+	// buffer) so the caller can zero each candidate independently.
 	forms := [3][]byte{
-		[]byte(norm.NFC.String(pw)),
-		[]byte(norm.NFD.String(pw)),
-		[]byte(pw),
+		append([]byte(nil), norm.NFC.Bytes(pw)...),
+		append([]byte(nil), norm.NFD.Bytes(pw)...),
+		append([]byte(nil), pw...),
 	}
 
 	candidates := make([][]byte, 0, len(forms))
@@ -89,9 +95,9 @@ func Candidates(pw string) [][]byte {
 // canonical form for cross-platform decryption — may still be hard to reproduce
 // on another device with a different keyboard or input method (NIST
 // SP 800-63B-4 recommends informing users of this).
-func ContainsNonASCII(pw string) bool {
-	for i := 0; i < len(pw); i++ {
-		if pw[i] >= utf8.RuneSelf {
+func ContainsNonASCII(pw []byte) bool {
+	for _, b := range pw {
+		if b >= utf8.RuneSelf {
 			return true
 		}
 	}

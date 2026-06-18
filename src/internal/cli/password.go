@@ -2,12 +2,13 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
+	"Picocrypt-NG/internal/crypto"
 	pwnorm "Picocrypt-NG/internal/password"
 
 	"golang.org/x/term"
@@ -32,20 +33,21 @@ func captureTerminalState() {
 	}
 }
 
-func readPasswordLine(reader *bufio.Reader) (string, error) {
-	pw, err := reader.ReadString('\n')
+func readPasswordLine(reader *bufio.Reader) ([]byte, error) {
+	pw, err := reader.ReadBytes('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
+		return nil, err
 	}
 
-	pw = strings.TrimSuffix(pw, "\n")
-	pw = strings.TrimSuffix(pw, "\r")
+	pw = bytes.TrimSuffix(pw, []byte("\n"))
+	pw = bytes.TrimSuffix(pw, []byte("\r"))
 	return pw, nil
 }
 
-// readPasswordSecure reads a password from stdin without echo.
-// Falls back to buffered read if stdin is not a terminal.
-func readPasswordSecure(prompt string) (string, error) {
+// readPasswordSecure reads a password from stdin without echo, returning owned
+// []byte the caller can zero. Falls back to buffered read if stdin is not a
+// terminal.
+func readPasswordSecure(prompt string) ([]byte, error) {
 	fmt.Fprint(os.Stderr, prompt)
 
 	if !isTerminal() {
@@ -53,7 +55,7 @@ func readPasswordSecure(prompt string) (string, error) {
 		reader := bufio.NewReader(os.Stdin)
 		pw, err := readPasswordLine(reader)
 		if err != nil {
-			return "", fmt.Errorf("reading password: %w", err)
+			return nil, fmt.Errorf("reading password: %w", err)
 		}
 		return pw, nil
 	}
@@ -63,13 +65,13 @@ func readPasswordSecure(prompt string) (string, error) {
 	// term.ReadPassword's own deferred restore).
 	captureTerminalState()
 
-	// Terminal mode: disable echo
+	// Terminal mode: disable echo. term.ReadPassword returns an owned []byte.
 	pw, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr) // newline after hidden input
 	if err != nil {
-		return "", fmt.Errorf("reading password: %w", err)
+		return nil, fmt.Errorf("reading password: %w", err)
 	}
-	return string(pw), nil
+	return pw, nil
 }
 
 // ReadPasswordInteractive prompts for password interactively.
@@ -80,7 +82,7 @@ func readPasswordSecure(prompt string) (string, error) {
 // The password is normalized (NFC) for cross-platform decryption, but the user
 // should still be able to reproduce the exact characters elsewhere — NIST
 // SP 800-63B-4 recommends advising this.
-func nonASCIIPasswordNote(confirm bool, password string) string {
+func nonASCIIPasswordNote(confirm bool, password []byte) string {
 	if confirm && pwnorm.ContainsNonASCII(password) {
 		return "Note: your password contains non-ASCII characters. They are normalized " +
 			"for cross-platform decryption, but make sure you can type the same " +
@@ -89,27 +91,29 @@ func nonASCIIPasswordNote(confirm bool, password string) string {
 	return ""
 }
 
-func ReadPasswordInteractive(confirm, allowEmpty bool) (string, error) {
+func ReadPasswordInteractive(confirm, allowEmpty bool) ([]byte, error) {
 	// Once the prompt(s) have returned normally, clear the saved tty state so a
 	// later unrelated signal does not re-poke the terminal.
 	defer savedTerminalState.Store(nil)
 
 	password, err := readPasswordSecure("Password: ")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	if password == "" && !allowEmpty {
-		return "", ErrPasswordEmpty
+	if len(password) == 0 && !allowEmpty {
+		return nil, ErrPasswordEmpty
 	}
 
-	if confirm && password != "" {
+	if confirm && len(password) > 0 {
 		confirmPw, err := readPasswordSecure("Confirm password: ")
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		if password != confirmPw {
-			return "", ErrPasswordMismatch
+		// Zero the confirmation copy once compared; only `password` is returned.
+		defer crypto.SecureZero(confirmPw)
+		if !bytes.Equal(password, confirmPw) {
+			return nil, ErrPasswordMismatch
 		}
 	}
 
@@ -121,11 +125,11 @@ func ReadPasswordInteractive(confirm, allowEmpty bool) (string, error) {
 }
 
 // ReadPasswordFromStdin reads password from stdin (for piped input with -P flag).
-func ReadPasswordFromStdin() (string, error) {
+func ReadPasswordFromStdin() ([]byte, error) {
 	reader := bufio.NewReader(os.Stdin)
 	pw, err := readPasswordLine(reader)
 	if err != nil {
-		return "", fmt.Errorf("reading password from stdin: %w", err)
+		return nil, fmt.Errorf("reading password from stdin: %w", err)
 	}
 	return pw, nil
 }

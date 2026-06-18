@@ -29,13 +29,13 @@ func TestRemoveDeniabilityRemovesTempOnVerificationFailure(t *testing.T) {
 	}
 
 	const password = "deniability-cleanup-password"
-	if err := AddDeniability(wrappedPath, password, nil); err != nil {
+	if err := AddDeniability(wrappedPath, []byte(password), nil); err != nil {
 		t.Fatalf("AddDeniability failed: %v", err)
 	}
 
 	tmpPath := wrappedPath + ".tmp"
 
-	decryptedPath, err := RemoveDeniability(wrappedPath, password, nil, rs)
+	decryptedPath, err := RemoveDeniability(wrappedPath, []byte(password), nil, rs)
 	if err == nil {
 		t.Fatalf("RemoveDeniability succeeded for invalid inner volume, returned %q", decryptedPath)
 	}

@@ -2,8 +2,6 @@ package crypto
 
 import (
 	"testing"
-
-	"golang.org/x/crypto/chacha20"
 )
 
 // BenchmarkDeriveKeyNormal measures Argon2id key derivation in normal mode.
@@ -77,21 +75,6 @@ func BenchmarkMACWrite_HMACSHA3(b *testing.B) {
 		mac.Reset()
 		mac.Write(data)
 		_ = mac.Sum(nil)
-	}
-}
-
-// BenchmarkXChaCha20 measures XChaCha20 encryption throughput.
-func BenchmarkXChaCha20(b *testing.B) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 24)
-	cipher, _ := chacha20.NewUnauthenticatedCipher(key, nonce)
-	data := make([]byte, 1<<20) // 1 MiB
-	dst := make([]byte, len(data))
-
-	b.ResetTimer()
-	b.SetBytes(int64(len(data)))
-	for b.Loop() {
-		cipher.XORKeyStream(dst, data)
 	}
 }
 

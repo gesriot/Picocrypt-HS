@@ -57,7 +57,7 @@ func TestDeniabilityAddShortReadsByteIdentical(t *testing.T) {
 			t.Fatalf("write %s: %v", name, err)
 		}
 		rand.Reader = newDeterministicReader()
-		if err := AddDeniability(path, "deniability-short-read", nil); err != nil {
+		if err := AddDeniability(path, []byte("deniability-short-read"), nil); err != nil {
 			t.Fatalf("AddDeniability(%s): %v", name, err)
 		}
 		out, err := os.ReadFile(path)
@@ -103,7 +103,7 @@ func TestDeniabilityRemoveShortReadsRoundTrip(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  volPath,
-		Password:    "deniability-roundtrip",
+		Password:    []byte("deniability-roundtrip"),
 		ReedSolomon: false,
 		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rs,
@@ -119,14 +119,14 @@ func TestDeniabilityRemoveShortReadsRoundTrip(t *testing.T) {
 	}
 
 	// Add deniability with full reads (the known-good encrypt path).
-	if err := AddDeniability(volPath, "deniability-roundtrip", nil); err != nil {
+	if err := AddDeniability(volPath, []byte("deniability-roundtrip"), nil); err != nil {
 		t.Fatalf("AddDeniability: %v", err)
 	}
 
 	// Remove deniability under a short-read seam.
 	restore := deniabilityShortReadSeam(shortReadMax)
 	defer restore()
-	outPath, err := RemoveDeniability(volPath, "deniability-roundtrip", nil, rs)
+	outPath, err := RemoveDeniability(volPath, []byte("deniability-roundtrip"), nil, rs)
 	if err != nil {
 		t.Fatalf("RemoveDeniability under short-read seam: %v", err)
 	}

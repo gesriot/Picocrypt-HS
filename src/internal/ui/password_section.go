@@ -128,7 +128,7 @@ func (a *App) updateNonASCIIHint() {
 	if a.nonASCIIHint == nil {
 		return
 	}
-	if a.State.Mode != "decrypt" && pwnorm.ContainsNonASCII(a.State.Password) {
+	if a.State.Mode != "decrypt" && pwnorm.ContainsNonASCII([]byte(a.State.Password)) {
 		a.nonASCIIHint.Show()
 	} else {
 		a.nonASCIIHint.Hide()

@@ -43,7 +43,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 			name: "no output file",
 			req: &EncryptRequest{
 				InputFile: testFile,
-				Password:  "test",
+				Password:  []byte("test"),
 			},
 			wantValidationFld: "OutputFile",
 		},
@@ -52,7 +52,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 			req: &EncryptRequest{
 				InputFile:  testFile,
 				OutputFile: filepath.Join(tmpDir, "out.pcv"),
-				Password:   "test",
+				Password:   []byte("test"),
 				Split:      true,
 				ChunkSize:  0,
 			},
@@ -63,7 +63,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 			req: &EncryptRequest{
 				InputFile:  "/nonexistent/file.txt",
 				OutputFile: filepath.Join(tmpDir, "out.pcv"),
-				Password:   "test",
+				Password:   []byte("test"),
 			},
 			wantFileNotFound: true,
 		},
@@ -72,7 +72,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 			req: &EncryptRequest{
 				InputFile:  testFile,
 				OutputFile: filepath.Join(tmpDir, "out.pcv"),
-				Password:   "test",
+				Password:   []byte("test"),
 			},
 			wantNil: true,
 		},
@@ -126,7 +126,7 @@ func TestValidateRejectsOverflowingChunkSize(t *testing.T) {
 	req := &EncryptRequest{
 		InputFile:  testFile,
 		OutputFile: filepath.Join(tmpDir, "out.pcv"),
-		Password:   "test",
+		Password:   []byte("test"),
 		Split:      true,
 		ChunkSize:  1 << 23, // 2^23 TiB * 2^40 = 2^63, overflows int64
 		ChunkUnit:  fileops.SplitUnitTiB,
@@ -162,7 +162,7 @@ func TestValidateRejectsLongCommentEarly(t *testing.T) {
 	req := &EncryptRequest{
 		InputFile:  testFile,
 		OutputFile: filepath.Join(tmpDir, "out.pcv"),
-		Password:   "test",
+		Password:   []byte("test"),
 		Comments:   string(make([]byte, header.MaxCommentLen+1)), // 1 over the bound
 	}
 
@@ -184,28 +184,30 @@ func TestDecryptRequestValidate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		req     *DecryptRequest
-		wantErr bool
+		name              string
+		req               *DecryptRequest
+		wantValidationFld string // non-empty => assert *ValidationError with this Field
+		wantFileNotFound  bool   // true => assert *FileError unwrapping to os.ErrNotExist
+		wantNil           bool   // true => assert err == nil
 	}{
 		{
-			name:    "no input file",
-			req:     &DecryptRequest{},
-			wantErr: true,
+			name:              "no input file",
+			req:               &DecryptRequest{},
+			wantValidationFld: "InputFile",
 		},
 		{
 			name: "input file not found",
 			req: &DecryptRequest{
 				InputFile: "/nonexistent/file.pcv",
 			},
-			wantErr: true,
+			wantFileNotFound: true,
 		},
 		{
 			name: "no output file",
 			req: &DecryptRequest{
 				InputFile: testFile,
 			},
-			wantErr: true,
+			wantValidationFld: "OutputFile",
 		},
 		{
 			name: "valid request",
@@ -213,15 +215,34 @@ func TestDecryptRequestValidate(t *testing.T) {
 				InputFile:  testFile,
 				OutputFile: filepath.Join(tmpDir, "out.txt"),
 			},
-			wantErr: false,
+			wantNil: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.req.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			switch {
+			case tt.wantValidationFld != "":
+				var ve *errors.ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("Validate() error = %v, want *ValidationError on field %q", err, tt.wantValidationFld)
+				}
+				if ve.Field != tt.wantValidationFld {
+					t.Errorf("ValidationError.Field = %q, want %q", ve.Field, tt.wantValidationFld)
+				}
+			case tt.wantFileNotFound:
+				var fe *errors.FileError
+				if !errors.As(err, &fe) {
+					t.Fatalf("Validate() error = %v, want *FileError", err)
+				}
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("Validate() error = %v, want it to wrap os.ErrNotExist", err)
+				}
+			case tt.wantNil:
+				if err != nil {
+					t.Errorf("Validate() error = %v, want nil", err)
+				}
 			}
 		})
 	}
@@ -256,7 +277,7 @@ func TestDecryptRequestValidateCredentials(t *testing.T) {
 			req: &DecryptRequest{
 				InputFile:  testFile,
 				OutputFile: filepath.Join(tmpDir, "out.txt"),
-				Password:   "test",
+				Password:   []byte("test"),
 			},
 			keyfilesRequired:  true,
 			wantValidationFld: "Keyfiles",
@@ -266,7 +287,7 @@ func TestDecryptRequestValidateCredentials(t *testing.T) {
 			req: &DecryptRequest{
 				InputFile:  testFile,
 				OutputFile: filepath.Join(tmpDir, "out.txt"),
-				Password:   "test",
+				Password:   []byte("test"),
 			},
 			keyfilesRequired: false,
 			wantNil:          true,

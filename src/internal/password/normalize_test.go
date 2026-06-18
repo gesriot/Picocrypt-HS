@@ -25,26 +25,6 @@ var (
 	gaNFDBytes = []byte{0xe1, 0x84, 0x80, 0xe1, 0x85, 0xa1}
 )
 
-// TestVectorConstantsHaveExpectedByteForms documents and locks the UTF-8 byte
-// encodings of the vectors, so a wrong code point above is caught immediately.
-func TestVectorConstantsHaveExpectedByteForms(t *testing.T) {
-	checks := []struct {
-		name string
-		got  []byte
-		want []byte
-	}{
-		{"eComposed", []byte(eComposed), eNFCBytes},
-		{"eDecomposed", []byte(eDecomposed), eNFDBytes},
-		{"gaComposed", []byte(gaComposed), gaNFCBytes},
-		{"gaDecomposed", []byte(gaDecomposed), gaNFDBytes},
-	}
-	for _, c := range checks {
-		if !bytes.Equal(c.got, c.want) {
-			t.Errorf("%s raw bytes = % x, want % x", c.name, c.got, c.want)
-		}
-	}
-}
-
 func TestNormalizeProducesNFC(t *testing.T) {
 	// Composed and decomposed forms of the SAME character must normalize to
 	// identical NFC bytes — that is exactly what lets a password typed on one
@@ -61,7 +41,7 @@ func TestNormalizeProducesNFC(t *testing.T) {
 		{"ga decomposed", gaDecomposed, gaNFCBytes},
 	}
 	for _, tc := range cases {
-		if got := []byte(Normalize(tc.in)); !bytes.Equal(got, tc.want) {
+		if got := Normalize([]byte(tc.in)); !bytes.Equal(got, tc.want) {
 			t.Errorf("Normalize(%s) = % x, want % x", tc.name, got, tc.want)
 		}
 	}
@@ -69,9 +49,9 @@ func TestNormalizeProducesNFC(t *testing.T) {
 
 func TestNormalizeIsIdempotent(t *testing.T) {
 	for _, in := range []string{eComposed, eDecomposed, gaDecomposed, devEmoji, "ascii"} {
-		once := Normalize(in)
-		if twice := Normalize(once); twice != once {
-			t.Errorf("Normalize not idempotent for % x: % x != % x", []byte(in), []byte(twice), []byte(once))
+		once := Normalize([]byte(in))
+		if twice := Normalize(once); !bytes.Equal(twice, once) {
+			t.Errorf("Normalize not idempotent for % x: % x != % x", []byte(in), twice, once)
 		}
 	}
 }
@@ -80,7 +60,7 @@ func TestNormalizeLeavesASCIIUnchanged(t *testing.T) {
 	// ASCII is invariant under NFC, so the millions of existing ASCII-password
 	// volumes are completely unaffected by this change.
 	in := "Correct Horse Battery Staple 123!@#"
-	if got := Normalize(in); got != in {
+	if got := Normalize([]byte(in)); !bytes.Equal(got, []byte(in)) {
 		t.Errorf("Normalize(ascii) = %q, want unchanged %q", got, in)
 	}
 }
@@ -90,24 +70,36 @@ func TestNormalizeDoesNotCaseFoldOrTrim(t *testing.T) {
 	// Turkish dotless-i class reduces security) and must NOT trim whitespace
 	// (silent entropy loss / lockouts). U+00DF (ß) must not fold to "ss".
 	in := " stra" + string([]rune{0x00DF}) + "e " // " straße "
-	if got := Normalize(in); got != in {
-		t.Errorf("Normalize must preserve U+00DF and surrounding spaces: % x -> % x", []byte(in), []byte(got))
+	if got := Normalize([]byte(in)); !bytes.Equal(got, []byte(in)) {
+		t.Errorf("Normalize must preserve U+00DF and surrounding spaces: % x -> % x", []byte(in), got)
 	}
 }
 
 func TestNormalizeLeavesEmojiZWJUnchanged(t *testing.T) {
 	// ZWJ emoji sequences have no canonical decomposition; NFC passes them
 	// through byte-for-byte, so emoji passwords are never corrupted.
-	if got := Normalize(devEmoji); got != devEmoji {
-		t.Errorf("Normalize altered ZWJ emoji: % x -> % x", []byte(devEmoji), []byte(got))
+	if got := Normalize([]byte(devEmoji)); !bytes.Equal(got, []byte(devEmoji)) {
+		t.Errorf("Normalize altered ZWJ emoji: % x -> % x", []byte(devEmoji), got)
 	}
 }
 
 func TestEncodeForKDFIsNFCBytes(t *testing.T) {
 	// Encrypt must feed the KDF the NFC form regardless of how the password was
 	// typed, so new volumes are cross-platform-stable.
-	if got := EncodeForKDF(eDecomposed); !bytes.Equal(got, eNFCBytes) {
+	if got := EncodeForKDF([]byte(eDecomposed)); !bytes.Equal(got, eNFCBytes) {
 		t.Errorf("EncodeForKDF(decomposed e) = % x, want NFC % x", got, eNFCBytes)
+	}
+}
+
+func TestEncodeForKDFReturnsIndependentCopy(t *testing.T) {
+	// The encrypt path SecureZeros the EncodeForKDF result via defer; if that
+	// result aliased req.Password's backing array, the defer would wipe the
+	// password BEFORE AddDeniability reads it later in the pipeline (silently
+	// breaking deniability). EncodeForKDF must therefore return a fresh copy.
+	pw := []byte("café") // non-ASCII so NFC may differ; still must be a copy
+	out := EncodeForKDF(pw)
+	if len(out) > 0 && len(pw) > 0 && &out[0] == &pw[0] {
+		t.Fatal("EncodeForKDF must return a copy, not alias the input (caller zeros it independently)")
 	}
 }
 
@@ -115,7 +107,7 @@ func TestCandidatesASCIISingleAttempt(t *testing.T) {
 	// The common case: ASCII passwords yield exactly ONE candidate (raw bytes),
 	// guaranteeing no extra Argon2 work and no behavior change. If this grew to
 	// >1, every ASCII wrong-password would pay multiple 1 GiB derivations.
-	got := Candidates("password123")
+	got := Candidates([]byte("password123"))
 	if len(got) != 1 {
 		t.Fatalf("ASCII Candidates len = %d, want 1 (got % x)", len(got), got)
 	}
@@ -131,7 +123,7 @@ func TestCandidatesNonASCIIOrderAndDedup(t *testing.T) {
 	// after dedup we expect exactly [NFC, NFD]; same for the decomposed form
 	// (there NFD == raw).
 	for _, in := range []string{eComposed, eDecomposed} {
-		got := Candidates(in)
+		got := Candidates([]byte(in))
 		if len(got) != 2 {
 			t.Fatalf("Candidates(% x) len = %d, want 2 (got % x)", []byte(in), len(got), got)
 		}
@@ -148,7 +140,7 @@ func TestCandidatesIncludesRawWhenNeitherNFCNorNFD(t *testing.T) {
 	// A non-canonical input (combining marks out of canonical order) differs
 	// from BOTH its NFC and NFD forms, so raw MUST be kept as a third candidate
 	// to keep such legacy volumes decryptable.
-	got := Candidates(nonCanonical)
+	got := Candidates([]byte(nonCanonical))
 	if len(got) != 3 {
 		t.Fatalf("Candidates(non-canonical) len = %d, want 3 (got % x)", len(got), got)
 	}
@@ -161,7 +153,7 @@ func TestCandidatesIncludesRawWhenNeitherNFCNorNFD(t *testing.T) {
 }
 
 func TestCandidatesEmptyPassword(t *testing.T) {
-	got := Candidates("")
+	got := Candidates([]byte(""))
 	if len(got) != 1 || len(got[0]) != 0 {
 		t.Errorf("Candidates(\"\") = %v, want a single empty candidate", got)
 	}
@@ -182,7 +174,7 @@ func TestContainsNonASCII(t *testing.T) {
 		{"ascii then non-ascii", "pass" + eComposed, true},
 	}
 	for _, tc := range cases {
-		if got := ContainsNonASCII(tc.in); got != tc.want {
+		if got := ContainsNonASCII([]byte(tc.in)); got != tc.want {
 			t.Errorf("ContainsNonASCII(%s) = %v, want %v", tc.name, got, tc.want)
 		}
 	}

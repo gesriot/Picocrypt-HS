@@ -6,9 +6,13 @@ import (
 	"hash"
 	"io"
 
-	"github.com/Picocrypt/serpent"
+	"github.com/Picocrypt-NG/serpent"
 	"golang.org/x/crypto/chacha20"
 )
+
+// zeroizer is implemented by cipher blocks that can wipe their expanded key
+// schedule (e.g. the Picocrypt-NG/serpent fork's *subkeys.Zero()).
+type zeroizer interface{ Zero() }
 
 // CipherSuite holds the initialized ciphers and MAC for encryption/decryption.
 // This manages the XChaCha20 and optional Serpent-CTR ciphers.
@@ -148,11 +152,15 @@ func (cs *CipherSuite) IsParanoid() bool {
 	return cs.paranoid
 }
 
-// Close securely zeros all sensitive key material in the cipher suite.
-// This should be called via defer immediately after creating the cipher suite.
+// Close zeros the retained []byte key and drops cipher/MAC references.
 //
-// SECURITY: Always call Close() when done with the cipher suite to minimize
-// the window during which key material is recoverable from memory.
+// SECURITY — scope of zeroing: only the retained []byte key (cs.key) is wiped.
+// The expanded key schedules held inside *chacha20.Cipher ([8]uint32 + HChaCha20
+// subkey) and the BLAKE2b/HMAC internal key state cannot be reached from here and
+// are an accepted residual (see threat model). The Serpent schedule IS wiped when
+// the serpent block exposes Zero() (see Rekey/NewCipherSuite). Calling Reset() on
+// the keyed MAC would RE-INSTALL its key, not clear it, so it is intentionally not
+// called.
 func (cs *CipherSuite) Close() {
 	if cs == nil {
 		return
@@ -160,8 +168,10 @@ func (cs *CipherSuite) Close() {
 	SecureZero(cs.key)
 	cs.key = nil
 	cs.chacha = nil
+	if z, ok := cs.serpentS.(zeroizer); ok {
+		z.Zero()
+	}
 	cs.serpent = nil
 	cs.serpentS = nil
-	SecureZeroHash(cs.mac)
 	cs.mac = nil
 }

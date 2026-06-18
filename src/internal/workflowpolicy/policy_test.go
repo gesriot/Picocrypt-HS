@@ -263,7 +263,8 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 		t.Fatal("release keystore decode step should declare ANDROID_KEYSTORE_BASE64")
 	}
 	mustStepNamed(t, releaseJob, "Build Signed Release APK")
-	mustStepUsing(t, releaseJob, "actions/download-artifact@v8")
+	downloadStep := mustHaveStepUsingPrefix(t, releaseJob, "actions/download-artifact@")
+	mustMatch(t, downloadStep.Uses, `actions/download-artifact@[0-9a-f]{40}`)
 }
 
 func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
@@ -321,9 +322,10 @@ func TestWindowsLegacyWorkflowsCacheLegacyGo(t *testing.T) {
 		workflow := mustReadWorkflowDoc(t, tc.path)
 		job := mustJob(t, workflow, tc.job)
 		cacheStep := mustStepNamed(t, job, "Cache go-legacy-win7")
-		if cacheStep.Uses != "actions/cache@v4" {
-			t.Fatalf("cache step uses = %q, want actions/cache@v4", cacheStep.Uses)
-		}
+		// actions/cache must be SHA-pinned for supply-chain safety, not floated on
+		// a mutable major tag. Assert the 40-hex pin, not a specific version, so a
+		// cache bump (e.g. the v4->v5 unification) does not churn this test.
+		mustMatch(t, cacheStep.Uses, `actions/cache@[0-9a-f]{40}`)
 		if cacheStep.With["path"] != `C:\go-legacy` {
 			t.Fatalf("cache step path = %#v, want C:\\go-legacy", cacheStep.With["path"])
 		}

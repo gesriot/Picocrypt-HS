@@ -17,7 +17,7 @@ func (req *EncryptRequest) Validate() error {
 	}
 
 	// Check for credentials
-	if req.Password == "" && len(req.Keyfiles) == 0 {
+	if len(req.Password) == 0 && len(req.Keyfiles) == 0 {
 		return errors.ErrNoCredentials
 	}
 
@@ -113,7 +113,7 @@ func (req *DecryptRequest) Validate() error {
 // ValidateCredentials checks that credentials are provided for decryption.
 // This should be called after reading the header to know if keyfiles are required.
 func (req *DecryptRequest) ValidateCredentials(keyfilesRequired bool) error {
-	hasPassword := req.Password != ""
+	hasPassword := len(req.Password) > 0
 	hasKeyfiles := len(req.Keyfiles) > 0
 
 	// Must have at least one credential type

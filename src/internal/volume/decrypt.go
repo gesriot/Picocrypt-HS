@@ -212,7 +212,7 @@ func decryptReadHeader(ctx *OperationContext, req *DecryptRequest) error {
 func decryptDeriveKeys(ctx *OperationContext, req *DecryptRequest) error {
 	ctx.SetStatus("Deriving key...")
 
-	key, err := deriveVolumeKey(ctx.passwordBytes, ctx.Header.Salt, ctx.Header.Flags.Paranoid)
+	key, err := deriveVolumeKey(ctx.passwordBytes.Bytes(), ctx.Header.Salt, ctx.Header.Flags.Paranoid)
 	if err != nil {
 		return err
 	}
@@ -256,7 +256,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 	if ctx.IsLegacyV1 {
 		// v1: HKDF initialized AFTER keyfile XOR
 		// First verify password using SHA3-512(key)
-		authResult := header.VerifyV1Header(ctx.Key, ctx.Header)
+		authResult := header.VerifyV1Header(ctx.Key.Bytes(), ctx.Header)
 
 		if !authResult.Valid {
 			if req.ForceDecrypt {
@@ -277,8 +277,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 			}
 		}
 
-		// For v1, XOR keyfile key into main key BEFORE HKDF
-		key := ctx.Key
+		// For v1, XOR keyfile key into main key BEFORE HKDF, owning the result first.
 		if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
 			// DATA-02: a legacy v1 volume may have been authored with an
 			// even-count duplicate keyfile set whose unordered XOR cancels to
@@ -288,26 +287,22 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 			// only WARN, mirroring the encrypt-side detection (D-10/D-12). This
 			// sits AFTER the v1 SHA3-512(key) password verifier above, so it
 			// does not let a wrong-password/tampered volume through.
-			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
+			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey.Bytes()) {
 				log.Warn("duplicate keyfiles detected (keys cancel out)")
 				ctx.SetStatus("Warning: duplicate keyfiles detected (keys cancel out)...")
 			}
-			key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
+			// XORWithKey returns a NEW slice; setKey zeros the orphaned Argon2
+			// backing array and adopts the result. No two-step window.
+			ctx.setKey(keyfile.XORWithKey(ctx.Key.Bytes(), ctx.KeyfileKey.Bytes()))
 		}
+		// (no keyfiles: ctx.Key already holds the password key — self-assign-safe)
 
-		// Initialize HKDF with XORed key (v1 behavior)
-		hkdfStream := crypto.NewHKDFStream(key, ctx.Header.HKDFSalt)
+		// Initialize HKDF with the (possibly XORed) owned key.
+		hkdfStream := crypto.NewHKDFStream(ctx.Key.Bytes(), ctx.Header.HKDFSalt)
 		ctx.SubkeyReader = crypto.NewSubkeyReader(hkdfStream)
-
-		// Store the XORed key for cipher initialization.
-		// SEC-05/WR-01: with keyfiles, `key` is a NEW XOR-result slice and the old
-		// Argon2 backing array is orphaned — setKey zeros it. With NO keyfiles,
-		// `key == ctx.Key` (self-assign, Pitfall 1) and the pointer-identity guard
-		// skips zeroing so the LIVE key survives.
-		ctx.setKey(key)
 	} else {
 		// v2: HKDF initialized BEFORE keyfile XOR
-		hkdfStream := crypto.NewHKDFStream(ctx.Key, ctx.Header.HKDFSalt)
+		hkdfStream := crypto.NewHKDFStream(ctx.Key.Bytes(), ctx.Header.HKDFSalt)
 		ctx.SubkeyReader = crypto.NewSubkeyReader(hkdfStream)
 
 		// Read header subkey for verification
@@ -315,6 +310,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 		if err != nil {
 			return err
 		}
+		defer crypto.SecureZero(subkeyHeader)
 
 		// Verify header MAC
 		authResult := header.VerifyV2Header(subkeyHeader, ctx.Header, ctx.KeyfileHash)
@@ -341,12 +337,12 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 
 		// For v2, XOR keyfile key AFTER HKDF init
 		if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
-			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
+			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey.Bytes()) {
 				return perrors.ErrDuplicateKeyfiles
 			}
 			// SEC-05/WR-01: XORWithKey returns a NEW slice; setKey zeros the orphaned
 			// Argon2 backing array before reassigning.
-			ctx.setKey(keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey))
+			ctx.setKey(keyfile.XORWithKey(ctx.Key.Bytes(), ctx.KeyfileKey.Bytes()))
 		}
 	}
 
@@ -365,7 +361,9 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 func decryptDeriveProcessVerify(ctx *OperationContext, req *DecryptRequest) error {
 	candidates := pwnorm.Candidates(req.Password)
 	if req.ForceDecrypt {
-		candidates = [][]byte{[]byte(req.Password)}
+		// Own a copy so setPasswordBytes adopts an independent slice (it may zero
+		// the predecessor); never alias the caller's req.Password backing array.
+		candidates = [][]byte{append([]byte(nil), req.Password...)}
 	}
 
 	var lastErr error
@@ -635,7 +633,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 
 	// Create cipher suite
 	cipherSuite, err := crypto.NewCipherSuite(
-		ctx.Key,
+		ctx.Key.Bytes(),
 		ctx.Header.Nonce,
 		serpentKey,
 		ctx.Header.SerpentIV,

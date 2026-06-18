@@ -91,7 +91,7 @@ func (w byteSliceWriterAt) WriteAt(p []byte, off int64) (int, error) {
 // EncryptVolume encrypts plaintext data into a Picocrypt volume.
 // Returns (ciphertext, 0) on success, or (nil, errorCode) on failure.
 // Web version: password-only, no keyfiles, no paranoid mode, no RS on payload.
-func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
+func EncryptVolume(plaintext, password []byte) ([]byte, int) {
 	// Initialize RS codecs
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {

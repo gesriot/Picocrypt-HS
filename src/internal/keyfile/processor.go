@@ -13,24 +13,9 @@ import (
 )
 
 // Result contains the computed keyfile key and its hash for verification.
-// Call Close() when done to securely zero the key material.
 type Result struct {
-	Key    []byte // 32 bytes - derived key for XOR with main password key
-	Hash   []byte // 32 bytes - SHA3-256(Key) for header storage/verification
-	closed bool
-}
-
-// Close securely zeros the keyfile key material.
-// The hash is retained as it's not sensitive (stored in header).
-//
-// SECURITY: Always call Close() when done with the keyfile result.
-func (r *Result) Close() {
-	if r == nil || r.closed {
-		return
-	}
-	crypto.SecureZero(r.Key)
-	r.Key = nil
-	r.closed = true
+	Key  []byte // 32 bytes - derived key for XOR with main password key
+	Hash []byte // 32 bytes - SHA3-256(Key) for header storage/verification
 }
 
 // ProgressFunc is called during keyfile processing with progress 0.0-1.0

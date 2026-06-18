@@ -48,15 +48,30 @@ func mustReadFile(t *testing.T, relPath string) []byte {
 	return data
 }
 
+// TestActiveReleaseMetadataVersions is a version-desync tripwire: every distribution
+// artifact's version field must equal the canonical root VERSION file. Expectations
+// are DERIVED from VERSION (like the sibling TestMetainfoCurrentReleaseMatchesVersion)
+// — NOT hardcoded — so a release bump edits VERSION + the artifacts and this test
+// needs no per-release edit. Mutation caught: any single artifact (FyneApp.toml,
+// snapcraft.yaml, versioninfo.rc numeric or string fields) drifting from root VERSION.
+// The numeric Windows form is the dotted version with each component as a regex token,
+// so "2.16" -> "2,16,0,0"; regexes are built with regexp.QuoteMeta on the derived
+// values so the dots/commas can never be mistaken for regex metacharacters.
 func TestActiveReleaseMetadataVersions(t *testing.T) {
-	const want = "2.15"
+	want := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
 
-	t.Run("root_VERSION", func(t *testing.T) {
-		got := strings.TrimSpace(string(mustReadFile(t, "VERSION")))
-		if got != want {
-			t.Fatalf("VERSION = %q, want %q", got, want)
-		}
-	})
+	// Well-formedness: the derived expectation must be a dotted M.N version. If VERSION
+	// is malformed the derived numeric form below would be garbage, so guard up front.
+	if !regexp.MustCompile(`^\d+\.\d+$`).MatchString(want) {
+		t.Fatalf("root VERSION = %q is not well-formed (want ^\\d+\\.\\d+$)", want)
+	}
+
+	// Numeric Windows form: "2.16" -> "2,16,0,0".
+	parts := strings.Split(want, ".")
+	if len(parts) != 2 {
+		t.Fatalf("root VERSION = %q did not split into exactly 2 parts", want)
+	}
+	wantNumeric := parts[0] + "," + parts[1] + ",0,0"
 
 	t.Run("fyne_details_version", func(t *testing.T) {
 		var app struct {
@@ -68,7 +83,7 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 			t.Fatalf("parse FyneApp.toml: %v", err)
 		}
 		if app.Details.Version != want {
-			t.Fatalf("FyneApp.toml Details.Version = %q, want %q", app.Details.Version, want)
+			t.Fatalf("FyneApp.toml Details.Version = %q, want %q (root VERSION file)", app.Details.Version, want)
 		}
 	})
 
@@ -80,7 +95,7 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 			t.Fatalf("parse snapcraft.yaml: %v", err)
 		}
 		if snap.Version != want {
-			t.Fatalf("snapcraft.yaml version = %q, want %q", snap.Version, want)
+			t.Fatalf("snapcraft.yaml version = %q, want %q (root VERSION file)", snap.Version, want)
 		}
 	})
 
@@ -90,14 +105,14 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 			name string
 			re   *regexp.Regexp
 		}{
-			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+2,15,0,0\r?$`)},
-			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+2,15,0,0\r?$`)},
-			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"2\.15"\r?$`)},
+			{name: "fileversion_numeric", re: regexp.MustCompile(`(?m)^FILEVERSION\s+` + regexp.QuoteMeta(wantNumeric) + `\r?$`)},
+			{name: "productversion_numeric", re: regexp.MustCompile(`(?m)^PRODUCTVERSION\s+` + regexp.QuoteMeta(wantNumeric) + `\r?$`)},
+			{name: "fileversion_string", re: regexp.MustCompile(`(?m)^\s*VALUE\s+"FileVersion",\s+"` + regexp.QuoteMeta(want) + `"\r?$`)},
 		}
 		for _, req := range required {
 			t.Run(req.name, func(t *testing.T) {
 				if !req.re.MatchString(text) {
-					t.Fatalf("versioninfo.rc missing %s pattern %q", req.name, req.re.String())
+					t.Fatalf("versioninfo.rc missing %s pattern %q (derived from root VERSION %q)", req.name, req.re.String(), want)
 				}
 			})
 		}

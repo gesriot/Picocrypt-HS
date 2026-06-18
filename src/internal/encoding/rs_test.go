@@ -136,7 +136,7 @@ func TestRS128EncodeGoldenVector(t *testing.T) {
 	}
 }
 
-func TestEncodeIntoMatchesEncode(t *testing.T) {
+func TestEncodeIntoGoldenVectors(t *testing.T) {
 	codecs, err := NewRSCodecs()
 	if err != nil {
 		t.Fatalf("NewRSCodecs() failed: %v", err)
@@ -291,36 +291,57 @@ func TestRSEncodeDecodeRS128(t *testing.T) {
 	if !bytes.Equal(decoded, data) {
 		t.Error("Decode(RS128, fastDecode=true) did not recover original data")
 	}
-}
 
-func TestRSEncodeDecodeRS5(t *testing.T) {
-	codecs, err := NewRSCodecs()
-	if err != nil {
-		t.Fatalf("NewRSCodecs() failed: %v", err)
+	// Recovery: RS128 = FEC(128,136) corrects up to 4 corrupted bytes. The
+	// correct path (fastDecode=false) must repair exactly-4 corruption silently.
+	// Mutation caught: dropping payload error-correction (e.g. always taking the
+	// fast slice) leaves the 4 flipped bytes in place and this fails.
+	recover4 := make([]byte, len(encoded))
+	copy(recover4, encoded)
+	for i := 0; i < 4; i++ {
+		recover4[i*30] ^= 0xFF
 	}
-
-	// Test RS5 (used for version, flags, etc.)
-	data := []byte("v2.00")
-
-	// Encode
-	encoded, err := Encode(codecs.RS5, data)
+	decoded, err = Decode(codecs.RS128, recover4, false)
 	if err != nil {
-		t.Fatalf("Encode(RS5) failed: %v", err)
-	}
-	if len(encoded) != 15 {
-		t.Errorf("Encode(RS5) length = %d; want 15", len(encoded))
-	}
-
-	// Decode
-	decoded, err := Decode(codecs.RS5, encoded, false)
-	if err != nil {
-		t.Fatalf("Decode(RS5) failed: %v", err)
+		t.Fatalf("Decode(RS128, 4-byte corruption) returned err=%v; want nil (recoverable)", err)
 	}
 	if !bytes.Equal(decoded, data) {
-		t.Errorf("Decode(RS5) = %q; want %q", decoded, data)
+		t.Error("Decode(RS128, 4-byte corruption) did not recover original data")
+	}
+
+	// Detection: 5 corrupted bytes exceed RS128's budget. The correct path must
+	// surface a non-nil error (the format-integrity signal the decrypt pipeline
+	// relies on to trigger force-decode / report tampering).
+	// Mutation caught: Decode swallowing rs.Decode's error on the payload codec.
+	corrupt5 := make([]byte, len(encoded))
+	copy(corrupt5, encoded)
+	for i := 0; i < 5; i++ {
+		corrupt5[i*20] ^= 0xFF
+	}
+	if _, err := Decode(codecs.RS128, corrupt5, false); err == nil {
+		t.Error("Decode(RS128, 5-byte corruption) = nil error; want non-nil (beyond correction budget)")
+	}
+
+	// Fast-path contrast: on the SAME 5-byte-corrupted block, fastDecode=true
+	// skips correction entirely and hands back the raw first 128 bytes with nil
+	// error. This pins the performance shortcut: it neither corrects nor detects.
+	// Mutation caught: the fast path silently running error correction (it would
+	// then differ from the raw corrupted prefix).
+	fast, err := Decode(codecs.RS128, corrupt5, true)
+	if err != nil {
+		t.Fatalf("Decode(RS128, 5-byte corruption, fastDecode=true) returned err=%v; want nil", err)
+	}
+	if !bytes.Equal(fast, corrupt5[:128]) {
+		t.Error("Decode(RS128, fastDecode=true) ran correction; want raw corrupted data[:128]")
 	}
 }
 
+// TestRSEncodeDecodeRS1 pins the failure mode of the comment-symbol codec
+// RS1 = FEC(1,3). It corrects 1 corrupted byte but CANNOT detect 2: with k=1,
+// a single surviving share already equals Required, so Berlekamp-Welch
+// reconstructs a self-consistent (but WRONG) degree-0 polynomial and reports
+// success. RS1's detection ceiling is therefore intentionally excluded from the
+// table-driven TestRSErrorCorrection and asserted here instead.
 func TestRSEncodeDecodeRS1(t *testing.T) {
 	codecs, err := NewRSCodecs()
 	if err != nil {
@@ -330,7 +351,6 @@ func TestRSEncodeDecodeRS1(t *testing.T) {
 	// Test RS1 (used for comment symbols)
 	data := []byte("A")
 
-	// Encode
 	encoded, err := Encode(codecs.RS1, data)
 	if err != nil {
 		t.Fatalf("Encode(RS1) failed: %v", err)
@@ -339,7 +359,7 @@ func TestRSEncodeDecodeRS1(t *testing.T) {
 		t.Errorf("Encode(RS1) length = %d; want 3", len(encoded))
 	}
 
-	// Decode
+	// Clean round-trip still works.
 	decoded, err := Decode(codecs.RS1, encoded, false)
 	if err != nil {
 		t.Fatalf("Decode(RS1) failed: %v", err)
@@ -347,34 +367,99 @@ func TestRSEncodeDecodeRS1(t *testing.T) {
 	if !bytes.Equal(decoded, data) {
 		t.Errorf("Decode(RS1) = %q; want %q", decoded, data)
 	}
+
+	// 1-byte corruption is within budget: recovered exactly, nil error.
+	// Mutation caught: a regression that drops RS1's single-error correction.
+	corrupt1 := []byte{encoded[0] ^ 0xFF, encoded[1], encoded[2]}
+	decoded, err = Decode(codecs.RS1, corrupt1, false)
+	if err != nil {
+		t.Fatalf("Decode(RS1, 1-byte corruption) returned err=%v; want nil (recoverable)", err)
+	}
+	if !bytes.Equal(decoded, data) {
+		t.Errorf("Decode(RS1, 1-byte corruption) = %q; want %q", decoded, data)
+	}
+
+	// 2-byte corruption: k=1 -> the 1 surviving share == Required, so BW
+	// reconstructs a CONSISTENT but WRONG polynomial. Decode returns nil error
+	// AND wrong data — RS1 cannot DETECT 2-byte corruption. This documents a
+	// real limit of the comment-symbol codec.
+	// Mutation caught: any future change to RS1's behavior (e.g. widening it so
+	// it could detect this) flips one of these assertions and forces review.
+	corrupt2 := []byte{encoded[0] ^ 0xFF, encoded[1] ^ 0xFF, encoded[2]}
+	decoded, err = Decode(codecs.RS1, corrupt2, false)
+	if err != nil {
+		t.Fatalf("Decode(RS1, 2-byte corruption) returned err=%v; want nil (cannot detect)", err)
+	}
+	if bytes.Equal(decoded, data) {
+		t.Error("Decode(RS1, 2-byte corruption) recovered original; want WRONG data (RS1 has no 2-error detection)")
+	}
 }
 
+// TestRSErrorCorrection pins the exact error-correction budget of every codec
+// that has a meaningful detection threshold: corrupting `budget` bytes must
+// recover the original silently, and corrupting `budget+1` must surface a
+// non-nil error. RS1 is excluded — it cannot detect its over-budget case at all
+// (see TestRSEncodeDecodeRS1).
+//
+// Budgets are NOT total/3: RS128 = FEC(128,136) carries only 8 parity bytes and
+// corrects 4 (8/2), whereas the 1:3 codecs correct k. Pinning the literal budget
+// per codec catches an off-by-one in any codec's correction strength and catches
+// Decode dropping its error report at the threshold.
 func TestRSErrorCorrection(t *testing.T) {
 	codecs, err := NewRSCodecs()
 	if err != nil {
 		t.Fatalf("NewRSCodecs() failed: %v", err)
 	}
 
-	// Test error correction capability of RS5
-	data := []byte("v2.00")
-	encoded, err := Encode(codecs.RS5, data)
-	if err != nil {
-		t.Fatalf("Encode(RS5) failed: %v", err)
+	cases := []struct {
+		name   string
+		codec  *infectious.FEC
+		k      int // data size
+		budget int // max correctable byte errors
+	}{
+		{"RS5", codecs.RS5, 5, 5},
+		{"RS16", codecs.RS16, 16, 16},
+		{"RS24", codecs.RS24, 24, 24},
+		{"RS32", codecs.RS32, 32, 32},
+		{"RS64", codecs.RS64, 64, 64},
+		{"RS128", codecs.RS128, 128, 4},
 	}
 
-	// Corrupt some bytes (RS5 can correct up to 5 errors since total=15, required=5)
-	corrupted := make([]byte, len(encoded))
-	copy(corrupted, encoded)
-	corrupted[0] ^= 0xFF // Flip bits in first byte
-	corrupted[1] ^= 0xFF // Flip bits in second byte
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := make([]byte, tc.k)
+			for i := range data {
+				data[i] = byte(i*37 + 11) // deterministic, non-trivial
+			}
+			encoded, err := Encode(tc.codec, data)
+			if err != nil {
+				t.Fatalf("Encode(%s) failed: %v", tc.name, err)
+			}
 
-	// Should still decode correctly
-	decoded, err := Decode(codecs.RS5, corrupted, false)
-	if err != nil {
-		t.Fatalf("Decode(RS5) with errors failed: %v", err)
-	}
-	if !bytes.Equal(decoded, data) {
-		t.Errorf("Decode(RS5) with errors = %q; want %q", decoded, data)
+			// Corrupt exactly `budget` distinct bytes -> must recover silently.
+			atBudget := make([]byte, len(encoded))
+			copy(atBudget, encoded)
+			for i := 0; i < tc.budget; i++ {
+				atBudget[i] ^= 0xFF
+			}
+			decoded, err := Decode(tc.codec, atBudget, false)
+			if err != nil {
+				t.Fatalf("Decode(%s, %d-byte corruption) err=%v; want nil (within budget)", tc.name, tc.budget, err)
+			}
+			if !bytes.Equal(decoded, data) {
+				t.Errorf("Decode(%s, %d-byte corruption) did not recover original data", tc.name, tc.budget)
+			}
+
+			// Corrupt budget+1 distinct bytes -> must report a non-nil error.
+			overBudget := make([]byte, len(encoded))
+			copy(overBudget, encoded)
+			for i := 0; i < tc.budget+1; i++ {
+				overBudget[i] ^= 0xFF
+			}
+			if _, err := Decode(tc.codec, overBudget, false); err == nil {
+				t.Errorf("Decode(%s, %d-byte corruption) = nil error; want non-nil (beyond budget)", tc.name, tc.budget+1)
+			}
+		})
 	}
 }
 

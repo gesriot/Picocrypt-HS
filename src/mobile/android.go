@@ -116,20 +116,31 @@ func StartEncrypt(requestJSON string, password []byte) string {
 		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
 	}
 
-	// Convert to the core string at the bridge boundary; the deferred SecureZero
-	// above zeros the caller's bytes when this function returns. The goroutine
-	// captures pw (a copy), so deferring the zero here is safe.
-	pw := string(password)
+	// Own a goroutine-private []byte copy of the password BEFORE launching the
+	// worker. The worker runs async and the outer `defer crypto.SecureZero(password)`
+	// above fires on this function's return — the goroutine must NOT read `password`
+	// itself or it races that zeroing. pwCopy is captured by the goroutine and zeroed
+	// when the worker returns. No intermediate immutable string is created.
+	pwCopy := append([]byte(nil), password...)
+
+	// Capture only the operation ID for the delayed cleanup so the
+	// credential-bearing worker goroutine below can drop pwCopy/req the instant it
+	// returns, instead of holding them alive across the 60s poll window.
+	opID := req.OperationID
 
 	// Start the operation in a goroutine
 	go func() {
+		defer crypto.SecureZero(pwCopy)
 
 		defer func() {
-			// Delay cleanup to allow UI to poll for final status
-			// Extended to 60 seconds to handle cases where app is backgrounded
-			// and user returns after operation completes
-			time.Sleep(60 * time.Second)
-			cleanupOperation(req.OperationID)
+			// Delay cleanup to allow UI to poll for final status (60s handles the
+			// app being backgrounded). Run it in its OWN goroutine capturing only
+			// opID, so this worker goroutine returns immediately after
+			// completeOperation, releasing pwCopy/req/encryptReq before the sleep.
+			go func() {
+				time.Sleep(60 * time.Second)
+				cleanupOperation(opID)
+			}()
 		}()
 
 		// Recover from panics to prevent silent failures
@@ -156,7 +167,7 @@ func StartEncrypt(requestJSON string, password []byte) string {
 			OnlyFolders:    req.OnlyFolders,
 			OnlyFiles:      req.OnlyFiles,
 			OutputFile:     req.OutputFile,
-			Password:       pw,
+			Password:       pwCopy,
 			Keyfiles:       req.Keyfiles,
 			KeyfileOrdered: req.KeyfileOrdered,
 			Comments:       req.Comments,
@@ -223,19 +234,31 @@ func StartDecrypt(requestJSON string, password []byte) string {
 		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
 	}
 
-	// Convert to the core string at the bridge boundary; the deferred SecureZero
-	// above zeros the caller's bytes when this function returns. The goroutine
-	// captures pw (a copy), so deferring the zero here is safe.
-	pw := string(password)
+	// Own a goroutine-private []byte copy of the password BEFORE launching the
+	// worker. The worker runs async and the outer `defer crypto.SecureZero(password)`
+	// above fires on this function's return — the goroutine must NOT read `password`
+	// itself or it races that zeroing. pwCopy is captured by the goroutine and zeroed
+	// when the worker returns. No intermediate immutable string is created.
+	pwCopy := append([]byte(nil), password...)
+
+	// Capture only the operation ID for the delayed cleanup so the
+	// credential-bearing worker goroutine below can drop pwCopy/req the instant it
+	// returns, instead of holding them alive across the 60s poll window.
+	opID := req.OperationID
 
 	// Start the operation in a goroutine
 	go func() {
+		defer crypto.SecureZero(pwCopy)
+
 		defer func() {
-			// Delay cleanup to allow UI to poll for final status
-			// Extended to 60 seconds to handle cases where app is backgrounded
-			// and user returns after operation completes
-			time.Sleep(60 * time.Second)
-			cleanupOperation(req.OperationID)
+			// Delay cleanup to allow UI to poll for final status (60s handles the
+			// app being backgrounded). Run it in its OWN goroutine capturing only
+			// opID, so this worker goroutine returns immediately after
+			// completeOperation, releasing pwCopy/req/decryptReq before the sleep.
+			go func() {
+				time.Sleep(60 * time.Second)
+				cleanupOperation(opID)
+			}()
 		}()
 
 		defer func() {
@@ -258,7 +281,7 @@ func StartDecrypt(requestJSON string, password []byte) string {
 		decryptReq := &volume.DecryptRequest{
 			InputFile:    req.InputFile,
 			OutputFile:   req.OutputFile,
-			Password:     pw,
+			Password:     pwCopy,
 			Keyfiles:     req.Keyfiles,
 			ForceDecrypt: req.ForceDecrypt,
 			VerifyFirst:  req.VerifyFirst,

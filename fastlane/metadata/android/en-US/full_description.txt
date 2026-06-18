@@ -3,6 +3,7 @@ Picocrypt-NG encrypts files locally — a community-maintained continuation of P
 XChaCha20 for encryption, with the key derived from your password by Argon2id. Every volume is authenticated, so tampering or corruption is detected on decryption.
 
 Features:
+
 - Encrypt a single file, multiple files, or a folder
 - Optional keyfiles, with an option to require them in a fixed order
 - Paranoid mode: extra cipher cascade and harder key derivation

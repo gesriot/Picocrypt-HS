@@ -438,7 +438,7 @@ func TestStartEncryptFolderRoundTripsToZip(t *testing.T) {
 	if err := volume.Decrypt(context.Background(), &volume.DecryptRequest{
 		InputFile:  out,
 		OutputFile: zipOut,
-		Password:   "pw",
+		Password:   []byte("pw"),
 		RSCodecs:   rsCodecs,
 	}); err != nil {
 		t.Fatalf("decrypt: %v", err)

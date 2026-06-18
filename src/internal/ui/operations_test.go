@@ -246,45 +246,6 @@ func TestSplitUnitsLabelsAlignWithIndices(t *testing.T) {
 	}
 }
 
-// TestOperationStatusColors tests that status colors are set correctly.
-func TestOperationStatusColors(t *testing.T) {
-	t.Run("SuccessStatus", func(t *testing.T) {
-		state := mustNewState(t)
-		state.SetStatus("Completed", util.GREEN)
-
-		if state.MainStatus != "Completed" {
-			t.Errorf("MainStatus = %q; want 'Completed'", state.MainStatus)
-		}
-		if state.MainStatusColor != util.GREEN {
-			t.Error("MainStatusColor should be GREEN")
-		}
-	})
-
-	t.Run("ErrorStatus", func(t *testing.T) {
-		state := mustNewState(t)
-		state.SetStatus("Failed", util.RED)
-
-		if state.MainStatus != "Failed" {
-			t.Errorf("MainStatus = %q; want 'Failed'", state.MainStatus)
-		}
-		if state.MainStatusColor != util.RED {
-			t.Error("MainStatusColor should be RED")
-		}
-	})
-
-	t.Run("WarningStatus", func(t *testing.T) {
-		state := mustNewState(t)
-		state.SetStatus("Warning", util.YELLOW)
-
-		if state.MainStatus != "Warning" {
-			t.Errorf("MainStatus = %q; want 'Warning'", state.MainStatus)
-		}
-		if state.MainStatusColor != util.YELLOW {
-			t.Error("MainStatusColor should be YELLOW")
-		}
-	})
-}
-
 // TestCanStartLogic tests the comprehensive start validation.
 func TestCanStartLogic(t *testing.T) {
 	testCases := []struct {

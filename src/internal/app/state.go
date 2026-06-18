@@ -36,7 +36,7 @@ import (
 var newRSCodecs = encoding.NewRSCodecs
 
 // Version is the application version string.
-const Version = "v2.15"
+const Version = "v2.16"
 
 // PasswordInputMode represents the visibility state of password inputs.
 type PasswordInputMode int
@@ -78,12 +78,17 @@ type State struct {
 
 	// Credentials
 	//
-	// SECURITY (SEC-05): Password and CPassword are immutable Go strings. Strings
-	// cannot be zeroed in place (immutable + freely copied/relocated by the GC), so
-	// resetUILocked only sets them to "" — the prior contents may linger in memory
-	// until GC. Guaranteed password zeroing is intentionally out of scope (CONCERNS
-	// 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing"); only []byte key
-	// material derived from the password is zeroed (see OperationContext.Close).
+	// SECURITY (SEC-05, GUI residual): Password and CPassword are immutable Go
+	// strings sourced from Fyne widget.Entry. Strings cannot be zeroed in place
+	// (immutable + freely copied/relocated by the GC), so resetUILocked only sets
+	// them to "" — the prior contents may linger in memory until GC. The request
+	// layer no longer carries the password as a string: volume.EncryptRequest/
+	// DecryptRequest.Password are owned []byte, and ui/operations.go converts this
+	// string to an owned []byte at request-build and zeros that copy. This one GUI
+	// string is the documented residual — guaranteed zeroing of it is intentionally
+	// out of scope (CONCERNS 3.1; ROADMAP "Out of Scope: Guaranteed password
+	// zeroing"); all []byte key material derived from it is zeroed (see
+	// OperationContext.Close).
 	Password  string
 	CPassword string // Confirm password
 
@@ -183,11 +188,19 @@ func NewState() (*State, error) {
 		MainStatusColor:    util.WHITE,
 		PasswordMode:       PasswordModeHidden,
 		PasswordStateLabel: "Show",
-		PassgenLength:      32,
-		SplitSelected:      1, // Default to MiB
-		SplitUnits:         []string{"KiB", "MiB", "GiB", "TiB", "Total"},
-		FastDecode:         true,
-		DPI:                1.0,
+		// Password generator defaults must match resetUILocked(): all character
+		// classes ON (so the generator works before any reset) and PassgenCopy
+		// OFF (do not auto-copy a generated password to the OS clipboard).
+		PassgenLength:  32,
+		PassgenUpper:   true,
+		PassgenLower:   true,
+		PassgenNums:    true,
+		PassgenSymbols: true,
+		PassgenCopy:    false,
+		SplitSelected:  1, // Default to MiB
+		SplitUnits:     []string{"KiB", "MiB", "GiB", "TiB", "Total"},
+		FastDecode:     true,
+		DPI:            1.0,
 
 		// Reed-Solomon codecs
 		RSCodecs: rs,
@@ -275,13 +288,14 @@ func (s *State) resetUILocked() {
 	s.SplitSize = ""
 	s.SplitSelected = 1
 
-	// Password generator defaults (must be true after reset, like original)
+	// Password generator defaults. PassgenCopy defaults OFF: do not auto-copy a
+	// generated password to the OS clipboard (sync/history leak); user can opt in.
 	s.PassgenLength = 32
 	s.PassgenUpper = true
 	s.PassgenLower = true
 	s.PassgenNums = true
 	s.PassgenSymbols = true
-	s.PassgenCopy = true
+	s.PassgenCopy = false
 
 	s.Recursively = false
 	s.Delete = false

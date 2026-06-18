@@ -4,7 +4,7 @@ package header
 
 // Version constants
 const (
-	CurrentVersion = "v2.15"
+	CurrentVersion = "v2.16"
 	MaxCommentLen  = 99999
 )
 

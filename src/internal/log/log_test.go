@@ -27,54 +27,33 @@ func TestLevel(t *testing.T) {
 	}
 }
 
+// TestFieldCreators covers only the field constructors with non-trivial logic;
+// the String/Int/Int64/Float64/Bool constructors merely wrap Field{} and re-asserting
+// them tests nothing the type system doesn't already guarantee. The rows kept each
+// pin a real transform:
+//   - Err(err) must store err.Error() (the string), not the error object — a leak of
+//     the raw error or a swap to .Value=err would change downstream %v formatting.
+//   - Err(nil) must yield Value==nil (and not panic on err.Error()) — the nil guard.
+//   - Duration must store value.String() ("5s"), not the raw time.Duration — dropping
+//     the .String() call would print "5000000000" instead of "5s".
 func TestFieldCreators(t *testing.T) {
-	// Test String field
-	f := String("key", "value")
-	if f.Key != "key" || f.Value != "value" {
-		t.Errorf("String field incorrect: %+v", f)
+	tests := []struct {
+		name      string
+		field     Field
+		wantKey   string
+		wantValue any
+	}{
+		{name: "Err with error", field: Err(errors.New("test error")), wantKey: "error", wantValue: "test error"},
+		{name: "Err with nil", field: Err(nil), wantKey: "error", wantValue: nil},
+		{name: "Duration stores String()", field: Duration("elapsed", 5*time.Second), wantKey: "elapsed", wantValue: "5s"},
 	}
 
-	// Test Int field
-	f = Int("count", 42)
-	if f.Key != "count" || f.Value != 42 {
-		t.Errorf("Int field incorrect: %+v", f)
-	}
-
-	// Test Int64 field
-	f = Int64("bytes", 1024)
-	if f.Key != "bytes" || f.Value != int64(1024) {
-		t.Errorf("Int64 field incorrect: %+v", f)
-	}
-
-	// Test Float64 field
-	f = Float64("ratio", 3.14)
-	if f.Key != "ratio" || f.Value != 3.14 {
-		t.Errorf("Float64 field incorrect: %+v", f)
-	}
-
-	// Test Bool field
-	f = Bool("enabled", true)
-	if f.Key != "enabled" || f.Value != true {
-		t.Errorf("Bool field incorrect: %+v", f)
-	}
-
-	// Test Err field with error
-	err := errors.New("test error")
-	f = Err(err)
-	if f.Key != "error" || f.Value != "test error" {
-		t.Errorf("Err field incorrect: %+v", f)
-	}
-
-	// Test Err field with nil
-	f = Err(nil)
-	if f.Key != "error" || f.Value != nil {
-		t.Errorf("Err(nil) field incorrect: %+v", f)
-	}
-
-	// Test Duration field
-	f = Duration("elapsed", 5*time.Second)
-	if f.Key != "elapsed" || f.Value != "5s" {
-		t.Errorf("Duration field incorrect: %+v", f)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.field.Key != tt.wantKey || tt.field.Value != tt.wantValue {
+				t.Errorf("field = %+v; want Key=%q Value=%#v", tt.field, tt.wantKey, tt.wantValue)
+			}
+		})
 	}
 }
 
@@ -98,13 +77,17 @@ func TestSimpleLogger(t *testing.T) {
 	var buf bytes.Buffer
 	logger := NewSimpleLogger(&buf, LevelInfo)
 
-	// Debug should be filtered out (level is Info)
+	// Debug should be filtered out at Info level. Assert the MESSAGE is absent, not
+	// merely Len==0: a mutation that drops the level token but still writes the
+	// message would pass a Len check but leak "debug message". This pins that the
+	// whole record (message included) is suppressed below the configured level.
 	logger.Debug("debug message")
-	if buf.Len() > 0 {
-		t.Error("Debug message should be filtered at Info level")
+	if strings.Contains(buf.String(), "debug message") {
+		t.Errorf("Debug message must be filtered at Info level; got %q", buf.String())
 	}
 
-	// Info should be logged
+	// Info should be logged. "key=value" is the documented field format (log.go
+	// log() Fprintf "%s=%v"); asserting it pins the wire format, not just presence.
 	logger.Info("info message", String("key", "value"))
 	output := buf.String()
 	if !strings.Contains(output, "INFO") {
@@ -114,7 +97,7 @@ func TestSimpleLogger(t *testing.T) {
 		t.Error("Info message should contain message")
 	}
 	if !strings.Contains(output, "key=value") {
-		t.Error("Info message should contain field")
+		t.Error("Info message should contain field in key=value format")
 	}
 
 	buf.Reset()
@@ -131,6 +114,21 @@ func TestSimpleLogger(t *testing.T) {
 	logger.Error("error message")
 	if !strings.Contains(buf.String(), "ERROR") {
 		t.Error("Error message should contain ERROR level")
+	}
+
+	// A logger constructed AT LevelDebug must emit DEBUG. This pins the direction of
+	// the `level < s.level` comparison: inverting it would suppress debug here while
+	// still passing the Info-level filter assertion above (which only proves SOME
+	// suppression happens, not that the threshold points the right way).
+	buf.Reset()
+	debugLogger := NewSimpleLogger(&buf, LevelDebug)
+	debugLogger.Debug("debug emitted")
+	out := buf.String()
+	if !strings.Contains(out, "DEBUG") {
+		t.Errorf("LevelDebug logger should emit DEBUG level; got %q", out)
+	}
+	if !strings.Contains(out, "debug emitted") {
+		t.Errorf("LevelDebug logger should emit the debug message; got %q", out)
 	}
 }
 

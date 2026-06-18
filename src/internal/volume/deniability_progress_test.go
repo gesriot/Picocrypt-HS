@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,13 +24,56 @@ func (r *etaStatusReporter) SetCanCancel(can bool)                  {}
 func (r *etaStatusReporter) Update()                                {}
 func (r *etaStatusReporter) IsCancelled() bool                      { return false }
 
-func hasSpeedAndETA(statuses []string) bool {
+// assertStreamingSpeedAndETA fails unless the captured statuses prove a real
+// streaming progress pass for the named operation. It is mutation-sensitive against
+// the production status format ("... at %.2f MiB/s (ETA: %s)"):
+//   - (a) at least two statuses match the "MiB/s"+"ETA:" shape (a single sample
+//     would mean no streaming loop, just one bookend report);
+//   - (b) at least one sample carries a parsed speed strictly > 0 (a "0.00 MiB/s"
+//     status means the speed math never ran / was stubbed out);
+//   - (c) at least one sample carries a non-empty token after "ETA: " (a dropped
+//     ETA field would leave the parenthesis empty).
+func assertStreamingSpeedAndETA(t *testing.T, op string, statuses []string) {
+	t.Helper()
+
+	matches := 0
+	sawPositiveSpeed := false
+	sawNonEmptyETA := false
 	for _, s := range statuses {
-		if strings.Contains(s, "MiB/s") && strings.Contains(s, "ETA:") {
-			return true
+		if !strings.Contains(s, "MiB/s") || !strings.Contains(s, "ETA:") {
+			continue
+		}
+		matches++
+
+		// Parse the float immediately preceding " MiB/s": take the text before that
+		// marker and read the final whitespace-delimited token as the speed.
+		if prefix, _, ok := strings.Cut(s, " MiB/s"); ok {
+			fields := strings.Fields(prefix)
+			if len(fields) > 0 {
+				if speed, err := strconv.ParseFloat(fields[len(fields)-1], 64); err == nil && speed > 0 {
+					sawPositiveSpeed = true
+				}
+			}
+		}
+
+		// Extract the ETA token between "ETA: " and the closing ")".
+		if _, after, ok := strings.Cut(s, "ETA: "); ok {
+			eta, _, _ := strings.Cut(after, ")")
+			if strings.TrimSpace(eta) != "" {
+				sawNonEmptyETA = true
+			}
 		}
 	}
-	return false
+
+	if matches < 2 {
+		t.Errorf("%s: got %d speed+ETA statuses, want >=2 (streaming should report multiple samples); statuses=%v", op, matches, statuses)
+	}
+	if !sawPositiveSpeed {
+		t.Errorf("%s: no status reported a speed > 0 MiB/s; statuses=%v", op, statuses)
+	}
+	if !sawNonEmptyETA {
+		t.Errorf("%s: no status reported a non-empty ETA token; statuses=%v", op, statuses)
+	}
 }
 
 // TestDeniabilityReportsSpeedAndETA verifies both deniability passes report a
@@ -50,12 +94,10 @@ func TestDeniabilityReportsSpeedAndETA(t *testing.T) {
 		t.Fatalf("write add input: %v", err)
 	}
 	addRep := &etaStatusReporter{}
-	if err := AddDeniability(addPath, "pw", addRep); err != nil {
+	if err := AddDeniability(addPath, []byte("pw"), addRep); err != nil {
 		t.Fatalf("AddDeniability: %v", err)
 	}
-	if !hasSpeedAndETA(addRep.statuses) {
-		t.Errorf("AddDeniability reported no speed+ETA status, got %v", addRep.statuses)
-	}
+	assertStreamingSpeedAndETA(t, "AddDeniability", addRep.statuses)
 
 	// RemoveDeniability now selects the password form by probing the inner
 	// version field before streaming, so it must operate on a REAL deniable
@@ -67,20 +109,18 @@ func TestDeniabilityReportsSpeedAndETA(t *testing.T) {
 	}
 	volPath := filepath.Join(tmpDir, "vol.pcv")
 	if err := Encrypt(context.Background(), &EncryptRequest{
-		InputFile: plainPath, OutputFile: volPath, Password: "pw",
+		InputFile: plainPath, OutputFile: volPath, Password: []byte("pw"),
 		Reporter: &GoldenTestReporter{}, RSCodecs: rs,
 	}); err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
-	if err := AddDeniability(volPath, "pw", &etaStatusReporter{}); err != nil {
+	if err := AddDeniability(volPath, []byte("pw"), &etaStatusReporter{}); err != nil {
 		t.Fatalf("AddDeniability(volume): %v", err)
 	}
 
 	remRep := &etaStatusReporter{}
-	if _, err := RemoveDeniability(volPath, "pw", remRep, rs); err != nil {
+	if _, err := RemoveDeniability(volPath, []byte("pw"), remRep, rs); err != nil {
 		t.Fatalf("RemoveDeniability: %v", err)
 	}
-	if !hasSpeedAndETA(remRep.statuses) {
-		t.Errorf("RemoveDeniability reported no speed+ETA status, got %v", remRep.statuses)
-	}
+	assertStreamingSpeedAndETA(t, "RemoveDeniability", remRep.statuses)
 }

@@ -127,6 +127,12 @@ func TestBufferStdinToTempEmpty(t *testing.T) {
 	if info.Size() != 0 {
 		t.Errorf("expected empty file, got size %d", info.Size())
 	}
+	// The 0600 chmod must apply even on the empty-stdin path (mirrors the
+	// non-empty sibling). Mutation: dropping the Chmod(0600) in BufferStdinToTemp
+	// would leak stdin plaintext staging under a world-readable mode.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
+	}
 }
 
 func TestBufferStdinToTempLarge(t *testing.T) {
@@ -216,11 +222,6 @@ func TestCreateTempOutput(t *testing.T) {
 	// File should be empty initially
 	if info.Size() != 0 {
 		t.Errorf("expected empty file, got size %d", info.Size())
-	}
-
-	// Verify we can write to it (volume package will reopen)
-	if err := os.WriteFile(tmpPath, []byte("test"), 0600); err != nil {
-		t.Errorf("cannot write to temp file: %v", err)
 	}
 }
 

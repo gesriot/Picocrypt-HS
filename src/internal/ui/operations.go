@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"Picocrypt-NG/internal/app"
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 	"Picocrypt-NG/internal/volume"
@@ -245,13 +246,19 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 
 	shouldDelete := snap.Delete
 
+	// GUI residual: snap.Password is an un-zeroable Go string (Fyne widget.Entry).
+	// Convert it to an owned []byte for the request and zero that copy after the
+	// operation; the source string still lingers until GC (SEC-05, accepted).
+	pw := []byte(snap.Password)
+	defer crypto.SecureZero(pw)
+
 	req := &volume.EncryptRequest{
 		InputFile:      snap.InputFile,
 		InputFiles:     snap.InputFiles,
 		OnlyFolders:    snap.OnlyFolders,
 		OnlyFiles:      snap.OnlyFiles,
 		OutputFile:     snap.OutputFile,
-		Password:       snap.Password,
+		Password:       pw,
 		Keyfiles:       snap.Keyfiles,
 		KeyfileOrdered: snap.KeyfileOrdered,
 		Comments:       snap.Comments,
@@ -321,10 +328,16 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	recombine := snap.Recombine
 	inputFile := snap.InputFile
 
+	// GUI residual: snap.Password is an un-zeroable Go string (Fyne widget.Entry).
+	// Convert it to an owned []byte for the request and zero that copy after the
+	// operation; the source string still lingers until GC (SEC-05, accepted).
+	pw := []byte(snap.Password)
+	defer crypto.SecureZero(pw)
+
 	req := &volume.DecryptRequest{
 		InputFile:    snap.InputFile,
 		OutputFile:   snap.OutputFile,
-		Password:     snap.Password,
+		Password:     pw,
 		Keyfiles:     snap.Keyfiles,
 		ForceDecrypt: snap.Keep,
 		VerifyFirst:  snap.VerifyFirst,

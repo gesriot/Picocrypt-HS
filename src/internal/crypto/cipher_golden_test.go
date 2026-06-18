@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/Picocrypt/serpent"
+	"github.com/Picocrypt-NG/serpent"
 	"golang.org/x/crypto/chacha20"
 )
 

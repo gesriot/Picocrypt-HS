@@ -3,7 +3,6 @@ package fileops
 import (
 	"archive/zip"
 	"crypto/rand"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/chacha20"
@@ -69,8 +69,8 @@ func (er *encryptedReader) Read(data []byte) (int, error) {
 type TempZipCiphers struct {
 	Writer *chacha20.Cipher // Used when writing the zip archive
 	Reader *chacha20.Cipher // Used when reading back for encryption
-	key    []byte           // Ephemeral key (retained for secure zeroing)
-	nonce  []byte           // Nonce (retained for secure zeroing)
+	key    *crypto.Secret   // Ephemeral key (owned for secure zeroing)
+	nonce  *crypto.Secret   // Nonce (owned for secure zeroing)
 	closed bool
 }
 
@@ -111,8 +111,8 @@ func NewTempZipCiphers() (*TempZipCiphers, error) {
 	return &TempZipCiphers{
 		Writer: writer,
 		Reader: reader,
-		key:    key,
-		nonce:  nonce,
+		key:    crypto.SecretFrom(key),
+		nonce:  crypto.SecretFrom(nonce),
 	}, nil
 }
 
@@ -125,20 +125,10 @@ func (t *TempZipCiphers) Close() {
 	if t == nil || t.closed {
 		return
 	}
-
-	// Zero key material using constant-time copy to prevent optimization removal
-	if len(t.key) > 0 {
-		zeros := make([]byte, len(t.key))
-		subtle.ConstantTimeCopy(1, t.key, zeros)
-		t.key = nil
-	}
-	if len(t.nonce) > 0 {
-		zeros := make([]byte, len(t.nonce))
-		subtle.ConstantTimeCopy(1, t.nonce, zeros)
-		t.nonce = nil
-	}
-
-	// Clear cipher references to aid garbage collection
+	t.key.Close()
+	t.nonce.Close()
+	t.key = nil
+	t.nonce = nil
 	t.Writer = nil
 	t.Reader = nil
 	t.closed = true

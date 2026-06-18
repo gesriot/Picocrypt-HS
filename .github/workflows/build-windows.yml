@@ -24,10 +24,10 @@ jobs:
       RESHACKER_SHA256: e5a5b6d6be38ae3eb20e72b09f257f284bab2deb5f37164e9f2faefd23f27cf4
       UPX_SHA256: 41c7492edeed0f7e67d347ca9e8d2131e2af7ca7a7695f92283a8e655c251c13
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
       with:
         go-version: stable
         cache-dependency-path: src/go.sum
@@ -165,7 +165,7 @@ jobs:
         Copy-Item dist/windows/Picocrypt-NG-Setup.exe release-staging/
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: build-windows
         path: release-staging/
@@ -180,10 +180,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Download artifact
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: build-windows
         path: artifacts/build-windows
@@ -202,9 +202,15 @@ jobs:
           artifacts/build-windows/Picocrypt-NG-cli.exe
           artifacts/build-windows/Picocrypt-NG-Setup.exe
 
+    - name: Generate release notes
+      uses: ./.github/actions/release-body
+      with:
+        version: ${{ env.VERSION }}
+
     - name: Release
       uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
       with:
+        body_path: ${{ github.workspace }}/release-body.md
         files: |
           artifacts/build-windows/Picocrypt-NG-portable.exe
           artifacts/build-windows/Picocrypt-NG-cli.exe

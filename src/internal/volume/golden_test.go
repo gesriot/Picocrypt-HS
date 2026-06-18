@@ -302,7 +302,7 @@ func TestGoldenDecryption(t *testing.T) {
 			req := &DecryptRequest{
 				InputFile:    workingPath,
 				OutputFile:   outputPath,
-				Password:     goldenPassword,
+				Password:     []byte(goldenPassword),
 				ForceDecrypt: false,
 				AutoUnzip:    false,
 				SameLevel:    false,
@@ -373,7 +373,7 @@ func TestGoldenCompressedDecryption(t *testing.T) {
 			req := &DecryptRequest{
 				InputFile:    workingPath,
 				OutputFile:   outputPath,
-				Password:     goldenPassword,
+				Password:     []byte(goldenPassword),
 				ForceDecrypt: false,
 				AutoUnzip:    false, // Don't auto-unzip, we'll verify the zip content manually
 				SameLevel:    false,
@@ -456,7 +456,7 @@ func TestGoldenKeyfileDecryption(t *testing.T) {
 			req := &DecryptRequest{
 				InputFile:    inputPath,
 				OutputFile:   outputPath,
-				Password:     tc.password,
+				Password:     []byte(tc.password),
 				Keyfiles:     goldenFixturePaths(testdataPath, tc.keyfiles),
 				ForceDecrypt: false,
 				AutoUnzip:    false,
@@ -501,7 +501,7 @@ func TestGoldenCompressedKeyfileDecryption(t *testing.T) {
 			req := &DecryptRequest{
 				InputFile:    inputPath,
 				OutputFile:   outputPath,
-				Password:     tc.password,
+				Password:     []byte(tc.password),
 				Keyfiles:     goldenFixturePaths(testdataPath, tc.keyfiles),
 				ForceDecrypt: false,
 				AutoUnzip:    false,
@@ -585,7 +585,7 @@ func TestGoldenKeyfileFailures(t *testing.T) {
 			req := &DecryptRequest{
 				InputFile:    filepath.Join(testdataPath, tc.file),
 				OutputFile:   filepath.Join(t.TempDir(), "decrypted.txt"),
-				Password:     tc.password,
+				Password:     []byte(tc.password),
 				Keyfiles:     goldenFixturePaths(testdataPath, tc.keyfiles),
 				ForceDecrypt: false,
 				AutoUnzip:    false,
@@ -820,7 +820,7 @@ func TestGoldenWrongPassword(t *testing.T) {
 	req := &DecryptRequest{
 		InputFile:    v2Path,
 		OutputFile:   outputPath,
-		Password:     "wrong_password",
+		Password:     []byte("wrong_password"),
 		ForceDecrypt: false,
 		AutoUnzip:    false,
 		SameLevel:    false,
@@ -865,7 +865,7 @@ func TestGoldenV1WrongPassword(t *testing.T) {
 	req := &DecryptRequest{
 		InputFile:    v1Path,
 		OutputFile:   outputPath,
-		Password:     "wrong_password",
+		Password:     []byte("wrong_password"),
 		ForceDecrypt: false,
 		AutoUnzip:    false,
 		SameLevel:    false,

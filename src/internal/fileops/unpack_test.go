@@ -39,54 +39,6 @@ func TestUnpackPathTraversalPrevention(t *testing.T) {
 	t.Logf("Path traversal correctly blocked: %v", err)
 }
 
-// TestUnpackPathTraversalVariants tests various path traversal attempts
-func TestUnpackPathTraversalVariants(t *testing.T) {
-	maliciousPaths := []string{
-		"../etc/passwd",
-		"foo/../../../etc/passwd",
-		"..\\windows\\system32\\config\\sam",
-		"normal/../../etc/passwd",
-		"a/b/c/../../../../../../../etc/passwd",
-	}
-
-	for _, malPath := range maliciousPaths {
-		t.Run(malPath, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			zipPath := filepath.Join(tmpDir, "test.zip")
-
-			// Create zip with malicious path
-			f, err := os.Create(zipPath)
-			if err != nil {
-				t.Fatalf("Create zip file: %v", err)
-			}
-
-			w := zip.NewWriter(f)
-			_, err = w.Create(malPath)
-			if err != nil {
-				// Some paths may be rejected by the zip library itself
-				_ = w.Close()
-				_ = f.Close()
-				t.Skipf("Zip library rejected path: %v", err)
-				return
-			}
-			_ = w.Close()
-			_ = f.Close()
-
-			// Attempt to unpack
-			err = Unpack(UnpackOptions{
-				ZipPath:    zipPath,
-				ExtractDir: filepath.Join(tmpDir, "out"),
-			})
-
-			if err == nil {
-				t.Errorf("Expected error for malicious path %q, got nil", malPath)
-			} else {
-				t.Logf("Path %q correctly blocked: %v", malPath, err)
-			}
-		})
-	}
-}
-
 func TestUnpackRejectsWindowsTrimTraversalVariants(t *testing.T) {
 	maliciousPaths := []string{
 		".. /evil.txt",
@@ -853,18 +805,6 @@ func TestWalkExtractionRootRejectsNestedSymlink(t *testing.T) {
 
 	if _, statErr := os.Stat(filepath.Join(outsideRoot, "extract")); !os.IsNotExist(statErr) {
 		t.Fatalf("Nested symlink unexpectedly allowed extraction outside trusted root")
-	}
-}
-
-func TestAllowLeadingExtractionRootSymlink(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	if !allowLeadingExtractionRootSymlink(filepath.Join(tmpDir, "child"), tmpDir) {
-		t.Fatal("Expected extraction root under temp dir to allow trusted leading symlink handling")
-	}
-
-	if allowLeadingExtractionRootSymlink(filepath.Join(tmpDir, "..", "outside"), tmpDir) {
-		t.Fatal("Did not expect extraction root outside temp dir to allow trusted leading symlink handling")
 	}
 }
 

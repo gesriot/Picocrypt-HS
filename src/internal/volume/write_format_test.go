@@ -43,7 +43,7 @@ func TestWriteFormatRegression(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  outputPath,
-		Password:    goldenPassword,
+		Password:    []byte(goldenPassword),
 		Paranoid:    false,
 		ReedSolomon: false,
 		Deniability: false,
@@ -120,7 +120,7 @@ func TestWriteFormatRegression(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    outputPath,
 		OutputFile:   decryptedPath,
-		Password:     goldenPassword,
+		Password:     []byte(goldenPassword),
 		ForceDecrypt: false,
 		Reporter:     &GoldenTestReporter{},
 		RSCodecs:     rsCodecs,
