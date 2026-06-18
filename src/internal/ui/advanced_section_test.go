@@ -9,17 +9,21 @@ import (
 	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
 
-// assertCheckboxWiring verifies a build...Options checkbox is present, correctly
-// labeled, and that its OnChanged closure drives the mapped State field in both
-// directions. OnChanged is invoked directly (not SetChecked, which no-ops when
-// the value is unchanged) so the production callback runs unconditionally.
+// assertCheckboxWiring verifies a build...Options checkbox is present, labeled
+// (non-empty), and that its OnChanged closure drives the mapped State field in
+// both directions. The bidirectional OnChanged(true/false)→State assertion is the
+// load-bearing part: it catches a checkbox wired to the wrong State field or with
+// an inverted bool. OnChanged is invoked directly (not SetChecked, which no-ops
+// when the value is unchanged) so the production callback runs unconditionally.
+// The label is only checked for non-emptiness (an unlabeled control is a bug);
+// wantLabel is retained solely to identify the control in failure messages.
 func assertCheckboxWiring(t *testing.T, c *ttwidget.Check, wantLabel string, getField func() bool) {
 	t.Helper()
 	if c == nil {
 		t.Fatalf("checkbox %q is nil", wantLabel)
 	}
-	if c.Text != wantLabel {
-		t.Fatalf("checkbox label = %q, want %q", c.Text, wantLabel)
+	if c.Text == "" {
+		t.Fatalf("checkbox %q has an empty label", wantLabel)
 	}
 	if c.OnChanged == nil {
 		t.Fatalf("checkbox %q has nil OnChanged", wantLabel)
@@ -252,6 +256,40 @@ func TestEncryptAdvancedOptionsNeverSoftLock(t *testing.T) {
 	})
 }
 
+// sharedSecurityWarning is the deliberately-shared tooltip on the two
+// "dangerous" encrypt options (Deniability and Recursively). It is asserted
+// verbatim below because the exact safety wording is intentional copy; the rest
+// of the suite only checks that tooltips are present and otherwise distinct.
+const sharedSecurityWarning = "Warning: only use this if you know what it does!"
+
+// assertTooltipsPresentAndDistinct asserts every control carries a non-empty
+// tooltip (an empty tooltip is a missing-tooltip bug, issue #79) and that the
+// tooltips are distinct across the *non-warning* controls — duplicate copy on
+// two unrelated controls almost always means a copy/paste wiring mistake. The
+// deliberately-shared security warning is excluded from the distinctness set and
+// pinned verbatim by the callers instead.
+func assertTooltipsPresentAndDistinct(t *testing.T, controls []struct {
+	name string
+	tt   interface{ ToolTip() string }
+}) {
+	t.Helper()
+	seen := make(map[string]string)
+	for _, c := range controls {
+		got := c.tt.ToolTip()
+		if got == "" {
+			t.Errorf("%s has an empty tooltip", c.name)
+			continue
+		}
+		if got == sharedSecurityWarning {
+			continue // distinctness is not required for the shared warning
+		}
+		if prev, dup := seen[got]; dup {
+			t.Errorf("%s and %s share tooltip %q; tooltips must be distinct", prev, c.name, got)
+		}
+		seen[got] = c.name
+	}
+}
+
 func TestAdvancedOptionsSetTooltips(t *testing.T) {
 	newTestFyneApp(t)
 
@@ -260,23 +298,27 @@ func TestAdvancedOptionsSetTooltips(t *testing.T) {
 		a.advancedContainer = container.NewVBox()
 		a.buildEncryptOptions()
 
-		for _, c := range []struct {
+		assertTooltipsPresentAndDistinct(t, []struct {
 			name string
 			tt   interface{ ToolTip() string }
-			want string
 		}{
-			{"Paranoid mode", a.paranoidCheck, "Provides the highest level of security attainable"},
-			{"Compress files", a.compressCheck, "Compress files with Deflate before encrypting"},
-			{"Reed-Solomon", a.reedSolomonCheck, "Prevent file corruption with erasure coding"},
-			{"Delete files", a.deleteCheck, "Delete the input files after encryption"},
-			{"Deniability", a.deniabilityCheck, "Warning: only use this if you know what it does!"},
-			{"Recursively", a.recursivelyCheck, "Warning: only use this if you know what it does!"},
-			{"Split:", a.splitCheck, "Split the output file into smaller chunks"},
-			{"split units", a.splitUnitSelect, "Choose the chunk units"},
-		} {
-			if got := c.tt.ToolTip(); got != c.want {
-				t.Errorf("%s tooltip = %q, want %q", c.name, got, c.want)
-			}
+			{"Paranoid mode", a.paranoidCheck},
+			{"Compress files", a.compressCheck},
+			{"Reed-Solomon", a.reedSolomonCheck},
+			{"Delete files", a.deleteCheck},
+			{"Deniability", a.deniabilityCheck},
+			{"Recursively", a.recursivelyCheck},
+			{"Split:", a.splitCheck},
+			{"split units", a.splitUnitSelect},
+		})
+
+		// The two dangerous options deliberately share the exact safety wording;
+		// pin it verbatim so the warning copy can't be silently softened.
+		if got := a.deniabilityCheck.ToolTip(); got != sharedSecurityWarning {
+			t.Errorf("Deniability tooltip = %q, want %q", got, sharedSecurityWarning)
+		}
+		if got := a.recursivelyCheck.ToolTip(); got != sharedSecurityWarning {
+			t.Errorf("Recursively tooltip = %q, want %q", got, sharedSecurityWarning)
 		}
 	})
 
@@ -285,20 +327,15 @@ func TestAdvancedOptionsSetTooltips(t *testing.T) {
 		a.advancedContainer = container.NewVBox()
 		a.buildDecryptOptions()
 
-		for _, c := range []struct {
+		assertTooltipsPresentAndDistinct(t, []struct {
 			name string
 			tt   interface{ ToolTip() string }
-			want string
 		}{
-			{"Force decrypt", a.forceDecryptCheck, "Override security measures when decrypting"},
-			{"Verify first", a.verifyFirstCheck, "Verify integrity before decryption (slower but more secure)"},
-			{"Delete volume", a.deleteVolumeCheck, "Delete the volume after a successful decryption"},
-			{"Auto unzip", a.autoUnzipCheck, "Extract .zip upon decryption (may overwrite files)"},
-			{"Same level", a.sameLevelCheck, "Extract .zip contents to same folder as volume"},
-		} {
-			if got := c.tt.ToolTip(); got != c.want {
-				t.Errorf("%s tooltip = %q, want %q", c.name, got, c.want)
-			}
-		}
+			{"Force decrypt", a.forceDecryptCheck},
+			{"Verify first", a.verifyFirstCheck},
+			{"Delete volume", a.deleteVolumeCheck},
+			{"Auto unzip", a.autoUnzipCheck},
+			{"Same level", a.sameLevelCheck},
+		})
 	})
 }

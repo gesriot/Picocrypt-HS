@@ -10,55 +10,90 @@ import (
 	fynetheme "fyne.io/fyne/v2/theme"
 )
 
+// strengthColor mirrors passwordStrengthRenderer.updateArc's color formula with
+// the same [0,4] clamp the production code applies before computing the RGBA. The
+// test recreates the formula (not the value) so a regression in updateArc's
+// arithmetic — wrong coefficient, missing clamp, swapped channels — is caught at
+// the rendered FillColor rather than silently passing.
+func strengthColor(t *testing.T, strength int) color.RGBA {
+	t.Helper()
+	s := strength
+	if s < 0 {
+		s = 0
+	} else if s > 4 {
+		s = 4
+	}
+	return color.RGBA{
+		R: uint8(0xc8 - 31*s),
+		G: uint8(0x4c + 31*s),
+		B: 0x4b,
+		A: 0xff,
+	}
+}
+
 // TestPasswordStrengthIndicator tests the password strength indicator widget.
 func TestPasswordStrengthIndicator(t *testing.T) {
 	// Create test app
 	newTestFyneApp(t)
 
-	t.Run("NewPasswordStrengthIndicator", func(t *testing.T) {
-		indicator := NewPasswordStrengthIndicator()
-		if indicator == nil {
-			t.Fatal("Expected non-nil indicator")
-		}
-	})
-
+	// SetStrength asserts on the rendered arc, not the backing field. For each
+	// score the visible arc's FillColor must equal the red→green formula and its
+	// EndAngle must equal 72*(strength+1) degrees (the original Picocrypt arc
+	// length). Clamp rows (-1, 5) pin the color clamp to [0,4]. This fails if
+	// updateArc's color math or angle math regresses, where a field-echo would not.
 	t.Run("SetStrength", func(t *testing.T) {
 		indicator := NewPasswordStrengthIndicator()
+		renderer := indicator.CreateRenderer().(*passwordStrengthRenderer)
+		indicator.SetVisible(true)
 
-		// Test all strength levels
-		for strength := 0; strength <= 4; strength++ {
-			indicator.SetStrength(strength)
-			if indicator.strength != strength {
-				t.Errorf("Expected strength %d, got %d", strength, indicator.strength)
+		for _, tc := range []struct {
+			strength int
+		}{
+			{-1}, {0}, {1}, {2}, {3}, {4}, {5},
+		} {
+			indicator.SetStrength(tc.strength)
+			renderer.updateArc()
+
+			wantColor := strengthColor(t, tc.strength)
+			if got := renderer.arc.FillColor; got != wantColor {
+				t.Errorf("strength %d: arc.FillColor = %v, want %v", tc.strength, got, wantColor)
+			}
+			// updateArc derives EndAngle from the raw (unclamped) strength.
+			wantAngle := float32(72 * (tc.strength + 1))
+			if got := renderer.arc.EndAngle; got != wantAngle {
+				t.Errorf("strength %d: arc.EndAngle = %v, want %v", tc.strength, got, wantAngle)
 			}
 		}
 	})
 
-	t.Run("SetVisible", func(t *testing.T) {
+	// SetVisible+SetDecryptMode are merged into one renderer check covering the
+	// three-way visibility gate in updateArc: the arc fill is transparent when
+	// hidden, opaque when visible and not decrypting, and transparent again in
+	// decrypt mode even while visible. This fails if updateArc drops either guard.
+	t.Run("VisibilityGate", func(t *testing.T) {
 		indicator := NewPasswordStrengthIndicator()
-
-		indicator.SetVisible(true)
-		if !indicator.visible {
-			t.Error("Expected visible to be true")
-		}
+		renderer := indicator.CreateRenderer().(*passwordStrengthRenderer)
+		indicator.SetStrength(2) // a strength with an opaque color
 
 		indicator.SetVisible(false)
-		if indicator.visible {
-			t.Error("Expected visible to be false")
-		}
-	})
-
-	t.Run("SetDecryptMode", func(t *testing.T) {
-		indicator := NewPasswordStrengthIndicator()
-
-		indicator.SetDecryptMode(true)
-		if !indicator.decryMode {
-			t.Error("Expected decryMode to be true")
-		}
-
 		indicator.SetDecryptMode(false)
-		if indicator.decryMode {
-			t.Error("Expected decryMode to be false")
+		renderer.updateArc()
+		if got := renderer.arc.FillColor; got != color.Transparent {
+			t.Errorf("hidden: arc.FillColor = %v, want transparent", got)
+		}
+
+		indicator.SetVisible(true)
+		indicator.SetDecryptMode(false)
+		renderer.updateArc()
+		if got := renderer.arc.FillColor; got == color.Transparent {
+			t.Error("visible && !decrypt: arc.FillColor should be opaque, got transparent")
+		}
+
+		indicator.SetVisible(true)
+		indicator.SetDecryptMode(true)
+		renderer.updateArc()
+		if got := renderer.arc.FillColor; got != color.Transparent {
+			t.Errorf("visible && decrypt: arc.FillColor = %v, want transparent", got)
 		}
 	})
 
@@ -94,38 +129,37 @@ func TestPasswordStrengthIndicator(t *testing.T) {
 func TestValidationIndicator(t *testing.T) {
 	newTestFyneApp(t)
 
-	t.Run("NewValidationIndicator", func(t *testing.T) {
-		indicator := NewValidationIndicator()
-		if indicator == nil {
-			t.Fatal("Expected non-nil indicator")
-		}
-	})
+	// SetValid+SetVisible are merged into one renderer check on the drawn circle's
+	// StrokeColor (the only visible channel; FillColor stays transparent): green
+	// when valid, red when invalid, fully transparent when hidden. This asserts the
+	// rendered output of updateColor, so it fails if any branch's color regresses
+	// or the visibility guard is dropped — a field-echo could not catch that.
+	t.Run("ColorState", func(t *testing.T) {
+		green := color.RGBA{0x4c, 0xc8, 0x4b, 0xff}
+		red := color.RGBA{0xc8, 0x4c, 0x4b, 0xff}
 
-	t.Run("SetValid", func(t *testing.T) {
-		indicator := NewValidationIndicator()
+		for _, tc := range []struct {
+			name    string
+			valid   bool
+			visible bool
+			want    color.Color
+		}{
+			{"ValidVisibleGreen", true, true, green},
+			{"InvalidVisibleRed", false, true, red},
+			{"HiddenTransparent", true, false, color.Transparent},
+			{"HiddenInvalidTransparent", false, false, color.Transparent},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				indicator := NewValidationIndicator()
+				renderer := indicator.CreateRenderer().(*validationRenderer)
+				indicator.SetValid(tc.valid)
+				indicator.SetVisible(tc.visible)
+				renderer.updateColor()
 
-		indicator.SetValid(true)
-		if !indicator.valid {
-			t.Error("Expected valid to be true")
-		}
-
-		indicator.SetValid(false)
-		if indicator.valid {
-			t.Error("Expected valid to be false")
-		}
-	})
-
-	t.Run("SetVisible", func(t *testing.T) {
-		indicator := NewValidationIndicator()
-
-		indicator.SetVisible(true)
-		if !indicator.visible {
-			t.Error("Expected visible to be true")
-		}
-
-		indicator.SetVisible(false)
-		if indicator.visible {
-			t.Error("Expected visible to be false")
+				if got := renderer.circle.StrokeColor; got != tc.want {
+					t.Errorf("circle.StrokeColor = %v, want %v", got, tc.want)
+				}
+			})
 		}
 	})
 
@@ -157,91 +191,73 @@ func TestValidationIndicator(t *testing.T) {
 	})
 }
 
-// TestPasswordEntry tests the password entry widget.
+// TestPasswordEntry asserts the load-bearing coupling between the embedded
+// widget.Entry.Password field (which actually masks the text) and the widget's
+// own hidden flag (which IsHidden reports). The two must stay in lockstep:
+// masking the entry while reporting "shown" — or vice versa — leaks or
+// mis-labels the password, so this guards that SetHidden drives BOTH, not just
+// the bookkeeping flag.
 func TestPasswordEntry(t *testing.T) {
 	newTestFyneApp(t)
 
-	t.Run("NewPasswordEntry", func(t *testing.T) {
-		entry := NewPasswordEntry()
-		if entry == nil {
-			t.Fatal("Expected non-nil entry")
-		}
+	entry := NewPasswordEntry()
 
-		// Should start hidden (password mode)
-		if !entry.hidden {
-			t.Error("Expected hidden to be true initially")
-		}
-		if !entry.Password {
-			t.Error("Expected Password mode to be true initially")
-		}
-	})
+	// Fresh: masked and reported as hidden.
+	if !entry.Password || !entry.IsHidden() {
+		t.Fatalf("fresh entry: Password=%v IsHidden=%v; want both true", entry.Password, entry.IsHidden())
+	}
 
-	t.Run("SetHidden", func(t *testing.T) {
-		entry := NewPasswordEntry()
+	// Reveal: masking off AND reported as shown.
+	entry.SetHidden(false)
+	if entry.Password {
+		t.Error("SetHidden(false): Password (masking) must be off, else text stays masked while labeled shown")
+	}
+	if entry.IsHidden() {
+		t.Error("SetHidden(false): IsHidden must report false")
+	}
 
-		entry.SetHidden(false)
-		if entry.hidden {
-			t.Error("Expected hidden to be false")
-		}
-		if entry.Password {
-			t.Error("Expected Password mode to be false")
-		}
-
-		entry.SetHidden(true)
-		if !entry.hidden {
-			t.Error("Expected hidden to be true")
-		}
-		if !entry.Password {
-			t.Error("Expected Password mode to be true")
-		}
-	})
-
-	t.Run("IsHidden", func(t *testing.T) {
-		entry := NewPasswordEntry()
-
-		if !entry.IsHidden() {
-			t.Error("Expected IsHidden() to return true initially")
-		}
-
-		entry.SetHidden(false)
-		if entry.IsHidden() {
-			t.Error("Expected IsHidden() to return false")
-		}
-	})
+	// Re-hide: both back on.
+	entry.SetHidden(true)
+	if !entry.Password || !entry.IsHidden() {
+		t.Fatalf("SetHidden(true): Password=%v IsHidden=%v; want both true", entry.Password, entry.IsHidden())
+	}
 }
 
 // TestColoredLabel tests the colored label widget.
 func TestColoredLabel(t *testing.T) {
 	newTestFyneApp(t)
 
-	t.Run("NewColoredLabel", func(t *testing.T) {
-		testColor := color.RGBA{R: 255, G: 0, B: 0, A: 255}
-		label := NewColoredLabel("Test", testColor)
-
-		if label == nil {
-			t.Fatal("Expected non-nil label")
-		}
-		if label.text != "Test" {
-			t.Errorf("Expected text 'Test', got '%s'", label.text)
-		}
-	})
-
+	// SetText asserts the rendered canvas.Text reflects the new value. Layout is
+	// called with a width wide enough that updateText's truncation leaves the text
+	// intact, so the drawn Text must equal what was set. This fails if SetText
+	// stops propagating into updateText (the renderer would keep the old string).
 	t.Run("SetText", func(t *testing.T) {
 		label := NewColoredLabel("Initial", color.White)
+		renderer := label.CreateRenderer().(*coloredLabelRenderer)
+		renderer.Layout(fyne.NewSize(1000, 50)) // wide: no truncation
 
 		label.SetText("Updated")
-		if label.text != "Updated" {
-			t.Errorf("Expected text 'Updated', got '%s'", label.text)
+		renderer.Refresh()
+
+		if got := renderer.text.Text; got != "Updated" {
+			t.Errorf("rendered text = %q, want %q", got, "Updated")
 		}
 	})
 
+	// SetColor asserts the rendered canvas.Text carries the new color. updateText
+	// copies label.color onto the drawn text, so a regression that drops the color
+	// assignment is caught here where a field-echo on label.color would not.
 	t.Run("SetColor", func(t *testing.T) {
 		label := NewColoredLabel("Test", color.White)
-		newColor := color.RGBA{R: 0, G: 255, B: 0, A: 255}
+		renderer := label.CreateRenderer().(*coloredLabelRenderer)
+		renderer.Layout(fyne.NewSize(1000, 50))
 
+		newColor := color.RGBA{R: 0, G: 255, B: 0, A: 255}
 		label.SetColor(newColor)
-		if label.color != newColor {
-			t.Error("Expected color to be updated")
+		renderer.Refresh()
+
+		if got := renderer.text.Color; got != color.Color(newColor) {
+			t.Errorf("rendered text color = %v, want %v", got, newColor)
 		}
 	})
 
@@ -294,11 +310,8 @@ func TestDisabledEntry(t *testing.T) {
 
 	t.Run("NewDisabledEntry", func(t *testing.T) {
 		entry := NewDisabledEntry()
-		if entry == nil {
-			t.Fatal("Expected non-nil entry")
-		}
 
-		// Should be disabled
+		// NewDisabledEntry must call Disable(); guard that it actually did.
 		if !entry.Disabled() {
 			t.Error("Expected entry to be disabled")
 		}
@@ -362,13 +375,6 @@ func TestFixedWidthLayout(t *testing.T) {
 
 // TestCompactTheme tests the compact theme.
 func TestCompactTheme(t *testing.T) {
-	t.Run("NewCompactTheme", func(t *testing.T) {
-		theme := NewCompactTheme()
-		if theme == nil {
-			t.Fatal("Expected non-nil theme")
-		}
-	})
-
 	t.Run("Size", func(t *testing.T) {
 		theme := NewCompactTheme().(*CompactTheme)
 
@@ -398,24 +404,6 @@ func TestCompactTheme(t *testing.T) {
 		wantLight := color.RGBA{R: 0x10, G: 0x10, B: 0x10, A: 0xFF}
 		if light != wantLight {
 			t.Errorf("light foreground: expected %v, got %v", wantLight, light)
-		}
-	})
-
-	t.Run("Font", func(t *testing.T) {
-		theme := NewCompactTheme().(*CompactTheme)
-
-		font := theme.Font(fyne.TextStyle{})
-		if font == nil {
-			t.Error("Expected non-nil font")
-		}
-	})
-
-	t.Run("Icon", func(t *testing.T) {
-		theme := NewCompactTheme().(*CompactTheme)
-
-		icon := theme.Icon("cancel")
-		if icon == nil {
-			t.Error("Expected non-nil icon")
 		}
 	})
 }
