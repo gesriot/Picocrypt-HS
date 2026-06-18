@@ -10,7 +10,7 @@ fastlane/metadata/android/<locale>/
   title.txt                 # max 30 chars
   short_description.txt      # max 80 chars
   full_description.txt       # max 4000 chars (plain text / Markdown / single-line HTML)
-  changelogs/<versionCode>.txt   # max 500 bytes, plain ASCII, one file per release
+  changelogs/default.txt    # max 500 bytes, plain ASCII, fallback changelog (any versionCode)
   images/
     icon.png                 # 48x48 .. 512x512, PNG/JPG
     featureGraphic.png       # 512x250 or 1024x500 (optional)
@@ -34,13 +34,12 @@ gets a distinct versionCode `base*10 + offset` (armeabi-v7a=1, arm64-v8a=2, x86=
 x86_64=4); the universal APK keeps `base`. fdroiddata mirrors this with
 `VercodeOperation: [10*%c+1 .. 10*%c+4]`.
 
-fastlane changelogs are keyed by versionCode. ABI splits produce 5 codes per release — the
-universal APK keeps the base code and each ABI gets `base*10 + offset` — so a release ships
-one `<versionCode>.txt` per code with identical notes (≤ 500 bytes, ASCII): e.g. 2.16 →
-`21600.txt` (universal) plus `216001`–`216004.txt`. IzzyOnDroid reads the fastlane tree from
-the tagged commit and serves the prebuilt APK without generating changelogs at build time, so
-committing the per-code files is what makes the changelog show there; F-Droid matches the same
-files by versionCode. Earlier releases' files are kept as history.
+fastlane changelogs are keyed by versionCode, with `changelogs/default.txt` served as the
+fallback for any versionCode that has no specific file. This repo ships only `default.txt`
+(the current release notes, ≤ 500 bytes, ASCII): the IzzyOnDroid submission was withdrawn, so
+the per-versionCode / per-ABI changelog files (one `<versionCode>.txt` per ABI split code) are
+no longer maintained. F-Droid-family clients fall back to `default.txt` for every build;
+per-code files can be reintroduced later if a store that needs them is targeted again.
 
 ## Status
 
