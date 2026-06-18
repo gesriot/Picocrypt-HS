@@ -275,13 +275,14 @@ func (s *State) resetUILocked() {
 	s.SplitSize = ""
 	s.SplitSelected = 1
 
-	// Password generator defaults (must be true after reset, like original)
+	// Password generator defaults. PassgenCopy defaults OFF: do not auto-copy a
+	// generated password to the OS clipboard (sync/history leak); user can opt in.
 	s.PassgenLength = 32
 	s.PassgenUpper = true
 	s.PassgenLower = true
 	s.PassgenNums = true
 	s.PassgenSymbols = true
-	s.PassgenCopy = true
+	s.PassgenCopy = false
 
 	s.Recursively = false
 	s.Delete = false

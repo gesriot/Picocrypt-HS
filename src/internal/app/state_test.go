@@ -690,6 +690,27 @@ func TestPasswordInputModeConstants(t *testing.T) {
 	}
 }
 
+// TestPassgenCopyDefaultsOff asserts PassgenCopy defaults to false both on
+// construction and after Reset, so generated passwords are NOT auto-copied to
+// the OS clipboard (clipboard sync / history is a strong-secret leak). The
+// Copy buttons remain for explicit user action; only the default is changed.
+func TestPassgenCopyDefaultsOff(t *testing.T) {
+	t.Run("NewState", func(t *testing.T) {
+		s := mustNewState(t)
+		if s.PassgenCopy {
+			t.Fatal("PassgenCopy must default to false — do not auto-copy generated passwords to the clipboard")
+		}
+	})
+	t.Run("after Reset", func(t *testing.T) {
+		s := mustNewState(t)
+		s.PassgenCopy = true // simulate user enabling it
+		s.Reset()
+		if s.PassgenCopy {
+			t.Fatal("PassgenCopy must be false after Reset — Reset must not restore the old auto-copy default")
+		}
+	})
+}
+
 // TestStateVersion is a desync tripwire, not a tautology: it asserts the
 // app.Version const stays in lockstep with the canonical root VERSION file
 // (app.Version must be "v" + <VERSION>). A version bump that edits VERSION but
