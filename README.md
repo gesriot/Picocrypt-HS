@@ -37,6 +37,8 @@ Make sure to only download Picocrypt NG from this repository to ensure that you 
 
 If your antivirus flags Picocrypt NG as a virus, please report it as a false positive to help everyone.
 
+**Code signing:** Free Windows code signing for Picocrypt NG is provided by the [SignPath Foundation](https://signpath.org/) open-source program (integration in progress).
+
 ## macOS
 Download Picocrypt NG <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.dmg">here</a>, open the container, and drag Picocrypt NG to your Applications.
 
