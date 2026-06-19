@@ -66,10 +66,11 @@ func decrypt(this js.Value, args []js.Value) (result any) {
 	passwordBytes := []byte(args[1].String())
 	defer crypto.SecureZero(passwordBytes)
 
-	plaintext, errCode := wasm.DecryptVolume(fileData, passwordBytes)
+	res, errCode := wasm.DecryptVolume(fileData, passwordBytes)
 	if errCode != 0 {
 		return errCode
 	}
+	plaintext := res.Plaintext
 	defer crypto.SecureZero(plaintext)
 
 	out := js.Global().Get("Uint8Array").New(len(plaintext) + 1)

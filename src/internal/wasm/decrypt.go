@@ -21,13 +21,20 @@ const (
 	ErrRandomFailure   = 5 // Random generation failed (encrypt only)
 )
 
+// DecryptResult is the successful output of DecryptVolume. On error the int
+// code is non-zero and the result is the zero value.
+type DecryptResult struct {
+	Plaintext []byte
+	Comments  string // plaintext header comments ("" if none)
+}
+
 // DecryptVolume decrypts a Picocrypt volume from memory.
-// Returns (plaintext, 0) on success, or (nil, errorCode) on failure.
-func DecryptVolume(volumeData, password []byte) ([]byte, int) {
+// Returns (DecryptResult, 0) on success, or (zero, errorCode) on failure.
+func DecryptVolume(volumeData, password []byte) (DecryptResult, int) {
 	// Initialize RS codecs
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
-		return nil, ErrCorruptedHeader
+		return DecryptResult{}, ErrCorruptedHeader
 	}
 
 	// Create reader from volume data
@@ -37,13 +44,13 @@ func DecryptVolume(volumeData, password []byte) ([]byte, int) {
 	headerReader := header.NewReader(reader, rsCodecs)
 	result, err := headerReader.ReadHeader()
 	if err != nil {
-		return nil, ErrCorruptedHeader
+		return DecryptResult{}, ErrCorruptedHeader
 	}
 	hdr := result.Header
 
 	// Check for unsupported features
 	if hasUnsupportedWASMFeature(hdr.Flags) {
-		return nil, ErrUnsupported
+		return DecryptResult{}, ErrUnsupported
 	}
 
 	// Prepare keyfile hash (zeros since no keyfiles)
@@ -61,12 +68,12 @@ func DecryptVolume(volumeData, password []byte) ([]byte, int) {
 		k, err := crypto.DeriveKey(cand, hdr.Salt, hdr.Flags.Paranoid)
 		zeroWASMSensitiveBuffer(wasmZeroingDecryptPasswordBytes, cand)
 		if err != nil {
-			return nil, ErrCorruptedHeader
+			return DecryptResult{}, ErrCorruptedHeader
 		}
 		valid, sr, errCode := verifyWASMHeader(k, hdr, keyfileHash, isLegacyV1)
 		if errCode != 0 {
 			crypto.SecureZero(k)
-			return nil, errCode
+			return DecryptResult{}, errCode
 		}
 		if valid {
 			key = k
@@ -76,26 +83,26 @@ func DecryptVolume(volumeData, password []byte) ([]byte, int) {
 		crypto.SecureZero(k)
 	}
 	if key == nil {
-		return nil, ErrWrongPassword
+		return DecryptResult{}, ErrWrongPassword
 	}
 	defer crypto.SecureZero(key)
 
 	// Read remaining subkeys
 	macSubkey, err := subkeyReader.MACSubkey()
 	if err != nil {
-		return nil, ErrCorruptedHeader
+		return DecryptResult{}, ErrCorruptedHeader
 	}
 
 	serpentKey, err := subkeyReader.SerpentKey()
 	if err != nil {
-		return nil, ErrCorruptedHeader
+		return DecryptResult{}, ErrCorruptedHeader
 	}
 
 	// Create MAC
 	mac, err := crypto.NewMAC(macSubkey, hdr.Flags.Paranoid)
 	zeroWASMSensitiveBuffer(wasmZeroingDecryptMACSubkey, macSubkey)
 	if err != nil {
-		return nil, ErrCorruptedHeader
+		return DecryptResult{}, ErrCorruptedHeader
 	}
 
 	// Create cipher suite
@@ -110,7 +117,7 @@ func DecryptVolume(volumeData, password []byte) ([]byte, int) {
 	)
 	zeroWASMSensitiveBuffer(wasmZeroingDecryptSerpentKey, serpentKey)
 	if err != nil {
-		return nil, ErrCorruptedHeader
+		return DecryptResult{}, ErrCorruptedHeader
 	}
 	defer cipherSuite.Close()
 
@@ -118,7 +125,7 @@ func DecryptVolume(volumeData, password []byte) ([]byte, int) {
 	headerSize := header.HeaderSize(len(hdr.Comments))
 	payloadSize := len(volumeData) - headerSize
 	if payloadSize <= 0 {
-		return nil, ErrCorruptedHeader
+		return DecryptResult{}, ErrCorruptedHeader
 	}
 
 	// Read payload from remaining bytes
@@ -129,7 +136,7 @@ func DecryptVolume(volumeData, password []byte) ([]byte, int) {
 	var counter int64
 	plaintext, err := decryptPlainPayload(payload, cipherSuite, &counter)
 	if err != nil {
-		return nil, ErrModifiedData
+		return DecryptResult{}, ErrModifiedData
 	}
 
 	// Verify MAC
@@ -138,10 +145,10 @@ func DecryptVolume(volumeData, password []byte) ([]byte, int) {
 	zeroWASMSensitiveBuffer(wasmZeroingDecryptComputedMAC, computedMAC)
 	if !macValid {
 		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, plaintext)
-		return nil, ErrModifiedData
+		return DecryptResult{}, ErrModifiedData
 	}
 
-	return plaintext, 0
+	return DecryptResult{Plaintext: plaintext, Comments: hdr.Comments}, 0
 }
 
 // verifyWASMHeader checks whether key authenticates the volume header and, on
@@ -175,8 +182,7 @@ func verifyWASMHeader(key []byte, hdr *header.VolumeHeader, keyfileHash []byte, 
 }
 
 func hasUnsupportedWASMFeature(flags header.Flags) bool {
-	return flags.Paranoid ||
-		flags.UseKeyfiles ||
+	return flags.UseKeyfiles ||
 		flags.KeyfileOrdered ||
 		flags.ReedSolomon ||
 		flags.Padded

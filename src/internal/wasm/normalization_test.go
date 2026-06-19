@@ -25,12 +25,12 @@ func TestWASMEncryptNormalizesPassword(t *testing.T) {
 		t.Fatalf("encrypt failed with error code %d", errCode)
 	}
 
-	plaintext, errCode := DecryptVolume(ciphertext, []byte(nfcPassword))
+	res, errCode := DecryptVolume(ciphertext, []byte(nfcPassword))
 	if errCode != 0 {
 		t.Fatalf("decrypt with composed form failed (code %d): encrypt did not normalize to NFC", errCode)
 	}
-	if !bytes.Equal(plaintext, original) {
-		t.Errorf("roundtrip mismatch\ngot:  %q\nwant: %q", plaintext, original)
+	if !bytes.Equal(res.Plaintext, original) {
+		t.Errorf("roundtrip mismatch\ngot:  %q\nwant: %q", res.Plaintext, original)
 	}
 }
 
@@ -54,12 +54,12 @@ func TestWASMDecryptTriesNormalizationForms(t *testing.T) {
 			if errCode != 0 {
 				t.Fatalf("encrypt failed with error code %d", errCode)
 			}
-			plaintext, errCode := DecryptVolume(ciphertext, []byte(tc.decrypt))
+			res, errCode := DecryptVolume(ciphertext, []byte(tc.decrypt))
 			if errCode != 0 {
 				t.Fatalf("decrypt failed with error code %d (try-both not applied?)", errCode)
 			}
-			if !bytes.Equal(plaintext, original) {
-				t.Errorf("roundtrip mismatch\ngot:  %q\nwant: %q", plaintext, original)
+			if !bytes.Equal(res.Plaintext, original) {
+				t.Errorf("roundtrip mismatch\ngot:  %q\nwant: %q", res.Plaintext, original)
 			}
 		})
 	}
