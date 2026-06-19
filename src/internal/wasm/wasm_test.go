@@ -21,7 +21,7 @@ func TestDecryptV1(t *testing.T) {
 	}
 
 	// Decrypt with password "test"
-	plaintext, errCode := DecryptVolume(volumeData, []byte("test"))
+	res, errCode := DecryptVolume(volumeData, []byte("test"))
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -34,8 +34,8 @@ func TestDecryptV1(t *testing.T) {
 
 	// Normalize line endings: git may convert \n → \r\n on Windows checkout
 	expected = bytes.ReplaceAll(expected, []byte("\r\n"), []byte("\n"))
-	if !bytes.Equal(plaintext, expected) {
-		t.Errorf("decrypted content doesn't match expected\ngot: %q\nwant: %q", plaintext, expected)
+	if !bytes.Equal(res.Plaintext, expected) {
+		t.Errorf("decrypted content doesn't match expected\ngot: %q\nwant: %q", res.Plaintext, expected)
 	}
 }
 
@@ -47,7 +47,7 @@ func TestDecryptV2(t *testing.T) {
 	}
 
 	// Decrypt with password "test"
-	plaintext, errCode := DecryptVolume(volumeData, []byte("test"))
+	res, errCode := DecryptVolume(volumeData, []byte("test"))
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -59,8 +59,8 @@ func TestDecryptV2(t *testing.T) {
 	}
 
 	expected = bytes.ReplaceAll(expected, []byte("\r\n"), []byte("\n"))
-	if !bytes.Equal(plaintext, expected) {
-		t.Errorf("decrypted content doesn't match expected\ngot: %q\nwant: %q", plaintext, expected)
+	if !bytes.Equal(res.Plaintext, expected) {
+		t.Errorf("decrypted content doesn't match expected\ngot: %q\nwant: %q", res.Plaintext, expected)
 	}
 }
 
@@ -81,19 +81,19 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 	password := "testpassword123"
 
 	// Encrypt
-	ciphertext, errCode := EncryptVolume(original, []byte(password))
+	ciphertext, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("encrypt failed with error code %d", errCode)
 	}
 
 	// Decrypt
-	plaintext, errCode := DecryptVolume(ciphertext, []byte(password))
+	res, errCode := DecryptVolume(ciphertext, []byte(password))
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
 
-	if !bytes.Equal(plaintext, original) {
-		t.Errorf("roundtrip failed\ngot: %q\nwant: %q", plaintext, original)
+	if !bytes.Equal(res.Plaintext, original) {
+		t.Errorf("roundtrip failed\ngot: %q\nwant: %q", res.Plaintext, original)
 	}
 }
 
@@ -106,18 +106,18 @@ func TestEncryptDecryptLargerFile(t *testing.T) {
 	password := "testpassword123"
 
 	// Encrypt
-	ciphertext, errCode := EncryptVolume(original, []byte(password))
+	ciphertext, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("encrypt failed with error code %d", errCode)
 	}
 
 	// Decrypt
-	plaintext, errCode := DecryptVolume(ciphertext, []byte(password))
+	res, errCode := DecryptVolume(ciphertext, []byte(password))
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
 
-	if !bytes.Equal(plaintext, original) {
+	if !bytes.Equal(res.Plaintext, original) {
 		t.Errorf("roundtrip failed for larger file")
 	}
 }
@@ -151,7 +151,7 @@ func TestWASMUsesWriteAuthValues(t *testing.T) {
 		return originalWriteAuthValues(w, offset, sentinelKeyHash, sentinelKeyfileHash, sentinelAuthTag, rs)
 	}
 
-	volumeData, errCode := EncryptVolume([]byte("phase 6 wasm auth writer guard"), []byte("phase6-password"))
+	volumeData, errCode := EncryptVolume([]byte("phase 6 wasm auth writer guard"), []byte("phase6-password"), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
@@ -183,7 +183,7 @@ func TestWASMRoundtripDesktopDecrypt(t *testing.T) {
 	original := []byte("Phase 6 WASM standard volume decrypts through the shared desktop volume path.")
 	password := "phase6-desktop-interop"
 
-	volumeData, errCode := EncryptVolume(original, []byte(password))
+	volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
@@ -236,7 +236,7 @@ func TestWASMBuffersZeroed(t *testing.T) {
 	})
 	defer restore()
 
-	volumeData, errCode := EncryptVolume(plaintext, []byte(password))
+	volumeData, errCode := EncryptVolume(plaintext, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
@@ -320,10 +320,6 @@ func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
 			name:  "reed_solomon_padding",
 			flags: header.Flags{Padded: true},
 		},
-		{
-			name:  "paranoid",
-			flags: header.Flags{Paranoid: true},
-		},
 	}
 
 	for _, tc := range cases {
@@ -341,7 +337,7 @@ func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
 func TestWASMDecryptBuffersZeroed(t *testing.T) {
 	original := []byte("Phase 6 decrypt zeroing coverage needs returned plaintext intact.")
 	password := "phase6-decrypt-zeroing"
-	volumeData, errCode := EncryptVolume(original, []byte(password))
+	volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
@@ -352,10 +348,11 @@ func TestWASMDecryptBuffersZeroed(t *testing.T) {
 	})
 	defer restore()
 
-	plaintext, errCode := DecryptVolume(volumeData, []byte(password))
+	res, errCode := DecryptVolume(volumeData, []byte(password))
 	if errCode != 0 {
 		t.Fatalf("DecryptVolume returned error code %d", errCode)
 	}
+	plaintext := res.Plaintext
 	if !bytes.Equal(plaintext, original) {
 		t.Fatalf("plaintext mismatch\ngot:  %q\nwant: %q", plaintext, original)
 	}
@@ -395,10 +392,103 @@ func TestWASMDecryptBuffersZeroed(t *testing.T) {
 	}
 }
 
+func TestWASMParanoidCommentsDesktopDecrypt(t *testing.T) {
+	original := []byte("P0: paranoid + comments interop through the desktop volume path.")
+	password := "p0-paranoid-interop"
+	comments := "made in the browser"
+
+	volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{Paranoid: true, Comments: comments})
+	if errCode != 0 {
+		t.Fatalf("EncryptVolume returned error code %d", errCode)
+	}
+
+	// Header must record paranoid + the plaintext comments.
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+	res, err := header.NewReader(bytes.NewReader(volumeData), rs).ReadHeader()
+	if err != nil {
+		t.Fatalf("ReadHeader failed: %v", err)
+	}
+	if !res.Header.Flags.Paranoid {
+		t.Fatal("paranoid flag not set in WASM-produced header")
+	}
+	if res.Header.Comments != comments {
+		t.Fatalf("header comments = %q; want %q", res.Header.Comments, comments)
+	}
+
+	// Desktop must decrypt the WASM paranoid volume to identical plaintext.
+	tmpDir := t.TempDir()
+	encPath := filepath.Join(tmpDir, "wasm.pcv")
+	decPath := filepath.Join(tmpDir, "desktop.txt")
+	if err := os.WriteFile(encPath, volumeData, 0600); err != nil {
+		t.Fatalf("write volume: %v", err)
+	}
+	if err := volume.Decrypt(context.Background(), &volume.DecryptRequest{
+		InputFile:  encPath,
+		OutputFile: decPath,
+		Password:   []byte(password),
+		RSCodecs:   rs,
+	}); err != nil {
+		t.Fatalf("volume.Decrypt failed: %v", err)
+	}
+	got, err := os.ReadFile(decPath)
+	if err != nil {
+		t.Fatalf("read decrypted: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatalf("desktop decrypt mismatch\ngot:  %q\nwant: %q", got, original)
+	}
+}
+
+func TestWASMDecryptParanoidAndComments(t *testing.T) {
+	original := []byte("P0: desktop paranoid volume decrypts in WASM and yields comments.")
+	password := "p0-desktop-to-wasm"
+	comments := "round-trip comment"
+
+	// Desktop-encrypt a paranoid volume with comments to a temp file.
+	tmpDir := t.TempDir()
+	inPath := filepath.Join(tmpDir, "plain.txt")
+	outPath := filepath.Join(tmpDir, "vol.pcv")
+	if err := os.WriteFile(inPath, original, 0600); err != nil {
+		t.Fatalf("write plaintext: %v", err)
+	}
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+	if err := volume.Encrypt(context.Background(), &volume.EncryptRequest{
+		InputFile:  inPath,
+		OutputFile: outPath,
+		Password:   []byte(password),
+		Paranoid:   true,
+		Comments:   comments,
+		RSCodecs:   rs,
+	}); err != nil {
+		t.Fatalf("volume.Encrypt failed: %v", err)
+	}
+	volumeData, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read volume: %v", err)
+	}
+
+	got, errCode := DecryptVolume(volumeData, []byte(password))
+	if errCode != 0 {
+		t.Fatalf("DecryptVolume error code %d", errCode)
+	}
+	if !bytes.Equal(got.Plaintext, original) {
+		t.Fatalf("plaintext mismatch\ngot:  %q\nwant: %q", got.Plaintext, original)
+	}
+	if got.Comments != comments {
+		t.Fatalf("comments = %q; want %q", got.Comments, comments)
+	}
+}
+
 func wasmVolumeWithFlags(t *testing.T, flags header.Flags) []byte {
 	t.Helper()
 
-	volumeData, errCode := EncryptVolume([]byte("unsupported wasm feature flags"), []byte("phase6-unsupported-flags"))
+	volumeData, errCode := EncryptVolume([]byte("unsupported wasm feature flags"), []byte("phase6-unsupported-flags"), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
