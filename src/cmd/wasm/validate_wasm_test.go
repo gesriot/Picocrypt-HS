@@ -3,6 +3,7 @@
 package main
 
 import (
+	"strings"
 	"syscall/js"
 	"testing"
 )
@@ -70,10 +71,7 @@ func TestBridgeRejectsBadInput(t *testing.T) {
 // Over-long comments are rejected at the bridge with errInvalidArg.
 func TestBridgeRejectsLongComments(t *testing.T) {
 	u8 := js.Global().Get("Uint8Array").New(4)
-	long := make([]byte, 0)
-	for i := 0; i < 100000; i++ { // > header.MaxCommentLen (99999)
-		long = append(long, 'a')
-	}
+	long := []byte(strings.Repeat("a", 100000)) // > header.MaxCommentLen (99999)
 	arg := newOpts(map[string]any{"data": u8, "password": "pw", "comments": string(long)})
 	if got := codeOf(encrypt(js.Undefined(), []js.Value{arg})); got != errInvalidArg {
 		t.Fatalf("over-long comments code=%d; want errInvalidArg=%d", got, errInvalidArg)
@@ -89,6 +87,17 @@ func TestReadKeyfilesRejectsBadShapes(t *testing.T) {
 	arr.Call("push", js.ValueOf(42)) // not a Uint8Array
 	if _, ok := readKeyfiles(arr); ok {
 		t.Fatal("non-Uint8Array keyfile element accepted")
+	}
+}
+
+// readKeyfiles(undefined) and readKeyfiles(null) must both return (nil, true):
+// no keyfiles, ok — exercising the IsUndefined/IsNull early-return paths.
+func TestReadKeyfilesNilIsOK(t *testing.T) {
+	if kfs, ok := readKeyfiles(js.Undefined()); !ok || kfs != nil {
+		t.Fatalf("readKeyfiles(undefined) = (%v, %v); want (nil, true)", kfs, ok)
+	}
+	if kfs, ok := readKeyfiles(js.Null()); !ok || kfs != nil {
+		t.Fatalf("readKeyfiles(null) = (%v, %v); want (nil, true)", kfs, ok)
 	}
 }
 

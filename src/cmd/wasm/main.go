@@ -72,7 +72,7 @@ func readKeyfiles(v js.Value) ([][]byte, bool) {
 	}
 	n := v.Length()
 	out := make([][]byte, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		b, ok := readUint8Array(v.Index(i))
 		if !ok {
 			return nil, false
