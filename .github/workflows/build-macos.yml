@@ -91,6 +91,19 @@ jobs:
             Picocrypt-NG.app/Contents/Info.plist | grep -q 'io.github.picocryptng.pcv' \
             || (echo "::error::UTExportedTypeDeclarations lost UTI"; exit 1)
         # === end Phase 3 ===
+        # === Ad-hoc code signing (free; no paid Apple Developer ID) ===
+        # Re-seal the assembled bundle so the signature covers the swapped
+        # executable, icon and injected Info.plist. Without a valid seal a
+        # quarantined download triggers the harsh "app is damaged and can't be
+        # opened" Gatekeeper block on Apple Silicon (an arm64 binary must be at
+        # least ad-hoc signed to run at all). A valid ad-hoc seal downgrades
+        # that to the bypassable "unidentified developer" prompt. It does NOT
+        # remove the warning entirely; that needs a paid Developer ID +
+        # notarization. spctl --assess is intentionally NOT run here: ad-hoc
+        # signatures are expected to fail notarization assessment.
+        codesign --force --deep --sign - Picocrypt-NG.app
+        codesign --verify --deep --strict --verbose=2 Picocrypt-NG.app
+        # === end ad-hoc signing ===
         mkdir out
         cp -R Picocrypt-NG.app out
         hdiutil create Picocrypt-NG.dmg -volname Picocrypt-NG -fs APFS -format UDZO -srcfolder out

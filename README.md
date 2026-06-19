@@ -42,12 +42,12 @@ Download Picocrypt NG <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/rele
 
 **Apple Silicon vs Intel:** The released macOS app is built for Apple Silicon and targets macOS 15.0+. Intel Mac users and users on older macOS releases need to <a href="src/README.md">build from source</a> or use the CLI-only version where appropriate.
 
-**Gatekeeper Warning:** macOS may block the app with a "forbidden" icon because the release is unsigned. If you're on supported Apple Silicon hardware and macOS 15.0+, this is a Gatekeeper warning rather than a Picocrypt NG runtime error.
+**Gatekeeper Warning:** The release is ad-hoc signed but not notarized (notarization needs a paid Apple Developer ID), so macOS shows a Gatekeeper warning the first time you open it. This is a Gatekeeper prompt, not a Picocrypt NG runtime error.
 
-To fix, use one of these methods:
+To open it, use one of these methods:
 - **Right-click → Open** (instead of double-clicking), then confirm
 - **System Settings → Privacy & Security** → scroll down → "Open Anyway"
-- **Terminal:** `xattr -cr /Applications/Picocrypt-NG.app`
+- **Terminal:** `xattr -cr /Applications/Picocrypt-NG.app` — most reliable, and the fix if a re-download re-applies quarantine and you see "app is damaged and can't be opened"
 
 The CLI-only build avoids the `.app` bundle path and is useful for terminal-only use.
 
