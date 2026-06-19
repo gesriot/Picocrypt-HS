@@ -411,27 +411,34 @@ func TestProcessUnorderedReadError(t *testing.T) {
 }
 
 func TestProcessReadersMatchesProcess(t *testing.T) {
-	// Two keyfiles with distinct, multi-chunk-ish content.
+	// Three keyfiles: two sub-1MiB and one >1MiB (non-buffer-aligned) so that
+	// the multi-chunk path of hashOne is exercised and cross-checked between
+	// Process (disk) and ProcessReaders (in-memory).
 	a := bytes.Repeat([]byte{0xA5}, 1500)
 	b := bytes.Repeat([]byte{0x5A}, 800)
+	c := bytes.Repeat([]byte{0x3C}, 3*1024*1024+777) // >1 MiB, non-aligned
 
 	dir := t.TempDir()
 	pa := filepath.Join(dir, "a.key")
 	pb := filepath.Join(dir, "b.key")
+	pc := filepath.Join(dir, "c.key")
 	if err := os.WriteFile(pa, a, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(pb, b, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(pc, c, 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, ordered := range []bool{true, false} {
 		t.Run(fmt.Sprintf("ordered=%v", ordered), func(t *testing.T) {
-			fromPaths, err := Process([]string{pa, pb}, ordered, nil)
+			fromPaths, err := Process([]string{pa, pb, pc}, ordered, nil)
 			if err != nil {
 				t.Fatalf("Process: %v", err)
 			}
-			fromReaders, err := ProcessReaders([]io.Reader{bytes.NewReader(a), bytes.NewReader(b)}, ordered)
+			fromReaders, err := ProcessReaders([]io.Reader{bytes.NewReader(a), bytes.NewReader(b), bytes.NewReader(c)}, ordered)
 			if err != nil {
 				t.Fatalf("ProcessReaders: %v", err)
 			}

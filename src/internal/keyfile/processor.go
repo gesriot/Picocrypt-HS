@@ -149,6 +149,11 @@ func hashUnordered(readers []io.Reader) ([]byte, error) {
 // hashOne streams r into hasher using the provided scratch buffer (zeroed by the
 // caller). Uses an explicit loop (not io.Copy) to keep the scratch buffer
 // secure-zeroable.
+//
+// NOTE: buf[:n] is written to the hasher BEFORE the error is inspected. This
+// is intentional: the io.Reader contract permits a non-nil error (including
+// io.EOF) to be returned alongside n > 0 bytes in the same Read call, and
+// those bytes must not be silently dropped.
 func hashOne(hasher io.Writer, r io.Reader, buf []byte) error {
 	for {
 		n, err := r.Read(buf)
