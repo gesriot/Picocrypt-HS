@@ -80,6 +80,51 @@ func TestBridgeRejectsLongComments(t *testing.T) {
 	}
 }
 
+// readKeyfiles must reject a non-array and a non-Uint8Array element.
+func TestReadKeyfilesRejectsBadShapes(t *testing.T) {
+	if _, ok := readKeyfiles(js.ValueOf("nope")); ok {
+		t.Fatal("non-array keyfiles accepted")
+	}
+	arr := js.Global().Get("Array").New()
+	arr.Call("push", js.ValueOf(42)) // not a Uint8Array
+	if _, ok := readKeyfiles(arr); ok {
+		t.Fatal("non-Uint8Array keyfile element accepted")
+	}
+}
+
+func TestBridgeKeyfileRoundTrip(t *testing.T) {
+	mkU8 := func(b []byte) js.Value {
+		u := js.Global().Get("Uint8Array").New(len(b))
+		js.CopyBytesToJS(u, b)
+		return u
+	}
+	plain := mkU8([]byte("keyfile bridge round trip"))
+	kf := js.Global().Get("Array").New()
+	kf.Call("push", mkU8([]byte("kf-1")))
+	kf.Call("push", mkU8([]byte("kf-2")))
+
+	enc := encrypt(js.Undefined(), []js.Value{newOpts(map[string]any{
+		"data": plain, "password": "pw", "keyfiles": kf, "keyfileOrdered": true,
+	})}).(js.Value)
+	if enc.Get("code").Int() != 0 {
+		t.Fatalf("encrypt code=%d", enc.Get("code").Int())
+	}
+	// Missing keyfiles on decrypt → code 7.
+	miss := decrypt(js.Undefined(), []js.Value{newOpts(map[string]any{
+		"data": enc.Get("data"), "password": "pw",
+	})}).(js.Value)
+	if miss.Get("code").Int() != 7 {
+		t.Fatalf("missing-keyfiles code=%d; want 7", miss.Get("code").Int())
+	}
+	// Correct keyfiles → success.
+	dec := decrypt(js.Undefined(), []js.Value{newOpts(map[string]any{
+		"data": enc.Get("data"), "password": "pw", "keyfiles": kf,
+	})}).(js.Value)
+	if dec.Get("code").Int() != 0 {
+		t.Fatalf("decrypt code=%d; want 0", dec.Get("code").Int())
+	}
+}
+
 // A valid encrypt then decrypt round-trips through the bridge objects, carrying comments.
 func TestBridgeRoundTrip(t *testing.T) {
 	plain := []byte("bridge round trip")
