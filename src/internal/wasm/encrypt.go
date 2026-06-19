@@ -13,6 +13,7 @@ import (
 )
 
 var writeAuthValues = header.WriteAuthValues
+var newCipherSuite = crypto.NewCipherSuite
 
 type wasmZeroingBufferKind string
 
@@ -227,7 +228,7 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	}
 
 	// Create cipher suite
-	cipherSuite, err := crypto.NewCipherSuite(
+	cipherSuite, err := newCipherSuite(
 		cipherKey,
 		nonce,
 		serpentKey,

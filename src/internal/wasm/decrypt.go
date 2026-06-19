@@ -154,7 +154,7 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 	}
 
 	// Create cipher suite
-	cipherSuite, err := crypto.NewCipherSuite(
+	cipherSuite, err := newCipherSuite(
 		cipherKey,
 		hdr.Nonce,
 		serpentKey,

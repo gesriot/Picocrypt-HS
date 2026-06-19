@@ -3,12 +3,15 @@ package wasm
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/volume"
@@ -716,6 +719,101 @@ func TestWASMKeyfileBuffersZeroed(t *testing.T) {
 			t.Fatalf("decrypt: %s was already zero before cleanup; test would be vacuous", kind)
 		}
 	}
+}
+
+func TestWASMKeyfileCipherKeyZeroedOnCipherError(t *testing.T) {
+	// Use large, content-rich keyfiles so the XOR cipher key is astronomically
+	// unlikely to be all-zero (passwordKey == keyfileKey collision).
+	kfA := bytes.Repeat([]byte("cipher-error-zeroing-alpha-kf--"), 10)
+	kfB := bytes.Repeat([]byte("cipher-error-zeroing-beta--kf--"), 10)
+	password := "cipher-error-zeroing-pw"
+
+	cipherErr := errors.New("injected cipher failure")
+
+	t.Run("encrypt", func(t *testing.T) {
+		origNewCipherSuite := newCipherSuite
+		newCipherSuite = func(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkdf io.Reader, paranoid bool) (*crypto.CipherSuite, error) {
+			return nil, cipherErr
+		}
+		defer func() { newCipherSuite = origNewCipherSuite }()
+
+		var events []wasmZeroingEvent
+		restore := observeWASMZeroingForTest(func(e wasmZeroingEvent) {
+			events = append(events, e)
+		})
+		_, errCode := EncryptVolume([]byte("plaintext"), []byte(password), EncryptOptions{
+			Keyfiles: [][]byte{kfA, kfB},
+		})
+		restore()
+
+		if errCode == 0 {
+			t.Fatal("expected non-zero error code when cipher construction fails")
+		}
+
+		seen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+		for _, e := range events {
+			seen[e.Kind] = e
+		}
+		e, ok := seen[wasmZeroingCipherKey]
+		if !ok {
+			t.Fatalf("no zeroing event for %s on cipher-construction error; saw %v", wasmZeroingCipherKey, seen)
+		}
+		if !e.Zeroed {
+			t.Fatalf("%s not zeroed on cipher-construction error path", wasmZeroingCipherKey)
+		}
+		// On the error path CipherSuite.Close() never runs, so our defer is the
+		// sole wipe and cipherKey must have been non-zero when observed.
+		if !e.WasNonZero {
+			t.Fatalf("%s was already zero before cleanup on error path; vacuity guard failed", wasmZeroingCipherKey)
+		}
+	})
+
+	t.Run("decrypt", func(t *testing.T) {
+		// First, encrypt a valid keyfile volume (seam NOT overridden).
+		volumeData, errCode := EncryptVolume([]byte("plaintext for decrypt cipher error"), []byte(password), EncryptOptions{
+			Keyfiles: [][]byte{kfA, kfB},
+		})
+		if errCode != 0 {
+			t.Fatalf("EncryptVolume error code %d", errCode)
+		}
+
+		// Now override the seam so cipher construction fails during decrypt.
+		origNewCipherSuite := newCipherSuite
+		newCipherSuite = func(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkdf io.Reader, paranoid bool) (*crypto.CipherSuite, error) {
+			return nil, cipherErr
+		}
+		defer func() { newCipherSuite = origNewCipherSuite }()
+
+		var events []wasmZeroingEvent
+		restore := observeWASMZeroingForTest(func(e wasmZeroingEvent) {
+			events = append(events, e)
+		})
+		_, errCode = DecryptVolume(volumeData, []byte(password), DecryptOptions{
+			Keyfiles: [][]byte{kfA, kfB},
+		})
+		restore()
+
+		if errCode == 0 {
+			t.Fatal("expected non-zero error code when cipher construction fails during decrypt")
+		}
+
+		seen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+		for _, e := range events {
+			seen[e.Kind] = e
+		}
+		e, ok := seen[wasmZeroingDecryptCipherKey]
+		if !ok {
+			t.Fatalf("no zeroing event for %s on cipher-construction error; saw %v", wasmZeroingDecryptCipherKey, seen)
+		}
+		if !e.Zeroed {
+			t.Fatalf("%s not zeroed on cipher-construction error path", wasmZeroingDecryptCipherKey)
+		}
+		// On the error path CipherSuite.Close() never runs, so our defer is the
+		// sole wipe and cipherKey must have been non-zero when observed.
+		if !e.WasNonZero {
+			t.Fatalf("%s was already zero before cleanup on error path; vacuity guard failed", wasmZeroingDecryptCipherKey)
+		}
+	})
 }
 
 func wasmVolumeWithFlags(t *testing.T, flags header.Flags) []byte {
