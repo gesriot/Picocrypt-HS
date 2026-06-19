@@ -3,6 +3,7 @@ package wasm
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -482,6 +483,64 @@ func TestWASMDecryptParanoidAndComments(t *testing.T) {
 	}
 	if got.Comments != comments {
 		t.Fatalf("comments = %q; want %q", got.Comments, comments)
+	}
+}
+
+func TestWASMKeyfileEncryptDesktopDecrypt(t *testing.T) {
+	kfA := []byte("keyfile-one-contents")
+	kfB := []byte("keyfile-two-contents-longer")
+	original := []byte("P1: WASM keyfile volume decrypts on desktop.")
+	password := "p1-keyfile-interop"
+
+	for _, ordered := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ordered=%v", ordered), func(t *testing.T) {
+			volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{
+				Keyfiles:       [][]byte{kfA, kfB},
+				KeyfileOrdered: ordered,
+			})
+			if errCode != 0 {
+				t.Fatalf("EncryptVolume error code %d", errCode)
+			}
+
+			// Header records the keyfile flags.
+			rs, err := encoding.NewRSCodecs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := header.NewReader(bytes.NewReader(volumeData), rs).ReadHeader()
+			if err != nil {
+				t.Fatalf("ReadHeader: %v", err)
+			}
+			if !res.Header.Flags.UseKeyfiles || res.Header.Flags.KeyfileOrdered != ordered {
+				t.Fatalf("keyfile flags wrong: use=%v ordered=%v", res.Header.Flags.UseKeyfiles, res.Header.Flags.KeyfileOrdered)
+			}
+
+			// Desktop decrypts with the same keyfiles (written to temp files).
+			tmp := t.TempDir()
+			encPath := filepath.Join(tmp, "v.pcv")
+			decPath := filepath.Join(tmp, "out.txt")
+			kaPath := filepath.Join(tmp, "a.key")
+			kbPath := filepath.Join(tmp, "b.key")
+			for p, c := range map[string][]byte{encPath: volumeData, kaPath: kfA, kbPath: kfB} {
+				if err := os.WriteFile(p, c, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := volume.Decrypt(context.Background(), &volume.DecryptRequest{
+				InputFile: encPath, OutputFile: decPath,
+				Password: []byte(password), Keyfiles: []string{kaPath, kbPath},
+				RSCodecs: rs,
+			}); err != nil {
+				t.Fatalf("volume.Decrypt: %v", err)
+			}
+			got, err := os.ReadFile(decPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, original) {
+				t.Fatalf("desktop decrypt mismatch")
+			}
+		})
 	}
 }
 

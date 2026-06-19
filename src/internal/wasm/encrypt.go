@@ -7,6 +7,7 @@ import (
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
 	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 )
@@ -91,8 +92,10 @@ func (w byteSliceWriterAt) WriteAt(p []byte, off int64) (int, error) {
 // EncryptOptions configures an in-memory encryption. Zero value = normal,
 // no-comment volume (the pre-P0 behavior).
 type EncryptOptions struct {
-	Paranoid bool   // 8 Argon2 passes, Serpent-CTR + XChaCha20, HMAC-SHA3
-	Comments string // plaintext header comments (NOT encrypted); len <= header.MaxCommentLen
+	Paranoid       bool     // 8 Argon2 passes, Serpent-CTR + XChaCha20, HMAC-SHA3
+	Comments       string   // plaintext header comments (NOT encrypted); len <= header.MaxCommentLen
+	Keyfiles       [][]byte // each element is one keyfile's full contents
+	KeyfileOrdered bool     // true = order matters (sequential hash); false = XOR
 }
 
 // EncryptVolume encrypts plaintext data into a Picocrypt volume.
@@ -129,8 +132,8 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	hdr := header.NewVolumeHeader(salt, hkdfSalt, serpentIV, nonce)
 	hdr.Flags = header.Flags{
 		Paranoid:       opts.Paranoid,
-		UseKeyfiles:    false, // P1
-		KeyfileOrdered: false, // P1
+		UseKeyfiles:    len(opts.Keyfiles) > 0,
+		KeyfileOrdered: len(opts.Keyfiles) > 0 && opts.KeyfileOrdered,
 		ReedSolomon:    false, // P2
 		Padded:         false, // P2
 	}
@@ -146,6 +149,25 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	}
 	defer crypto.SecureZero(key)
 
+	// Keyfiles (password-independent). Zero key/hash material on the way out.
+	var keyfileKey []byte
+	keyfileHash := make([]byte, 32)
+	if len(opts.Keyfiles) > 0 {
+		res, code := processWASMKeyfiles(opts.Keyfiles, opts.KeyfileOrdered)
+		if code != 0 {
+			return nil, code
+		}
+		keyfileKey = res.Key
+		copy(keyfileHash, res.Hash)
+		defer crypto.SecureZero(keyfileKey)
+	}
+	keyfileHashZeroed := false
+	defer func() {
+		if !keyfileHashZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingKeyfileHash, keyfileHash)
+		}
+	}()
+
 	// Initialize HKDF (v2 order: HKDF before keyfile XOR)
 	hkdfStream := crypto.NewHKDFStream(key, hkdfSalt)
 	subkeyReader := crypto.NewSubkeyReader(hkdfStream)
@@ -156,14 +178,7 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 		return nil, ErrRandomFailure
 	}
 
-	// Compute header MAC (no keyfiles, so keyfileHash is zeros)
-	keyfileHash := make([]byte, 32)
-	keyfileHashZeroed := false
-	defer func() {
-		if !keyfileHashZeroed {
-			zeroWASMSensitiveBuffer(wasmZeroingKeyfileHash, keyfileHash)
-		}
-	}()
+	// Compute header MAC
 	hdr.KeyHash = header.ComputeV2HeaderMAC(subkeyHeader, hdr, keyfileHash)
 	headerKeyHash := hdr.KeyHash
 	headerKeyHashZeroed := false
@@ -193,9 +208,17 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 		return nil, ErrRandomFailure
 	}
 
+	// XOR password key with keyfile key to produce the cipher key.
+	// HKDF subkeys (MAC, Serpent) stay seeded from the password key only.
+	cipherKey := key
+	if keyfileKey != nil {
+		cipherKey = keyfile.XORWithKey(key, keyfileKey)
+		defer crypto.SecureZero(cipherKey)
+	}
+
 	// Create cipher suite
 	cipherSuite, err := crypto.NewCipherSuite(
-		key,
+		cipherKey,
 		nonce,
 		serpentKey,
 		serpentIV,

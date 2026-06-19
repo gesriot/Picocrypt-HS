@@ -14,11 +14,14 @@ import (
 
 // Error codes matching website convention
 const (
-	ErrUnsupported     = 1 // Keyfiles required, deniability, split chunks
-	ErrCorruptedHeader = 2 // RS decode failure
-	ErrWrongPassword   = 3 // Auth verification failed
-	ErrModifiedData    = 4 // Payload MAC mismatch
-	ErrRandomFailure   = 5 // Random generation failed (encrypt only)
+	ErrUnsupported       = 1 // Keyfiles required, deniability, split chunks
+	ErrCorruptedHeader   = 2 // RS decode failure
+	ErrWrongPassword     = 3 // Auth verification failed
+	ErrModifiedData      = 4 // Payload MAC mismatch
+	ErrRandomFailure     = 5 // Random generation failed (encrypt only)
+	ErrKeyfilesRequired  = 7 // volume needs keyfiles, none provided
+	ErrKeyfilesIncorrect = 8 // provided keyfiles don't match the stored hash
+	ErrKeyfilesDuplicate = 9 // keyfiles XOR to an all-zero key
 )
 
 // DecryptResult is the successful output of DecryptVolume. On error the int
