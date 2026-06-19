@@ -7,11 +7,13 @@ import (
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
 	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 )
 
 var writeAuthValues = header.WriteAuthValues
+var newCipherSuite = crypto.NewCipherSuite
 
 type wasmZeroingBufferKind string
 
@@ -22,17 +24,21 @@ const (
 	wasmZeroingSerpentKey            wasmZeroingBufferKind = "serpent key"
 	wasmZeroingCiphertextChunk       wasmZeroingBufferKind = "ciphertext chunk"
 	wasmZeroingCiphertextBuffer      wasmZeroingBufferKind = "ciphertext buffer"
-	wasmZeroingKeyfileHash           wasmZeroingBufferKind = "keyfile hash placeholder"
+	wasmZeroingKeyfileHash           wasmZeroingBufferKind = "keyfile hash"
 	wasmZeroingHeaderKeyHash         wasmZeroingBufferKind = "header auth value"
 	wasmZeroingAuthTag               wasmZeroingBufferKind = "payload auth value"
 	wasmZeroingHeaderBuffer          wasmZeroingBufferKind = "header buffer"
 	wasmZeroingDecryptPasswordBytes  wasmZeroingBufferKind = "decrypt password bytes"
-	wasmZeroingDecryptKeyfileHash    wasmZeroingBufferKind = "decrypt keyfile hash placeholder"
+	wasmZeroingDecryptKeyfileHash    wasmZeroingBufferKind = "decrypt keyfile hash"
 	wasmZeroingDecryptHeaderSubkey   wasmZeroingBufferKind = "decrypt header subkey"
 	wasmZeroingDecryptMACSubkey      wasmZeroingBufferKind = "decrypt mac subkey"
 	wasmZeroingDecryptSerpentKey     wasmZeroingBufferKind = "decrypt serpent key"
 	wasmZeroingDecryptPlaintextChunk wasmZeroingBufferKind = "decrypt plaintext chunk"
 	wasmZeroingDecryptComputedMAC    wasmZeroingBufferKind = "decrypt computed mac"
+	wasmZeroingKeyfileKey            wasmZeroingBufferKind = "keyfile key"
+	wasmZeroingCipherKey             wasmZeroingBufferKind = "keyfile cipher key"
+	wasmZeroingDecryptKeyfileKey     wasmZeroingBufferKind = "decrypt keyfile key"
+	wasmZeroingDecryptCipherKey      wasmZeroingBufferKind = "decrypt keyfile cipher key"
 )
 
 type wasmZeroingEvent struct {
@@ -91,8 +97,10 @@ func (w byteSliceWriterAt) WriteAt(p []byte, off int64) (int, error) {
 // EncryptOptions configures an in-memory encryption. Zero value = normal,
 // no-comment volume (the pre-P0 behavior).
 type EncryptOptions struct {
-	Paranoid bool   // 8 Argon2 passes, Serpent-CTR + XChaCha20, HMAC-SHA3
-	Comments string // plaintext header comments (NOT encrypted); len <= header.MaxCommentLen
+	Paranoid       bool     // 8 Argon2 passes, Serpent-CTR + XChaCha20, HMAC-SHA3
+	Comments       string   // plaintext header comments (NOT encrypted); len <= header.MaxCommentLen
+	Keyfiles       [][]byte // each element is one keyfile's full contents
+	KeyfileOrdered bool     // true = order matters (sequential hash); false = XOR
 }
 
 // EncryptVolume encrypts plaintext data into a Picocrypt volume.
@@ -129,8 +137,8 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	hdr := header.NewVolumeHeader(salt, hkdfSalt, serpentIV, nonce)
 	hdr.Flags = header.Flags{
 		Paranoid:       opts.Paranoid,
-		UseKeyfiles:    false, // P1
-		KeyfileOrdered: false, // P1
+		UseKeyfiles:    len(opts.Keyfiles) > 0,
+		KeyfileOrdered: len(opts.Keyfiles) > 0 && opts.KeyfileOrdered,
 		ReedSolomon:    false, // P2
 		Padded:         false, // P2
 	}
@@ -146,6 +154,25 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	}
 	defer crypto.SecureZero(key)
 
+	// Keyfiles (password-independent). Zero key/hash material on the way out.
+	var keyfileKey []byte
+	keyfileHash := make([]byte, 32)
+	if len(opts.Keyfiles) > 0 {
+		res, code := processWASMKeyfiles(opts.Keyfiles, opts.KeyfileOrdered)
+		if code != 0 {
+			return nil, code
+		}
+		keyfileKey = res.Key
+		copy(keyfileHash, res.Hash)
+		defer zeroWASMSensitiveBuffer(wasmZeroingKeyfileKey, keyfileKey)
+	}
+	keyfileHashZeroed := false
+	defer func() {
+		if !keyfileHashZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingKeyfileHash, keyfileHash)
+		}
+	}()
+
 	// Initialize HKDF (v2 order: HKDF before keyfile XOR)
 	hkdfStream := crypto.NewHKDFStream(key, hkdfSalt)
 	subkeyReader := crypto.NewSubkeyReader(hkdfStream)
@@ -156,14 +183,7 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 		return nil, ErrRandomFailure
 	}
 
-	// Compute header MAC (no keyfiles, so keyfileHash is zeros)
-	keyfileHash := make([]byte, 32)
-	keyfileHashZeroed := false
-	defer func() {
-		if !keyfileHashZeroed {
-			zeroWASMSensitiveBuffer(wasmZeroingKeyfileHash, keyfileHash)
-		}
-	}()
+	// Compute header MAC
 	hdr.KeyHash = header.ComputeV2HeaderMAC(subkeyHeader, hdr, keyfileHash)
 	headerKeyHash := hdr.KeyHash
 	headerKeyHashZeroed := false
@@ -193,9 +213,23 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 		return nil, ErrRandomFailure
 	}
 
+	// XOR password key with keyfile key to produce the cipher key.
+	// HKDF subkeys (MAC, Serpent) stay seeded from the password key only.
+	cipherKey := key
+	if keyfileKey != nil {
+		cipherKey = keyfile.XORWithKey(key, keyfileKey)
+		// Register the wipe the instant the secret exists — BEFORE the fallible
+		// NewCipherSuite call — so cipherKey is zeroed on EVERY return path,
+		// including a NewCipherSuite error (where Close() below is never set up).
+		// On success CipherSuite.Close() also wipes it (it aliases cs.key) and,
+		// being registered later, runs first in LIFO order; this defer is then a
+		// harmless second wipe. It is the SOLE wipe on the error path.
+		defer zeroWASMSensitiveBuffer(wasmZeroingCipherKey, cipherKey)
+	}
+
 	// Create cipher suite
-	cipherSuite, err := crypto.NewCipherSuite(
-		key,
+	cipherSuite, err := newCipherSuite(
+		cipherKey,
 		nonce,
 		serpentKey,
 		serpentIV,

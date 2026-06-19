@@ -3,6 +3,7 @@
 package main
 
 import (
+	"strings"
 	"syscall/js"
 	"testing"
 )
@@ -70,13 +71,66 @@ func TestBridgeRejectsBadInput(t *testing.T) {
 // Over-long comments are rejected at the bridge with errInvalidArg.
 func TestBridgeRejectsLongComments(t *testing.T) {
 	u8 := js.Global().Get("Uint8Array").New(4)
-	long := make([]byte, 0)
-	for i := 0; i < 100000; i++ { // > header.MaxCommentLen (99999)
-		long = append(long, 'a')
-	}
+	long := []byte(strings.Repeat("a", 100000)) // > header.MaxCommentLen (99999)
 	arg := newOpts(map[string]any{"data": u8, "password": "pw", "comments": string(long)})
 	if got := codeOf(encrypt(js.Undefined(), []js.Value{arg})); got != errInvalidArg {
 		t.Fatalf("over-long comments code=%d; want errInvalidArg=%d", got, errInvalidArg)
+	}
+}
+
+// readKeyfiles must reject a non-array and a non-Uint8Array element.
+func TestReadKeyfilesRejectsBadShapes(t *testing.T) {
+	if _, ok := readKeyfiles(js.ValueOf("nope")); ok {
+		t.Fatal("non-array keyfiles accepted")
+	}
+	arr := js.Global().Get("Array").New()
+	arr.Call("push", js.ValueOf(42)) // not a Uint8Array
+	if _, ok := readKeyfiles(arr); ok {
+		t.Fatal("non-Uint8Array keyfile element accepted")
+	}
+}
+
+// readKeyfiles(undefined) and readKeyfiles(null) must both return (nil, true):
+// no keyfiles, ok — exercising the IsUndefined/IsNull early-return paths.
+func TestReadKeyfilesNilIsOK(t *testing.T) {
+	if kfs, ok := readKeyfiles(js.Undefined()); !ok || kfs != nil {
+		t.Fatalf("readKeyfiles(undefined) = (%v, %v); want (nil, true)", kfs, ok)
+	}
+	if kfs, ok := readKeyfiles(js.Null()); !ok || kfs != nil {
+		t.Fatalf("readKeyfiles(null) = (%v, %v); want (nil, true)", kfs, ok)
+	}
+}
+
+func TestBridgeKeyfileRoundTrip(t *testing.T) {
+	mkU8 := func(b []byte) js.Value {
+		u := js.Global().Get("Uint8Array").New(len(b))
+		js.CopyBytesToJS(u, b)
+		return u
+	}
+	plain := mkU8([]byte("keyfile bridge round trip"))
+	kf := js.Global().Get("Array").New()
+	kf.Call("push", mkU8([]byte("kf-1")))
+	kf.Call("push", mkU8([]byte("kf-2")))
+
+	enc := encrypt(js.Undefined(), []js.Value{newOpts(map[string]any{
+		"data": plain, "password": "pw", "keyfiles": kf, "keyfileOrdered": true,
+	})}).(js.Value)
+	if enc.Get("code").Int() != 0 {
+		t.Fatalf("encrypt code=%d", enc.Get("code").Int())
+	}
+	// Missing keyfiles on decrypt → code 7.
+	miss := decrypt(js.Undefined(), []js.Value{newOpts(map[string]any{
+		"data": enc.Get("data"), "password": "pw",
+	})}).(js.Value)
+	if miss.Get("code").Int() != 7 {
+		t.Fatalf("missing-keyfiles code=%d; want 7", miss.Get("code").Int())
+	}
+	// Correct keyfiles → success.
+	dec := decrypt(js.Undefined(), []js.Value{newOpts(map[string]any{
+		"data": enc.Get("data"), "password": "pw", "keyfiles": kf,
+	})}).(js.Value)
+	if dec.Get("code").Int() != 0 {
+		t.Fatalf("decrypt code=%d; want 0", dec.Get("code").Int())
 	}
 }
 

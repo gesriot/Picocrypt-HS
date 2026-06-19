@@ -3,6 +3,8 @@ package keyfile
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -405,5 +407,57 @@ func TestProcessUnorderedReadError(t *testing.T) {
 	_, err := Process([]string{dirPath}, false, nil)
 	if err == nil {
 		t.Error("Process should fail when given a directory")
+	}
+}
+
+func TestProcessReadersMatchesProcess(t *testing.T) {
+	// Three keyfiles: two sub-1MiB and one >1MiB (non-buffer-aligned) so that
+	// the multi-chunk path of hashOne is exercised and cross-checked between
+	// Process (disk) and ProcessReaders (in-memory).
+	a := bytes.Repeat([]byte{0xA5}, 1500)
+	b := bytes.Repeat([]byte{0x5A}, 800)
+	c := bytes.Repeat([]byte{0x3C}, 3*1024*1024+777) // >1 MiB, non-aligned
+
+	dir := t.TempDir()
+	pa := filepath.Join(dir, "a.key")
+	pb := filepath.Join(dir, "b.key")
+	pc := filepath.Join(dir, "c.key")
+	if err := os.WriteFile(pa, a, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pb, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pc, c, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, ordered := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ordered=%v", ordered), func(t *testing.T) {
+			fromPaths, err := Process([]string{pa, pb, pc}, ordered, nil)
+			if err != nil {
+				t.Fatalf("Process: %v", err)
+			}
+			fromReaders, err := ProcessReaders([]io.Reader{bytes.NewReader(a), bytes.NewReader(b), bytes.NewReader(c)}, ordered)
+			if err != nil {
+				t.Fatalf("ProcessReaders: %v", err)
+			}
+			if !bytes.Equal(fromPaths.Key, fromReaders.Key) {
+				t.Errorf("Key mismatch (ordered=%v):\n paths:   %x\n readers: %x", ordered, fromPaths.Key, fromReaders.Key)
+			}
+			if !bytes.Equal(fromPaths.Hash, fromReaders.Hash) {
+				t.Errorf("Hash mismatch (ordered=%v)", ordered)
+			}
+		})
+	}
+}
+
+func TestProcessReadersEmptyIsZeroKey(t *testing.T) {
+	res, err := ProcessReaders(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(res.Key, make([]byte, 32)) || !bytes.Equal(res.Hash, make([]byte, 32)) {
+		t.Fatal("empty readers must yield 32 zero bytes for Key and Hash")
 	}
 }

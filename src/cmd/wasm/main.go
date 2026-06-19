@@ -60,6 +60,28 @@ func optString(obj js.Value, key string) string {
 	return ""
 }
 
+// readKeyfiles reads v as an Array of Uint8Array into [][]byte.
+// ok=false if v is present but malformed (non-array, or any element not a
+// Uint8Array). A missing/undefined/null value yields (nil, true) — no keyfiles.
+func readKeyfiles(v js.Value) ([][]byte, bool) {
+	if v.IsUndefined() || v.IsNull() {
+		return nil, true
+	}
+	if !v.InstanceOf(js.Global().Get("Array")) {
+		return nil, false
+	}
+	n := v.Length()
+	out := make([][]byte, 0, n)
+	for i := range n {
+		b, ok := readUint8Array(v.Index(i))
+		if !ok {
+			return nil, false
+		}
+		out = append(out, b)
+	}
+	return out, true
+}
+
 // successData builds {code:0, data: Uint8Array}.
 func successData(data []byte) any {
 	out := js.Global().Get("Uint8Array").New(len(data))
@@ -97,14 +119,24 @@ func encrypt(this js.Value, args []js.Value) (result any) {
 		return errorResult(errInvalidArg)
 	}
 	paranoid := optBool(opts, "paranoid")
+	keyfiles, ok := readKeyfiles(opts.Get("keyfiles"))
+	if !ok {
+		return errorResult(errInvalidArg)
+	}
+	keyfileOrdered := optBool(opts, "keyfileOrdered")
 
 	passwordBytes := []byte(pw.String())
 	defer crypto.SecureZero(passwordBytes)
 	defer crypto.SecureZero(data)
+	for _, kf := range keyfiles {
+		defer crypto.SecureZero(kf)
+	}
 
 	volumeData, code := wasm.EncryptVolume(data, passwordBytes, wasm.EncryptOptions{
-		Paranoid: paranoid,
-		Comments: comments,
+		Paranoid:       paranoid,
+		Comments:       comments,
+		Keyfiles:       keyfiles,
+		KeyfileOrdered: keyfileOrdered,
 	})
 	if code != 0 {
 		return errorResult(code)
@@ -134,11 +166,19 @@ func decrypt(this js.Value, args []js.Value) (result any) {
 		return errorResult(errInvalidArg)
 	}
 
+	keyfiles, ok := readKeyfiles(opts.Get("keyfiles"))
+	if !ok {
+		return errorResult(errInvalidArg)
+	}
+
 	passwordBytes := []byte(pw.String())
 	defer crypto.SecureZero(passwordBytes)
 	defer crypto.SecureZero(data)
+	for _, kf := range keyfiles {
+		defer crypto.SecureZero(kf)
+	}
 
-	res, code := wasm.DecryptVolume(data, passwordBytes)
+	res, code := wasm.DecryptVolume(data, passwordBytes, wasm.DecryptOptions{Keyfiles: keyfiles})
 	if code != 0 {
 		return errorResult(code)
 	}

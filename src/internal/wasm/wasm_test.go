@@ -3,11 +3,15 @@ package wasm
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/volume"
@@ -21,7 +25,7 @@ func TestDecryptV1(t *testing.T) {
 	}
 
 	// Decrypt with password "test"
-	res, errCode := DecryptVolume(volumeData, []byte("test"))
+	res, errCode := DecryptVolume(volumeData, []byte("test"), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -47,7 +51,7 @@ func TestDecryptV2(t *testing.T) {
 	}
 
 	// Decrypt with password "test"
-	res, errCode := DecryptVolume(volumeData, []byte("test"))
+	res, errCode := DecryptVolume(volumeData, []byte("test"), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -70,7 +74,7 @@ func TestDecryptWrongPassword(t *testing.T) {
 		t.Fatalf("failed to read test file: %v", err)
 	}
 
-	_, errCode := DecryptVolume(volumeData, []byte("wrongpassword"))
+	_, errCode := DecryptVolume(volumeData, []byte("wrongpassword"), DecryptOptions{})
 	if errCode != ErrWrongPassword {
 		t.Errorf("expected error code %d, got %d", ErrWrongPassword, errCode)
 	}
@@ -87,7 +91,7 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 	}
 
 	// Decrypt
-	res, errCode := DecryptVolume(ciphertext, []byte(password))
+	res, errCode := DecryptVolume(ciphertext, []byte(password), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -112,7 +116,7 @@ func TestEncryptDecryptLargerFile(t *testing.T) {
 	}
 
 	// Decrypt
-	res, errCode := DecryptVolume(ciphertext, []byte(password))
+	res, errCode := DecryptVolume(ciphertext, []byte(password), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -305,14 +309,6 @@ func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
 		flags header.Flags
 	}{
 		{
-			name:  "keyfiles",
-			flags: header.Flags{UseKeyfiles: true},
-		},
-		{
-			name:  "keyfile_ordered",
-			flags: header.Flags{KeyfileOrdered: true},
-		},
-		{
 			name:  "reed_solomon_payload",
 			flags: header.Flags{ReedSolomon: true},
 		},
@@ -326,7 +322,7 @@ func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			volumeData := wasmVolumeWithFlags(t, tc.flags)
 
-			_, errCode := DecryptVolume(volumeData, []byte("phase6-unsupported-flags"))
+			_, errCode := DecryptVolume(volumeData, []byte("phase6-unsupported-flags"), DecryptOptions{})
 			if errCode != ErrUnsupported {
 				t.Fatalf("DecryptVolume error code = %d; want ErrUnsupported", errCode)
 			}
@@ -348,7 +344,7 @@ func TestWASMDecryptBuffersZeroed(t *testing.T) {
 	})
 	defer restore()
 
-	res, errCode := DecryptVolume(volumeData, []byte(password))
+	res, errCode := DecryptVolume(volumeData, []byte(password), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("DecryptVolume returned error code %d", errCode)
 	}
@@ -473,7 +469,7 @@ func TestWASMDecryptParanoidAndComments(t *testing.T) {
 		t.Fatalf("read volume: %v", err)
 	}
 
-	got, errCode := DecryptVolume(volumeData, []byte(password))
+	got, errCode := DecryptVolume(volumeData, []byte(password), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("DecryptVolume error code %d", errCode)
 	}
@@ -483,6 +479,341 @@ func TestWASMDecryptParanoidAndComments(t *testing.T) {
 	if got.Comments != comments {
 		t.Fatalf("comments = %q; want %q", got.Comments, comments)
 	}
+}
+
+func TestWASMKeyfileEncryptDesktopDecrypt(t *testing.T) {
+	kfA := []byte("keyfile-one-contents")
+	kfB := []byte("keyfile-two-contents-longer")
+	original := []byte("P1: WASM keyfile volume decrypts on desktop.")
+	password := "p1-keyfile-interop"
+
+	for _, ordered := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ordered=%v", ordered), func(t *testing.T) {
+			volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{
+				Keyfiles:       [][]byte{kfA, kfB},
+				KeyfileOrdered: ordered,
+			})
+			if errCode != 0 {
+				t.Fatalf("EncryptVolume error code %d", errCode)
+			}
+
+			// Header records the keyfile flags.
+			rs, err := encoding.NewRSCodecs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := header.NewReader(bytes.NewReader(volumeData), rs).ReadHeader()
+			if err != nil {
+				t.Fatalf("ReadHeader: %v", err)
+			}
+			if !res.Header.Flags.UseKeyfiles || res.Header.Flags.KeyfileOrdered != ordered {
+				t.Fatalf("keyfile flags wrong: use=%v ordered=%v", res.Header.Flags.UseKeyfiles, res.Header.Flags.KeyfileOrdered)
+			}
+
+			// Desktop decrypts with the same keyfiles (written to temp files).
+			tmp := t.TempDir()
+			encPath := filepath.Join(tmp, "v.pcv")
+			decPath := filepath.Join(tmp, "out.txt")
+			kaPath := filepath.Join(tmp, "a.key")
+			kbPath := filepath.Join(tmp, "b.key")
+			for p, c := range map[string][]byte{encPath: volumeData, kaPath: kfA, kbPath: kfB} {
+				if err := os.WriteFile(p, c, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := volume.Decrypt(context.Background(), &volume.DecryptRequest{
+				InputFile: encPath, OutputFile: decPath,
+				Password: []byte(password), Keyfiles: []string{kaPath, kbPath},
+				RSCodecs: rs,
+			}); err != nil {
+				t.Fatalf("volume.Decrypt: %v", err)
+			}
+			got, err := os.ReadFile(decPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, original) {
+				t.Fatalf("desktop decrypt mismatch")
+			}
+		})
+	}
+}
+
+func TestWASMDecryptKeyfiles(t *testing.T) {
+	kfA := []byte("kf-alpha")
+	kfB := []byte("kf-beta-content")
+	original := []byte("P1: desktop keyfile volume decrypts in WASM.")
+	password := "p1-desktop-keyfiles"
+
+	for _, ordered := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ordered=%v", ordered), func(t *testing.T) {
+			tmp := t.TempDir()
+			inPath := filepath.Join(tmp, "p.txt")
+			outPath := filepath.Join(tmp, "v.pcv")
+			kaPath := filepath.Join(tmp, "a.key")
+			kbPath := filepath.Join(tmp, "b.key")
+			for p, c := range map[string][]byte{inPath: original, kaPath: kfA, kbPath: kfB} {
+				if err := os.WriteFile(p, c, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rs, err := encoding.NewRSCodecs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := volume.Encrypt(context.Background(), &volume.EncryptRequest{
+				InputFile: inPath, OutputFile: outPath,
+				Password: []byte(password), Keyfiles: []string{kaPath, kbPath}, KeyfileOrdered: ordered,
+				RSCodecs: rs,
+			}); err != nil {
+				t.Fatalf("volume.Encrypt: %v", err)
+			}
+			volumeData, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Correct keyfiles → success.
+			got, code := DecryptVolume(volumeData, []byte(password), DecryptOptions{Keyfiles: [][]byte{kfA, kfB}})
+			if code != 0 {
+				t.Fatalf("decrypt code %d; want 0", code)
+			}
+			if !bytes.Equal(got.Plaintext, original) {
+				t.Fatalf("plaintext mismatch")
+			}
+
+			// Missing keyfiles → ErrKeyfilesRequired.
+			if _, code := DecryptVolume(volumeData, []byte(password), DecryptOptions{}); code != ErrKeyfilesRequired {
+				t.Fatalf("missing keyfiles code %d; want %d", code, ErrKeyfilesRequired)
+			}
+			// Wrong keyfiles → ErrKeyfilesIncorrect.
+			if _, code := DecryptVolume(volumeData, []byte(password), DecryptOptions{Keyfiles: [][]byte{[]byte("wrong")}}); code != ErrKeyfilesIncorrect {
+				t.Fatalf("wrong keyfiles code %d; want %d", code, ErrKeyfilesIncorrect)
+			}
+		})
+	}
+}
+
+func TestWASMDecryptV1KeyfilesRejected(t *testing.T) {
+	v1, err := os.ReadFile("../../testdata/golden/pico_test_v1.txt.pcv")
+	if err != nil {
+		t.Fatalf("read v1 golden: %v", err)
+	}
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kfFlags := header.Flags{UseKeyfiles: true}
+	flagsEnc, err := encoding.Encode(rs.RS5, kfFlags.ToBytes())
+	if err != nil {
+		t.Fatalf("encode flags: %v", err)
+	}
+	patched := append([]byte(nil), v1...)
+	off := header.VersionEncSize + header.CommentLenEncSize
+	copy(patched[off:off+header.FlagsEncSize], flagsEnc)
+
+	_, code := DecryptVolume(patched, []byte("test"), DecryptOptions{Keyfiles: [][]byte{[]byte("kf")}})
+	if code != ErrUnsupported {
+		t.Fatalf("v1+keyfiles code=%d; want ErrUnsupported (%d) — must fail closed, not decrypt wrong", code, ErrUnsupported)
+	}
+}
+
+func TestWASMKeyfileBuffersZeroed(t *testing.T) {
+	// Use large, content-rich keyfiles so the XOR cipher key is astronomically
+	// unlikely to be all-zero (passwordKey == keyfileKey collision).
+	kfA := bytes.Repeat([]byte("keyfile-zeroing-alpha-sentinel-"), 10)
+	kfB := bytes.Repeat([]byte("keyfile-zeroing-beta-sentinel--"), 10)
+	original := []byte("keyfile zeroing observer coverage")
+	password := "kf-zeroing-password-distinct"
+
+	// --- Encrypt with keyfiles under the zeroing observer ---
+	var encEvents []wasmZeroingEvent
+	restoreEnc := observeWASMZeroingForTest(func(e wasmZeroingEvent) {
+		encEvents = append(encEvents, e)
+	})
+	volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{
+		Keyfiles: [][]byte{kfA, kfB},
+	})
+	restoreEnc()
+	if errCode != 0 {
+		t.Fatalf("EncryptVolume error code %d", errCode)
+	}
+
+	// All three secrets must end up zeroed.
+	encZeroed := []wasmZeroingBufferKind{
+		wasmZeroingKeyfileKey,
+		wasmZeroingCipherKey,
+		wasmZeroingKeyfileHash,
+	}
+	// keyfileKey and keyfileHash are wiped solely by our observed defers, so they
+	// must have been non-zero when observed (vacuity guard). cipherKey is ALSO
+	// wiped by CipherSuite.Close() (it aliases cs.key), which is registered later
+	// and so runs first in LIFO order — by the time our defensive observer runs,
+	// cipherKey is already zero. WasNonZero is legitimately false for it.
+	encNonZero := []wasmZeroingBufferKind{
+		wasmZeroingKeyfileKey,
+		wasmZeroingKeyfileHash,
+	}
+	encSeen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+	for _, e := range encEvents {
+		encSeen[e.Kind] = e
+	}
+	for _, kind := range encZeroed {
+		e, ok := encSeen[kind]
+		if !ok {
+			t.Fatalf("encrypt: missing zeroing event for %s; saw %v", kind, encSeen)
+		}
+		if !e.Zeroed {
+			t.Fatalf("encrypt: %s not zeroed after cleanup", kind)
+		}
+	}
+	for _, kind := range encNonZero {
+		if !encSeen[kind].WasNonZero {
+			t.Fatalf("encrypt: %s was already zero before cleanup; test would be vacuous", kind)
+		}
+	}
+
+	// --- Decrypt with keyfiles under the zeroing observer ---
+	var decEvents []wasmZeroingEvent
+	restoreDec := observeWASMZeroingForTest(func(e wasmZeroingEvent) {
+		decEvents = append(decEvents, e)
+	})
+	res, errCode := DecryptVolume(volumeData, []byte(password), DecryptOptions{
+		Keyfiles: [][]byte{kfA, kfB},
+	})
+	restoreDec()
+	if errCode != 0 {
+		t.Fatalf("DecryptVolume error code %d", errCode)
+	}
+	if !bytes.Equal(res.Plaintext, original) {
+		t.Fatalf("plaintext mismatch after keyfile decrypt")
+	}
+
+	decZeroed := []wasmZeroingBufferKind{
+		wasmZeroingDecryptKeyfileKey,
+		wasmZeroingDecryptCipherKey,
+		wasmZeroingDecryptKeyfileHash,
+	}
+	// As on encrypt: cipherKey is wiped by CipherSuite.Close() first (LIFO), so its
+	// WasNonZero is legitimately false; the vacuity guard rides on keyfileKey and
+	// keyfileHash, which only our observed defers touch.
+	decNonZero := []wasmZeroingBufferKind{
+		wasmZeroingDecryptKeyfileKey,
+		wasmZeroingDecryptKeyfileHash,
+	}
+	decSeen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+	for _, e := range decEvents {
+		decSeen[e.Kind] = e
+	}
+	for _, kind := range decZeroed {
+		e, ok := decSeen[kind]
+		if !ok {
+			t.Fatalf("decrypt: missing zeroing event for %s; saw %v", kind, decSeen)
+		}
+		if !e.Zeroed {
+			t.Fatalf("decrypt: %s not zeroed after cleanup", kind)
+		}
+	}
+	for _, kind := range decNonZero {
+		if !decSeen[kind].WasNonZero {
+			t.Fatalf("decrypt: %s was already zero before cleanup; test would be vacuous", kind)
+		}
+	}
+}
+
+func TestWASMKeyfileCipherKeyZeroedOnCipherError(t *testing.T) {
+	// Use large, content-rich keyfiles so the XOR cipher key is astronomically
+	// unlikely to be all-zero (passwordKey == keyfileKey collision).
+	kfA := bytes.Repeat([]byte("cipher-error-zeroing-alpha-kf--"), 10)
+	kfB := bytes.Repeat([]byte("cipher-error-zeroing-beta--kf--"), 10)
+	password := "cipher-error-zeroing-pw"
+
+	cipherErr := errors.New("injected cipher failure")
+
+	t.Run("encrypt", func(t *testing.T) {
+		origNewCipherSuite := newCipherSuite
+		newCipherSuite = func(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkdf io.Reader, paranoid bool) (*crypto.CipherSuite, error) {
+			return nil, cipherErr
+		}
+		defer func() { newCipherSuite = origNewCipherSuite }()
+
+		var events []wasmZeroingEvent
+		restore := observeWASMZeroingForTest(func(e wasmZeroingEvent) {
+			events = append(events, e)
+		})
+		_, errCode := EncryptVolume([]byte("plaintext"), []byte(password), EncryptOptions{
+			Keyfiles: [][]byte{kfA, kfB},
+		})
+		restore()
+
+		if errCode == 0 {
+			t.Fatal("expected non-zero error code when cipher construction fails")
+		}
+
+		seen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+		for _, e := range events {
+			seen[e.Kind] = e
+		}
+		e, ok := seen[wasmZeroingCipherKey]
+		if !ok {
+			t.Fatalf("no zeroing event for %s on cipher-construction error; saw %v", wasmZeroingCipherKey, seen)
+		}
+		if !e.Zeroed {
+			t.Fatalf("%s not zeroed on cipher-construction error path", wasmZeroingCipherKey)
+		}
+		// On the error path CipherSuite.Close() never runs, so our defer is the
+		// sole wipe and cipherKey must have been non-zero when observed.
+		if !e.WasNonZero {
+			t.Fatalf("%s was already zero before cleanup on error path; vacuity guard failed", wasmZeroingCipherKey)
+		}
+	})
+
+	t.Run("decrypt", func(t *testing.T) {
+		// First, encrypt a valid keyfile volume (seam NOT overridden).
+		volumeData, errCode := EncryptVolume([]byte("plaintext for decrypt cipher error"), []byte(password), EncryptOptions{
+			Keyfiles: [][]byte{kfA, kfB},
+		})
+		if errCode != 0 {
+			t.Fatalf("EncryptVolume error code %d", errCode)
+		}
+
+		// Now override the seam so cipher construction fails during decrypt.
+		origNewCipherSuite := newCipherSuite
+		newCipherSuite = func(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkdf io.Reader, paranoid bool) (*crypto.CipherSuite, error) {
+			return nil, cipherErr
+		}
+		defer func() { newCipherSuite = origNewCipherSuite }()
+
+		var events []wasmZeroingEvent
+		restore := observeWASMZeroingForTest(func(e wasmZeroingEvent) {
+			events = append(events, e)
+		})
+		_, errCode = DecryptVolume(volumeData, []byte(password), DecryptOptions{
+			Keyfiles: [][]byte{kfA, kfB},
+		})
+		restore()
+
+		if errCode == 0 {
+			t.Fatal("expected non-zero error code when cipher construction fails during decrypt")
+		}
+
+		seen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+		for _, e := range events {
+			seen[e.Kind] = e
+		}
+		e, ok := seen[wasmZeroingDecryptCipherKey]
+		if !ok {
+			t.Fatalf("no zeroing event for %s on cipher-construction error; saw %v", wasmZeroingDecryptCipherKey, seen)
+		}
+		if !e.Zeroed {
+			t.Fatalf("%s not zeroed on cipher-construction error path", wasmZeroingDecryptCipherKey)
+		}
+		// On the error path CipherSuite.Close() never runs, so our defer is the
+		// sole wipe and cipherKey must have been non-zero when observed.
+		if !e.WasNonZero {
+			t.Fatalf("%s was already zero before cleanup on error path; vacuity guard failed", wasmZeroingDecryptCipherKey)
+		}
+	})
 }
 
 func wasmVolumeWithFlags(t *testing.T, flags header.Flags) []byte {
