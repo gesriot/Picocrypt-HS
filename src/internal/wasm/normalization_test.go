@@ -20,7 +20,7 @@ var (
 func TestWASMEncryptNormalizesPassword(t *testing.T) {
 	original := []byte("cross-platform web volume")
 
-	ciphertext, errCode := EncryptVolume(original, []byte(nfdPassword))
+	ciphertext, errCode := EncryptVolume(original, []byte(nfdPassword), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("encrypt failed with error code %d", errCode)
 	}
@@ -50,7 +50,7 @@ func TestWASMDecryptTriesNormalizationForms(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			original := []byte("web cross-form payload")
-			ciphertext, errCode := EncryptVolume(original, []byte(tc.encrypt))
+			ciphertext, errCode := EncryptVolume(original, []byte(tc.encrypt), EncryptOptions{})
 			if errCode != 0 {
 				t.Fatalf("encrypt failed with error code %d", errCode)
 			}

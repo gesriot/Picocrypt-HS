@@ -88,10 +88,16 @@ func (w byteSliceWriterAt) WriteAt(p []byte, off int64) (int, error) {
 	return len(p), nil
 }
 
+// EncryptOptions configures an in-memory encryption. Zero value = normal,
+// no-comment volume (the pre-P0 behavior).
+type EncryptOptions struct {
+	Paranoid bool   // 8 Argon2 passes, Serpent-CTR + XChaCha20, HMAC-SHA3
+	Comments string // plaintext header comments (NOT encrypted); len <= header.MaxCommentLen
+}
+
 // EncryptVolume encrypts plaintext data into a Picocrypt volume.
 // Returns (ciphertext, 0) on success, or (nil, errorCode) on failure.
-// Web version: password-only, no keyfiles, no paranoid mode, no RS on payload.
-func EncryptVolume(plaintext, password []byte) ([]byte, int) {
+func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int) {
 	// Initialize RS codecs
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -119,20 +125,21 @@ func EncryptVolume(plaintext, password []byte) ([]byte, int) {
 		return nil, ErrRandomFailure
 	}
 
-	// Create header (normal mode, no keyfiles, no RS on payload)
+	// Create header; flags/comments come from opts.
 	hdr := header.NewVolumeHeader(salt, hkdfSalt, serpentIV, nonce)
 	hdr.Flags = header.Flags{
-		Paranoid:       false,
-		UseKeyfiles:    false,
-		KeyfileOrdered: false,
-		ReedSolomon:    false, // No RS on payload for web version (simpler, smaller)
-		Padded:         false,
+		Paranoid:       opts.Paranoid,
+		UseKeyfiles:    false, // P1
+		KeyfileOrdered: false, // P1
+		ReedSolomon:    false, // P2
+		Padded:         false, // P2
 	}
+	hdr.Comments = opts.Comments
 
 	// Derive key from the NFC-normalized password (#19) so web-encrypted
 	// volumes are cross-platform-decryptable regardless of how it was typed.
 	passwordBytes := pwnorm.EncodeForKDF(password)
-	key, err := crypto.DeriveKey(passwordBytes, salt, false)
+	key, err := crypto.DeriveKey(passwordBytes, salt, opts.Paranoid)
 	zeroWASMSensitiveBuffer(wasmZeroingPasswordBytes, passwordBytes)
 	if err != nil {
 		return nil, ErrRandomFailure
@@ -179,14 +186,14 @@ func EncryptVolume(plaintext, password []byte) ([]byte, int) {
 		return nil, ErrRandomFailure
 	}
 
-	// Create MAC (normal mode = BLAKE2b)
-	mac, err := crypto.NewMAC(macSubkey, false)
+	// Create MAC
+	mac, err := crypto.NewMAC(macSubkey, opts.Paranoid)
 	zeroWASMSensitiveBuffer(wasmZeroingMACSubkey, macSubkey)
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
 
-	// Create cipher suite (normal mode, no Serpent)
+	// Create cipher suite
 	cipherSuite, err := crypto.NewCipherSuite(
 		key,
 		nonce,
@@ -194,7 +201,7 @@ func EncryptVolume(plaintext, password []byte) ([]byte, int) {
 		serpentIV,
 		mac,
 		subkeyReader.Reader(),
-		false, // not paranoid
+		opts.Paranoid,
 	)
 	zeroWASMSensitiveBuffer(wasmZeroingSerpentKey, serpentKey)
 	if err != nil {
@@ -229,9 +236,13 @@ func EncryptVolume(plaintext, password []byte) ([]byte, int) {
 	for offset := 0; offset < len(plaintext); offset += chunkSize {
 		end := min(offset+chunkSize, len(plaintext))
 
-		chunk := plaintext[offset:end]
+		// Copy chunk: paranoid Encrypt mutates src (Serpent intermediate), which
+		// would corrupt the caller's plaintext buffer if we passed a slice of it.
+		chunk := make([]byte, end-offset)
+		copy(chunk, plaintext[offset:end])
 		dst := make([]byte, len(chunk))
 		cipherSuite.Encrypt(dst, chunk)
+		crypto.SecureZero(chunk)
 		ciphertextBuf.Write(dst)
 		zeroWASMSensitiveBuffer(wasmZeroingCiphertextChunk, dst)
 

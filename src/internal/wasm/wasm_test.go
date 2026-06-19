@@ -81,7 +81,7 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 	password := "testpassword123"
 
 	// Encrypt
-	ciphertext, errCode := EncryptVolume(original, []byte(password))
+	ciphertext, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("encrypt failed with error code %d", errCode)
 	}
@@ -106,7 +106,7 @@ func TestEncryptDecryptLargerFile(t *testing.T) {
 	password := "testpassword123"
 
 	// Encrypt
-	ciphertext, errCode := EncryptVolume(original, []byte(password))
+	ciphertext, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("encrypt failed with error code %d", errCode)
 	}
@@ -151,7 +151,7 @@ func TestWASMUsesWriteAuthValues(t *testing.T) {
 		return originalWriteAuthValues(w, offset, sentinelKeyHash, sentinelKeyfileHash, sentinelAuthTag, rs)
 	}
 
-	volumeData, errCode := EncryptVolume([]byte("phase 6 wasm auth writer guard"), []byte("phase6-password"))
+	volumeData, errCode := EncryptVolume([]byte("phase 6 wasm auth writer guard"), []byte("phase6-password"), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
@@ -183,7 +183,7 @@ func TestWASMRoundtripDesktopDecrypt(t *testing.T) {
 	original := []byte("Phase 6 WASM standard volume decrypts through the shared desktop volume path.")
 	password := "phase6-desktop-interop"
 
-	volumeData, errCode := EncryptVolume(original, []byte(password))
+	volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
@@ -236,7 +236,7 @@ func TestWASMBuffersZeroed(t *testing.T) {
 	})
 	defer restore()
 
-	volumeData, errCode := EncryptVolume(plaintext, []byte(password))
+	volumeData, errCode := EncryptVolume(plaintext, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
@@ -341,7 +341,7 @@ func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
 func TestWASMDecryptBuffersZeroed(t *testing.T) {
 	original := []byte("Phase 6 decrypt zeroing coverage needs returned plaintext intact.")
 	password := "phase6-decrypt-zeroing"
-	volumeData, errCode := EncryptVolume(original, []byte(password))
+	volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
@@ -395,10 +395,60 @@ func TestWASMDecryptBuffersZeroed(t *testing.T) {
 	}
 }
 
+func TestWASMParanoidCommentsDesktopDecrypt(t *testing.T) {
+	original := []byte("P0: paranoid + comments interop through the desktop volume path.")
+	password := "p0-paranoid-interop"
+	comments := "made in the browser"
+
+	volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{Paranoid: true, Comments: comments})
+	if errCode != 0 {
+		t.Fatalf("EncryptVolume returned error code %d", errCode)
+	}
+
+	// Header must record paranoid + the plaintext comments.
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+	res, err := header.NewReader(bytes.NewReader(volumeData), rs).ReadHeader()
+	if err != nil {
+		t.Fatalf("ReadHeader failed: %v", err)
+	}
+	if !res.Header.Flags.Paranoid {
+		t.Fatal("paranoid flag not set in WASM-produced header")
+	}
+	if res.Header.Comments != comments {
+		t.Fatalf("header comments = %q; want %q", res.Header.Comments, comments)
+	}
+
+	// Desktop must decrypt the WASM paranoid volume to identical plaintext.
+	tmpDir := t.TempDir()
+	encPath := filepath.Join(tmpDir, "wasm.pcv")
+	decPath := filepath.Join(tmpDir, "desktop.txt")
+	if err := os.WriteFile(encPath, volumeData, 0600); err != nil {
+		t.Fatalf("write volume: %v", err)
+	}
+	if err := volume.Decrypt(context.Background(), &volume.DecryptRequest{
+		InputFile:  encPath,
+		OutputFile: decPath,
+		Password:   []byte(password),
+		RSCodecs:   rs,
+	}); err != nil {
+		t.Fatalf("volume.Decrypt failed: %v", err)
+	}
+	got, err := os.ReadFile(decPath)
+	if err != nil {
+		t.Fatalf("read decrypted: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatalf("desktop decrypt mismatch\ngot:  %q\nwant: %q", got, original)
+	}
+}
+
 func wasmVolumeWithFlags(t *testing.T, flags header.Flags) []byte {
 	t.Helper()
 
-	volumeData, errCode := EncryptVolume([]byte("unsupported wasm feature flags"), []byte("phase6-unsupported-flags"))
+	volumeData, errCode := EncryptVolume([]byte("unsupported wasm feature flags"), []byte("phase6-unsupported-flags"), EncryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("EncryptVolume returned error code %d", errCode)
 	}
