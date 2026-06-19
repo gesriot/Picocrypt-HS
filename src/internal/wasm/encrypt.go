@@ -34,6 +34,10 @@ const (
 	wasmZeroingDecryptSerpentKey     wasmZeroingBufferKind = "decrypt serpent key"
 	wasmZeroingDecryptPlaintextChunk wasmZeroingBufferKind = "decrypt plaintext chunk"
 	wasmZeroingDecryptComputedMAC    wasmZeroingBufferKind = "decrypt computed mac"
+	wasmZeroingKeyfileKey            wasmZeroingBufferKind = "keyfile key"
+	wasmZeroingCipherKey             wasmZeroingBufferKind = "keyfile cipher key"
+	wasmZeroingDecryptKeyfileKey     wasmZeroingBufferKind = "decrypt keyfile key"
+	wasmZeroingDecryptCipherKey      wasmZeroingBufferKind = "decrypt keyfile cipher key"
 )
 
 type wasmZeroingEvent struct {
@@ -159,7 +163,7 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 		}
 		keyfileKey = res.Key
 		copy(keyfileHash, res.Hash)
-		defer crypto.SecureZero(keyfileKey)
+		defer zeroWASMSensitiveBuffer(wasmZeroingKeyfileKey, keyfileKey)
 	}
 	keyfileHashZeroed := false
 	defer func() {
@@ -213,7 +217,6 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	cipherKey := key
 	if keyfileKey != nil {
 		cipherKey = keyfile.XORWithKey(key, keyfileKey)
-		defer crypto.SecureZero(cipherKey)
 	}
 
 	// Create cipher suite
@@ -231,6 +234,11 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 		return nil, ErrRandomFailure
 	}
 	defer cipherSuite.Close()
+	// Register AFTER Close() so it fires BEFORE Close() in LIFO order,
+	// ensuring the observer sees the key before CipherSuite.Close() wipes it.
+	if keyfileKey != nil {
+		defer zeroWASMSensitiveBuffer(wasmZeroingCipherKey, cipherKey)
+	}
 
 	// Write header to buffer
 	var headerBuf bytes.Buffer

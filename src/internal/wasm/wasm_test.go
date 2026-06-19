@@ -615,6 +615,88 @@ func TestWASMDecryptV1KeyfilesRejected(t *testing.T) {
 	}
 }
 
+func TestWASMKeyfileBuffersZeroed(t *testing.T) {
+	// Use large, content-rich keyfiles so the XOR cipher key is astronomically
+	// unlikely to be all-zero (passwordKey == keyfileKey collision).
+	kfA := bytes.Repeat([]byte("keyfile-zeroing-alpha-sentinel-"), 10)
+	kfB := bytes.Repeat([]byte("keyfile-zeroing-beta-sentinel--"), 10)
+	original := []byte("keyfile zeroing observer coverage")
+	password := "kf-zeroing-password-distinct"
+
+	// --- Encrypt with keyfiles under the zeroing observer ---
+	var encEvents []wasmZeroingEvent
+	restoreEnc := observeWASMZeroingForTest(func(e wasmZeroingEvent) {
+		encEvents = append(encEvents, e)
+	})
+	volumeData, errCode := EncryptVolume(original, []byte(password), EncryptOptions{
+		Keyfiles: [][]byte{kfA, kfB},
+	})
+	restoreEnc()
+	if errCode != 0 {
+		t.Fatalf("EncryptVolume error code %d", errCode)
+	}
+
+	encWant := []wasmZeroingBufferKind{
+		wasmZeroingKeyfileKey,
+		wasmZeroingCipherKey,
+		wasmZeroingKeyfileHash,
+	}
+	encSeen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+	for _, e := range encEvents {
+		encSeen[e.Kind] = e
+	}
+	for _, kind := range encWant {
+		e, ok := encSeen[kind]
+		if !ok {
+			t.Fatalf("encrypt: missing zeroing event for %s; saw %v", kind, encSeen)
+		}
+		if !e.Zeroed {
+			t.Fatalf("encrypt: %s not zeroed after cleanup", kind)
+		}
+		if !e.WasNonZero {
+			t.Fatalf("encrypt: %s was already zero before cleanup; test would be vacuous", kind)
+		}
+	}
+
+	// --- Decrypt with keyfiles under the zeroing observer ---
+	var decEvents []wasmZeroingEvent
+	restoreDec := observeWASMZeroingForTest(func(e wasmZeroingEvent) {
+		decEvents = append(decEvents, e)
+	})
+	res, errCode := DecryptVolume(volumeData, []byte(password), DecryptOptions{
+		Keyfiles: [][]byte{kfA, kfB},
+	})
+	restoreDec()
+	if errCode != 0 {
+		t.Fatalf("DecryptVolume error code %d", errCode)
+	}
+	if !bytes.Equal(res.Plaintext, original) {
+		t.Fatalf("plaintext mismatch after keyfile decrypt")
+	}
+
+	decWant := []wasmZeroingBufferKind{
+		wasmZeroingDecryptKeyfileKey,
+		wasmZeroingDecryptCipherKey,
+		wasmZeroingDecryptKeyfileHash,
+	}
+	decSeen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+	for _, e := range decEvents {
+		decSeen[e.Kind] = e
+	}
+	for _, kind := range decWant {
+		e, ok := decSeen[kind]
+		if !ok {
+			t.Fatalf("decrypt: missing zeroing event for %s; saw %v", kind, decSeen)
+		}
+		if !e.Zeroed {
+			t.Fatalf("decrypt: %s not zeroed after cleanup", kind)
+		}
+		if !e.WasNonZero {
+			t.Fatalf("decrypt: %s was already zero before cleanup; test would be vacuous", kind)
+		}
+	}
+}
+
 func wasmVolumeWithFlags(t *testing.T, flags header.Flags) []byte {
 	t.Helper()
 

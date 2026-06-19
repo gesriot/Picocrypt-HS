@@ -88,7 +88,7 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 		}
 		keyfileKey = res.Key
 		copy(keyfileHash, res.Hash)
-		defer crypto.SecureZero(keyfileKey)
+		defer zeroWASMSensitiveBuffer(wasmZeroingDecryptKeyfileKey, keyfileKey)
 	}
 
 	isLegacyV1 := hdr.IsLegacyV1()
@@ -144,7 +144,6 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 	cipherKey := key
 	if keyfileKey != nil {
 		cipherKey = keyfile.XORWithKey(key, keyfileKey)
-		defer crypto.SecureZero(cipherKey)
 	}
 
 	// Create cipher suite
@@ -162,6 +161,11 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 		return DecryptResult{}, ErrCorruptedHeader
 	}
 	defer cipherSuite.Close()
+	// Register AFTER Close() so it fires BEFORE Close() in LIFO order,
+	// ensuring the observer sees the key before CipherSuite.Close() wipes it.
+	if keyfileKey != nil {
+		defer zeroWASMSensitiveBuffer(wasmZeroingDecryptCipherKey, cipherKey)
+	}
 
 	// Calculate payload size
 	headerSize := header.HeaderSize(len(hdr.Comments))
