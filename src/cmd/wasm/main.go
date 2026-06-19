@@ -138,7 +138,7 @@ func decrypt(this js.Value, args []js.Value) (result any) {
 	defer crypto.SecureZero(passwordBytes)
 	defer crypto.SecureZero(data)
 
-	res, code := wasm.DecryptVolume(data, passwordBytes)
+	res, code := wasm.DecryptVolume(data, passwordBytes, wasm.DecryptOptions{})
 	if code != 0 {
 		return errorResult(code)
 	}

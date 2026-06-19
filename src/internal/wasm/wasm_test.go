@@ -22,7 +22,7 @@ func TestDecryptV1(t *testing.T) {
 	}
 
 	// Decrypt with password "test"
-	res, errCode := DecryptVolume(volumeData, []byte("test"))
+	res, errCode := DecryptVolume(volumeData, []byte("test"), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -48,7 +48,7 @@ func TestDecryptV2(t *testing.T) {
 	}
 
 	// Decrypt with password "test"
-	res, errCode := DecryptVolume(volumeData, []byte("test"))
+	res, errCode := DecryptVolume(volumeData, []byte("test"), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -71,7 +71,7 @@ func TestDecryptWrongPassword(t *testing.T) {
 		t.Fatalf("failed to read test file: %v", err)
 	}
 
-	_, errCode := DecryptVolume(volumeData, []byte("wrongpassword"))
+	_, errCode := DecryptVolume(volumeData, []byte("wrongpassword"), DecryptOptions{})
 	if errCode != ErrWrongPassword {
 		t.Errorf("expected error code %d, got %d", ErrWrongPassword, errCode)
 	}
@@ -88,7 +88,7 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 	}
 
 	// Decrypt
-	res, errCode := DecryptVolume(ciphertext, []byte(password))
+	res, errCode := DecryptVolume(ciphertext, []byte(password), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -113,7 +113,7 @@ func TestEncryptDecryptLargerFile(t *testing.T) {
 	}
 
 	// Decrypt
-	res, errCode := DecryptVolume(ciphertext, []byte(password))
+	res, errCode := DecryptVolume(ciphertext, []byte(password), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("decrypt failed with error code %d", errCode)
 	}
@@ -306,14 +306,6 @@ func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
 		flags header.Flags
 	}{
 		{
-			name:  "keyfiles",
-			flags: header.Flags{UseKeyfiles: true},
-		},
-		{
-			name:  "keyfile_ordered",
-			flags: header.Flags{KeyfileOrdered: true},
-		},
-		{
 			name:  "reed_solomon_payload",
 			flags: header.Flags{ReedSolomon: true},
 		},
@@ -327,7 +319,7 @@ func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			volumeData := wasmVolumeWithFlags(t, tc.flags)
 
-			_, errCode := DecryptVolume(volumeData, []byte("phase6-unsupported-flags"))
+			_, errCode := DecryptVolume(volumeData, []byte("phase6-unsupported-flags"), DecryptOptions{})
 			if errCode != ErrUnsupported {
 				t.Fatalf("DecryptVolume error code = %d; want ErrUnsupported", errCode)
 			}
@@ -349,7 +341,7 @@ func TestWASMDecryptBuffersZeroed(t *testing.T) {
 	})
 	defer restore()
 
-	res, errCode := DecryptVolume(volumeData, []byte(password))
+	res, errCode := DecryptVolume(volumeData, []byte(password), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("DecryptVolume returned error code %d", errCode)
 	}
@@ -474,7 +466,7 @@ func TestWASMDecryptParanoidAndComments(t *testing.T) {
 		t.Fatalf("read volume: %v", err)
 	}
 
-	got, errCode := DecryptVolume(volumeData, []byte(password))
+	got, errCode := DecryptVolume(volumeData, []byte(password), DecryptOptions{})
 	if errCode != 0 {
 		t.Fatalf("DecryptVolume error code %d", errCode)
 	}
@@ -541,6 +533,85 @@ func TestWASMKeyfileEncryptDesktopDecrypt(t *testing.T) {
 				t.Fatalf("desktop decrypt mismatch")
 			}
 		})
+	}
+}
+
+func TestWASMDecryptKeyfiles(t *testing.T) {
+	kfA := []byte("kf-alpha")
+	kfB := []byte("kf-beta-content")
+	original := []byte("P1: desktop keyfile volume decrypts in WASM.")
+	password := "p1-desktop-keyfiles"
+
+	for _, ordered := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ordered=%v", ordered), func(t *testing.T) {
+			tmp := t.TempDir()
+			inPath := filepath.Join(tmp, "p.txt")
+			outPath := filepath.Join(tmp, "v.pcv")
+			kaPath := filepath.Join(tmp, "a.key")
+			kbPath := filepath.Join(tmp, "b.key")
+			for p, c := range map[string][]byte{inPath: original, kaPath: kfA, kbPath: kfB} {
+				if err := os.WriteFile(p, c, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rs, err := encoding.NewRSCodecs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := volume.Encrypt(context.Background(), &volume.EncryptRequest{
+				InputFile: inPath, OutputFile: outPath,
+				Password: []byte(password), Keyfiles: []string{kaPath, kbPath}, KeyfileOrdered: ordered,
+				RSCodecs: rs,
+			}); err != nil {
+				t.Fatalf("volume.Encrypt: %v", err)
+			}
+			volumeData, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Correct keyfiles → success.
+			got, code := DecryptVolume(volumeData, []byte(password), DecryptOptions{Keyfiles: [][]byte{kfA, kfB}})
+			if code != 0 {
+				t.Fatalf("decrypt code %d; want 0", code)
+			}
+			if !bytes.Equal(got.Plaintext, original) {
+				t.Fatalf("plaintext mismatch")
+			}
+
+			// Missing keyfiles → ErrKeyfilesRequired.
+			if _, code := DecryptVolume(volumeData, []byte(password), DecryptOptions{}); code != ErrKeyfilesRequired {
+				t.Fatalf("missing keyfiles code %d; want %d", code, ErrKeyfilesRequired)
+			}
+			// Wrong keyfiles → ErrKeyfilesIncorrect.
+			if _, code := DecryptVolume(volumeData, []byte(password), DecryptOptions{Keyfiles: [][]byte{[]byte("wrong")}}); code != ErrKeyfilesIncorrect {
+				t.Fatalf("wrong keyfiles code %d; want %d", code, ErrKeyfilesIncorrect)
+			}
+		})
+	}
+}
+
+func TestWASMDecryptV1KeyfilesRejected(t *testing.T) {
+	v1, err := os.ReadFile("../../testdata/golden/pico_test_v1.txt.pcv")
+	if err != nil {
+		t.Fatalf("read v1 golden: %v", err)
+	}
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kfFlags := header.Flags{UseKeyfiles: true}
+	flagsEnc, err := encoding.Encode(rs.RS5, kfFlags.ToBytes())
+	if err != nil {
+		t.Fatalf("encode flags: %v", err)
+	}
+	patched := append([]byte(nil), v1...)
+	off := header.VersionEncSize + header.CommentLenEncSize
+	copy(patched[off:off+header.FlagsEncSize], flagsEnc)
+
+	_, code := DecryptVolume(patched, []byte("test"), DecryptOptions{Keyfiles: [][]byte{[]byte("kf")}})
+	if code != ErrUnsupported {
+		t.Fatalf("v1+keyfiles code=%d; want ErrUnsupported (%d) — must fail closed, not decrypt wrong", code, ErrUnsupported)
 	}
 }
 

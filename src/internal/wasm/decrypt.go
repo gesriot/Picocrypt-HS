@@ -8,6 +8,7 @@ import (
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
 	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
 )
@@ -31,9 +32,14 @@ type DecryptResult struct {
 	Comments  string // plaintext header comments ("" if none)
 }
 
+// DecryptOptions configures an in-memory decryption.
+type DecryptOptions struct {
+	Keyfiles [][]byte // required iff the volume's header sets UseKeyfiles
+}
+
 // DecryptVolume decrypts a Picocrypt volume from memory.
 // Returns (DecryptResult, 0) on success, or (zero, errorCode) on failure.
-func DecryptVolume(volumeData, password []byte) (DecryptResult, int) {
+func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptResult, int) {
 	// Initialize RS codecs
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -56,9 +62,34 @@ func DecryptVolume(volumeData, password []byte) (DecryptResult, int) {
 		return DecryptResult{}, ErrUnsupported
 	}
 
-	// Prepare keyfile hash (zeros since no keyfiles)
+	// Keyfiles: required iff the header says so. Computed once (password-independent).
 	keyfileHash := make([]byte, 32)
 	defer zeroWASMSensitiveBuffer(wasmZeroingDecryptKeyfileHash, keyfileHash)
+	var keyfileKey []byte
+	if hdr.Flags.UseKeyfiles {
+		// v1-legacy keyfile volumes use a different key timing (HKDF AFTER the
+		// keyfile XOR) that the WASM path does not implement; fail closed rather
+		// than silently produce wrong plaintext. Rare combo → direct to desktop.
+		if hdr.IsLegacyV1() {
+			return DecryptResult{}, ErrUnsupported
+		}
+		if len(opts.Keyfiles) == 0 {
+			return DecryptResult{}, ErrKeyfilesRequired
+		}
+		res, code := processWASMKeyfiles(opts.Keyfiles, hdr.Flags.KeyfileOrdered)
+		if code != 0 {
+			return DecryptResult{}, code
+		}
+		// Constant-time check against the stored hash before trying passwords,
+		// so wrong keyfiles report distinctly from a wrong password.
+		if !header.VerifyKeyfileHash(res.Hash, hdr.KeyfileHash) {
+			crypto.SecureZero(res.Key)
+			return DecryptResult{}, ErrKeyfilesIncorrect
+		}
+		keyfileKey = res.Key
+		copy(keyfileHash, res.Hash)
+		defer crypto.SecureZero(keyfileKey)
+	}
 
 	isLegacyV1 := hdr.IsLegacyV1()
 
@@ -108,9 +139,17 @@ func DecryptVolume(volumeData, password []byte) (DecryptResult, int) {
 		return DecryptResult{}, ErrCorruptedHeader
 	}
 
+	// Derive cipher key: XOR with keyfile key when keyfiles are used.
+	// HKDF/subkeys still derive from the password key.
+	cipherKey := key
+	if keyfileKey != nil {
+		cipherKey = keyfile.XORWithKey(key, keyfileKey)
+		defer crypto.SecureZero(cipherKey)
+	}
+
 	// Create cipher suite
 	cipherSuite, err := crypto.NewCipherSuite(
-		key,
+		cipherKey,
 		hdr.Nonce,
 		serpentKey,
 		hdr.SerpentIV,
@@ -185,10 +224,7 @@ func verifyWASMHeader(key []byte, hdr *header.VolumeHeader, keyfileHash []byte, 
 }
 
 func hasUnsupportedWASMFeature(flags header.Flags) bool {
-	return flags.UseKeyfiles ||
-		flags.KeyfileOrdered ||
-		flags.ReedSolomon ||
-		flags.Padded
+	return flags.ReedSolomon || flags.Padded
 }
 
 // decryptPlainPayload decrypts non-RS payload in chunks
