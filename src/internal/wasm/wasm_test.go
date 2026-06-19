@@ -636,16 +636,26 @@ func TestWASMKeyfileBuffersZeroed(t *testing.T) {
 		t.Fatalf("EncryptVolume error code %d", errCode)
 	}
 
-	encWant := []wasmZeroingBufferKind{
+	// All three secrets must end up zeroed.
+	encZeroed := []wasmZeroingBufferKind{
 		wasmZeroingKeyfileKey,
 		wasmZeroingCipherKey,
+		wasmZeroingKeyfileHash,
+	}
+	// keyfileKey and keyfileHash are wiped solely by our observed defers, so they
+	// must have been non-zero when observed (vacuity guard). cipherKey is ALSO
+	// wiped by CipherSuite.Close() (it aliases cs.key), which is registered later
+	// and so runs first in LIFO order — by the time our defensive observer runs,
+	// cipherKey is already zero. WasNonZero is legitimately false for it.
+	encNonZero := []wasmZeroingBufferKind{
+		wasmZeroingKeyfileKey,
 		wasmZeroingKeyfileHash,
 	}
 	encSeen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
 	for _, e := range encEvents {
 		encSeen[e.Kind] = e
 	}
-	for _, kind := range encWant {
+	for _, kind := range encZeroed {
 		e, ok := encSeen[kind]
 		if !ok {
 			t.Fatalf("encrypt: missing zeroing event for %s; saw %v", kind, encSeen)
@@ -653,7 +663,9 @@ func TestWASMKeyfileBuffersZeroed(t *testing.T) {
 		if !e.Zeroed {
 			t.Fatalf("encrypt: %s not zeroed after cleanup", kind)
 		}
-		if !e.WasNonZero {
+	}
+	for _, kind := range encNonZero {
+		if !encSeen[kind].WasNonZero {
 			t.Fatalf("encrypt: %s was already zero before cleanup; test would be vacuous", kind)
 		}
 	}
@@ -674,16 +686,23 @@ func TestWASMKeyfileBuffersZeroed(t *testing.T) {
 		t.Fatalf("plaintext mismatch after keyfile decrypt")
 	}
 
-	decWant := []wasmZeroingBufferKind{
+	decZeroed := []wasmZeroingBufferKind{
 		wasmZeroingDecryptKeyfileKey,
 		wasmZeroingDecryptCipherKey,
+		wasmZeroingDecryptKeyfileHash,
+	}
+	// As on encrypt: cipherKey is wiped by CipherSuite.Close() first (LIFO), so its
+	// WasNonZero is legitimately false; the vacuity guard rides on keyfileKey and
+	// keyfileHash, which only our observed defers touch.
+	decNonZero := []wasmZeroingBufferKind{
+		wasmZeroingDecryptKeyfileKey,
 		wasmZeroingDecryptKeyfileHash,
 	}
 	decSeen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
 	for _, e := range decEvents {
 		decSeen[e.Kind] = e
 	}
-	for _, kind := range decWant {
+	for _, kind := range decZeroed {
 		e, ok := decSeen[kind]
 		if !ok {
 			t.Fatalf("decrypt: missing zeroing event for %s; saw %v", kind, decSeen)
@@ -691,7 +710,9 @@ func TestWASMKeyfileBuffersZeroed(t *testing.T) {
 		if !e.Zeroed {
 			t.Fatalf("decrypt: %s not zeroed after cleanup", kind)
 		}
-		if !e.WasNonZero {
+	}
+	for _, kind := range decNonZero {
+		if !decSeen[kind].WasNonZero {
 			t.Fatalf("decrypt: %s was already zero before cleanup; test would be vacuous", kind)
 		}
 	}

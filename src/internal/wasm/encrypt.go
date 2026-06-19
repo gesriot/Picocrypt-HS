@@ -217,6 +217,13 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	cipherKey := key
 	if keyfileKey != nil {
 		cipherKey = keyfile.XORWithKey(key, keyfileKey)
+		// Register the wipe the instant the secret exists — BEFORE the fallible
+		// NewCipherSuite call — so cipherKey is zeroed on EVERY return path,
+		// including a NewCipherSuite error (where Close() below is never set up).
+		// On success CipherSuite.Close() also wipes it (it aliases cs.key) and,
+		// being registered later, runs first in LIFO order; this defer is then a
+		// harmless second wipe. It is the SOLE wipe on the error path.
+		defer zeroWASMSensitiveBuffer(wasmZeroingCipherKey, cipherKey)
 	}
 
 	// Create cipher suite
@@ -234,11 +241,6 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 		return nil, ErrRandomFailure
 	}
 	defer cipherSuite.Close()
-	// Register AFTER Close() so it fires BEFORE Close() in LIFO order,
-	// ensuring the observer sees the key before CipherSuite.Close() wipes it.
-	if keyfileKey != nil {
-		defer zeroWASMSensitiveBuffer(wasmZeroingCipherKey, cipherKey)
-	}
 
 	// Write header to buffer
 	var headerBuf bytes.Buffer
