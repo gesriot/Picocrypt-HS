@@ -512,4 +512,3 @@ func cleanupEncrypt(ctx *OperationContext, req *EncryptRequest) {
 	_ = os.Remove(req.OutputFile + ".incomplete")
 	// Note: ctx.Close() is called via defer in Encrypt()
 }
-
