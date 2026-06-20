@@ -1,13 +1,12 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
 )
 
 // TestWriteFormatRegression locks the HEAD write-format against the frozen
@@ -33,7 +32,7 @@ func TestWriteFormatRegression(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "pt.txt")
-	if err := os.WriteFile(inputPath, []byte(expectedContent), 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte(expectedContent), 0o644); err != nil {
 		t.Fatalf("Failed to write input file: %v", err)
 	}
 	outputPath := filepath.Join(tmpDir, "v_out.txt.pcv")

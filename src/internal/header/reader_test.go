@@ -1,11 +1,10 @@
 package header
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"bytes"
 	"errors"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // TestMatchVersionAnchored verifies the shared version helper uses the single

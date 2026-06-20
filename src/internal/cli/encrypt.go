@@ -1,19 +1,19 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/volume"
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/volume"
 
 	"github.com/spf13/cobra"
 )
@@ -133,7 +133,7 @@ func defaultEncryptOutput(rawInput string, allFiles []string, useStdin bool) str
 func runEncrypt(cmd *cobra.Command, args []string) error {
 	// Validate inputs
 	if len(encInput) == 0 {
-		return fmt.Errorf("at least one input file is required (-i)")
+		return errors.New("at least one input file is required (-i)")
 	}
 
 	// Check for stdin/stdout
@@ -145,16 +145,16 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 
 	// Validate stdin/stdout constraints
 	if hasStdinInput && len(encInput) > 1 {
-		return fmt.Errorf("stdin (-i -) cannot be combined with other input files")
+		return errors.New("stdin (-i -) cannot be combined with other input files")
 	}
 	if useStdin && encPasswordStdin {
-		return fmt.Errorf("cannot use -P (password from stdin) with -i - (input from stdin)")
+		return errors.New("cannot use -P (password from stdin) with -i - (input from stdin)")
 	}
 	if (useStdin || useStdout) && encSplit {
-		return fmt.Errorf("stdin/stdout not compatible with --split")
+		return errors.New("stdin/stdout not compatible with --split")
 	}
 	if (useStdin || useStdout) && encDeniability {
-		return fmt.Errorf("stdin/stdout not compatible with --deniability")
+		return errors.New("stdin/stdout not compatible with --deniability")
 	}
 
 	// Auto-quiet when outputting to stdout (avoid mixing progress with data)
@@ -229,11 +229,11 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 							// Follow symlink if flag set
 							target, err := filepath.EvalSymlinks(path)
 							if err != nil {
-								return nil // skip broken symlinks
+								return nil //nolint:nilerr // intentional: skip broken symlinks, continue walking
 							}
 							targetInfo, err := os.Stat(target)
 							if err != nil || !targetInfo.Mode().IsRegular() {
-								return nil // skip symlinks to dirs/special files
+								return nil //nolint:nilerr // intentional: skip symlinks to dirs/special files, continue walking
 							}
 							allFiles = append(allFiles, path)
 						}
@@ -251,7 +251,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(allFiles) == 0 {
-		return fmt.Errorf("no files found to encrypt")
+		return errors.New("no files found to encrypt")
 	}
 
 	// Determine output file
@@ -294,7 +294,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 				}
 				response = strings.TrimSpace(strings.ToLower(response))
 				if response != "y" && response != "yes" {
-					return fmt.Errorf("operation cancelled")
+					return errors.New("operation cancelled")
 				}
 			}
 		}
@@ -341,7 +341,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	var chunkUnit fileops.SplitUnit
 	if encSplit {
 		if encSplitSize <= 0 {
-			return fmt.Errorf("--split-size is required when --split is enabled")
+			return errors.New("--split-size is required when --split is enabled")
 		}
 		chunkSize = encSplitSize
 

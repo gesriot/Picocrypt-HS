@@ -1,15 +1,14 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
 	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
 )
 
 // recordingKDF wraps the fast-test volume-key derivation, retaining the backing
@@ -86,14 +85,14 @@ func TestKeyMaterialZeroed(t *testing.T) {
 
 		plaintext := []byte("close-path key-zeroing fixture: keyfile XOR orphans the Argon2 key.")
 		inputPath := filepath.Join(tmpDir, "close_in.txt")
-		if err := os.WriteFile(inputPath, plaintext, 0600); err != nil {
+		if err := os.WriteFile(inputPath, plaintext, 0o600); err != nil {
 			t.Fatalf("write input: %v", err)
 		}
 
 		// Keyfile presence is what makes XORWithKey allocate a NEW slice, so the
 		// Argon2 backing array is genuinely orphaned at ctx.Key reassignment (v2 :343).
 		keyfilePath := filepath.Join(tmpDir, "close.key")
-		if err := os.WriteFile(keyfilePath, []byte("close-path keyfile content"), 0600); err != nil {
+		if err := os.WriteFile(keyfilePath, []byte("close-path keyfile content"), 0o600); err != nil {
 			t.Fatalf("write keyfile: %v", err)
 		}
 
@@ -159,7 +158,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 			plaintext[i] = byte(i*13 + 7)
 		}
 		inputPath := filepath.Join(tmpDir, "retry_in.bin")
-		if err := os.WriteFile(inputPath, plaintext, 0600); err != nil {
+		if err := os.WriteFile(inputPath, plaintext, 0o600); err != nil {
 			t.Fatalf("write input: %v", err)
 		}
 
@@ -171,7 +170,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		// pass — unreachable by the cipher suite (which holds the XOR result) or by
 		// Close(). The retry re-derive (:223) and keyfile re-process (:247) also run.
 		keyfilePath := filepath.Join(tmpDir, "retry.key")
-		if err := os.WriteFile(keyfilePath, []byte("retry-path keyfile content"), 0600); err != nil {
+		if err := os.WriteFile(keyfilePath, []byte("retry-path keyfile content"), 0o600); err != nil {
 			t.Fatalf("write keyfile: %v", err)
 		}
 
@@ -259,7 +258,7 @@ func TestKeyMaterialZeroed(t *testing.T) {
 		const password = "live-key-zeroed-pw"
 		plaintext := []byte("live-key fixture: no keyfile, ctx.Key self-assigned and zeroed by Close().")
 		inputPath := filepath.Join(tmpDir, "live_in.txt")
-		if err := os.WriteFile(inputPath, plaintext, 0600); err != nil {
+		if err := os.WriteFile(inputPath, plaintext, 0o600); err != nil {
 			t.Fatalf("write input: %v", err)
 		}
 

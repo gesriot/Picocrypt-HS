@@ -1,12 +1,11 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // TestRemoveDeniabilityRemovesTempOnVerificationFailure locks the cleanup
@@ -24,7 +23,7 @@ func TestRemoveDeniabilityRemovesTempOnVerificationFailure(t *testing.T) {
 	tmpDir := t.TempDir()
 	wrappedPath := filepath.Join(tmpDir, "wrapped-invalid-inner.pcv")
 	innerPlaintext := bytes.Repeat([]byte("invalid inner volume plaintext; "), 4)
-	if err := os.WriteFile(wrappedPath, innerPlaintext, 0600); err != nil {
+	if err := os.WriteFile(wrappedPath, innerPlaintext, 0o600); err != nil {
 		t.Fatalf("write invalid inner volume: %v", err)
 	}
 

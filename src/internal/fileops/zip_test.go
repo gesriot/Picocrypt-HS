@@ -3,6 +3,7 @@ package fileops
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -110,10 +111,10 @@ func TestCreateZip(t *testing.T) {
 	content1 := []byte("Content of file 1")
 	content2 := []byte("Content of file 2, a bit longer")
 
-	if err := os.WriteFile(file1, content1, 0644); err != nil {
+	if err := os.WriteFile(file1, content1, 0o644); err != nil {
 		t.Fatalf("Create file1: %v", err)
 	}
-	if err := os.WriteFile(file2, content2, 0644); err != nil {
+	if err := os.WriteFile(file2, content2, 0o644); err != nil {
 		t.Fatalf("Create file2: %v", err)
 	}
 
@@ -191,7 +192,7 @@ func TestCreateZipReportsSpeedAndETA(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "input.bin")
 	// Enough bytes to drive at least one in-loop progress tick.
-	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("x"), 2*1024*1024), 0644); err != nil {
+	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("x"), 2*1024*1024), 0o644); err != nil {
 		t.Fatalf("Create input: %v", err)
 	}
 
@@ -223,7 +224,7 @@ func TestCreateZipWithCompression(t *testing.T) {
 	file1 := filepath.Join(tmpDir, "compressible.txt")
 	content := bytes.Repeat([]byte("AAAA"), 10000) // 40 KB of A's
 
-	if err := os.WriteFile(file1, content, 0644); err != nil {
+	if err := os.WriteFile(file1, content, 0o644); err != nil {
 		t.Fatalf("Create file: %v", err)
 	}
 
@@ -271,7 +272,7 @@ func TestCreateZipWithEncryption(t *testing.T) {
 	file1 := filepath.Join(tmpDir, "secret.txt")
 	content := []byte("Secret content that should be encrypted")
 
-	if err := os.WriteFile(file1, content, 0644); err != nil {
+	if err := os.WriteFile(file1, content, 0o644); err != nil {
 		t.Fatalf("Create file: %v", err)
 	}
 
@@ -317,7 +318,7 @@ func TestCreateZipWithEncryption(t *testing.T) {
 	reader := WrapReaderWithCipher(bytes.NewReader(encryptedData), ciphers)
 	decrypted := make([]byte, len(encryptedData))
 	n, err := reader.Read(decrypted)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("Read decrypted data: %v", err)
 	}
 	_, _ = decryptedFile.Write(decrypted[:n])
@@ -358,7 +359,7 @@ func TestCreateZipCancellation(t *testing.T) {
 	// Create a test file
 	file1 := filepath.Join(tmpDir, "file.txt")
 	content := bytes.Repeat([]byte("X"), 10000)
-	if err := os.WriteFile(file1, content, 0644); err != nil {
+	if err := os.WriteFile(file1, content, 0o644); err != nil {
 		t.Fatalf("Create file: %v", err)
 	}
 
@@ -435,17 +436,17 @@ func TestCreateZipWithSubdirectory(t *testing.T) {
 
 	// Create a subdirectory with a file
 	subDir := filepath.Join(tmpDir, "subdir")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatalf("Create subdir: %v", err)
 	}
 
 	file1 := filepath.Join(tmpDir, "root.txt")
 	file2 := filepath.Join(subDir, "nested.txt")
 
-	if err := os.WriteFile(file1, []byte("root file"), 0644); err != nil {
+	if err := os.WriteFile(file1, []byte("root file"), 0o644); err != nil {
 		t.Fatalf("Create file1: %v", err)
 	}
-	if err := os.WriteFile(file2, []byte("nested file"), 0644); err != nil {
+	if err := os.WriteFile(file2, []byte("nested file"), 0o644); err != nil {
 		t.Fatalf("Create file2: %v", err)
 	}
 
@@ -485,7 +486,7 @@ func TestCreateZipWithSubdirectory(t *testing.T) {
 func TestCreateZipRejectsNonLocalEntryName(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "file.txt")
-	if err := os.WriteFile(inputPath, []byte("content"), 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte("content"), 0o644); err != nil {
 		t.Fatalf("Create file: %v", err)
 	}
 

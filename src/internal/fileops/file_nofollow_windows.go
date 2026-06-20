@@ -46,7 +46,7 @@ func openFileNoFollow(path string, flag int, perm os.FileMode) (*os.File, error)
 	}
 
 	attrs := uint32(windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OPEN_REPARSE_POINT)
-	if perm.Perm()&0200 == 0 {
+	if perm.Perm()&0o200 == 0 {
 		attrs = windows.FILE_ATTRIBUTE_READONLY | windows.FILE_FLAG_OPEN_REPARSE_POINT
 	}
 

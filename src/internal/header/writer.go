@@ -1,11 +1,10 @@
 package header
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"errors"
 	"fmt"
 	"io"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // Writer handles writing volume headers to an output stream

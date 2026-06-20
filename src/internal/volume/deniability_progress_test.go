@@ -1,6 +1,7 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"bytes"
 	"context"
 	"fmt"
@@ -9,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // etaStatusReporter captures every status string so a test can assert that a
@@ -109,7 +108,7 @@ func TestDeniabilityReportsSpeedAndETA(t *testing.T) {
 	// AddDeniability encrypts whatever bytes it is given, so a plain 2 MiB blob
 	// exercises its streaming progress reporting.
 	addPath := filepath.Join(tmpDir, "add.bin")
-	if err := os.WriteFile(addPath, bytes.Repeat([]byte("x"), 2*1024*1024), 0644); err != nil {
+	if err := os.WriteFile(addPath, bytes.Repeat([]byte("x"), 2*1024*1024), 0o644); err != nil {
 		t.Fatalf("write add input: %v", err)
 	}
 	addRep := &etaStatusReporter{}
@@ -123,7 +122,7 @@ func TestDeniabilityReportsSpeedAndETA(t *testing.T) {
 	// volume to reach (and report on) the streaming pass. Build one: encrypt a
 	// 2 MiB file, then wrap it.
 	plainPath := filepath.Join(tmpDir, "pt.bin")
-	if err := os.WriteFile(plainPath, bytes.Repeat([]byte("y"), 2*1024*1024), 0644); err != nil {
+	if err := os.WriteFile(plainPath, bytes.Repeat([]byte("y"), 2*1024*1024), 0o644); err != nil {
 		t.Fatalf("write plaintext: %v", err)
 	}
 	volPath := filepath.Join(tmpDir, "vol.pcv")

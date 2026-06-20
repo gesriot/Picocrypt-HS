@@ -271,7 +271,8 @@ const sharedSecurityWarning = "Warning: only use this if you know what it does!"
 func assertTooltipsPresentAndDistinct(t *testing.T, controls []struct {
 	name string
 	tt   interface{ ToolTip() string }
-}) {
+},
+) {
 	t.Helper()
 	seen := make(map[string]string)
 	for _, c := range controls {

@@ -1,10 +1,9 @@
 package wasm
 
 import (
+	"Picocrypt-NG/internal/keyfile"
 	"bytes"
 	"io"
-
-	"Picocrypt-NG/internal/keyfile"
 )
 
 // processWASMKeyfiles hashes the in-memory keyfiles via the shared reader-based

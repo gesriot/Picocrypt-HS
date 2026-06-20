@@ -1,11 +1,10 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/util"
 	"context"
 	"errors"
 	"time"
-
-	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
 )

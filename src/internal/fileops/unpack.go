@@ -1,6 +1,8 @@
 package fileops
 
 import (
+	"Picocrypt-NG/internal/diskspace"
+	"Picocrypt-NG/internal/util"
 	"archive/zip"
 	"errors"
 	"fmt"
@@ -11,9 +13,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"Picocrypt-NG/internal/diskspace"
-	"Picocrypt-NG/internal/util"
 )
 
 // UnpackOptions configures archive extraction
@@ -100,7 +99,7 @@ func prepareExtractionPath(extractDir, normalizedName string, isDir bool) (strin
 		switch {
 		case os.IsNotExist(err):
 			if !isLast || isDir {
-				if err := os.Mkdir(next, 0700); err != nil {
+				if err := os.Mkdir(next, 0o700); err != nil {
 					return "", fmt.Errorf("create directory %s: %w", next, err)
 				}
 			}
@@ -156,7 +155,7 @@ func walkExtractionRoot(current string, parts []string, create bool, allowLeadin
 			if !create {
 				return "", fmt.Errorf("extraction directory does not exist: %s", filepath.Join(current, filepath.Join(parts[i:]...)))
 			}
-			if err := os.Mkdir(next, 0700); err != nil {
+			if err := os.Mkdir(next, 0o700); err != nil {
 				return "", fmt.Errorf("create extraction directory %s: %w", next, err)
 			}
 		case err != nil:
@@ -344,7 +343,7 @@ func Unpack(opts UnpackOptions) (retErr error) {
 			return fmt.Errorf("open %s in archive: %w", f.Name, err)
 		}
 
-		dstFile, err := extractRoot.OpenFile(normalizedName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+		dstFile, err := extractRoot.OpenFile(normalizedName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			_ = fileInArchive.Close()
 			return fmt.Errorf("create %s: %w", outPath, err)

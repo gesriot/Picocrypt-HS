@@ -147,7 +147,7 @@ func TestGenPasswordDistribution(t *testing.T) {
 	hasDigit := false
 	hasSymbol := false
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pw, err := GenPassword(opts)
 		if err != nil {
 			t.Fatalf("GenPassword failed at iteration %d: %v", i, err)

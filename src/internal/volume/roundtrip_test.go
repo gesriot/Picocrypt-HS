@@ -1,6 +1,9 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
 	"archive/zip"
 	"context"
 	"errors"
@@ -10,10 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
 )
 
 // readVolumeHeader opens an encrypted .pcv volume and decodes its header using the
@@ -54,7 +54,7 @@ func TestRoundTripBasic(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Hello, Picocrypt! This is a test message for round-trip encryption.")
 	inputPath := filepath.Join(tmpDir, "test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -118,7 +118,7 @@ func TestRoundTripBasic(t *testing.T) {
 func TestEncryptRejectsOverflowingChunkSizeEarly(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "test.txt")
-	if err := os.WriteFile(inputPath, []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte("payload"), 0o644); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
 	outputPath := filepath.Join(tmpDir, "test.txt.pcv")
@@ -152,7 +152,7 @@ func TestRoundTripParanoid(t *testing.T) {
 
 	plaintext := []byte("Paranoid mode test data with extra security.")
 	inputPath := filepath.Join(tmpDir, "paranoid_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -234,7 +234,7 @@ func TestRoundTripReedSolomon(t *testing.T) {
 		plaintext[i] = byte((i * 7) % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "rs_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -305,7 +305,7 @@ func TestRoundTripDeniability(t *testing.T) {
 
 	plaintext := []byte("Deniability test data - this should be hidden!")
 	inputPath := filepath.Join(tmpDir, "deny_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -371,7 +371,7 @@ func TestRoundTripAllOptions(t *testing.T) {
 
 	plaintext := []byte("Full options test: paranoid + Reed-Solomon + deniability")
 	inputPath := filepath.Join(tmpDir, "full_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -441,7 +441,7 @@ func TestRoundTripWithComments(t *testing.T) {
 
 	plaintext := []byte("Test data with comments in the header.")
 	inputPath := filepath.Join(tmpDir, "comments_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -509,14 +509,14 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Keyfile protected data for testing.")
 	inputPath := filepath.Join(tmpDir, "keyfile_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfile
 	keyfilePath := filepath.Join(tmpDir, "keyfile.bin")
 	keyfileData := []byte("This is my secret keyfile content!")
-	if err := os.WriteFile(keyfilePath, keyfileData, 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, keyfileData, 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -585,17 +585,17 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Multiple keyfiles protected data.")
 	inputPath := filepath.Join(tmpDir, "multi_keyfile_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfiles
 	keyfile1 := filepath.Join(tmpDir, "keyfile1.bin")
 	keyfile2 := filepath.Join(tmpDir, "keyfile2.bin")
-	if err := os.WriteFile(keyfile1, []byte("First keyfile content"), 0644); err != nil {
+	if err := os.WriteFile(keyfile1, []byte("First keyfile content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile1: %v", err)
 	}
-	if err := os.WriteFile(keyfile2, []byte("Second keyfile content"), 0644); err != nil {
+	if err := os.WriteFile(keyfile2, []byte("Second keyfile content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile2: %v", err)
 	}
 
@@ -658,17 +658,17 @@ func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Ordered keyfiles protected data.")
 	inputPath := filepath.Join(tmpDir, "ordered_keyfile_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfiles
 	keyfile1 := filepath.Join(tmpDir, "ordered1.bin")
 	keyfile2 := filepath.Join(tmpDir, "ordered2.bin")
-	if err := os.WriteFile(keyfile1, []byte("First ordered keyfile"), 0644); err != nil {
+	if err := os.WriteFile(keyfile1, []byte("First ordered keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile1: %v", err)
 	}
-	if err := os.WriteFile(keyfile2, []byte("Second ordered keyfile"), 0644); err != nil {
+	if err := os.WriteFile(keyfile2, []byte("Second ordered keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile2: %v", err)
 	}
 
@@ -730,19 +730,19 @@ func TestWrongKeyfileFails(t *testing.T) {
 
 	plaintext := []byte("Secret data")
 	inputPath := filepath.Join(tmpDir, "secret.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create correct keyfile
 	correctKeyfile := filepath.Join(tmpDir, "correct_keyfile.bin")
-	if err := os.WriteFile(correctKeyfile, []byte("Correct keyfile"), 0644); err != nil {
+	if err := os.WriteFile(correctKeyfile, []byte("Correct keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write correct keyfile: %v", err)
 	}
 
 	// Create wrong keyfile
 	wrongKeyfile := filepath.Join(tmpDir, "wrong_keyfile.bin")
-	if err := os.WriteFile(wrongKeyfile, []byte("Wrong keyfile"), 0644); err != nil {
+	if err := os.WriteFile(wrongKeyfile, []byte("Wrong keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write wrong keyfile: %v", err)
 	}
 
@@ -804,7 +804,7 @@ func TestRoundTripSplit(t *testing.T) {
 		plaintext[i] = byte(i % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "split_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -896,7 +896,7 @@ func TestRoundTripDecryptFromFirstChunkWithRecombine(t *testing.T) {
 		plaintext[i] = byte(i % 251)
 	}
 	inputPath := filepath.Join(tmpDir, "split_first_chunk.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -962,7 +962,7 @@ func TestWrongPasswordFails(t *testing.T) {
 
 	plaintext := []byte("Secret data")
 	inputPath := filepath.Join(tmpDir, "secret.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1019,11 +1019,11 @@ func TestAutoUnzip(t *testing.T) {
 	// Create a test file and zip it
 	testContent := []byte("Auto-unzip test content!")
 	testDir := filepath.Join(tmpDir, "test_folder")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
 	testFile := filepath.Join(testDir, "test_file.txt")
-	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
+	if err := os.WriteFile(testFile, testContent, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1103,18 +1103,18 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 
 	// Create subdirectory for the encrypted file
 	volumeDir := filepath.Join(tmpDir, "volume_location")
-	if err := os.MkdirAll(volumeDir, 0755); err != nil {
+	if err := os.MkdirAll(volumeDir, 0o755); err != nil {
 		t.Fatalf("Failed to create volume directory: %v", err)
 	}
 
 	// Create a test file and zip it
 	testContent := []byte("Same-level unzip test content!")
 	testDir := filepath.Join(tmpDir, "source_folder")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
 	testFile := filepath.Join(testDir, "same_level_test.txt")
-	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
+	if err := os.WriteFile(testFile, testContent, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1190,11 +1190,11 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 	tmpDir := t.TempDir()
 	testContent := []byte("Auto-unzip rollback test content!")
 	testDir := filepath.Join(tmpDir, "rollback_folder")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
 	testFile := filepath.Join(testDir, "rollback.txt")
-	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
+	if err := os.WriteFile(testFile, testContent, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1310,16 +1310,16 @@ func TestRoundTripAutoUnzipMultipleFilesFromDifferentDirs(t *testing.T) {
 	fileA := filepath.Join(tmpDir, "alpha", "one.txt")
 	fileB := filepath.Join(tmpDir, "beta", "two.txt")
 
-	if err := os.MkdirAll(filepath.Dir(fileA), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fileA), 0o755); err != nil {
 		t.Fatalf("Failed to create dir for fileA: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(fileB), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fileB), 0o755); err != nil {
 		t.Fatalf("Failed to create dir for fileB: %v", err)
 	}
-	if err := os.WriteFile(fileA, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(fileA, []byte("one"), 0o644); err != nil {
 		t.Fatalf("Failed to write fileA: %v", err)
 	}
-	if err := os.WriteFile(fileB, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(fileB, []byte("two"), 0o644); err != nil {
 		t.Fatalf("Failed to write fileB: %v", err)
 	}
 
@@ -1377,13 +1377,13 @@ func TestRoundTripMultiFile(t *testing.T) {
 	file2Path := filepath.Join(tmpDir, "file2.txt")
 	file3Path := filepath.Join(tmpDir, "file3.txt")
 
-	if err := os.WriteFile(file1Path, file1Content, 0644); err != nil {
+	if err := os.WriteFile(file1Path, file1Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file1: %v", err)
 	}
-	if err := os.WriteFile(file2Path, file2Content, 0644); err != nil {
+	if err := os.WriteFile(file2Path, file2Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file2: %v", err)
 	}
-	if err := os.WriteFile(file3Path, file3Content, 0644); err != nil {
+	if err := os.WriteFile(file3Path, file3Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file3: %v", err)
 	}
 
@@ -1471,12 +1471,12 @@ func TestRoundTripSingleFileFolderProducesZip(t *testing.T) {
 
 	// A folder ("test_dir") containing exactly one file, mirroring the issue.
 	folder := filepath.Join(tmpDir, "test_dir")
-	if err := os.MkdirAll(folder, 0755); err != nil {
+	if err := os.MkdirAll(folder, 0o755); err != nil {
 		t.Fatalf("Failed to create folder: %v", err)
 	}
 	innerContent := []byte("hello world\n")
 	innerPath := filepath.Join(folder, "hello.txt")
-	if err := os.WriteFile(innerPath, innerContent, 0644); err != nil {
+	if err := os.WriteFile(innerPath, innerContent, 0o644); err != nil {
 		t.Fatalf("Failed to write inner file: %v", err)
 	}
 
@@ -1559,7 +1559,7 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 		plaintext[i] = byte((i * 7) % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "split_rs_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1635,7 +1635,7 @@ func TestRoundTripEmptyFile(t *testing.T) {
 
 	// Create empty file
 	inputPath := filepath.Join(tmpDir, "empty.txt")
-	if err := os.WriteFile(inputPath, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte{}, 0o644); err != nil {
 		t.Fatalf("Failed to write empty file: %v", err)
 	}
 
@@ -1698,14 +1698,14 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 		plaintext[i] = byte((i * 17) % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "split_keyfile_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfile
 	keyfileContent := []byte("This is keyfile content for split test!")
 	keyfilePath := filepath.Join(tmpDir, "split.key")
-	if err := os.WriteFile(keyfilePath, keyfileContent, 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, keyfileContent, 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -1782,7 +1782,7 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 	// keeps the flip mid-ciphertext, away from the header and the trailing MAC.
 	plaintext := []byte(strings.Repeat("force-decrypt corruption payload. ", 64))
 	inputPath := filepath.Join(tmpDir, "corrupt_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 	encryptedPath := filepath.Join(tmpDir, "corrupt_test.txt.pcv")
@@ -1803,7 +1803,7 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 		t.Fatalf("read encrypted: %v", err)
 	}
 	data[len(data)/2] ^= 0xFF
-	if err := os.WriteFile(encryptedPath, data, 0644); err != nil {
+	if err := os.WriteFile(encryptedPath, data, 0o644); err != nil {
 		t.Fatalf("write corrupted: %v", err)
 	}
 
@@ -1864,10 +1864,10 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	file1Path := filepath.Join(tmpDir, "compress1.txt")
 	file2Path := filepath.Join(tmpDir, "compress2.txt")
 
-	if err := os.WriteFile(file1Path, file1Content, 0644); err != nil {
+	if err := os.WriteFile(file1Path, file1Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file1: %v", err)
 	}
-	if err := os.WriteFile(file2Path, file2Content, 0644); err != nil {
+	if err := os.WriteFile(file2Path, file2Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file2: %v", err)
 	}
 
@@ -1955,7 +1955,7 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 	fileContent := []byte(strings.Repeat("This is highly compressible test data! ", 100))
 
 	filePath := filepath.Join(tmpDir, "compressible_single.txt")
-	if err := os.WriteFile(filePath, fileContent, 0644); err != nil {
+	if err := os.WriteFile(filePath, fileContent, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2039,7 +2039,7 @@ func TestRoundTripCompressedSingleFileViaInputFileField(t *testing.T) {
 
 	filePath := filepath.Join(tmpDir, "compressible_inputfile.txt")
 	content := []byte(strings.Repeat("This compresses well. ", 100))
-	if err := os.WriteFile(filePath, content, 0644); err != nil {
+	if err := os.WriteFile(filePath, content, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2095,7 +2095,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 
 	plaintext := []byte("Header tamper detection test data.")
 	inputPath := filepath.Join(tmpDir, "tamper_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2140,7 +2140,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 
 	// Write tampered file
 	tamperedPath := filepath.Join(tmpDir, "tampered.txt.pcv")
-	if err := os.WriteFile(tamperedPath, data, 0644); err != nil {
+	if err := os.WriteFile(tamperedPath, data, 0o644); err != nil {
 		t.Fatalf("Failed to write tampered file: %v", err)
 	}
 
@@ -2212,7 +2212,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Ordered keyfiles test - order must match!")
 	inputPath := filepath.Join(tmpDir, "ordered_kf_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2220,10 +2220,10 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	keyfile1Path := filepath.Join(tmpDir, "keyfile1.bin")
 	keyfile2Path := filepath.Join(tmpDir, "keyfile2.bin")
 
-	if err := os.WriteFile(keyfile1Path, []byte("keyfile1_unique_content_AAAA"), 0644); err != nil {
+	if err := os.WriteFile(keyfile1Path, []byte("keyfile1_unique_content_AAAA"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile1: %v", err)
 	}
-	if err := os.WriteFile(keyfile2Path, []byte("keyfile2_unique_content_BBBB"), 0644); err != nil {
+	if err := os.WriteFile(keyfile2Path, []byte("keyfile2_unique_content_BBBB"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile2: %v", err)
 	}
 
@@ -2305,7 +2305,7 @@ func TestZeroLengthComments(t *testing.T) {
 
 	plaintext := []byte("Zero length comments test data.")
 	inputPath := filepath.Join(tmpDir, "zero_comments.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2377,14 +2377,14 @@ func TestRoundTripKeyfileOnly(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Keyfile-only encryption test - no password used!")
 	inputPath := filepath.Join(tmpDir, "keyfile_only_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfile
 	keyfilePath := filepath.Join(tmpDir, "keyfile_only.bin")
 	keyfileData := []byte("This keyfile is the ONLY credential needed!")
-	if err := os.WriteFile(keyfilePath, keyfileData, 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, keyfileData, 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2449,12 +2449,12 @@ func TestRoundTripKeyfileOnlyParanoid(t *testing.T) {
 
 	plaintext := []byte("Paranoid keyfile-only test data.")
 	inputPath := filepath.Join(tmpDir, "kf_paranoid.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "kf_paranoid.key")
-	if err := os.WriteFile(keyfilePath, []byte("paranoid_keyfile_content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("paranoid_keyfile_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2519,12 +2519,12 @@ func TestDeniabilityKeyfileOnly(t *testing.T) {
 
 	plaintext := []byte("Deniability with keyfile-only - wrapper uses empty password!")
 	inputPath := filepath.Join(tmpDir, "deny_kf_only.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "deny_kf_only.key")
-	if err := os.WriteFile(keyfilePath, []byte("deniability_keyfile_content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("deniability_keyfile_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2594,12 +2594,12 @@ func TestDeniabilityPasswordAndKeyfiles(t *testing.T) {
 
 	plaintext := []byte("Deniability with password + keyfiles - maximum security!")
 	inputPath := filepath.Join(tmpDir, "deny_pw_kf.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "deny_pw_kf.key")
-	if err := os.WriteFile(keyfilePath, []byte("combined_keyfile_content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("combined_keyfile_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2666,12 +2666,12 @@ func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
 
 	plaintext := []byte("Wrong password test - keyfile alone shouldn't work!")
 	inputPath := filepath.Join(tmpDir, "wrong_pw_kf.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "wrong_pw_kf.key")
-	if err := os.WriteFile(keyfilePath, []byte("correct_keyfile_content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("correct_keyfile_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2759,16 +2759,16 @@ func TestKeyfileOnlyWrongKeyfileFails(t *testing.T) {
 
 	plaintext := []byte("Keyfile-only wrong keyfile test")
 	inputPath := filepath.Join(tmpDir, "kf_only_wrong.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	correctKeyfile := filepath.Join(tmpDir, "correct.key")
 	wrongKeyfile := filepath.Join(tmpDir, "wrong.key")
-	if err := os.WriteFile(correctKeyfile, []byte("correct_key_content"), 0644); err != nil {
+	if err := os.WriteFile(correctKeyfile, []byte("correct_key_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write correct keyfile: %v", err)
 	}
-	if err := os.WriteFile(wrongKeyfile, []byte("wrong_key_content"), 0644); err != nil {
+	if err := os.WriteFile(wrongKeyfile, []byte("wrong_key_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write wrong keyfile: %v", err)
 	}
 
@@ -2826,7 +2826,7 @@ func TestDeniabilityWrongPasswordFails(t *testing.T) {
 
 	plaintext := []byte("Deniability wrong password test")
 	inputPath := filepath.Join(tmpDir, "deny_wrong_pw.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2882,13 +2882,13 @@ func TestDuplicateKeyfilesRejected(t *testing.T) {
 
 	plaintext := []byte("Duplicate keyfiles should be rejected.")
 	inputPath := filepath.Join(tmpDir, "dup_kf_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create one keyfile
 	keyfilePath := filepath.Join(tmpDir, "keyfile.bin")
-	if err := os.WriteFile(keyfilePath, []byte("keyfile_content_123456789"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("keyfile_content_123456789"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 

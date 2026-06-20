@@ -1,6 +1,10 @@
 package wasm
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/volume"
 	"bytes"
 	"context"
 	"errors"
@@ -10,11 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/volume"
 )
 
 func TestDecryptV1(t *testing.T) {
@@ -195,7 +194,7 @@ func TestWASMRoundtripDesktopDecrypt(t *testing.T) {
 	tmpDir := t.TempDir()
 	encryptedPath := filepath.Join(tmpDir, "wasm-output.pcv")
 	decryptedPath := filepath.Join(tmpDir, "desktop-output.txt")
-	if err := os.WriteFile(encryptedPath, volumeData, 0600); err != nil {
+	if err := os.WriteFile(encryptedPath, volumeData, 0o600); err != nil {
 		t.Fatalf("write encrypted volume: %v", err)
 	}
 
@@ -416,7 +415,7 @@ func TestWASMParanoidCommentsDesktopDecrypt(t *testing.T) {
 	tmpDir := t.TempDir()
 	encPath := filepath.Join(tmpDir, "wasm.pcv")
 	decPath := filepath.Join(tmpDir, "desktop.txt")
-	if err := os.WriteFile(encPath, volumeData, 0600); err != nil {
+	if err := os.WriteFile(encPath, volumeData, 0o600); err != nil {
 		t.Fatalf("write volume: %v", err)
 	}
 	if err := volume.Decrypt(context.Background(), &volume.DecryptRequest{
@@ -445,7 +444,7 @@ func TestWASMDecryptParanoidAndComments(t *testing.T) {
 	tmpDir := t.TempDir()
 	inPath := filepath.Join(tmpDir, "plain.txt")
 	outPath := filepath.Join(tmpDir, "vol.pcv")
-	if err := os.WriteFile(inPath, original, 0600); err != nil {
+	if err := os.WriteFile(inPath, original, 0o600); err != nil {
 		t.Fatalf("write plaintext: %v", err)
 	}
 	rs, err := encoding.NewRSCodecs()
@@ -515,7 +514,7 @@ func TestWASMKeyfileEncryptDesktopDecrypt(t *testing.T) {
 			kaPath := filepath.Join(tmp, "a.key")
 			kbPath := filepath.Join(tmp, "b.key")
 			for p, c := range map[string][]byte{encPath: volumeData, kaPath: kfA, kbPath: kfB} {
-				if err := os.WriteFile(p, c, 0600); err != nil {
+				if err := os.WriteFile(p, c, 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -551,7 +550,7 @@ func TestWASMDecryptKeyfiles(t *testing.T) {
 			kaPath := filepath.Join(tmp, "a.key")
 			kbPath := filepath.Join(tmp, "b.key")
 			for p, c := range map[string][]byte{inPath: original, kaPath: kfA, kbPath: kfB} {
-				if err := os.WriteFile(p, c, 0600); err != nil {
+				if err := os.WriteFile(p, c, 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}

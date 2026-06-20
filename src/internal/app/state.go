@@ -18,13 +18,12 @@
 package app
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/util"
 	"fmt"
 	"image/color"
 	"sync"
 	"time"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/util"
 
 	"github.com/Picocrypt/infectious"
 )

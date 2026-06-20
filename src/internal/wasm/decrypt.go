@@ -2,15 +2,15 @@
 package wasm
 
 import (
-	"bytes"
-	"crypto/subtle"
-
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/keyfile"
-	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
+	"bytes"
+	"crypto/subtle"
+
+	pwnorm "Picocrypt-NG/internal/password"
 )
 
 // Error codes matching website convention

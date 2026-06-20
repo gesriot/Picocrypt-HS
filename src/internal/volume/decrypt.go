@@ -1,6 +1,13 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
+	"Picocrypt-NG/internal/log"
+	"Picocrypt-NG/internal/util"
 	"context"
 	"crypto/subtle"
 	"errors"
@@ -10,15 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/keyfile"
-	"Picocrypt-NG/internal/log"
+
 	pwnorm "Picocrypt-NG/internal/password"
-	"Picocrypt-NG/internal/util"
 )
 
 var unpackArchive = fileops.Unpack
@@ -197,7 +198,7 @@ func decryptReadHeader(ctx *OperationContext, req *DecryptRequest) error {
 	return nil
 }
 
-func decryptDeriveKeys(ctx *OperationContext, req *DecryptRequest) error {
+func decryptDeriveKeys(ctx *OperationContext, req *DecryptRequest) error { //nolint:unparam // (ctx, req) signature shared by all decrypt phases; req unused here by design
 	ctx.SetStatus("Deriving key...")
 
 	key, err := deriveVolumeKey(ctx.passwordBytes.Bytes(), ctx.Header.Salt, ctx.Header.Flags.Paranoid)

@@ -2,6 +2,7 @@ package fileops
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,10 +22,10 @@ func TestRecombineSourceCloseFailureRemovesOutput(t *testing.T) {
 
 	chunk0 := basePath + ".0"
 	chunk1 := basePath + ".1"
-	if err := os.WriteFile(chunk0, bytes.Repeat([]byte{0xAA}, 512), 0644); err != nil {
+	if err := os.WriteFile(chunk0, bytes.Repeat([]byte{0xAA}, 512), 0o644); err != nil {
 		t.Fatalf("create chunk 0: %v", err)
 	}
-	if err := os.WriteFile(chunk1, bytes.Repeat([]byte{0xBB}, 512), 0644); err != nil {
+	if err := os.WriteFile(chunk1, bytes.Repeat([]byte{0xBB}, 512), 0o644); err != nil {
 		t.Fatalf("create chunk 1: %v", err)
 	}
 
@@ -62,13 +63,13 @@ func TestRecombineSyncFailureRemovesOutput(t *testing.T) {
 	basePath := filepath.Join(tmpDir, "test.pcv")
 	outputPath := filepath.Join(tmpDir, "output.pcv")
 
-	if err := os.WriteFile(basePath+".0", bytes.Repeat([]byte{0xCC}, 256), 0644); err != nil {
+	if err := os.WriteFile(basePath+".0", bytes.Repeat([]byte{0xCC}, 256), 0o644); err != nil {
 		t.Fatalf("create chunk: %v", err)
 	}
 
 	orig := recombineSyncFn
 	recombineSyncFn = func(f *os.File) error {
-		return fmt.Errorf("injected sync failure")
+		return errors.New("injected sync failure")
 	}
 	t.Cleanup(func() { recombineSyncFn = orig })
 

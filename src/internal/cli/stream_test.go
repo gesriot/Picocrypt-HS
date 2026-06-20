@@ -86,7 +86,7 @@ func TestBufferStdinToTemp(t *testing.T) {
 		t.Fatalf("temp file not found: %v", err)
 	}
 	// Windows doesn't support Unix-style permissions
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
 	}
 
@@ -130,7 +130,7 @@ func TestBufferStdinToTempEmpty(t *testing.T) {
 	// The 0600 chmod must apply even on the empty-stdin path (mirrors the
 	// non-empty sibling). Mutation: dropping the Chmod(0600) in BufferStdinToTemp
 	// would leak stdin plaintext staging under a world-readable mode.
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
 	}
 }
@@ -215,7 +215,7 @@ func TestCreateTempOutput(t *testing.T) {
 		t.Fatalf("temp file not found: %v", err)
 	}
 	// Windows doesn't support Unix-style permissions
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
 	}
 
@@ -296,7 +296,7 @@ func TestCleanupTempFilesRemovesTemp(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			tmp := filepath.Join(dir, tc.prefix+"fixture")
-			if err := os.WriteFile(tmp, []byte("plaintext fragment"), 0600); err != nil {
+			if err := os.WriteFile(tmp, []byte("plaintext fragment"), 0o600); err != nil {
 				t.Fatalf("write temp: %v", err)
 			}
 
@@ -317,7 +317,7 @@ func TestCleanupTempFilesRemovesAllProvidedTemps(t *testing.T) {
 	stdinTemp := filepath.Join(dir, "picocrypt-stdin-a")
 	stdoutTemp := filepath.Join(dir, "picocrypt-out-b")
 	for _, p := range []string{stdinTemp, stdoutTemp} {
-		if err := os.WriteFile(p, []byte("plaintext fragment"), 0600); err != nil {
+		if err := os.WriteFile(p, []byte("plaintext fragment"), 0o600); err != nil {
 			t.Fatalf("write %s: %v", p, err)
 		}
 	}
@@ -337,7 +337,7 @@ func TestCleanupTempFilesRemovesAllProvidedTemps(t *testing.T) {
 func TestCleanupTempFilesSkipsEmptyPaths(t *testing.T) {
 	dir := t.TempDir()
 	bystander := filepath.Join(dir, "bystander")
-	if err := os.WriteFile(bystander, []byte("keep me"), 0600); err != nil {
+	if err := os.WriteFile(bystander, []byte("keep me"), 0o600); err != nil {
 		t.Fatalf("write bystander: %v", err)
 	}
 

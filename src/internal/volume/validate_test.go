@@ -1,20 +1,19 @@
 package volume
 
 import (
-	"os"
-	"path/filepath"
-	"testing"
-
 	"Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
+	"os"
+	"path/filepath"
+	"testing"
 )
 
 func TestEncryptRequestValidate(t *testing.T) {
 	// Create temp dir for test files
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.txt")
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -119,7 +118,7 @@ func TestEncryptRequestValidate(t *testing.T) {
 func TestValidateRejectsOverflowingChunkSize(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.txt")
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,7 +143,7 @@ func TestValidateRejectsOverflowingChunkSize(t *testing.T) {
 func TestValidateRejectsLongCommentEarly(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.txt")
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,7 +178,7 @@ func TestDecryptRequestValidate(t *testing.T) {
 	// Create temp dir for test files
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.pcv")
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -251,7 +250,7 @@ func TestDecryptRequestValidate(t *testing.T) {
 func TestDecryptRequestValidateCredentials(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.pcv")
-	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

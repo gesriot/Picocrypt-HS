@@ -1,11 +1,10 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/diskspace"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"Picocrypt-NG/internal/diskspace"
 )
 
 // TempDirOverride is set by --temp-dir flag
@@ -124,7 +123,7 @@ func userCacheDir() (string, error) {
 		return "", err
 	}
 	cacheDir := filepath.Join(base, cacheDirName)
-	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return "", err
 	}
 	return cacheDir, nil

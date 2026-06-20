@@ -1,19 +1,21 @@
 package wasm
 
 import (
-	"bytes"
-	"io"
-
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/keyfile"
-	pwnorm "Picocrypt-NG/internal/password"
 	"Picocrypt-NG/internal/util"
+	"bytes"
+	"io"
+
+	pwnorm "Picocrypt-NG/internal/password"
 )
 
-var writeAuthValues = header.WriteAuthValues
-var newCipherSuite = crypto.NewCipherSuite
+var (
+	writeAuthValues = header.WriteAuthValues
+	newCipherSuite  = crypto.NewCipherSuite
+)
 
 type wasmZeroingBufferKind string
 

@@ -2,15 +2,14 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/util"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
-
-	"Picocrypt-NG/internal/app"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -99,7 +98,7 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "input.txt")
-	if err := os.WriteFile(inputPath, []byte("payload"), 0600); err != nil {
+	if err := os.WriteFile(inputPath, []byte("payload"), 0o600); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
 

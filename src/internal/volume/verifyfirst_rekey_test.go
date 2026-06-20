@@ -1,16 +1,15 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/util"
 	"bytes"
 	"context"
 	"crypto/rand"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/util"
 )
 
 // TestVerifyFirstRekeyAbove60GiB proves (VER-01) that the verify-first MAC pass
@@ -56,7 +55,7 @@ func TestVerifyFirstRekeyAbove60GiB(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "rekey_input.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0600); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o600); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
 	encryptedPath := filepath.Join(tmpDir, "rekey_input.bin.pcv")

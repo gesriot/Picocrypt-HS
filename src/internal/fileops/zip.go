@@ -1,6 +1,8 @@
 package fileops
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/util"
 	"archive/zip"
 	"crypto/rand"
 	"errors"
@@ -9,9 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/chacha20"
 )

@@ -3,13 +3,12 @@
 package keyfile
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/util"
 	"crypto/sha3"
 	"fmt"
 	"io"
 	"os"
-
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/util"
 )
 
 // Result contains the computed keyfile key and its hash for verification.

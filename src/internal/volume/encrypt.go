@@ -1,6 +1,13 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
+	"Picocrypt-NG/internal/log"
+	"Picocrypt-NG/internal/util"
 	"context"
 	"fmt"
 	"io"
@@ -8,15 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/keyfile"
-	"Picocrypt-NG/internal/log"
+
 	pwnorm "Picocrypt-NG/internal/password"
-	"Picocrypt-NG/internal/util"
 )
 
 // Encrypt performs a complete volume encryption operation.
@@ -265,7 +266,7 @@ func encryptProcessKeyfiles(ctx *OperationContext, req *EncryptRequest) error {
 	return nil
 }
 
-func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error {
+func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error { //nolint:unparam // (ctx, req) signature shared by all encrypt phases; req unused here by design
 	ctx.SetStatus("Calculating values...")
 
 	// v2: Initialize HKDF BEFORE keyfile XOR

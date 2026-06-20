@@ -1,12 +1,11 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/diskspace"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
-
-	"Picocrypt-NG/internal/diskspace"
 )
 
 func TestChooseTempDir_SystemDefault(t *testing.T) {

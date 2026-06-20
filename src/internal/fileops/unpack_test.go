@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"Picocrypt-NG/internal/util"
 	"archive/zip"
 	"bytes"
 	"errors"
@@ -8,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"Picocrypt-NG/internal/util"
 )
 
 // TestUnpackPathTraversalPrevention verifies that zip files with "../" in
@@ -243,11 +242,11 @@ func TestUnpackAllowsOverwriteWhenNetNewUsageFits(t *testing.T) {
 	createDeflatedZipWithContent(t, zipPath, "payload.txt", data)
 
 	extractDir := filepath.Join(tmpDir, "out")
-	if err := os.MkdirAll(extractDir, 0700); err != nil {
+	if err := os.MkdirAll(extractDir, 0o700); err != nil {
 		t.Fatalf("Create extract dir: %v", err)
 	}
 	existingPath := filepath.Join(extractDir, "payload.txt")
-	if err := os.WriteFile(existingPath, bytes.Repeat([]byte("x"), len(data)+8), 0600); err != nil {
+	if err := os.WriteFile(existingPath, bytes.Repeat([]byte("x"), len(data)+8), 0o600); err != nil {
 		t.Fatalf("Create existing file: %v", err)
 	}
 
@@ -310,7 +309,6 @@ func TestUnpackNormalPaths(t *testing.T) {
 		ZipPath:    zipPath,
 		ExtractDir: extractDir,
 	})
-
 	if err != nil {
 		t.Fatalf("Unpack failed for normal paths: %v", err)
 	}
@@ -449,12 +447,12 @@ func TestUnpackCancellation(t *testing.T) {
 func TestUnpackRejectsPreexistingSymlinkDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideDir := filepath.Join(tmpDir, "outside")
-	if err := os.MkdirAll(outsideDir, 0700); err != nil {
+	if err := os.MkdirAll(outsideDir, 0o700); err != nil {
 		t.Fatalf("Create outside dir: %v", err)
 	}
 
 	extractDir := filepath.Join(tmpDir, "extract")
-	if err := os.MkdirAll(extractDir, 0700); err != nil {
+	if err := os.MkdirAll(extractDir, 0o700); err != nil {
 		t.Fatalf("Create extract dir: %v", err)
 	}
 
@@ -497,12 +495,12 @@ func TestUnpackRejectsPreexistingSymlinkDirectory(t *testing.T) {
 func TestUnpackRejectsParentSymlinkSwapBetweenValidationAndWrite(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideDir := filepath.Join(tmpDir, "outside")
-	if err := os.MkdirAll(outsideDir, 0700); err != nil {
+	if err := os.MkdirAll(outsideDir, 0o700); err != nil {
 		t.Fatalf("Create outside dir: %v", err)
 	}
 
 	extractDir := filepath.Join(tmpDir, "extract")
-	if err := os.MkdirAll(extractDir, 0700); err != nil {
+	if err := os.MkdirAll(extractDir, 0o700); err != nil {
 		t.Fatalf("Create extract dir: %v", err)
 	}
 
@@ -561,12 +559,12 @@ func TestUnpackRejectsParentSymlinkSwapBetweenValidationAndWrite(t *testing.T) {
 func TestUnpackRejectsSymlinkLeaf(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideFile := filepath.Join(tmpDir, "outside.txt")
-	if err := os.WriteFile(outsideFile, []byte("outside"), 0600); err != nil {
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
 		t.Fatalf("Create outside file: %v", err)
 	}
 
 	extractDir := filepath.Join(tmpDir, "extract")
-	if err := os.MkdirAll(extractDir, 0700); err != nil {
+	if err := os.MkdirAll(extractDir, 0o700); err != nil {
 		t.Fatalf("Create extract dir: %v", err)
 	}
 
@@ -637,7 +635,7 @@ func TestUnpackSymlinkEscape(t *testing.T) {
 	_ = os.Remove(probeLink)
 
 	outsideDir := filepath.Join(tmpDir, "outside")
-	if err := os.MkdirAll(outsideDir, 0700); err != nil {
+	if err := os.MkdirAll(outsideDir, 0o700); err != nil {
 		t.Fatalf("Create outside dir: %v", err)
 	}
 
@@ -653,7 +651,7 @@ func TestUnpackSymlinkEscape(t *testing.T) {
 	// Go's archive/zip has no symlink type-flag; Unpack ignores the mode bits
 	// and writes the body as a regular file, never realizing the symlink.
 	h := &zip.FileHeader{Name: "a/b"}
-	h.SetMode(os.ModeSymlink | 0777)
+	h.SetMode(os.ModeSymlink | 0o777)
 	sw, err := w.CreateHeader(h)
 	if err != nil {
 		t.Fatalf("Create symlink entry: %v", err)
@@ -705,7 +703,7 @@ func TestUnpackSymlinkEscape(t *testing.T) {
 func TestUnpackRejectsSymlinkedExtractionRootAncestor(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideRoot := filepath.Join(tmpDir, "outside-root")
-	if err := os.MkdirAll(outsideRoot, 0700); err != nil {
+	if err := os.MkdirAll(outsideRoot, 0o700); err != nil {
 		t.Fatalf("Create outside root: %v", err)
 	}
 
@@ -749,7 +747,7 @@ func TestUnpackRejectsSymlinkedExtractionRootAncestor(t *testing.T) {
 func TestWalkExtractionRootAllowsTrustedLeadingSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
 	realRoot := filepath.Join(tmpDir, "real-root")
-	if err := os.MkdirAll(realRoot, 0700); err != nil {
+	if err := os.MkdirAll(realRoot, 0o700); err != nil {
 		t.Fatalf("Create real root: %v", err)
 	}
 
@@ -784,12 +782,12 @@ func TestWalkExtractionRootAllowsTrustedLeadingSymlink(t *testing.T) {
 func TestWalkExtractionRootRejectsNestedSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
 	parent := filepath.Join(tmpDir, "parent")
-	if err := os.MkdirAll(parent, 0700); err != nil {
+	if err := os.MkdirAll(parent, 0o700); err != nil {
 		t.Fatalf("Create parent dir: %v", err)
 	}
 
 	outsideRoot := filepath.Join(tmpDir, "outside-root")
-	if err := os.MkdirAll(outsideRoot, 0700); err != nil {
+	if err := os.MkdirAll(outsideRoot, 0o700); err != nil {
 		t.Fatalf("Create outside root: %v", err)
 	}
 

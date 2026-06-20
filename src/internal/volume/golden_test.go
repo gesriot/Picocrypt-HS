@@ -1,6 +1,8 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 	"archive/zip"
 	"context"
 	"io"
@@ -8,9 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
 )
 
 // GoldenTestReporter is a minimal reporter for testing
@@ -1005,7 +1004,7 @@ func copyFile(t *testing.T, src, dst string) {
 	if err != nil {
 		t.Fatalf("Failed to read source file: %v", err)
 	}
-	if err := os.WriteFile(dst, data, 0644); err != nil {
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
 		t.Fatalf("Failed to write destination file: %v", err)
 	}
 }

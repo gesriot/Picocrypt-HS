@@ -1,14 +1,14 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/header"
 )
 
 // TestVerifyFirstCorrectableRS proves DATA-01: with VerifyFirst enabled, a
@@ -153,7 +153,7 @@ func corruptRSBlockBeyondBudget(t *testing.T, pcvPath string, blockIndex int) {
 		data[blockStart+i] ^= 0xFF
 	}
 
-	if err := os.WriteFile(pcvPath, data, 0600); err != nil {
+	if err := os.WriteFile(pcvPath, data, 0o600); err != nil {
 		t.Fatalf("write corrupted pcv: %v", err)
 	}
 }

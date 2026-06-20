@@ -1,15 +1,14 @@
 package main
 
 import (
+	"Picocrypt-NG/internal/app"
+	"Picocrypt-NG/internal/cli"
 	"bytes"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"Picocrypt-NG/internal/app"
-	"Picocrypt-NG/internal/cli"
 )
 
 // repoRoot walks up from the test working directory to the repository root,

@@ -1,10 +1,9 @@
 package ui
 
 import (
-	"io"
-
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
+	"io"
 )
 
 // previewHeader parses a volume header for the GUI decrypt preview using the

@@ -1,11 +1,10 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
 	"bytes"
 	"reflect"
 	"testing"
-
-	"Picocrypt-NG/internal/crypto"
 )
 
 // Tripwire: every *crypto.Secret field on OperationContext must be in this set.
@@ -16,7 +15,7 @@ func TestOperationContextSecretFieldsAreManaged(t *testing.T) {
 	got := map[string]bool{}
 	secretPtr := reflect.TypeOf((*crypto.Secret)(nil))
 	typ := reflect.TypeOf(OperationContext{})
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		if typ.Field(i).Type == secretPtr {
 			got[typ.Field(i).Name] = true
 		}
