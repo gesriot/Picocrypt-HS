@@ -3,9 +3,13 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"syscall/js"
 	"testing"
+
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 )
 
 // Pins the bridge error code: non-zero and distinct from internal/wasm 1-5.
@@ -131,6 +135,34 @@ func TestBridgeKeyfileRoundTrip(t *testing.T) {
 	})}).(js.Value)
 	if dec.Get("code").Int() != 0 {
 		t.Fatalf("decrypt code=%d; want 0", dec.Get("code").Int())
+	}
+}
+
+func TestBridgeEncryptReedSolomonSetsHeaderFlag(t *testing.T) {
+	opts := js.Global().Get("Object").New()
+	opts.Set("data", js.Global().Get("Uint8Array").New(64))
+	opts.Set("password", "bridge-rs")
+	opts.Set("reedSolomon", true)
+
+	rv := encrypt(js.Undefined(), []js.Value{opts}).(js.Value)
+	if code := rv.Get("code").Int(); code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+
+	out := rv.Get("data")
+	volBytes := make([]byte, out.Get("length").Int())
+	js.CopyBytesToGo(volBytes, out)
+
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs: %v", err)
+	}
+	res, err := header.NewReader(bytes.NewReader(volBytes), rs).ReadHeader()
+	if err != nil {
+		t.Fatalf("ReadHeader: %v", err)
+	}
+	if !res.Header.Flags.ReedSolomon {
+		t.Fatal("reedSolomon option did not set the header RS flag")
 	}
 }
 
