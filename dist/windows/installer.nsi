@@ -94,9 +94,38 @@ Section "-Picocrypt-NG (required)" SecCore
   SectionIn RO
   SetOutPath "$INSTDIR"
 
-  ; --- Binaries (D-29 portable rename: Picocrypt-NG-portable.exe → Picocrypt-NG.exe) ---
-  File "${__FILEDIR__}\..\..\src\Picocrypt-NG-portable.exe"
-  Rename "$INSTDIR\Picocrypt-NG-portable.exe" "$INSTDIR\Picocrypt-NG.exe"
+  ; --- Binaries (D-29: portable artifact installed as Picocrypt-NG.exe) ---
+  ; File /oname= writes straight to the install name and overwrites by default,
+  ; so re-install/upgrade replaces the prior binary in place. A plain Rename fails
+  ; when $INSTDIR\Picocrypt-NG.exe already exists from an earlier version, silently
+  ; keeping the stale binary (discussion #163).
+  ;
+  ; Running-instance guard: a running Picocrypt-NG locks Picocrypt-NG.exe, so the
+  ; overwrite fails. SetOverwrite try surfaces that as the error flag (instead of
+  ; the stock Abort/Retry/Ignore dialog whose "Ignore" would leave a stale binary).
+  ; Ask the user to close the app and retry; abort on cancel. We deliberately do
+  ; NOT force-kill — that could corrupt an in-progress encryption.
+  SetOverwrite try
+  pcng_main_retry:
+  ClearErrors
+  File "/oname=Picocrypt-NG.exe" "${__FILEDIR__}\..\..\src\Picocrypt-NG-portable.exe"
+  ${If} ${Errors}
+    ; /SD IDCANCEL: silent installs (/S) get no dialog, so default to cancel ->
+    ; abort rather than looping on the implicit retry default.
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
+      "Could not update Picocrypt-NG.exe.$\r$\nIt may still be running - please close Picocrypt-NG, then click Retry." \
+      /SD IDCANCEL \
+      IDRETRY pcng_main_retry
+    ; Non-zero exit so unattended installs can detect the failure.
+    SetErrorLevel 2
+    Abort "Setup cannot continue while Picocrypt-NG is running."
+  ${EndIf}
+  SetOverwrite on
+
+  ; Sweep the orphaned portable binary left by the pre-fix upgrade bug (#163) on
+  ; machines that already hit it; harmless no-op on clean installs.
+  Delete "$INSTDIR\Picocrypt-NG-portable.exe"
+
   File "${__FILEDIR__}\..\..\src\Picocrypt-NG-cli.exe"
 
   ; --- File-type icon (always copied; Default Apps UI may need it even if SecAssoc unchecked) ---
@@ -202,6 +231,7 @@ Section "Uninstall"
   ; --- Files (D-28) ---
   Delete "$INSTDIR\Picocrypt-NG.exe"
   Delete "$INSTDIR\Picocrypt-NG-cli.exe"
+  Delete "$INSTDIR\Picocrypt-NG-portable.exe"  ; orphan from pre-fix upgrade bug (#163)
   Delete "$INSTDIR\pcv-icon.ico"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir  "$INSTDIR"
