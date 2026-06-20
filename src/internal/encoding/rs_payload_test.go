@@ -52,7 +52,7 @@ func TestRSPayloadBlockRepairsCorrectableErrors(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 	// Flip 4 bytes in the first 136-byte chunk's data region (RS128 corrects <=4).
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		enc[i] ^= 0xFF
 	}
 	dec, err := DecodeRSPayloadBlock(enc, rs, true, false, false, false) // full correction
@@ -71,7 +71,7 @@ func TestRSPayloadBlockUncorrectableReturnsErrCorruptData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	for i := 0; i < 9; i++ { // > 4 errors in one chunk: beyond RS budget
+	for i := range 9 { // > 4 errors in one chunk: beyond RS budget
 		enc[i] ^= 0xFF
 	}
 	_, err = DecodeRSPayloadBlock(enc, rs, true, false, false, false)

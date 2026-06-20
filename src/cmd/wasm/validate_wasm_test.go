@@ -139,10 +139,11 @@ func TestBridgeKeyfileRoundTrip(t *testing.T) {
 }
 
 func TestBridgeEncryptReedSolomonSetsHeaderFlag(t *testing.T) {
-	opts := js.Global().Get("Object").New()
-	opts.Set("data", js.Global().Get("Uint8Array").New(64))
-	opts.Set("password", "bridge-rs")
-	opts.Set("reedSolomon", true)
+	opts := newOpts(map[string]any{
+		"data":        js.Global().Get("Uint8Array").New(64),
+		"password":    "bridge-rs",
+		"reedSolomon": true,
+	})
 
 	rv := encrypt(js.Undefined(), []js.Value{opts}).(js.Value)
 	if code := rv.Get("code").Int(); code != 0 {

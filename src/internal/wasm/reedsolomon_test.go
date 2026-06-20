@@ -3,6 +3,7 @@ package wasm
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -43,27 +44,29 @@ func TestWASMReedSolomonEncryptDesktopDecrypt(t *testing.T) {
 	password := "rs-encrypt-interop"
 	sizes := []int{1, 200, miB - 129, miB - 128, miB - 1, miB, miB + 17, 2*miB - 1}
 	for _, n := range sizes {
-		plaintext := make([]byte, n)
-		for i := range plaintext {
-			plaintext[i] = byte(i*13 + 1)
-		}
-		vol, code := EncryptVolume(plaintext, []byte(password), EncryptOptions{ReedSolomon: true})
-		if code != 0 {
-			t.Fatalf("n=%d EncryptVolume code %d", n, code)
-		}
-		// Header must advertise RS; Padded iff the final partial block fills a full block.
-		hdr := readHeaderForTest(t, vol)
-		if !hdr.Flags.ReedSolomon {
-			t.Fatalf("n=%d: ReedSolomon flag not set", n)
-		}
-		wantPadded := n%miB >= miB-128
-		if hdr.Flags.Padded != wantPadded {
-			t.Fatalf("n=%d: Padded=%v want %v", n, hdr.Flags.Padded, wantPadded)
-		}
-		got := desktopDecrypt(t, vol, password)
-		if !bytes.Equal(got, plaintext) {
-			t.Fatalf("n=%d: desktop decrypt mismatch (%d vs %d bytes)", n, len(got), n)
-		}
+		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
+			plaintext := make([]byte, n)
+			for i := range plaintext {
+				plaintext[i] = byte(i*13 + 1)
+			}
+			vol, code := EncryptVolume(plaintext, []byte(password), EncryptOptions{ReedSolomon: true})
+			if code != 0 {
+				t.Fatalf("n=%d EncryptVolume code %d", n, code)
+			}
+			// Header must advertise RS; Padded iff the final partial block fills a full block.
+			hdr := readHeaderForTest(t, vol)
+			if !hdr.Flags.ReedSolomon {
+				t.Fatalf("n=%d: ReedSolomon flag not set", n)
+			}
+			wantPadded := n%miB >= miB-128
+			if hdr.Flags.Padded != wantPadded {
+				t.Fatalf("n=%d: Padded=%v want %v", n, hdr.Flags.Padded, wantPadded)
+			}
+			got := desktopDecrypt(t, vol, password)
+			if !bytes.Equal(got, plaintext) {
+				t.Fatalf("n=%d: desktop decrypt mismatch (%d vs %d bytes)", n, len(got), n)
+			}
+		})
 	}
 }
 
@@ -84,21 +87,23 @@ func TestWASMReedSolomonRoundtrip(t *testing.T) {
 	const miB = 1 << 20
 	password := "rs-roundtrip"
 	for _, n := range []int{1, 200, miB - 128, miB - 1, miB, miB + 5, 2 * miB} {
-		plaintext := make([]byte, n)
-		for i := range plaintext {
-			plaintext[i] = byte(i*5 + 9)
-		}
-		vol, code := EncryptVolume(plaintext, []byte(password), EncryptOptions{ReedSolomon: true})
-		if code != 0 {
-			t.Fatalf("n=%d encrypt code %d", n, code)
-		}
-		res, code := DecryptVolume(vol, []byte(password), DecryptOptions{})
-		if code != 0 {
-			t.Fatalf("n=%d decrypt code %d", n, code)
-		}
-		if !bytes.Equal(res.Plaintext, plaintext) {
-			t.Fatalf("n=%d roundtrip mismatch", n)
-		}
+		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
+			plaintext := make([]byte, n)
+			for i := range plaintext {
+				plaintext[i] = byte(i*5 + 9)
+			}
+			vol, code := EncryptVolume(plaintext, []byte(password), EncryptOptions{ReedSolomon: true})
+			if code != 0 {
+				t.Fatalf("n=%d encrypt code %d", n, code)
+			}
+			res, code := DecryptVolume(vol, []byte(password), DecryptOptions{})
+			if code != 0 {
+				t.Fatalf("n=%d decrypt code %d", n, code)
+			}
+			if !bytes.Equal(res.Plaintext, plaintext) {
+				t.Fatalf("n=%d roundtrip mismatch", n)
+			}
+		})
 	}
 }
 
@@ -221,5 +226,38 @@ func TestWASMReedSolomonWithKeyfiles(t *testing.T) {
 	}
 	if !bytes.Equal(res.Plaintext, plaintext) {
 		t.Fatal("RS+keyfiles roundtrip mismatch")
+	}
+}
+
+// TestWASMReedSolomonRepairsMultiBlockDamage proves that RS repair works when
+// damage falls in the SECOND on-disk RS block (i.e. > 1 MiB of plaintext so
+// at least two full RS blocks exist). This forces the full-RS retry (Pass-2)
+// to walk past the first block and repair the second, which the
+// single-block repair test cannot exercise.
+func TestWASMReedSolomonRepairsMultiBlockDamage(t *testing.T) {
+	const miB = 1 << 20
+	password := "rs-multi-block-repair"
+	plaintext := make([]byte, miB+50000)
+	for i := range plaintext {
+		plaintext[i] = byte(i*7 + 3)
+	}
+	vol, code := EncryptVolume(plaintext, []byte(password), EncryptOptions{ReedSolomon: true})
+	if code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+	// Corrupt 4 bytes inside the DATA region of the second on-disk RS block.
+	// The second block starts immediately after the header and the first RS block.
+	// Flipping bytes here causes the fast-pass MAC to mismatch, forcing Pass-2
+	// (full RS correction) which repairs the damage and recovers the plaintext.
+	secondBlockStart := header.HeaderSize(0) + encoding.RSEncodedBlockSize
+	for i := range 4 {
+		vol[secondBlockStart+i] ^= 0xFF
+	}
+	res, code := DecryptVolume(vol, []byte(password), DecryptOptions{})
+	if code != 0 {
+		t.Fatalf("expected repair of second-block damage, got code %d", code)
+	}
+	if !bytes.Equal(res.Plaintext, plaintext) {
+		t.Fatal("repaired multi-block plaintext mismatch")
 	}
 }

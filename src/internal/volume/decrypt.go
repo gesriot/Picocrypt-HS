@@ -27,7 +27,6 @@ var unpackArchive = fileops.Unpack
 // reads and check that the io.ReadFull loops reassemble full blocks.
 var newPayloadReader = func(r io.Reader) io.Reader { return r }
 
-
 // Decrypt performs a complete volume decryption operation.
 // This is the main entry point for decryption.
 // If ctx is nil, a background context is used.
