@@ -146,6 +146,100 @@ func TestDeniabilityIgnoresForce(t *testing.T) {
 	}
 }
 
+// Deniability composes with every inner option (the wrapper is outermost).
+// keyfiles case also asserts the inner keyfile requirement still applies.
+func TestDeniabilityCombos(t *testing.T) {
+	original := []byte(strings.Repeat("p4-combo-", 500))
+	pw := []byte("p4-combo-pw")
+	kfs := [][]byte{[]byte("kf-combo-alpha-content"), []byte("kf-combo-beta-content")}
+
+	cases := []struct {
+		name string
+		enc  EncryptOptions
+		dec  DecryptOptions
+	}{
+		{"paranoid", EncryptOptions{Deniability: true, Paranoid: true}, DecryptOptions{}},
+		{"rs", EncryptOptions{Deniability: true, ReedSolomon: true}, DecryptOptions{}},
+		{"comments", EncryptOptions{Deniability: true, Comments: "hidden note"}, DecryptOptions{}},
+		{"keyfiles", EncryptOptions{Deniability: true, Keyfiles: kfs}, DecryptOptions{Keyfiles: kfs}},
+		{"kf_ordered", EncryptOptions{Deniability: true, Keyfiles: kfs, KeyfileOrdered: true}, DecryptOptions{Keyfiles: kfs}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vol, code := EncryptVolume(original, pw, tc.enc)
+			if code != 0 {
+				t.Fatalf("encrypt code %d", code)
+			}
+			res, code := DecryptVolume(vol, pw, tc.dec)
+			if code != 0 {
+				t.Fatalf("decrypt code %d", code)
+			}
+			if !bytes.Equal(res.Plaintext, original) {
+				t.Fatalf("plaintext mismatch for %s", tc.name)
+			}
+			if tc.name == "comments" && res.Comments != "hidden note" {
+				t.Fatalf("comments = %q; want %q", res.Comments, "hidden note")
+			}
+		})
+	}
+
+	// Deniable + keyfiles, keyfiles omitted on decrypt → inner ErrKeyfilesRequired.
+	vol, code := EncryptVolume(original, pw, EncryptOptions{Deniability: true, Keyfiles: kfs})
+	if code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+	if _, c := DecryptVolume(vol, pw, DecryptOptions{}); c != ErrKeyfilesRequired {
+		t.Fatalf("deniable+keyfiles, none provided: code %d; want ErrKeyfilesRequired(%d)", c, ErrKeyfilesRequired)
+	}
+}
+
+// The deniability key and KDF input must be zeroed on both encrypt and decrypt.
+func TestDeniabilitySecretsZeroed(t *testing.T) {
+	original := []byte("p4 deniability secret zeroing coverage")
+	pw := []byte("p4-zeroing-pw")
+
+	var encEvents []wasmZeroingEvent
+	restoreEnc := observeWASMZeroingForTest(func(e wasmZeroingEvent) { encEvents = append(encEvents, e) })
+	vol, code := EncryptVolume(original, pw, EncryptOptions{Deniability: true})
+	restoreEnc()
+	if code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+
+	var decEvents []wasmZeroingEvent
+	restoreDec := observeWASMZeroingForTest(func(e wasmZeroingEvent) { decEvents = append(decEvents, e) })
+	res, code := DecryptVolume(vol, pw, DecryptOptions{})
+	restoreDec()
+	if code != 0 {
+		t.Fatalf("decrypt code %d", code)
+	}
+	if !bytes.Equal(res.Plaintext, original) {
+		t.Fatal("plaintext mismatch")
+	}
+
+	for _, tc := range []struct {
+		phase  string
+		events []wasmZeroingEvent
+	}{{"encrypt", encEvents}, {"decrypt", decEvents}} {
+		seen := make(map[wasmZeroingBufferKind]wasmZeroingEvent)
+		for _, e := range tc.events {
+			seen[e.Kind] = e
+		}
+		for _, kind := range []wasmZeroingBufferKind{wasmZeroingDeniabilityKey, wasmZeroingDeniabilityKDFInput} {
+			e, ok := seen[kind]
+			if !ok {
+				t.Fatalf("%s: missing zeroing event for %s", tc.phase, kind)
+			}
+			if !e.Zeroed {
+				t.Fatalf("%s: %s not zeroed after cleanup", tc.phase, kind)
+			}
+			if !e.WasNonZero {
+				t.Fatalf("%s: %s already zero before cleanup; vacuity guard failed", tc.phase, kind)
+			}
+		}
+	}
+}
+
 // isDeniable must be TRUE for a wrapped volume and FALSE for every normal volume
 // variant (no false positives — a valid header decodes to a version immediately).
 func TestIsDeniableDetection(t *testing.T) {
