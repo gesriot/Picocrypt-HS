@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,5 +56,48 @@ func TestDeniabilityWrapDesktopUnwrap(t *testing.T) {
 	}
 	if !bytes.Equal(res.Plaintext, original) {
 		t.Fatalf("plaintext mismatch\ngot:  %q\nwant: %q", res.Plaintext, original)
+	}
+}
+
+// isDeniable must be TRUE for a wrapped volume and FALSE for every normal volume
+// variant (no false positives — a valid header decodes to a version immediately).
+func TestIsDeniableDetection(t *testing.T) {
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs: %v", err)
+	}
+	pw := []byte("p4-detect")
+	plain := []byte(strings.Repeat("detect-", 300))
+
+	deniable, code := EncryptVolume(plain, pw, EncryptOptions{Deniability: true})
+	if code != 0 {
+		t.Fatalf("encrypt deniable code %d", code)
+	}
+	if !isDeniable(deniable, rs) {
+		t.Fatal("wrapped volume must be detected as deniable")
+	}
+
+	regulars := map[string]EncryptOptions{
+		"plain":    {},
+		"paranoid": {Paranoid: true},
+		"rs":       {ReedSolomon: true},
+		"keyfiles": {Keyfiles: [][]byte{[]byte("kf-one"), []byte("kf-two-longer")}},
+		"comments": {Comments: "a deniable-looking comment"},
+	}
+	for name, opts := range regulars {
+		t.Run(name, func(t *testing.T) {
+			vol, code := EncryptVolume(plain, pw, opts)
+			if code != 0 {
+				t.Fatalf("encrypt %s code %d", name, code)
+			}
+			if isDeniable(vol, rs) {
+				t.Fatalf("regular %s volume misclassified as deniable", name)
+			}
+		})
+	}
+
+	// Too-short input cannot be deniable.
+	if isDeniable([]byte("short"), rs) {
+		t.Fatal("sub-minimum-size input must not be deniable")
 	}
 }
