@@ -179,18 +179,42 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 	// Read payload from remaining bytes
 	payload := volumeData[headerSize:]
 
-	// Decrypt payload. RS-encoded volumes are rejected by
-	// hasUnsupportedWASMFeature above, so only the plain path exists here.
+	// Pass 1: decrypt with the fast path (RS strips parity without correction).
+	reedSolomon := hdr.Flags.ReedSolomon
 	var counter int64
-	plaintext, err := decryptPlainPayload(payload, cipherSuite, &counter)
+	var plaintext []byte
+	if reedSolomon {
+		plaintext, err = decryptRSPayload(payload, cipherSuite, rsCodecs, hdr.Flags.Padded, true)
+	} else {
+		plaintext, err = decryptPlainPayload(payload, cipherSuite, &counter)
+	}
 	if err != nil {
 		return DecryptResult{}, ErrModifiedData
 	}
 
-	// Verify MAC
 	computedMAC := cipherSuite.Sum()
 	macValid := subtle.ConstantTimeCompare(computedMAC, hdr.AuthTag) == 1
 	zeroWASMSensitiveBuffer(wasmZeroingDecryptComputedMAC, computedMAC)
+
+	// RS guarded retry: correctable damage makes the fast pass yield a wrong MAC.
+	// Rebuild the cipher suite and re-decrypt ONCE with full RS correction before
+	// rejecting. cipherKey is still live here (its wipe is deferred to return).
+	if !macValid && reedSolomon {
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, plaintext)
+		retryCS, code := buildDecryptCipherSuite(key, cipherKey, hdr, isLegacyV1)
+		if code != 0 {
+			return DecryptResult{}, code
+		}
+		defer retryCS.Close()
+		plaintext, err = decryptRSPayload(payload, retryCS, rsCodecs, hdr.Flags.Padded, false)
+		if err != nil {
+			return DecryptResult{}, ErrModifiedData
+		}
+		retryMAC := retryCS.Sum()
+		macValid = subtle.ConstantTimeCompare(retryMAC, hdr.AuthTag) == 1
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptComputedMAC, retryMAC)
+	}
+
 	if !macValid {
 		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, plaintext)
 		return DecryptResult{}, ErrModifiedData
@@ -229,8 +253,80 @@ func verifyWASMHeader(key []byte, hdr *header.VolumeHeader, keyfileHash []byte, 
 	return true, reader, 0
 }
 
+// hasUnsupportedWASMFeature flags header combinations the WASM path cannot handle.
+// Reed-Solomon (and its companion Padded flag) are now supported. A Padded flag
+// WITHOUT ReedSolomon is a combination desktop never emits -> treat as corrupt.
 func hasUnsupportedWASMFeature(flags header.Flags) bool {
-	return flags.ReedSolomon || flags.Padded
+	return flags.Padded && !flags.ReedSolomon
+}
+
+// decryptRSPayload decrypts an RS128-framed payload block-by-block. fastDecode=true
+// strips parity without correction (fast first pass); false applies full RS
+// correction (repairs <=4 errors per 136-byte block). forceDecode is false (P2
+// fails closed): an uncorrectable block returns the error from the shared codec.
+// DecodeRSPayloadBlock returns a freshly-allocated slice, so paranoid Decrypt
+// (which mutates src) never touches the caller's payload, keeping it pristine for
+// a retry pass.
+func decryptRSPayload(payload []byte, cs *crypto.CipherSuite, rs *encoding.RSCodecs, padded, fastDecode bool) ([]byte, error) {
+	plaintext := make([]byte, 0, len(payload))
+	var counter int64
+	blockSize := encoding.RSEncodedBlockSize
+	for offset := 0; offset < len(payload); offset += blockSize {
+		end := min(offset+blockSize, len(payload))
+		isLast := end >= len(payload)
+		data, err := encoding.DecodeRSPayloadBlock(payload[offset:end], rs, isLast, padded, false, fastDecode)
+		if err != nil {
+			return nil, err
+		}
+		dst := make([]byte, len(data))
+		cs.Decrypt(dst, data)
+		plaintext = append(plaintext, dst...)
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, dst)
+		counter += int64(util.MiB)
+		if counter >= crypto.RekeyThreshold {
+			if err := cs.Rekey(); err != nil {
+				return nil, err
+			}
+			counter = 0
+		}
+	}
+	return plaintext, nil
+}
+
+// buildDecryptCipherSuite re-derives the HKDF subkeys from the authenticated key
+// and constructs a fresh cipher suite for a (re)decrypt pass. v2 consumes the
+// header subkey first; v1 does not. cipherKey is aliased by the returned suite
+// (its Close zeroes it). Returns a non-zero code on any derivation failure.
+func buildDecryptCipherSuite(key, cipherKey []byte, hdr *header.VolumeHeader, isLegacyV1 bool) (*crypto.CipherSuite, int) {
+	sr := crypto.NewSubkeyReader(crypto.NewHKDFStream(key, hdr.HKDFSalt))
+	if !isLegacyV1 {
+		subkeyHeader, err := sr.HeaderSubkey()
+		if err != nil {
+			return nil, ErrCorruptedHeader
+		}
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptHeaderSubkey, subkeyHeader)
+	}
+	macSubkey, err := sr.MACSubkey()
+	if err != nil {
+		return nil, ErrCorruptedHeader
+	}
+	serpentKey, err := sr.SerpentKey()
+	if err != nil {
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptMACSubkey, macSubkey)
+		return nil, ErrCorruptedHeader
+	}
+	mac, err := crypto.NewMAC(macSubkey, hdr.Flags.Paranoid)
+	zeroWASMSensitiveBuffer(wasmZeroingDecryptMACSubkey, macSubkey)
+	if err != nil {
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptSerpentKey, serpentKey)
+		return nil, ErrCorruptedHeader
+	}
+	cs, err := newCipherSuite(cipherKey, hdr.Nonce, serpentKey, hdr.SerpentIV, mac, sr.Reader(), hdr.Flags.Paranoid)
+	zeroWASMSensitiveBuffer(wasmZeroingDecryptSerpentKey, serpentKey)
+	if err != nil {
+		return nil, ErrCorruptedHeader
+	}
+	return cs, 0
 }
 
 // decryptPlainPayload decrypts non-RS payload in chunks

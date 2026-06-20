@@ -3,6 +3,7 @@ package volume
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,19 +26,6 @@ var unpackArchive = fileops.Unpack
 // newPayloadReader is identity in production; tests replace it to inject short
 // reads and check that the io.ReadFull loops reassemble full blocks.
 var newPayloadReader = func(r io.Reader) io.Reader { return r }
-
-// rsEncodedBlockSize is the on-disk byte size of a single Reed-Solomon-encoded
-// 1 MiB payload block: each 128-byte (RS128DataSize) plaintext chunk encodes to
-// 136 bytes (RS128EncodedSize), so a 1 MiB block expands to 1,114,112 bytes.
-//
-// IN-01: this single source of truth replaces the previously-duplicated
-// `util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize` expression at
-// the verify buffer sizing, the decrypt buffer sizing, the decrypt-pass progress
-// increment, and decodeWithRSFast's full-block detection. It is an untyped integer
-// const, so the computed value is byte-identical to the inline expression in every
-// context (int buffer sizes, int64 progress, full-block length comparison) — this
-// keeps the write-format and golden vectors frozen.
-const rsEncodedBlockSize = util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
 
 // Decrypt performs a complete volume decryption operation.
 // This is the main entry point for decryption.
@@ -508,7 +496,7 @@ func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest,
 	// Pre-allocate buffer outside loop to reduce GC pressure
 	var srcBufSize int
 	if reedsolo {
-		srcBufSize = rsEncodedBlockSize
+		srcBufSize = encoding.RSEncodedBlockSize
 	} else {
 		srcBufSize = util.MiB
 	}
@@ -685,7 +673,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	// RS-encoded buffer is larger: 1 MiB * 136/128 = ~1.0625 MiB
 	var srcBufSize int
 	if reedsolo {
-		srcBufSize = rsEncodedBlockSize
+		srcBufSize = encoding.RSEncodedBlockSize
 	} else {
 		srcBufSize = util.MiB
 	}
@@ -726,7 +714,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 			}
 
 			if reedsolo {
-				done += int64(rsEncodedBlockSize)
+				done += int64(encoding.RSEncodedBlockSize)
 			} else {
 				done += int64(n)
 			}
@@ -916,71 +904,13 @@ func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
 	// Note: ctx.Close() is called via defer in Decrypt()
 }
 
-// decodeWithRSFast decodes Reed-Solomon encoded data with optional fast decode.
-// When fastDecode is true, it skips RS error correction and just returns the data bytes.
-// This matches the original Picocrypt behavior for performance.
+// decodeWithRSFast delegates to the shared encoding codec, translating the
+// encoding-layer sentinel to perrors.ErrCorruptData so existing volume callers
+// and IsCorrupt() keep matching. forceDecode is honored (desktop ForceDecrypt).
 func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceDecode, fastDecode bool) ([]byte, error) {
-	// Pre-allocate once: each 136-byte encoded chunk yields <= 128 decoded bytes.
-	// Mirrors the encode side (encrypt.go:498). Unpad only shrinks the last chunk.
-	result := make([]byte, 0, len(data)/encoding.RS128EncodedSize*encoding.RS128DataSize)
-	fullBlockEncodedSize := rsEncodedBlockSize
-
-	// Full 1 MiB block
-	if len(data) == fullBlockEncodedSize {
-		for i := 0; i < fullBlockEncodedSize; i += encoding.RS128EncodedSize {
-			decoded, err := encoding.Decode(rs.RS128, data[i:i+encoding.RS128EncodedSize], fastDecode)
-			if err != nil {
-				if forceDecode {
-					decoded = data[i : i+encoding.RS128DataSize] // Use raw data
-				} else {
-					return nil, perrors.ErrCorruptData
-				}
-			}
-
-			// Unpad last chunk if needed
-			if isLast && i == fullBlockEncodedSize-encoding.RS128EncodedSize && padded {
-				decoded = encoding.Unpad(decoded)
-			}
-
-			result = append(result, decoded...)
-		}
-	} else {
-		// Partial block - must have at least one RS128 chunk
-		if len(data) < encoding.RS128EncodedSize {
-			if forceDecode {
-				return data, nil // Return raw data for severely truncated input
-			}
-			return nil, perrors.ErrCorruptData
-		}
-
-		chunks := len(data)/encoding.RS128EncodedSize - 1
-		for i := range chunks {
-			decoded, err := encoding.Decode(rs.RS128, data[i*encoding.RS128EncodedSize:(i+1)*encoding.RS128EncodedSize], fastDecode)
-			if err != nil {
-				if forceDecode {
-					decoded = data[i*encoding.RS128EncodedSize : i*encoding.RS128EncodedSize+encoding.RS128DataSize]
-				} else {
-					return nil, perrors.ErrCorruptData
-				}
-			}
-			result = append(result, decoded...)
-		}
-
-		// Last chunk (always unpad)
-		lastChunkStart := chunks * encoding.RS128EncodedSize
-		lastChunkEnd := min(lastChunkStart+encoding.RS128EncodedSize, len(data))
-		decoded, err := encoding.Decode(rs.RS128, data[lastChunkStart:lastChunkEnd], fastDecode)
-		if err != nil {
-			if forceDecode {
-				// Safely extract what we can
-				safeEnd := min(lastChunkStart+encoding.RS128DataSize, len(data))
-				decoded = data[lastChunkStart:safeEnd]
-			} else {
-				return nil, perrors.ErrCorruptData
-			}
-		}
-		result = append(result, encoding.Unpad(decoded)...)
+	out, err := encoding.DecodeRSPayloadBlock(data, rs, isLast, padded, forceDecode, fastDecode)
+	if errors.Is(err, encoding.ErrCorruptData) {
+		return out, perrors.ErrCorruptData
 	}
-
-	return result, nil
+	return out, err
 }

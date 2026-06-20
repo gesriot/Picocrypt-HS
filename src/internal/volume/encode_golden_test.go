@@ -8,13 +8,13 @@ import (
 	"Picocrypt-NG/internal/encoding"
 )
 
-// TestEncodeWithRSGolden pins the output of encodeWithRS — the production RS128
-// payload encoder modified by the EncodeInto optimization — to a frozen byte
-// vector. This guards the encode-side on-disk format end to end: chunk
-// iteration order, the systematic RS128 data bytes, the always-pad-the-last-
-// chunk rule for partial blocks (PKCS#7), and the parity bytes. A regression in
-// any of those (e.g. a buffer-reuse bug in EncodeInto) is caught directly here,
-// not only transitively via roundtrip self-consistency.
+// TestEncodeWithRSGolden pins the output of encoding.EncodeRSPayloadBlock — the
+// shared RS128 payload encoder — to a frozen byte vector. This guards the
+// encode-side on-disk format end to end: chunk iteration order, the systematic
+// RS128 data bytes, the always-pad-the-last-chunk rule for partial blocks
+// (PKCS#7), and the parity bytes. A regression in any of those (e.g. a
+// buffer-reuse bug in EncodeInto) is caught directly here, not only transitively
+// via roundtrip self-consistency.
 //
 // The 200-byte input exercises the partial-block path: one full 128-byte chunk
 // plus a padded final chunk (72 data bytes + 56 bytes of 0x38 PKCS#7 padding).
@@ -31,9 +31,9 @@ func TestEncodeWithRSGolden(t *testing.T) {
 		input[i] = byte(i*7 + 1)
 	}
 
-	got, err := encodeWithRS(input, rs)
+	got, err := encoding.EncodeRSPayloadBlock(input, rs)
 	if err != nil {
-		t.Fatalf("encodeWithRS: %v", err)
+		t.Fatalf("EncodeRSPayloadBlock: %v", err)
 	}
 
 	// 200 bytes -> 1 full chunk + 1 padded chunk -> 2 * 136 = 272 bytes.
@@ -53,6 +53,6 @@ func TestEncodeWithRSGolden(t *testing.T) {
 	}
 
 	if !bytes.Equal(got, want) {
-		t.Errorf("encodeWithRS golden mismatch (encode format drift):\n got  %x\nwant %x", got, want)
+		t.Errorf("EncodeRSPayloadBlock golden mismatch (encode format drift):\n got  %x\nwant %x", got, want)
 	}
 }

@@ -112,6 +112,117 @@ func EncodeInto(dst []byte, rs *infectious.FEC, data []byte) error {
 	return nil
 }
 
+// ErrCorruptData is returned by DecodeRSPayloadBlock when a block has more
+// errors than Reed-Solomon can correct and forceDecode is false. Callers in the
+// volume layer translate this to perrors.ErrCorruptData to preserve errors.Is
+// behavior; encoding stays free of the app error layer.
+var ErrCorruptData = errors.New("rs payload: data corrupted")
+
+// RSEncodedBlockSize is the on-disk byte size of one Reed-Solomon-encoded 1 MiB
+// payload block: each 128-byte (RS128DataSize) chunk encodes to 136 bytes
+// (RS128EncodedSize), so a 1 MiB block expands to 1,114,112 bytes. The 1<<20 is
+// util.MiB inlined (encoding must not import util). Untyped const: byte-identical
+// in int and int64 contexts, keeping the write format frozen.
+const RSEncodedBlockSize = (1 << 20) / RS128DataSize * RS128EncodedSize
+
+// EncodeRSPayloadBlock RS128-encodes one already-encrypted payload block (<= 1 MiB).
+// For partial blocks (< 1 MiB) it ALWAYS appends one PKCS#7-padded chunk, even when
+// the data is a multiple of 128, because decode ALWAYS unpads the last chunk of a
+// partial block. Output is byte-identical to the original desktop encoder.
+func EncodeRSPayloadBlock(data []byte, rs *RSCodecs) ([]byte, error) {
+	const miB = 1 << 20
+	chunks := (len(data) + RS128DataSize - 1) / RS128DataSize
+	if len(data) < miB {
+		chunks++ // extra chunk for padding in partial blocks
+	}
+	result := make([]byte, 0, chunks*RS128EncodedSize)
+
+	encodeChunk := func(chunk []byte) error {
+		start := len(result)
+		result = result[:start+RS128EncodedSize]
+		return EncodeInto(result[start:], rs.RS128, chunk)
+	}
+
+	if len(data) == miB {
+		for i := 0; i < miB; i += RS128DataSize {
+			if err := encodeChunk(data[i : i+RS128DataSize]); err != nil {
+				return nil, err
+			}
+		}
+		return result, nil
+	}
+
+	fullChunks := len(data) / RS128DataSize
+	for i := range fullChunks {
+		if err := encodeChunk(data[i*RS128DataSize : (i+1)*RS128DataSize]); err != nil {
+			return nil, err
+		}
+	}
+	remaining := data[fullChunks*RS128DataSize:]
+	if err := encodeChunk(Pad(remaining)); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// DecodeRSPayloadBlock decodes one RS128-encoded payload block. fastDecode=true
+// strips parity without correction (fast path); false applies full RS correction.
+// forceDecode=true returns raw bytes on uncorrectable input (desktop ForceDecrypt);
+// false returns ErrCorruptData. isLast+padded control unpadding of the final chunk.
+func DecodeRSPayloadBlock(data []byte, rs *RSCodecs, isLast, padded, forceDecode, fastDecode bool) ([]byte, error) {
+	result := make([]byte, 0, len(data)/RS128EncodedSize*RS128DataSize)
+	fullBlockEncodedSize := RSEncodedBlockSize
+
+	if len(data) == fullBlockEncodedSize {
+		for i := 0; i < fullBlockEncodedSize; i += RS128EncodedSize {
+			decoded, err := Decode(rs.RS128, data[i:i+RS128EncodedSize], fastDecode)
+			if err != nil {
+				if forceDecode {
+					decoded = data[i : i+RS128DataSize]
+				} else {
+					return nil, ErrCorruptData
+				}
+			}
+			if isLast && i == fullBlockEncodedSize-RS128EncodedSize && padded {
+				decoded = Unpad(decoded)
+			}
+			result = append(result, decoded...)
+		}
+	} else {
+		if len(data) < RS128EncodedSize {
+			if forceDecode {
+				return data, nil
+			}
+			return nil, ErrCorruptData
+		}
+		chunks := len(data)/RS128EncodedSize - 1
+		for i := range chunks {
+			decoded, err := Decode(rs.RS128, data[i*RS128EncodedSize:(i+1)*RS128EncodedSize], fastDecode)
+			if err != nil {
+				if forceDecode {
+					decoded = data[i*RS128EncodedSize : i*RS128EncodedSize+RS128DataSize]
+				} else {
+					return nil, ErrCorruptData
+				}
+			}
+			result = append(result, decoded...)
+		}
+		lastChunkStart := chunks * RS128EncodedSize
+		lastChunkEnd := min(lastChunkStart+RS128EncodedSize, len(data))
+		decoded, err := Decode(rs.RS128, data[lastChunkStart:lastChunkEnd], fastDecode)
+		if err != nil {
+			if forceDecode {
+				safeEnd := min(lastChunkStart+RS128DataSize, len(data))
+				decoded = data[lastChunkStart:safeEnd]
+			} else {
+				return nil, ErrCorruptData
+			}
+		}
+		result = append(result, Unpad(decoded)...)
+	}
+	return result, nil
+}
+
 // Decode attempts to decode and repair Reed-Solomon encoded data.
 //
 // Parameters:

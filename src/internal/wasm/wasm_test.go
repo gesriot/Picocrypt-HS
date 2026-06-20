@@ -304,14 +304,12 @@ func TestWASMBuffersZeroed(t *testing.T) {
 }
 
 func TestWASMUnsupportedFeatureFlagsReturnUnsupported(t *testing.T) {
+	// Padded-without-ReedSolomon is a combination desktop never emits; treated as corrupt.
+	// ReedSolomon (with or without Padded) is now supported and is no longer in this list.
 	cases := []struct {
 		name  string
 		flags header.Flags
 	}{
-		{
-			name:  "reed_solomon_payload",
-			flags: header.Flags{ReedSolomon: true},
-		},
 		{
 			name:  "reed_solomon_padding",
 			flags: header.Flags{Padded: true},
