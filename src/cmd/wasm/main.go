@@ -179,8 +179,13 @@ func decrypt(this js.Value, args []js.Value) (result any) {
 		defer crypto.SecureZero(kf)
 	}
 
-	res, code := wasm.DecryptVolume(data, passwordBytes, wasm.DecryptOptions{Keyfiles: keyfiles})
-	if code != 0 {
+	res, code := wasm.DecryptVolume(data, passwordBytes, wasm.DecryptOptions{
+		Keyfiles: keyfiles,
+		Force:    optBool(opts, "forceDecrypt"),
+	})
+	// code 0 = verified; code 10 = kept-but-unverified (force). Both carry data;
+	// every other non-zero code is a plain failure with no payload.
+	if code != 0 && code != wasm.ErrModifiedButKept {
 		return errorResult(code)
 	}
 	defer crypto.SecureZero(res.Plaintext)
@@ -188,7 +193,7 @@ func decrypt(this js.Value, args []js.Value) (result any) {
 	out := js.Global().Get("Uint8Array").New(len(res.Plaintext))
 	js.CopyBytesToJS(out, res.Plaintext)
 	o := js.Global().Get("Object").New()
-	o.Set("code", 0)
+	o.Set("code", code)
 	o.Set("data", out)
 	o.Set("comments", res.Comments)
 	return o
