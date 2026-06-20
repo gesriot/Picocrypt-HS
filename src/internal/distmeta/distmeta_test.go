@@ -973,6 +973,88 @@ func TestWindowsNSISScript(t *testing.T) {
 		}
 	})
 
+	t.Run("main_exe_overwrites_on_upgrade", func(t *testing.T) {
+		// Regression guard for discussion #163: installing a newer version over an
+		// existing install left the OLD Picocrypt-NG.exe in place ("the .exe from
+		// 2.15 still remains and wasn't overwritten"). Root cause: the script
+		// delivered the main binary via `File ...-portable.exe` + `Rename
+		// "$INSTDIR\Picocrypt-NG-portable.exe" "$INSTDIR\Picocrypt-NG.exe"`, but
+		// NSIS Rename FAILS (sets the error flag, here unchecked) when the
+		// destination already exists. So the prior binary survived every upgrade
+		// and the new one was left orphaned as Picocrypt-NG-portable.exe.
+		//
+		// Invariant: the main executable MUST be delivered via an overwrite-capable
+		// command (File defaults to SetOverwrite on) so re-install/upgrade replaces
+		// it in place at $INSTDIR\Picocrypt-NG.exe.
+
+		// Negative: must NOT move a file onto the fixed install path of the main
+		// exe. Rename does not overwrite; CopyFiles onto an existing target is the
+		// same hazard. Either reintroduces the upgrade bug.
+		badMove := regexp.MustCompile(`(?:Rename|CopyFiles)[^\n]*"\$INSTDIR\\Picocrypt-NG\.exe"`)
+		if badMove.MatchString(text) {
+			t.Errorf("installer.nsi delivers Picocrypt-NG.exe by moving a file onto its install path; " +
+				"NSIS Rename does not overwrite an existing destination, so upgrades over a prior install " +
+				"silently keep the old binary (discussion #163). Use File /oname=Picocrypt-NG.exe (overwrite-capable).")
+		}
+
+		// Positive: the main exe must actually be installed via File /oname=
+		// (overwrite-capable), landing the new binary at $INSTDIR\Picocrypt-NG.exe.
+		goodFile := regexp.MustCompile(`File\s+"?/oname=Picocrypt-NG\.exe"?`)
+		if !goodFile.MatchString(text) {
+			t.Errorf("installer.nsi must deliver the main executable via `File /oname=Picocrypt-NG.exe` " +
+				"so re-install/upgrade overwrites the prior binary in place (discussion #163)")
+		}
+	})
+
+	// --- Install Section (SecCore) scoped assertions (discussion #163 follow-ups) ---
+	secCoreBlock := regexp.MustCompile(`(?ms)Section\s+"-Picocrypt-NG \(required\)".*?SectionEnd`).FindString(text)
+	if secCoreBlock == "" {
+		t.Fatalf("installer.nsi missing 'Section \"-Picocrypt-NG (required)\"' (SecCore) block — cannot validate install-time behavior")
+	}
+
+	t.Run("running_instance_guard_on_main_exe", func(t *testing.T) {
+		// A running Picocrypt-NG locks Picocrypt-NG.exe, so File overwrite fails.
+		// With the default overwrite behavior the user could click "Ignore" and end
+		// up with a stale binary reported as a successful install — the same class of
+		// silent-stale bug as discussion #163. The install MUST instead detect the
+		// locked binary (SetOverwrite try → error flag) and either retry after the
+		// user closes the app or abort — never silently leave the old exe, and never
+		// force-kill (that could corrupt an in-progress encryption).
+		if !strings.Contains(secCoreBlock, "SetOverwrite try") {
+			t.Errorf("SecCore must use `SetOverwrite try` around the main exe so a locked (running) binary is detected instead of silently skipped (#163)")
+		}
+		if !regexp.MustCompile(`\$\{Errors\}|IfErrors`).MatchString(secCoreBlock) {
+			t.Errorf("SecCore must consult the error flag after writing the main exe to detect a running instance (#163)")
+		}
+		if !strings.Contains(secCoreBlock, "MB_RETRYCANCEL") {
+			t.Errorf("SecCore must prompt the user to close a running Picocrypt-NG and retry (MB_RETRYCANCEL), not force-kill (#163)")
+		}
+		if !regexp.MustCompile(`\bAbort\b`).MatchString(secCoreBlock) {
+			t.Errorf("SecCore must Abort when the main exe cannot be updated (running instance), instead of reporting a misleading success (#163)")
+		}
+		// Silent installs (/S, e.g. admin deployment and CI) get no dialog: the
+		// running-instance MessageBox (the only one in SecCore) MUST declare a
+		// silent default of IDCANCEL so a locked binary aborts cleanly instead of
+		// looping on the implicit retry default.
+		if !strings.Contains(secCoreBlock, "/SD IDCANCEL") {
+			t.Errorf("SecCore running-instance MessageBox must specify `/SD IDCANCEL` so silent installs abort (not loop) on a locked exe (#163)")
+		}
+		// The abort path must surface a non-zero exit code so unattended installs
+		// can detect the failure instead of treating the aborted run as success.
+		if !regexp.MustCompile(`SetErrorLevel\s+[1-9]`).MatchString(secCoreBlock) {
+			t.Errorf("SecCore must SetErrorLevel to a non-zero value before aborting on a running instance so silent installs report failure (#163)")
+		}
+	})
+
+	t.Run("install_sweeps_orphan_portable", func(t *testing.T) {
+		// Machines that hit the pre-fix upgrade bug carry an orphaned
+		// Picocrypt-NG-portable.exe. The install must sweep it so an upgrade leaves a
+		// clean install dir (harmless no-op on clean installs).
+		if !regexp.MustCompile(`Delete\s+"\$INSTDIR\\Picocrypt-NG-portable\.exe"`).MatchString(secCoreBlock) {
+			t.Errorf("SecCore must Delete the orphaned $INSTDIR\\Picocrypt-NG-portable.exe left by the pre-fix upgrade bug (#163)")
+		}
+	})
+
 	// --- Uninstaller block scoped assertions (D-27 hybrid cleanup) ---
 	uninstallBlock := regexp.MustCompile(`(?ms)Section\s+"Uninstall".*?SectionEnd`).FindString(text)
 	if uninstallBlock == "" {
@@ -993,6 +1075,14 @@ func TestWindowsNSISScript(t *testing.T) {
 	t.Run("uninstall_shchangenotify", func(t *testing.T) {
 		if !strings.Contains(uninstallBlock, "SHChangeNotify") {
 			t.Errorf("Uninstall Section missing SHChangeNotify call (D-26)")
+		}
+	})
+	t.Run("uninstall_sweeps_orphan_portable", func(t *testing.T) {
+		// Without this, the orphaned Picocrypt-NG-portable.exe (pre-fix #163 bug)
+		// survives uninstall and the non-recursive RMDir "$INSTDIR" fails to remove
+		// the now-non-empty install directory.
+		if !regexp.MustCompile(`Delete\s+"\$INSTDIR\\Picocrypt-NG-portable\.exe"`).MatchString(uninstallBlock) {
+			t.Errorf("Uninstall Section must Delete the orphaned $INSTDIR\\Picocrypt-NG-portable.exe so RMDir can remove the install dir (#163)")
 		}
 	})
 
