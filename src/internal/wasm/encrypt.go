@@ -101,6 +101,7 @@ type EncryptOptions struct {
 	Comments       string   // plaintext header comments (NOT encrypted); len <= header.MaxCommentLen
 	Keyfiles       [][]byte // each element is one keyfile's full contents
 	KeyfileOrdered bool     // true = order matters (sequential hash); false = XOR
+	ReedSolomon    bool     // RS128 error-correction framing of the payload
 }
 
 // EncryptVolume encrypts plaintext data into a Picocrypt volume.
@@ -134,13 +135,14 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	}
 
 	// Create header; flags/comments come from opts.
+	const miB = 1 << 20
 	hdr := header.NewVolumeHeader(salt, hkdfSalt, serpentIV, nonce)
 	hdr.Flags = header.Flags{
 		Paranoid:       opts.Paranoid,
 		UseKeyfiles:    len(opts.Keyfiles) > 0,
 		KeyfileOrdered: len(opts.Keyfiles) > 0 && opts.KeyfileOrdered,
-		ReedSolomon:    false, // P2
-		Padded:         false, // P2
+		ReedSolomon:    opts.ReedSolomon,
+		Padded:         opts.ReedSolomon && len(plaintext)%miB >= miB-128,
 	}
 	hdr.Comments = opts.Comments
 
@@ -277,7 +279,17 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 		dst := make([]byte, len(chunk))
 		cipherSuite.Encrypt(dst, chunk)
 		crypto.SecureZero(chunk)
-		ciphertextBuf.Write(dst)
+		if opts.ReedSolomon {
+			enc, encErr := encoding.EncodeRSPayloadBlock(dst, rsCodecs)
+			if encErr != nil {
+				zeroWASMSensitiveBuffer(wasmZeroingCiphertextChunk, dst)
+				return nil, ErrRandomFailure
+			}
+			ciphertextBuf.Write(enc)
+			zeroWASMSensitiveBuffer(wasmZeroingCiphertextChunk, enc)
+		} else {
+			ciphertextBuf.Write(dst)
+		}
 		zeroWASMSensitiveBuffer(wasmZeroingCiphertextChunk, dst)
 
 		counter += int64(len(chunk))
