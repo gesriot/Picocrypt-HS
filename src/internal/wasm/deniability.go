@@ -177,7 +177,7 @@ func selectDeniabilityKey(password, salt, nonce, probe []byte, rs *encoding.RSCo
 
 // unwrapDeniability strips the outer deniability layer and returns the inner .pcv
 // bytes. salt(16) ‖ nonce(24) prefix selects the key (via selectDeniabilityKey);
-// the rest is XOR-decrypted. A defensive inner-version re-check guards the result.
+// the rest is XOR-decrypted. selectDeniabilityKey is the sole auth guard.
 func unwrapDeniability(volume, password []byte, rs *encoding.RSCodecs) ([]byte, int) {
 	if len(volume) < deniabilitySaltSize+deniabilityNonceSize+header.VersionEncSize {
 		return nil, ErrWrongPassword
@@ -216,15 +216,5 @@ func unwrapDeniability(volume, password []byte, rs *encoding.RSCodecs) ([]byte, 
 		}
 	}
 
-	// Defensive: selectDeniabilityKey already matched the probe (same keystream),
-	// so this re-confirms the inner header decoded coherently before we recurse.
-	if len(inner) < header.VersionEncSize {
-		return nil, ErrWrongPassword
-	}
-	versionEnc := append([]byte(nil), inner[:header.VersionEncSize]...)
-	versionDec, derr := encoding.Decode(rs.RS5, versionEnc, false)
-	if derr != nil || !header.MatchVersion(versionDec) {
-		return nil, ErrWrongPassword
-	}
 	return inner, 0
 }
