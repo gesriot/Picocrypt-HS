@@ -1,15 +1,15 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/header"
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-
-	"Picocrypt-NG/internal/header"
 )
 
 func TestEncryptValidation(t *testing.T) {
@@ -52,7 +52,7 @@ func TestEncryptValidation(t *testing.T) {
 	t.Run("missing credentials", func(t *testing.T) {
 		// Create temp file
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -73,7 +73,7 @@ func TestEncryptValidation(t *testing.T) {
 
 	t.Run("invalid split options", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -98,7 +98,7 @@ func TestEncryptValidation(t *testing.T) {
 
 	t.Run("invalid split unit", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -125,7 +125,7 @@ func TestEncryptValidation(t *testing.T) {
 
 	t.Run("nonexistent keyfile", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -193,7 +193,7 @@ func TestDecryptValidation(t *testing.T) {
 
 	t.Run("missing credentials", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.pcv")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -217,7 +217,7 @@ func TestDecryptValidation(t *testing.T) {
 
 	t.Run("nonexistent keyfile", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.pcv")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -297,7 +297,7 @@ func TestForceDecryptKeptExitCode(t *testing.T) {
 	t.Run("unrecoverable force decrypt stays general failure", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		junkPath := filepath.Join(tmpDir, "junk.pcv")
-		if err := os.WriteFile(junkPath, []byte("not a valid Picocrypt volume"), 0600); err != nil {
+		if err := os.WriteFile(junkPath, []byte("not a valid Picocrypt volume"), 0o600); err != nil {
 			t.Fatalf("write junk input: %v", err)
 		}
 		outputPath := filepath.Join(tmpDir, "unsafe.txt")
@@ -420,7 +420,8 @@ func runCLITestCommand(t *testing.T, binaryPath string, args ...string) cliTestR
 	exitCode := 0
 	if err != nil {
 		exitCode = 1
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		}
 	}
@@ -439,7 +440,7 @@ func copyCLITestFile(t *testing.T, src, dst string) {
 	if err != nil {
 		t.Fatalf("read %s: %v", src, err)
 	}
-	if err := os.WriteFile(dst, data, 0600); err != nil {
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
 		t.Fatalf("write %s: %v", dst, err)
 	}
 }
@@ -456,7 +457,7 @@ func corruptCLITestPayload(t *testing.T, path string) {
 		t.Fatalf("payload offset %d exceeds file size %d", payloadOffset, len(data))
 	}
 	data[payloadOffset] ^= 0x80
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write corrupted %s: %v", path, err)
 	}
 }
@@ -512,7 +513,7 @@ func TestSplitVolumeDetection(t *testing.T) {
 	t.Run("numeric chunk suffix detected and recombine set", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		splitFile := filepath.Join(tmpDir, "test.pcv.0")
-		if err := os.WriteFile(splitFile, []byte("chunk0"), 0644); err != nil {
+		if err := os.WriteFile(splitFile, []byte("chunk0"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -529,7 +530,7 @@ func TestSplitVolumeDetection(t *testing.T) {
 	t.Run("non-numeric chunk suffix is not a split volume", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		notChunk := filepath.Join(tmpDir, "test.pcv.notanumber")
-		if err := os.WriteFile(notChunk, []byte("not a chunk"), 0644); err != nil {
+		if err := os.WriteFile(notChunk, []byte("not a chunk"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -546,7 +547,7 @@ func TestSplitVolumeDetection(t *testing.T) {
 	t.Run("plain .pcv path is not a split volume", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		plain := filepath.Join(tmpDir, "test.pcv")
-		if err := os.WriteFile(plain, []byte("plain volume"), 0644); err != nil {
+		if err := os.WriteFile(plain, []byte("plain volume"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -570,7 +571,7 @@ func TestOutputAutoGeneration(t *testing.T) {
 
 		tmpDir := t.TempDir()
 		inputFile := filepath.Join(tmpDir, "secret.txt")
-		if err := os.WriteFile(inputFile, []byte("plaintext"), 0644); err != nil {
+		if err := os.WriteFile(inputFile, []byte("plaintext"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -646,7 +647,7 @@ func TestGlobExpansion(t *testing.T) {
 
 	// Create test files
 	for _, name := range []string{"a.txt", "b.txt", "c.log"} {
-		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -879,7 +880,7 @@ func TestEncryptStdinValidation(t *testing.T) {
 
 	t.Run("password stdin empty without keyfiles", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -920,7 +921,7 @@ func TestEncryptStdinValidation(t *testing.T) {
 
 	t.Run("stdin with multiple inputs conflict", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -963,7 +964,7 @@ func TestEncryptStdinValidation(t *testing.T) {
 
 	t.Run("stdout with split conflict", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1012,11 +1013,11 @@ func TestCleanupEncryptError(t *testing.T) {
 	t.Run("preserves pre-existing output file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		output := filepath.Join(tmpDir, "existing.pcv")
-		if err := os.WriteFile(output, []byte("original"), 0644); err != nil {
+		if err := os.WriteFile(output, []byte("original"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		incomplete := output + ".incomplete"
-		if err := os.WriteFile(incomplete, []byte("partial"), 0644); err != nil {
+		if err := os.WriteFile(incomplete, []byte("partial"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1037,11 +1038,11 @@ func TestCleanupEncryptError(t *testing.T) {
 	t.Run("removes new output file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		output := filepath.Join(tmpDir, "new.pcv")
-		if err := os.WriteFile(output, []byte("new"), 0644); err != nil {
+		if err := os.WriteFile(output, []byte("new"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		incomplete := output + ".incomplete"
-		if err := os.WriteFile(incomplete, []byte("partial"), 0644); err != nil {
+		if err := os.WriteFile(incomplete, []byte("partial"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1058,7 +1059,7 @@ func TestCleanupEncryptError(t *testing.T) {
 	t.Run("stdout mode does not remove output file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		output := filepath.Join(tmpDir, "stdout-temp.pcv")
-		if err := os.WriteFile(output, []byte("temp"), 0644); err != nil {
+		if err := os.WriteFile(output, []byte("temp"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1134,7 +1135,7 @@ func TestDecryptStdinValidation(t *testing.T) {
 
 	t.Run("stdout with auto-unzip conflict", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.pcv")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 

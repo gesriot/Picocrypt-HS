@@ -74,7 +74,7 @@ func TestPasswordStrengthScoring(t *testing.T) {
 
 	weak := score("a")
 	strong := score("x7#Kp$9mNq@2vL!zY")
-	if !(weak < strong) {
+	if weak >= strong {
 		t.Errorf("weak score (%d) should be < strong score (%d)", weak, strong)
 	}
 	if weak < 0 || strong > 4 {

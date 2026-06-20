@@ -43,7 +43,7 @@ func TestCopyURIToTempRejectsUnsafeFilename(t *testing.T) {
 	t.Setenv("FILESDIR", filesDir)
 
 	escapePath := filepath.Clean(filepath.Join(a.getMobileTempDir(), "..", "escape.txt"))
-	if err := os.WriteFile(escapePath, []byte("original"), 0600); err != nil {
+	if err := os.WriteFile(escapePath, []byte("original"), 0o600); err != nil {
 		t.Fatalf("write escape sentinel: %v", err)
 	}
 

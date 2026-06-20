@@ -3,28 +3,30 @@
 package mobile
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/volume"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/volume"
 )
 
-var runEncrypt = volume.Encrypt
-var runDecrypt = volume.Decrypt
+var (
+	runEncrypt = volume.Encrypt
+	runDecrypt = volume.Decrypt
+)
 
 // StartOperation creates a new operation and returns its ID.
 // This should be called before StartEncrypt or StartDecrypt.
 func StartOperation() string {
-	id, _, _ := startOperation()
+	id := startOperation()
 	return id
 }
 
@@ -107,13 +109,13 @@ func StartEncrypt(requestJSON string, password []byte) string {
 
 	// Validate inputs
 	if req.InputFile == "" && len(req.InputFiles) == 0 {
-		return failOperation(req.OperationID, fmt.Errorf("input file is required"))
+		return failOperation(req.OperationID, errors.New("input file is required"))
 	}
 	if req.OutputFile == "" {
-		return failOperation(req.OperationID, fmt.Errorf("output file is required"))
+		return failOperation(req.OperationID, errors.New("output file is required"))
 	}
 	if len(password) == 0 && len(req.Keyfiles) == 0 {
-		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
+		return failOperation(req.OperationID, errors.New("password or keyfiles required"))
 	}
 
 	// Own a goroutine-private []byte copy of the password BEFORE launching the
@@ -225,13 +227,13 @@ func StartDecrypt(requestJSON string, password []byte) string {
 
 	// Validate inputs
 	if req.InputFile == "" {
-		return failOperation(req.OperationID, fmt.Errorf("input file is required"))
+		return failOperation(req.OperationID, errors.New("input file is required"))
 	}
 	if req.OutputFile == "" {
-		return failOperation(req.OperationID, fmt.Errorf("output file is required"))
+		return failOperation(req.OperationID, errors.New("output file is required"))
 	}
 	if len(password) == 0 && len(req.Keyfiles) == 0 {
-		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
+		return failOperation(req.OperationID, errors.New("password or keyfiles required"))
 	}
 
 	// Own a goroutine-private []byte copy of the password BEFORE launching the
@@ -437,7 +439,6 @@ type androidProgressReporter struct {
 }
 
 func (r *androidProgressReporter) SetStatus(text string) {
-
 	globalProgressMap.mu.RLock()
 	op, exists := globalProgressMap.ops[r.opID]
 	globalProgressMap.mu.RUnlock()
@@ -450,7 +451,6 @@ func (r *androidProgressReporter) SetStatus(text string) {
 }
 
 func (r *androidProgressReporter) SetProgress(fraction float32, info string) {
-
 	globalProgressMap.mu.RLock()
 	op, exists := globalProgressMap.ops[r.opID]
 	globalProgressMap.mu.RUnlock()

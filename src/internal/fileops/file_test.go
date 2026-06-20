@@ -15,11 +15,11 @@ func TestCreateSecureNoSymlinkRejectsSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	outsideDir := filepath.Join(tmpDir, "outside")
-	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
 		t.Fatalf("Create outside dir: %v", err)
 	}
 	victimPath := filepath.Join(outsideDir, "owned.pcv")
-	if err := os.WriteFile(victimPath, []byte("outside"), 0600); err != nil {
+	if err := os.WriteFile(victimPath, []byte("outside"), 0o600); err != nil {
 		t.Fatalf("Create victim file: %v", err)
 	}
 
@@ -71,7 +71,7 @@ func TestCreateSecureNoSymlinkRejectsSymlink(t *testing.T) {
 func TestOpenExistingNoSymlinkRejectsSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
 	victimPath := filepath.Join(tmpDir, "victim.pcv")
-	if err := os.WriteFile(victimPath, []byte("victim"), 0600); err != nil {
+	if err := os.WriteFile(victimPath, []byte("victim"), 0o600); err != nil {
 		t.Fatalf("Create victim file: %v", err)
 	}
 

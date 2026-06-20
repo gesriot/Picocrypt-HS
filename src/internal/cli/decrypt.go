@@ -1,17 +1,17 @@
 package cli
 
 import (
-	"bufio"
-	"context"
-	"fmt"
-	"io"
-	"os"
-	"strings"
-
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/volume"
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -110,7 +110,7 @@ func init() {
 func runDecrypt(cmd *cobra.Command, args []string) error {
 	// Validate input exists
 	if decInput == "" {
-		return fmt.Errorf("input file is required (-i)")
+		return errors.New("input file is required (-i)")
 	}
 
 	// Check for stdin/stdout
@@ -119,19 +119,19 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// Validate stdin/stdout constraints
 	if useStdin && decPasswordStdin {
-		return fmt.Errorf("cannot use -P (password from stdin) with -i - (input from stdin)")
+		return errors.New("cannot use -P (password from stdin) with -i - (input from stdin)")
 	}
 	if useStdin && decRecombine {
-		return fmt.Errorf("stdin not compatible with --recombine")
+		return errors.New("stdin not compatible with --recombine")
 	}
 	if useStdin && decDeniability {
-		return fmt.Errorf("stdin not compatible with --deniability")
+		return errors.New("stdin not compatible with --deniability")
 	}
 	if useStdout && decAutoUnzip {
-		return fmt.Errorf("stdout not compatible with --auto-unzip")
+		return errors.New("stdout not compatible with --auto-unzip")
 	}
 	if useStdout && decRecombine {
-		return fmt.Errorf("stdout not compatible with --recombine")
+		return errors.New("stdout not compatible with --recombine")
 	}
 
 	// Auto-quiet when outputting to stdout
@@ -232,7 +232,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 				}
 				response = strings.TrimSpace(strings.ToLower(response))
 				if response != "y" && response != "yes" {
-					return fmt.Errorf("operation cancelled")
+					return errors.New("operation cancelled")
 				}
 			}
 		}

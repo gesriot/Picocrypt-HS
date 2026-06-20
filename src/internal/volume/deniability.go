@@ -1,6 +1,11 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/util"
 	"errors"
 	"fmt"
 	"io"
@@ -8,12 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
 	pwnorm "Picocrypt-NG/internal/password"
-	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/chacha20"
 )
@@ -28,9 +28,7 @@ var newDeniabilityReader = func(r io.Reader) io.Reader { return r }
 // package-level seam (mirroring newDeniabilityReader) so tests can inject an I/O
 // failure on a file that already cleared the size guard, exercising the
 // read-error branch that is otherwise unreachable on a real filesystem.
-var isDeniableReadVersion = func(r io.Reader, buf []byte) (int, error) {
-	return io.ReadFull(r, buf)
-}
+var isDeniableReadVersion = io.ReadFull
 
 // AddDeniability wraps a volume with a deniability layer.
 // This encrypts the entire volume with XChaCha20 using a separate key derived from the password.

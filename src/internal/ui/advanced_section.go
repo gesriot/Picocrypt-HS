@@ -2,10 +2,9 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"reflect"
 	"strings"
-
-	"Picocrypt-NG/internal/app"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"

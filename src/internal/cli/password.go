@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/crypto"
 	"bufio"
 	"bytes"
 	"errors"
@@ -8,7 +9,6 @@ import (
 	"io"
 	"os"
 
-	"Picocrypt-NG/internal/crypto"
 	pwnorm "Picocrypt-NG/internal/password"
 
 	"golang.org/x/term"

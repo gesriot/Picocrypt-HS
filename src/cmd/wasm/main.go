@@ -3,11 +3,10 @@
 package main
 
 import (
-	"syscall/js"
-
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/wasm"
+	"syscall/js"
 )
 
 func main() {

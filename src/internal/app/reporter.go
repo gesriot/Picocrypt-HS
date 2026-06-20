@@ -2,9 +2,8 @@
 package app
 
 import (
-	"sync"
-
 	"Picocrypt-NG/internal/volume"
+	"sync"
 )
 
 // Ensure UIReporter implements volume.ProgressReporter

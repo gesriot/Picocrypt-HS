@@ -22,7 +22,7 @@ func Available(path string) (int64, error) {
 		return 0, errors.New("available blocks exceeds int64 max")
 	}
 	blocks := int64(stat.Bavail)
-	bsize := int64(stat.Bsize)
+	bsize := int64(stat.Bsize) //nolint:unconvert // Bsize type varies across unix (already int64 on linux); kept for portability
 	// Check multiplication overflow
 	if bsize > 0 && blocks > math.MaxInt64/bsize {
 		return 0, errors.New("available space exceeds int64 max")

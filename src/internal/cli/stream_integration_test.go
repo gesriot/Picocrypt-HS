@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,7 +39,7 @@ func requireCLIIntegration(t *testing.T) {
 func stdinFile(t *testing.T, data []byte) *os.File {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "stdin")
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("writing stdin temp: %v", err)
 	}
 	f, err := os.Open(path)
@@ -129,7 +130,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 	t.Run("stdin encrypt existing output requires --yes", func(t *testing.T) {
 		inputData := []byte("stdin overwrite check")
 		outputFile := filepath.Join(tmpDir, "stdin-overwrite-encrypt.pcv")
-		if err := os.WriteFile(outputFile, []byte("existing"), 0644); err != nil {
+		if err := os.WriteFile(outputFile, []byte("existing"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -152,7 +153,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 	t.Run("file encrypt to stdout", func(t *testing.T) {
 		inputData := []byte("secret data for stdout encryption test")
 		inputFile := filepath.Join(tmpDir, "stdout-input.txt")
-		if err := os.WriteFile(inputFile, inputData, 0644); err != nil {
+		if err := os.WriteFile(inputFile, inputData, 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -164,7 +165,8 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		encrypted, err := cmd.Output()
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			exitErr := &exec.ExitError{}
+			if errors.As(err, &exitErr) {
 				t.Fatalf("stdout encrypt failed: %v\nStderr: %s", err, exitErr.Stderr)
 			}
 			t.Fatalf("stdout encrypt failed: %v", err)
@@ -179,7 +181,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		// Save and decrypt to verify
 		encryptedFile := filepath.Join(tmpDir, "stdout-test.pcv")
-		if err := os.WriteFile(encryptedFile, encrypted, 0644); err != nil {
+		if err := os.WriteFile(encryptedFile, encrypted, 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -215,7 +217,8 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		encrypted, err := cmd.Output()
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			exitErr := &exec.ExitError{}
+			if errors.As(err, &exitErr) {
 				t.Fatalf("stdin->stdout encrypt failed: %v\nStderr: %s", err, exitErr.Stderr)
 			}
 			t.Fatalf("stdin->stdout encrypt failed: %v", err)
@@ -235,7 +238,8 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		decrypted, err := cmd.Output()
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			exitErr := &exec.ExitError{}
+			if errors.As(err, &exitErr) {
 				t.Fatalf("stdin->stdout decrypt failed: %v\nStderr: %s", err, exitErr.Stderr)
 			}
 			t.Fatalf("stdin->stdout decrypt failed: %v", err)
@@ -293,12 +297,12 @@ func TestStdinStdoutIntegration(t *testing.T) {
 	t.Run("stdin decrypt existing output requires --yes", func(t *testing.T) {
 		inputData := []byte("stdin decrypt overwrite check")
 		encryptedFile := filepath.Join(tmpDir, "stdin-overwrite-decrypt.pcv")
-		if err := os.WriteFile(encryptedFile, inputData, 0644); err != nil {
+		if err := os.WriteFile(encryptedFile, inputData, 0o644); err != nil {
 			t.Fatal(err)
 		}
 
 		existingOutput := filepath.Join(tmpDir, "stdin-overwrite-output")
-		if err := os.WriteFile(existingOutput, []byte("existing"), 0644); err != nil {
+		if err := os.WriteFile(existingOutput, []byte("existing"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -343,7 +347,8 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		decrypted, err := cmd.Output()
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			exitErr := &exec.ExitError{}
+			if errors.As(err, &exitErr) {
 				t.Fatalf("stdout decrypt failed: %v\nStderr: %s", err, exitErr.Stderr)
 			}
 			t.Fatalf("stdout decrypt failed: %v", err)
@@ -370,7 +375,8 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		encrypted, err := cmd.Output()
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			exitErr := &exec.ExitError{}
+			if errors.As(err, &exitErr) {
 				t.Fatalf("large data encrypt failed: %v\nStderr: %s", err, exitErr.Stderr)
 			}
 			t.Fatalf("large data encrypt failed: %v", err)
@@ -385,7 +391,8 @@ func TestStdinStdoutIntegration(t *testing.T) {
 
 		decrypted, err := cmd.Output()
 		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			exitErr := &exec.ExitError{}
+			if errors.As(err, &exitErr) {
 				t.Fatalf("large data decrypt failed: %v\nStderr: %s", err, exitErr.Stderr)
 			}
 			t.Fatalf("large data decrypt failed: %v", err)
@@ -424,10 +431,10 @@ func TestStdinStdoutIntegration(t *testing.T) {
 	t.Run("auto-unzip works with auto-generated output path", func(t *testing.T) {
 		inputA := filepath.Join(tmpDir, "auto-unzip-a.txt")
 		inputB := filepath.Join(tmpDir, "auto-unzip-b.txt")
-		if err := os.WriteFile(inputA, []byte("alpha"), 0644); err != nil {
+		if err := os.WriteFile(inputA, []byte("alpha"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(inputB, []byte("bravo"), 0644); err != nil {
+		if err := os.WriteFile(inputB, []byte("bravo"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -514,7 +521,7 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 
 	t.Run("stdout with --split conflicts", func(t *testing.T) {
 		inputFile := filepath.Join(tmpDir, "split-test.txt")
-		if err := os.WriteFile(inputFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(inputFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -539,7 +546,7 @@ func TestStdinStdoutErrorCases(t *testing.T) {
 		// Create a valid encrypted file first
 		inputFile := filepath.Join(tmpDir, "unzip-test.txt")
 		encFile := filepath.Join(tmpDir, "unzip-test.pcv")
-		if err := os.WriteFile(inputFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(inputFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 

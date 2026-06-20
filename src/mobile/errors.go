@@ -1,10 +1,10 @@
 package mobile
 
 import (
+	"Picocrypt-NG/internal/header"
 	"errors"
 
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/header"
 )
 
 // errorCode maps a pipeline error to a stable, locale-independent code for the

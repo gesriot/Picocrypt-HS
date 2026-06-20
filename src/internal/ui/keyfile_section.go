@@ -2,13 +2,12 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
+	"Picocrypt-NG/internal/util"
 	"crypto/rand"
 	"path/filepath"
 	"strconv"
 	"time"
-
-	"Picocrypt-NG/internal/app"
-	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"

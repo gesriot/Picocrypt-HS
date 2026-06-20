@@ -1,14 +1,13 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
 )
 
 // repairingReporter is a minimal ProgressReporter that records whether it ever
@@ -54,7 +53,7 @@ func encryptRSVolume(t *testing.T, plaintext []byte, password string) string {
 
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "rs_input.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0600); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o600); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
 
@@ -108,7 +107,7 @@ func corruptOneRSBlock(t *testing.T, pcvPath string, blockIndex, nFlips int) {
 		data[pos] ^= 0xFF
 	}
 
-	if err := os.WriteFile(pcvPath, data, 0600); err != nil {
+	if err := os.WriteFile(pcvPath, data, 0o600); err != nil {
 		t.Fatalf("write corrupted pcv: %v", err)
 	}
 }

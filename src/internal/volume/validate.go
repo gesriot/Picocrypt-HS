@@ -1,11 +1,10 @@
 package volume
 
 import (
-	"os"
-
 	"Picocrypt-NG/internal/errors"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
+	"os"
 )
 
 // Validate checks that the EncryptRequest has all required fields and valid configuration.

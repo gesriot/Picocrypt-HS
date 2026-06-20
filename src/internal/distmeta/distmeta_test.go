@@ -16,8 +16,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const linuxDesktopAppID = "io.github.picocrypt_ng.Picocrypt-NG"
-const linuxX11WMClass = "Picocrypt-NG"
+const (
+	linuxDesktopAppID = "io.github.picocrypt_ng.Picocrypt-NG"
+	linuxX11WMClass   = "Picocrypt-NG"
+)
 
 // repoRoot mirrors workflowpolicy/helpers_test.go pattern verbatim.
 func repoRoot(t *testing.T) string {
@@ -485,6 +487,7 @@ func linuxRuntimeIdentitySourceID(t *testing.T) string {
 		{name: "NewWithID literal", re: regexp.MustCompile(`NewWithID\("([^"]+)"\)`)},
 		{name: "linuxAppID function", re: regexp.MustCompile(`(?s)func\s+linuxAppID\(\)\s+string\s*\{\s*return\s+"([^"]+)"\s*\}`)},
 		{name: "linuxAppID const", re: regexp.MustCompile(`(?m)^\s*const\s+linuxAppID\s*=\s*"([^"]+)"\s*$`)},
+		{name: "linuxAppID grouped const", re: regexp.MustCompile(`(?m)^\s*linuxAppID\s*=\s*"([^"]+)"\s*$`)},
 	}
 	for _, pattern := range patterns {
 		matches := pattern.re.FindStringSubmatch(source)
@@ -518,7 +521,7 @@ func linuxRuntimeX11WMClassSourceID(t *testing.T) string {
 		}
 	}
 
-	re := regexp.MustCompile(`(?m)^\s*const\s+linuxX11WMClass\s*=\s*"([^"]+)"\s*$`)
+	re := regexp.MustCompile(`(?m)^\s*(?:const\s+)?linuxX11WMClass\s*=\s*"([^"]+)"\s*$`)
 	matches := re.FindStringSubmatch(source)
 	if len(matches) != 2 {
 		t.Fatal("could not find linuxX11WMClass const in src/internal/ui")

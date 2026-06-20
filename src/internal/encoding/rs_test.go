@@ -298,7 +298,7 @@ func TestRSEncodeDecodeRS128(t *testing.T) {
 	// fast slice) leaves the 4 flipped bytes in place and this fails.
 	recover4 := make([]byte, len(encoded))
 	copy(recover4, encoded)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		recover4[i*30] ^= 0xFF
 	}
 	decoded, err = Decode(codecs.RS128, recover4, false)
@@ -315,7 +315,7 @@ func TestRSEncodeDecodeRS128(t *testing.T) {
 	// Mutation caught: Decode swallowing rs.Decode's error on the payload codec.
 	corrupt5 := make([]byte, len(encoded))
 	copy(corrupt5, encoded)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		corrupt5[i*20] ^= 0xFF
 	}
 	if _, err := Decode(codecs.RS128, corrupt5, false); err == nil {
@@ -439,7 +439,7 @@ func TestRSErrorCorrection(t *testing.T) {
 			// Corrupt exactly `budget` distinct bytes -> must recover silently.
 			atBudget := make([]byte, len(encoded))
 			copy(atBudget, encoded)
-			for i := 0; i < tc.budget; i++ {
+			for i := range tc.budget {
 				atBudget[i] ^= 0xFF
 			}
 			decoded, err := Decode(tc.codec, atBudget, false)
@@ -453,7 +453,7 @@ func TestRSErrorCorrection(t *testing.T) {
 			// Corrupt budget+1 distinct bytes -> must report a non-nil error.
 			overBudget := make([]byte, len(encoded))
 			copy(overBudget, encoded)
-			for i := 0; i < tc.budget+1; i++ {
+			for i := range tc.budget + 1 {
 				overBudget[i] ^= 0xFF
 			}
 			if _, err := Decode(tc.codec, overBudget, false); err == nil {

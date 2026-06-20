@@ -30,12 +30,12 @@ func TestEncryptDirectoryProducesZip(t *testing.T) {
 
 	// A folder ("test_dir") containing exactly one file, mirroring the issue.
 	folder := filepath.Join(tmpDir, "test_dir")
-	if err := os.MkdirAll(folder, 0755); err != nil {
+	if err := os.MkdirAll(folder, 0o755); err != nil {
 		t.Fatalf("create folder: %v", err)
 	}
 	innerContent := []byte("hello world\n")
 	innerPath := filepath.Join(folder, "hello.txt")
-	if err := os.WriteFile(innerPath, innerContent, 0644); err != nil {
+	if err := os.WriteFile(innerPath, innerContent, 0o644); err != nil {
 		t.Fatalf("write inner file: %v", err)
 	}
 

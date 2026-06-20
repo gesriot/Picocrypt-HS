@@ -1,6 +1,8 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 	"bytes"
 	"context"
 	"errors"
@@ -9,9 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/header"
 )
 
 // assertCancelled fails unless err is a cancellation error (reporter-driven
@@ -47,7 +47,7 @@ func TestVerifyFirstModeWithReedSolomon(t *testing.T) {
 
 	plaintext := []byte("VerifyFirst + Reed-Solomon test data for enhanced verification.")
 	inputPath := filepath.Join(tmpDir, "verify_first_rs.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestVerifyFirstModeParanoid(t *testing.T) {
 
 	plaintext := []byte("VerifyFirst + Paranoid mode test data with maximum security.")
 	inputPath := filepath.Join(tmpDir, "verify_first_paranoid.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -169,13 +169,13 @@ func TestVerifyFirstModeWithKeyfiles(t *testing.T) {
 
 	plaintext := []byte("VerifyFirst + Keyfiles test data.")
 	inputPath := filepath.Join(tmpDir, "verify_first_kf.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfile
 	keyfilePath := filepath.Join(tmpDir, "verify_first.key")
-	if err := os.WriteFile(keyfilePath, []byte("verify first keyfile content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("verify first keyfile content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -237,7 +237,7 @@ func TestVerifyFirstModeCorruptedData(t *testing.T) {
 
 	plaintext := []byte("VerifyFirst corruption detection test data - integrity check.")
 	inputPath := filepath.Join(tmpDir, "verify_first_corrupt.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -272,7 +272,7 @@ func TestVerifyFirstModeCorruptedData(t *testing.T) {
 		data[corruptOffset+1] ^= 0xFF
 	}
 
-	if err := os.WriteFile(encryptedPath, data, 0644); err != nil {
+	if err := os.WriteFile(encryptedPath, data, 0o644); err != nil {
 		t.Fatalf("Failed to write corrupted file: %v", err)
 	}
 
@@ -313,7 +313,7 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 
 	plaintext := bytes.Repeat([]byte("VerifyFirst + ForceDecrypt payload. "), 32)
 	inputPath := filepath.Join(tmpDir, "verify_force.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
 	encryptedPath := filepath.Join(tmpDir, "verify_force.txt.pcv")
@@ -337,7 +337,7 @@ func TestVerifyFirstModeForceDecrypt(t *testing.T) {
 		t.Fatalf("encrypted file too small (%d bytes)", len(data))
 	}
 	data[corruptOffset] ^= 0xFF
-	if err := os.WriteFile(encryptedPath, data, 0644); err != nil {
+	if err := os.WriteFile(encryptedPath, data, 0o644); err != nil {
 		t.Fatalf("write corrupted: %v", err)
 	}
 
@@ -392,12 +392,12 @@ func TestVerifyFirstAllOptions(t *testing.T) {
 
 	plaintext := []byte("VerifyFirst with ALL options: paranoid + RS + keyfile.")
 	inputPath := filepath.Join(tmpDir, "verify_all.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "verify_all.key")
-	if err := os.WriteFile(keyfilePath, []byte("all options keyfile"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("all options keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -487,12 +487,12 @@ func TestDecryptWrongKeyfileMissingRequirement(t *testing.T) {
 
 	plaintext := []byte("Keyfile required test data")
 	inputPath := filepath.Join(tmpDir, "kf_required.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "required.key")
-	if err := os.WriteFile(keyfilePath, []byte("keyfile content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("keyfile content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -559,7 +559,7 @@ func TestDecryptCancellation(t *testing.T) {
 		plaintext[i] = byte(i % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "cancel_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -613,7 +613,7 @@ func TestEncryptCommentsTooLong(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	inputPath := filepath.Join(tmpDir, "long_comments.txt")
-	if err := os.WriteFile(inputPath, []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte("test"), 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -711,7 +711,7 @@ func TestDeniabilityRoundTripWithVerifyFirst(t *testing.T) {
 
 	plaintext := []byte("Deniability + VerifyFirst combination test")
 	inputPath := filepath.Join(tmpDir, "deny_verify.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -792,7 +792,7 @@ func TestIsDeniableNormalFile(t *testing.T) {
 	// Create and encrypt without deniability
 	plaintext := []byte("Normal file test")
 	inputPath := filepath.Join(tmpDir, "normal.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -840,7 +840,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	// Build a genuine regular (non-deniable) volume to corrupt.
 	plaintext := bytes.Repeat([]byte("Corruption test plaintext."), 256)
 	inputPath := filepath.Join(tmpDir, "regular.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
 	regularPath := filepath.Join(tmpDir, "regular.pcv")
@@ -866,7 +866,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	// Variant (a): truncate below 15 bytes — old code hits the io.ReadFull error
 	// branch (:343) and returns true. New code rejects via the length pre-guard.
 	shortPath := filepath.Join(tmpDir, "short.pcv")
-	if err := os.WriteFile(shortPath, full[:10], 0644); err != nil {
+	if err := os.WriteFile(shortPath, full[:10], 0o644); err != nil {
 		t.Fatalf("write short volume: %v", err)
 	}
 	if IsDeniable(shortPath, rsCodecs) {
@@ -885,7 +885,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 		garbage[i] = 0
 	}
 	garbagePath := filepath.Join(tmpDir, "garbage.pcv")
-	if err := os.WriteFile(garbagePath, garbage, 0644); err != nil {
+	if err := os.WriteFile(garbagePath, garbage, 0o644); err != nil {
 		t.Fatalf("write garbage volume: %v", err)
 	}
 	if IsDeniable(garbagePath, rsCodecs) {
@@ -897,7 +897,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	belowMin := make([]byte, minDeniable-1)
 	copy(belowMin, full[:min(len(full), minDeniable-1)])
 	belowMinPath := filepath.Join(tmpDir, "belowmin.pcv")
-	if err := os.WriteFile(belowMinPath, belowMin, 0644); err != nil {
+	if err := os.WriteFile(belowMinPath, belowMin, 0o644); err != nil {
 		t.Fatalf("write below-min volume: %v", err)
 	}
 	if IsDeniable(belowMinPath, rsCodecs) {
@@ -912,7 +912,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	fullSizeCorrupt := append([]byte(nil), full...)
 	copy(fullSizeCorrupt[:header.VersionEncSize], corruptRS5Block(t, rsCodecs))
 	fullSizeCorruptPath := filepath.Join(tmpDir, "full-size-corrupt-version.pcv")
-	if err := os.WriteFile(fullSizeCorruptPath, fullSizeCorrupt, 0644); err != nil {
+	if err := os.WriteFile(fullSizeCorruptPath, fullSizeCorrupt, 0o644); err != nil {
 		t.Fatalf("write full-size corrupt volume: %v", err)
 	}
 	if IsDeniable(fullSizeCorruptPath, rsCodecs) {
@@ -926,7 +926,7 @@ func TestIsDeniableCorruptedNotDeniable(t *testing.T) {
 	fullSizeNonVersion := append([]byte(nil), full...)
 	copy(fullSizeNonVersion[:header.VersionEncSize], validNonVersionRS5Block(t, rsCodecs))
 	fullSizeNonVersionPath := filepath.Join(tmpDir, "full-size-non-version.pcv")
-	if err := os.WriteFile(fullSizeNonVersionPath, fullSizeNonVersion, 0644); err != nil {
+	if err := os.WriteFile(fullSizeNonVersionPath, fullSizeNonVersion, 0o644); err != nil {
 		t.Fatalf("write full-size non-version volume: %v", err)
 	}
 	if IsDeniable(fullSizeNonVersionPath, rsCodecs) {
@@ -1016,7 +1016,7 @@ func TestEncryptWithNilReporter(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "plain.txt")
-	if err := os.WriteFile(inputPath, []byte("plaintext"), 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte("plaintext"), 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1044,7 +1044,7 @@ func TestDecryptWithNilReporter(t *testing.T) {
 	encryptedPath := filepath.Join(tmpDir, "plain.txt.pcv")
 	outputPath := filepath.Join(tmpDir, "plain.out")
 
-	if err := os.WriteFile(inputPath, []byte("plaintext"), 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte("plaintext"), 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1086,7 +1086,7 @@ func TestEncryptCancellation(t *testing.T) {
 		plaintext[i] = byte(i % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "cancel_enc_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1118,7 +1118,7 @@ func TestEncryptContextCancellation(t *testing.T) {
 		plaintext[i] = byte(i % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "ctx_cancel_enc.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1156,7 +1156,7 @@ func TestDecryptContextCancellation(t *testing.T) {
 		plaintext[i] = byte(i % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "ctx_cancel_dec.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 

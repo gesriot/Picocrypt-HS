@@ -247,7 +247,7 @@ func Decode(rs *infectious.FEC, data []byte, fastDecode bool) ([]byte, error) {
 
 	// Fast decode optimization: skip RS decoding for payload data
 	if rs.Total() == 136 && fastDecode {
-		return data[:128], nil
+		return data[:128], nil //nolint:gosec // G602: len(data)==rs.Total() guaranteed by precondition above; 128<=Total
 	}
 
 	tmp := make([]infectious.Share, rs.Total())
@@ -256,11 +256,10 @@ func Decode(rs *infectious.FEC, data []byte, fastDecode bool) ([]byte, error) {
 		tmp[i].Data = append(tmp[i].Data, data[i])
 	}
 	res, err := rs.Decode(nil, tmp)
-
 	// Force decode the data but return the error as well
 	if err != nil {
 		if rs.Total() == 136 {
-			return data[:128], err
+			return data[:128], err //nolint:gosec // G602: len(data)==rs.Total() guaranteed by precondition above; 128<=Total
 		}
 		return data[:rs.Total()/3], err
 	}

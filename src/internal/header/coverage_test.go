@@ -1,11 +1,10 @@
 package header
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"bytes"
 	"io"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // =============================================================================

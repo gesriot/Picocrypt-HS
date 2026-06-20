@@ -15,7 +15,7 @@ func TestSplitAndRecombine(t *testing.T) {
 	// Create a test file with known content
 	testData := bytes.Repeat([]byte("Hello, Picocrypt! "), 1000) // ~18 KB
 	inputPath := filepath.Join(tmpDir, "test.pcv")
-	if err := os.WriteFile(inputPath, testData, 0644); err != nil {
+	if err := os.WriteFile(inputPath, testData, 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -91,7 +91,7 @@ func TestSplitUnits(t *testing.T) {
 			// Create test data
 			testData := bytes.Repeat([]byte("X"), tc.dataSize)
 			inputPath := filepath.Join(tmpDir, "test.dat")
-			if err := os.WriteFile(inputPath, testData, 0644); err != nil {
+			if err := os.WriteFile(inputPath, testData, 0o644); err != nil {
 				t.Fatalf("Create test file: %v", err)
 			}
 
@@ -150,25 +150,25 @@ func TestSplitDoesNotDeleteSidecarFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "archive.pcv")
 
-	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("A"), 32*1024), 0644); err != nil {
+	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("A"), 32*1024), 0o644); err != nil {
 		t.Fatalf("Create input file: %v", err)
 	}
-	if err := os.WriteFile(inputPath+".sig", []byte("sig"), 0644); err != nil {
+	if err := os.WriteFile(inputPath+".sig", []byte("sig"), 0o644); err != nil {
 		t.Fatalf("Create signature sidecar: %v", err)
 	}
-	if err := os.WriteFile(inputPath+".backup", []byte("backup"), 0644); err != nil {
+	if err := os.WriteFile(inputPath+".backup", []byte("backup"), 0o644); err != nil {
 		t.Fatalf("Create backup sidecar: %v", err)
 	}
-	if err := os.WriteFile(inputPath+".0", []byte("old chunk"), 0644); err != nil {
+	if err := os.WriteFile(inputPath+".0", []byte("old chunk"), 0o644); err != nil {
 		t.Fatalf("Create stale chunk: %v", err)
 	}
-	if err := os.WriteFile(inputPath+".1.incomplete", []byte("stale"), 0644); err != nil {
+	if err := os.WriteFile(inputPath+".1.incomplete", []byte("stale"), 0o644); err != nil {
 		t.Fatalf("Create stale incomplete chunk: %v", err)
 	}
-	if err := os.WriteFile(inputPath+".-1", []byte("signed"), 0644); err != nil {
+	if err := os.WriteFile(inputPath+".-1", []byte("signed"), 0o644); err != nil {
 		t.Fatalf("Create signed sidecar: %v", err)
 	}
-	if err := os.WriteFile(inputPath+".+1.incomplete", []byte("signed incomplete"), 0644); err != nil {
+	if err := os.WriteFile(inputPath+".+1.incomplete", []byte("signed incomplete"), 0o644); err != nil {
 		t.Fatalf("Create signed incomplete sidecar: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestSplitCancellation(t *testing.T) {
 	// Create a larger test file
 	testData := bytes.Repeat([]byte("Data"), 100000) // 400 KB
 	inputPath := filepath.Join(tmpDir, "test.dat")
-	if err := os.WriteFile(inputPath, testData, 0644); err != nil {
+	if err := os.WriteFile(inputPath, testData, 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -249,7 +249,7 @@ func TestRecombineCancellation(t *testing.T) {
 	for i := range 5 {
 		chunkData := bytes.Repeat([]byte{byte(i)}, 1000)
 		chunkPath := filepath.Join(tmpDir, "test.pcv."+string(rune('0'+i)))
-		if err := os.WriteFile(chunkPath, chunkData, 0644); err != nil {
+		if err := os.WriteFile(chunkPath, chunkData, 0o644); err != nil {
 			t.Fatalf("Create chunk: %v", err)
 		}
 	}
@@ -311,7 +311,7 @@ func TestCountChunks(t *testing.T) {
 	chunkSizes := []int{100, 200, 150}
 	for i, sz := range chunkSizes {
 		chunkPath := basePath + "." + string(rune('0'+i))
-		if err := os.WriteFile(chunkPath, bytes.Repeat([]byte{0}, sz), 0644); err != nil {
+		if err := os.WriteFile(chunkPath, bytes.Repeat([]byte{0}, sz), 0o644); err != nil {
 			t.Fatalf("Create chunk: %v", err)
 		}
 	}
@@ -340,14 +340,14 @@ func TestRecombineOutputExists(t *testing.T) {
 	outputPath := filepath.Join(tmpDir, "output.pcv")
 
 	// Create a chunk
-	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0o644); err != nil {
 		t.Fatalf("Create chunk: %v", err)
 	}
 
 	// Create output file with sentinel content (a stand-in for a victim file the
 	// user does not want clobbered).
 	victim := []byte("existing")
-	if err := os.WriteFile(outputPath, victim, 0644); err != nil {
+	if err := os.WriteFile(outputPath, victim, 0o644); err != nil {
 		t.Fatalf("Create output file: %v", err)
 	}
 
@@ -378,7 +378,7 @@ func TestSplitProgress(t *testing.T) {
 
 	testData := bytes.Repeat([]byte("X"), 10*1024) // 10 KiB
 	inputPath := filepath.Join(tmpDir, "test.dat")
-	if err := os.WriteFile(inputPath, testData, 0644); err != nil {
+	if err := os.WriteFile(inputPath, testData, 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -428,7 +428,7 @@ func TestRecombineProgress(t *testing.T) {
 	chunkData := bytes.Repeat([]byte("X"), 10*1024) // 10 KiB per chunk
 	for i := range 3 {
 		chunkPath := basePath + "." + string(rune('0'+i))
-		if err := os.WriteFile(chunkPath, chunkData, 0644); err != nil {
+		if err := os.WriteFile(chunkPath, chunkData, 0o644); err != nil {
 			t.Fatalf("Create chunk: %v", err)
 		}
 	}
@@ -474,11 +474,11 @@ func TestRecombineRejectsMissingMiddleChunk(t *testing.T) {
 	basePath := filepath.Join(tmpDir, "test.pcv")
 
 	// Create only chunk 0, missing chunk 1
-	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0o644); err != nil {
 		t.Fatalf("Create chunk: %v", err)
 	}
 	// Create chunk 2 (skipping 1)
-	if err := os.WriteFile(basePath+".2", []byte("chunk2"), 0644); err != nil {
+	if err := os.WriteFile(basePath+".2", []byte("chunk2"), 0o644); err != nil {
 		t.Fatalf("Create chunk: %v", err)
 	}
 
@@ -511,12 +511,12 @@ func TestRecombineRejectsSymlinkOutput(t *testing.T) {
 	tmpDir := t.TempDir()
 	basePath := filepath.Join(tmpDir, "test.pcv")
 
-	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0o644); err != nil {
 		t.Fatalf("Create chunk: %v", err)
 	}
 
 	outsideDir := filepath.Join(tmpDir, "outside")
-	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
 		t.Fatalf("Create outside dir: %v", err)
 	}
 	targetPath := filepath.Join(outsideDir, "owned.pcv")
@@ -548,10 +548,10 @@ func TestRecombineIgnoresSignedChunkLikeSuffixes(t *testing.T) {
 	tmpDir := t.TempDir()
 	basePath := filepath.Join(tmpDir, "test.pcv")
 
-	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0o644); err != nil {
 		t.Fatalf("Create chunk 0: %v", err)
 	}
-	if err := os.WriteFile(basePath+".+1", []byte("plus1"), 0644); err != nil {
+	if err := os.WriteFile(basePath+".+1", []byte("plus1"), 0o644); err != nil {
 		t.Fatalf("Create signed sidecar: %v", err)
 	}
 
@@ -577,7 +577,7 @@ func TestCountChunksHandlesLiteralGlobCharacters(t *testing.T) {
 	tmpDir := t.TempDir()
 	basePath := filepath.Join(tmpDir, "file[1].pcv")
 
-	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0644); err != nil {
+	if err := os.WriteFile(basePath+".0", []byte("chunk0"), 0o644); err != nil {
 		t.Fatalf("Create chunk: %v", err)
 	}
 
@@ -597,7 +597,7 @@ func TestSplitRejectsNonPositiveChunkSize(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "invalid_split.pcv")
 	content := []byte("content")
-	if err := os.WriteFile(inputPath, content, 0644); err != nil {
+	if err := os.WriteFile(inputPath, content, 0o644); err != nil {
 		t.Fatalf("Create input: %v", err)
 	}
 
@@ -656,7 +656,7 @@ func TestSplitRejectsOverflowingChunkSize(t *testing.T) {
 			tmpDir := t.TempDir()
 			inputPath := filepath.Join(tmpDir, "overflow.pcv")
 			content := bytes.Repeat([]byte("Z"), 4096)
-			if err := os.WriteFile(inputPath, content, 0644); err != nil {
+			if err := os.WriteFile(inputPath, content, 0o644); err != nil {
 				t.Fatalf("Create input: %v", err)
 			}
 
@@ -728,7 +728,7 @@ func TestSplitTailErrorCleansUp(t *testing.T) {
 	inputPath := filepath.Join(tmpDir, "test.pcv")
 
 	// Small file → exactly 1 chunk so the Rename is the very next step after Sync/Close.
-	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("A"), 1024), 0644); err != nil {
+	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("A"), 1024), 0o644); err != nil {
 		t.Fatalf("create input: %v", err)
 	}
 
@@ -736,7 +736,7 @@ func TestSplitTailErrorCleansUp(t *testing.T) {
 	// (a) os.Rename(file, dir) fails with EISDIR/EEXIST, and (b) the Split pre-cleanup
 	// os.Remove call fails (non-empty dir), so the blocker survives to the rename step.
 	finalPath := inputPath + ".0"
-	if err := os.MkdirAll(filepath.Join(finalPath, "sentinel"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(finalPath, "sentinel"), 0o755); err != nil {
 		t.Fatalf("create blocking dir: %v", err)
 	}
 
@@ -767,7 +767,7 @@ func TestRecombineLargeChunks(t *testing.T) {
 	chunkData := bytes.Repeat([]byte("Y"), 2*1024*1024) // 2 MiB per chunk
 	for i := range 2 {
 		chunkPath := basePath + "." + string(rune('0'+i))
-		if err := os.WriteFile(chunkPath, chunkData, 0644); err != nil {
+		if err := os.WriteFile(chunkPath, chunkData, 0o644); err != nil {
 			t.Fatalf("Create chunk: %v", err)
 		}
 	}
@@ -799,7 +799,7 @@ func TestRecombineSingleChunk(t *testing.T) {
 	basePath := filepath.Join(tmpDir, "test.pcv")
 
 	chunkData := []byte("single chunk content")
-	if err := os.WriteFile(basePath+".0", chunkData, 0644); err != nil {
+	if err := os.WriteFile(basePath+".0", chunkData, 0o644); err != nil {
 		t.Fatalf("Create chunk: %v", err)
 	}
 

@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"Picocrypt-NG/internal/util"
 	"errors"
 	"fmt"
 	"io"
@@ -10,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"Picocrypt-NG/internal/util"
 )
 
 // recombineCloseFn is the function used to close a source chunk file.

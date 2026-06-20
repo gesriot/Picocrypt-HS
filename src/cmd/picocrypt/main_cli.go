@@ -3,10 +3,9 @@
 package main
 
 import (
+	"Picocrypt-NG/internal/cli"
 	"fmt"
 	"os"
-
-	"Picocrypt-NG/internal/cli"
 )
 
 // run is the CLI-only entry point.

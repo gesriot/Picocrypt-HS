@@ -2,14 +2,13 @@
 package ui
 
 import (
-	"fmt"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/util"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -133,7 +132,7 @@ func (a *App) showAppStorageDialog() {
 	appDir := a.getAppStorageDir()
 
 	// Ensure directory exists
-	if err := os.MkdirAll(appDir, 0700); err != nil {
+	if err := os.MkdirAll(appDir, 0o700); err != nil {
 		a.State.MainStatus = "Failed to create app storage"
 		a.State.MainStatusColor = util.RED
 		a.refreshUI()
@@ -290,27 +289,27 @@ func (a *App) CleanupMobileTempFiles() {
 
 func validateMobileTempFilename(name string) error {
 	if name == "" {
-		return fmt.Errorf("unsafe file name")
+		return errors.New("unsafe file name")
 	}
 	if name == "." || name == ".." {
-		return fmt.Errorf("unsafe file name")
+		return errors.New("unsafe file name")
 	}
 	if strings.ContainsAny(name, `/\`) {
-		return fmt.Errorf("unsafe file name")
+		return errors.New("unsafe file name")
 	}
 	if filepath.IsAbs(name) {
-		return fmt.Errorf("unsafe file name")
+		return errors.New("unsafe file name")
 	}
 	if len(name) >= 2 && name[1] == ':' {
-		return fmt.Errorf("unsafe file name")
+		return errors.New("unsafe file name")
 	}
 	if filepath.Base(name) != name {
-		return fmt.Errorf("unsafe file name")
+		return errors.New("unsafe file name")
 	}
 
 	trimmed := strings.TrimRight(name, " .")
 	if trimmed == "" || trimmed != name || trimmed == "." || trimmed == ".." {
-		return fmt.Errorf("unsafe file name")
+		return errors.New("unsafe file name")
 	}
 
 	return nil
@@ -325,7 +324,7 @@ func (a *App) copyURIToTemp(reader io.Reader, filename string) (string, error) {
 
 	// Create temp directory for mobile file copies
 	tempDir := a.getMobileTempDir()
-	if err := os.MkdirAll(tempDir, 0700); err != nil {
+	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return "", err
 	}
 

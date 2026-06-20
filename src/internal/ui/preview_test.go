@@ -1,12 +1,11 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 	"bytes"
 	"errors"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
 )
 
 // rs5Encode RS5-encodes a 5-byte field for crafting header bytes inline.
@@ -41,7 +40,7 @@ func craftPreviewBytes(t *testing.T, rs *encoding.RSCodecs, version, commentLen 
 	var buf bytes.Buffer
 	buf.Write(rs5Encode(t, rs, []byte(version)))
 	buf.Write(rs5Encode(t, rs, []byte(commentLen)))
-	for i := 0; i < len(comment); i++ {
+	for i := range len(comment) {
 		buf.Write(rs1Encode(t, rs, comment[i]))
 	}
 	buf.Write(rs5Encode(t, rs, flags))

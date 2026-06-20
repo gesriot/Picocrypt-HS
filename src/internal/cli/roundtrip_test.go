@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/header"
 	"archive/zip"
 	"bytes"
 	"errors"
@@ -8,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"Picocrypt-NG/internal/header"
 )
 
 // TestCLIRoundTrip encrypts a fixed plaintext then decrypts it using the real
@@ -24,7 +23,7 @@ func TestCLIRoundTrip(t *testing.T) {
 	writeKeyfile := func(t *testing.T, content []byte) string {
 		t.Helper()
 		p := filepath.Join(t.TempDir(), "keyfile.key")
-		if err := os.WriteFile(p, content, 0600); err != nil {
+		if err := os.WriteFile(p, content, 0o600); err != nil {
 			t.Fatalf("write keyfile: %v", err)
 		}
 		return p
@@ -139,7 +138,6 @@ func TestCLIRoundTrip(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset all flags before and after each sub-test to prevent bleed.
 			resetEncryptFlagsForDirTest()
@@ -152,7 +150,7 @@ func TestCLIRoundTrip(t *testing.T) {
 			encryptedFile := filepath.Join(tmpDir, "enc.pcv")
 			decryptedFile := filepath.Join(tmpDir, "dec.bin")
 
-			if err := os.WriteFile(inputFile, plaintext, 0600); err != nil {
+			if err := os.WriteFile(inputFile, plaintext, 0o600); err != nil {
 				t.Fatalf("write input: %v", err)
 			}
 

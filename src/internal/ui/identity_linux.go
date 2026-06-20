@@ -2,8 +2,10 @@
 
 package ui
 
-const linuxAppID = "io.github.picocrypt_ng.Picocrypt-NG"
-const linuxX11WMClass = "Picocrypt-NG"
+const (
+	linuxAppID      = "io.github.picocrypt_ng.Picocrypt-NG"
+	linuxX11WMClass = "Picocrypt-NG"
+)
 
 func runtimeAppID() string {
 	return linuxAppID

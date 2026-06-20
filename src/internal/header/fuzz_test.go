@@ -1,10 +1,9 @@
 package header
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"bytes"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // FuzzHeaderRead tests header parsing with arbitrary input to ensure robustness.

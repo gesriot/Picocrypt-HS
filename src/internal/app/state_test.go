@@ -1,6 +1,8 @@
 package app
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/util"
 	"errors"
 	"image/color"
 	"os"
@@ -8,9 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/util"
 )
 
 // repoRoot walks up from the test working directory to the repository root —

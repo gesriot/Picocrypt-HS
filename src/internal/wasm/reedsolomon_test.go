@@ -1,16 +1,15 @@
 package wasm
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/volume"
 	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/volume"
 )
 
 // desktopDecrypt decrypts a WASM-produced volume via the shared desktop engine,
@@ -20,7 +19,7 @@ func desktopDecrypt(t *testing.T, volumeData []byte, password string) []byte {
 	tmp := t.TempDir()
 	in := filepath.Join(tmp, "v.pcv")
 	out := filepath.Join(tmp, "v.out")
-	if err := os.WriteFile(in, volumeData, 0600); err != nil {
+	if err := os.WriteFile(in, volumeData, 0o600); err != nil {
 		t.Fatalf("write volume: %v", err)
 	}
 	rs, err := encoding.NewRSCodecs()
@@ -121,7 +120,7 @@ func TestWASMReedSolomonRepairsCorrectableDamage(t *testing.T) {
 	// first 136-byte block) so the fast pass yields a wrong MAC and the full-RS retry
 	// must repair it. RS128 corrects up to 4 errors per 136-byte block.
 	payloadStart := header.HeaderSize(0)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		vol[payloadStart+i] ^= 0xFF
 	}
 	res, code := DecryptVolume(vol, []byte(password), DecryptOptions{})
@@ -142,7 +141,7 @@ func TestWASMReedSolomonUncorrectableFailsClosed(t *testing.T) {
 	}
 	// 9 byte-errors in one 136-byte block: beyond the RS budget -> unrecoverable.
 	payloadStart := header.HeaderSize(0)
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		vol[payloadStart+i] ^= 0xFF
 	}
 	_, code = DecryptVolume(vol, []byte(password), DecryptOptions{})
@@ -157,7 +156,7 @@ func TestWASMReedSolomonDesktopEncryptWASMDecrypt(t *testing.T) {
 	tmp := t.TempDir()
 	in := filepath.Join(tmp, "p.txt")
 	out := filepath.Join(tmp, "p.pcv")
-	if err := os.WriteFile(in, plaintext, 0600); err != nil {
+	if err := os.WriteFile(in, plaintext, 0o600); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
 	rs, err := encoding.NewRSCodecs()

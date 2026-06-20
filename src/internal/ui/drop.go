@@ -1,6 +1,10 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/util"
+	"Picocrypt-NG/internal/volume"
 	"errors"
 	"fmt"
 	"os"
@@ -9,11 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/util"
-	"Picocrypt-NG/internal/volume"
 
 	"fyne.io/fyne/v2"
 )

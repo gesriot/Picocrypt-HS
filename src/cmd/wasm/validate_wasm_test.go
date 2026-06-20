@@ -3,13 +3,12 @@
 package main
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 	"bytes"
 	"strings"
 	"syscall/js"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
 )
 
 // Pins the bridge error code: non-zero and distinct from internal/wasm 1-5.

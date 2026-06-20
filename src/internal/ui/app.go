@@ -28,6 +28,9 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/util"
 	"context"
 	_ "embed"
 	"fmt"
@@ -35,10 +38,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"Picocrypt-NG/internal/app"
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
 	fyneApp "fyne.io/fyne/v2/app"

@@ -1,6 +1,12 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
+	"Picocrypt-NG/internal/log"
+	"Picocrypt-NG/internal/util"
 	"bytes"
 	"context"
 	"os"
@@ -8,13 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/keyfile"
-	"Picocrypt-NG/internal/log"
-	"Picocrypt-NG/internal/util"
 )
 
 // dupWarnReporter is a minimal ProgressReporter that records whether it ever
@@ -73,10 +73,10 @@ func synthesizeV1DupKeyfileVolume(t *testing.T, plaintext []byte, password strin
 	keyfileContent := []byte("v1-dup-keyfile-content-for-DATA-02")
 	kf1 := filepath.Join(tmpDir, "keyfile_dup_a.bin")
 	kf2 := filepath.Join(tmpDir, "keyfile_dup_b.bin")
-	if err := os.WriteFile(kf1, keyfileContent, 0600); err != nil {
+	if err := os.WriteFile(kf1, keyfileContent, 0o600); err != nil {
 		t.Fatalf("write keyfile a: %v", err)
 	}
-	if err := os.WriteFile(kf2, keyfileContent, 0600); err != nil {
+	if err := os.WriteFile(kf2, keyfileContent, 0o600); err != nil {
 		t.Fatalf("write keyfile b: %v", err)
 	}
 	dupKeyfiles = []string{kf1, kf2}
@@ -158,7 +158,7 @@ func synthesizeV1DupKeyfileVolume(t *testing.T, plaintext []byte, password strin
 	}
 
 	pcvPath = filepath.Join(tmpDir, "v1_dup_keyfile.pcv")
-	fout, err := os.OpenFile(pcvPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	fout, err := os.OpenFile(pcvPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		t.Fatalf("create pcv: %v", err)
 	}
@@ -195,7 +195,7 @@ func synthesizeV1DupKeyfileVolume(t *testing.T, plaintext []byte, password strin
 	}
 
 	// Step 10: patch auth values (KeyHash, KeyfileHash, AuthTag).
-	foutRW, err := os.OpenFile(pcvPath, os.O_RDWR, 0600)
+	foutRW, err := os.OpenFile(pcvPath, os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatalf("open pcv for auth patch: %v", err)
 	}

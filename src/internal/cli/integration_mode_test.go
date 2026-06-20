@@ -23,7 +23,7 @@ func TestStdinOverwriteGuard(t *testing.T) {
 		t.Cleanup(resetEncryptFlagsForDirTest)
 
 		out := filepath.Join(t.TempDir(), "existing.pcv")
-		if err := os.WriteFile(out, []byte("original"), 0644); err != nil {
+		if err := os.WriteFile(out, []byte("original"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -52,7 +52,7 @@ func TestStdinOverwriteGuard(t *testing.T) {
 		resetEncryptFlagsForDirTest()
 
 		out := filepath.Join(t.TempDir(), "existing.pcv")
-		if err := os.WriteFile(out, []byte("original"), 0644); err != nil {
+		if err := os.WriteFile(out, []byte("original"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -87,7 +87,7 @@ func TestStdinOverwriteGuard(t *testing.T) {
 		t.Cleanup(resetDecryptFlagsForDirTest)
 
 		out := filepath.Join(t.TempDir(), "decrypted-existing")
-		if err := os.WriteFile(out, []byte("original"), 0644); err != nil {
+		if err := os.WriteFile(out, []byte("original"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 

@@ -3,11 +3,10 @@
 package main
 
 import (
-	"fmt"
-	"os"
-
 	"Picocrypt-NG/internal/cli"
 	"Picocrypt-NG/internal/ui"
+	"fmt"
+	"os"
 
 	"fyne.io/fyne/v2"
 	fyneApp "fyne.io/fyne/v2/app"

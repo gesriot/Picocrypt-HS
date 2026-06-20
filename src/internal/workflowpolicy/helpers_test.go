@@ -123,18 +123,6 @@ func mustStepNamed(t *testing.T, job workflowJob, name string) workflowStep {
 	return workflowStep{}
 }
 
-func mustStepUsing(t *testing.T, job workflowJob, uses string) workflowStep {
-	t.Helper()
-
-	for _, step := range job.Steps {
-		if step.Uses == uses {
-			return step
-		}
-	}
-	t.Fatalf("expected job to contain step using %q", uses)
-	return workflowStep{}
-}
-
 func mustNotHaveStepNamed(t *testing.T, job workflowJob, name string) {
 	t.Helper()
 

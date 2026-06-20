@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -19,7 +20,7 @@ func requiredAdditionalBytesForExtraction(desiredSizes map[string]int64) (int64,
 
 		delta := desiredSize - existingSize
 		if required > math.MaxInt64-delta {
-			return 0, fmt.Errorf("required extraction size exceeds int64 max")
+			return 0, errors.New("required extraction size exceeds int64 max")
 		}
 		required += delta
 	}

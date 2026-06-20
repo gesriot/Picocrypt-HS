@@ -1,9 +1,13 @@
 package mobile
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/volume"
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,10 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/volume"
 )
 
 // TestErrorCodeFor pins the pipeline-error -> stable-code mapping the Android
@@ -55,7 +56,7 @@ func TestErrorCodeFor(t *testing.T) {
 		// Auth must win over corruption when both are in the chain, mirroring the
 		// old substring logic (auth checked before/over corruption).
 		{name: "auth wins over corruption", err: fmt.Errorf("%w: %w", perrors.ErrAuthFailed, perrors.ErrCorruptData), want: "AUTH_FAILED"},
-		{name: "unknown error is generic", err: fmt.Errorf("something unexpected"), want: "GENERIC"},
+		{name: "unknown error is generic", err: errors.New("something unexpected"), want: "GENERIC"},
 	}
 
 	for _, tc := range tests {
@@ -112,7 +113,7 @@ func TestDetectOperation(t *testing.T) {
 func TestCompleteOperationDoesNotOverwriteCancelledState(t *testing.T) {
 	resetProgressMap()
 
-	id, _, _ := startOperation()
+	id := startOperation()
 	if err := cancelOperation(id); err != nil {
 		t.Fatal(err)
 	}

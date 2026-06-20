@@ -2,6 +2,10 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/util"
 	"bytes"
 	"context"
 	"errors"
@@ -14,11 +18,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/util"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -156,16 +155,16 @@ func TestMultipleDropLabels(t *testing.T) {
 			dir := t.TempDir()
 
 			var paths []string
-			for i := 0; i < tc.files; i++ {
+			for i := range tc.files {
 				p := filepath.Join(dir, "file"+strconv.Itoa(i)+".txt")
-				if err := os.WriteFile(p, []byte("x"), 0644); err != nil {
+				if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
 					t.Fatalf("write file: %v", err)
 				}
 				paths = append(paths, p)
 			}
-			for i := 0; i < tc.folders; i++ {
+			for i := range tc.folders {
 				p := filepath.Join(dir, "folder"+strconv.Itoa(i))
-				if err := os.Mkdir(p, 0755); err != nil {
+				if err := os.Mkdir(p, 0o755); err != nil {
 					t.Fatalf("mkdir: %v", err)
 				}
 				paths = append(paths, p)
@@ -231,7 +230,7 @@ func TestApplyStartupPathsLoadsInitialFiles(t *testing.T) {
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "report.txt")
-	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -313,7 +312,7 @@ func TestApplyStartupPathsTreatsUppercaseVolumeExtensionAsDecrypt(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Read golden volume: %v", err)
 	}
-	if err := os.WriteFile(inputFile, data, 0644); err != nil {
+	if err := os.WriteFile(inputFile, data, 0o644); err != nil {
 		t.Fatalf("Write uppercase volume: %v", err)
 	}
 
@@ -379,7 +378,7 @@ func TestApplyStartupPathsSkipsInvalidArgsWhenValidPathsRemain(t *testing.T) {
 	tempDir := t.TempDir()
 	missingPath := filepath.Join(tempDir, "missing.txt")
 	inputFile := filepath.Join(tempDir, "report.txt")
-	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -405,7 +404,7 @@ func TestApplyStartupPathsAllowsHyphenPrefixedFilename(t *testing.T) {
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "-secret.txt")
-	if err := os.WriteFile(inputFile, []byte("secret"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("secret"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -452,7 +451,7 @@ func TestApplyStartupPathsPreservesPartialAccessWarning(t *testing.T) {
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "report.txt")
-	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -557,20 +556,20 @@ func TestFolderWalkErrorClearsScanningState(t *testing.T) {
 	a := createUIReadyDropTestApp(t, fyneApp)
 	rootDir := t.TempDir()
 	blockedDir := filepath.Join(rootDir, "blocked")
-	if err := os.Mkdir(blockedDir, 0700); err != nil {
+	if err := os.Mkdir(blockedDir, 0o700); err != nil {
 		t.Fatalf("create blocked dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(rootDir, "visible.txt"), []byte("ok"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(rootDir, "visible.txt"), []byte("ok"), 0o600); err != nil {
 		t.Fatalf("create visible file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(blockedDir, "secret.txt"), []byte("secret"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(blockedDir, "secret.txt"), []byte("secret"), 0o600); err != nil {
 		t.Fatalf("create blocked file: %v", err)
 	}
 	if err := os.Chmod(blockedDir, 0); err != nil {
 		t.Fatalf("chmod blocked dir: %v", err)
 	}
 	defer func() {
-		_ = os.Chmod(blockedDir, 0700)
+		_ = os.Chmod(blockedDir, 0o700)
 	}()
 
 	fyne.DoAndWait(func() {
@@ -601,7 +600,7 @@ func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "startup.txt")
-	if err := os.WriteFile(inputFile, []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -639,7 +638,7 @@ func TestScheduleStartupPathsSkipsMissingArgvWhenValidPathsRemain(t *testing.T) 
 	tempDir := t.TempDir()
 	missingPath := filepath.Join(tempDir, "missing.txt")
 	inputFile := filepath.Join(tempDir, "report.txt")
-	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -668,7 +667,7 @@ func TestScheduleStartupPathsPreservesPartialAccessWarningForArgv(t *testing.T) 
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "report.txt")
-	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("quarterly report"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -760,7 +759,7 @@ func TestScheduleStartupPathsAppliesWarmOpenedPaths(t *testing.T) {
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "warm-open.txt")
-	if err := os.WriteFile(inputFile, []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -808,7 +807,7 @@ func TestSeparateWarmOpenedPathReplacesSelectionAfterFirstSessionApplied(t *test
 	first := filepath.Join(tempDir, "first.txt")
 	second := filepath.Join(tempDir, "second.txt")
 	for _, path := range []string{first, second} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -855,7 +854,7 @@ func TestScheduleStartupPathsCoalescesColdAndLateOpenedBatches(t *testing.T) {
 		filepath.Join(tempDir, "c.txt"),
 	}
 	for _, path := range paths {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -895,7 +894,7 @@ func TestOpenedPathsWaitForReadinessBeforeApply(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
 	inputFile := filepath.Join(t.TempDir(), "icloud.txt")
-	if err := os.WriteFile(inputFile, []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(inputFile, []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -942,7 +941,7 @@ func TestOpenedPathsMergeLateICloudFileDeliveriesDuringReadiness(t *testing.T) {
 	first := filepath.Join(tempDir, "icloud-first.txt")
 	second := filepath.Join(tempDir, "icloud-second.txt")
 	for _, path := range []string{first, second} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -993,7 +992,7 @@ func TestOpenedPathsCollectsReadyUbiquitousFilesAcrossSlowCallbacks(t *testing.T
 	first := filepath.Join(tempDir, "ready-icloud-first.txt")
 	second := filepath.Join(tempDir, "ready-icloud-second.txt")
 	for _, path := range []string{first, second} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1044,10 +1043,10 @@ func TestICloudFolderOpenDoesNotWaitForLateFileCollection(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
 	folder := filepath.Join(t.TempDir(), "icloud-folder")
-	if err := os.Mkdir(folder, 0755); err != nil {
+	if err := os.Mkdir(folder, 0o755); err != nil {
 		t.Fatalf("Create test folder: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(folder, "child.txt"), []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(folder, "child.txt"), []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create child file: %v", err)
 	}
 
@@ -1094,7 +1093,7 @@ func TestManualDropCancelsCloudOpenCollectionAndSuppressesLateFiles(t *testing.T
 	cloudLate := filepath.Join(tempDir, "cloud-late.txt")
 	manual := filepath.Join(tempDir, "manual.txt")
 	for _, path := range []string{cloudFirst, cloudLate, manual} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1151,7 +1150,7 @@ func TestManualDropCancelsReadinessBeforeCloudMetadataAndSuppressesLateFiles(t *
 	cloudLate := filepath.Join(tempDir, "cloud-late-before-metadata.txt")
 	manual := filepath.Join(tempDir, "manual-before-metadata.txt")
 	for _, path := range []string{cloudFirst, cloudLate, manual} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1219,7 +1218,7 @@ func TestLateICloudFileDuringQueuedReadyApplyExtendsSameSelection(t *testing.T) 
 	first := filepath.Join(tempDir, "queued-ready-first.txt")
 	second := filepath.Join(tempDir, "queued-ready-second.txt")
 	for _, path := range []string{first, second} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1300,7 +1299,7 @@ func TestOpenedPathsMergeSecondBatchDuringFirstReadinessCheck(t *testing.T) {
 	first := filepath.Join(tempDir, "during-check-first.txt")
 	second := filepath.Join(tempDir, "during-check-second.txt")
 	for _, path := range []string{first, second} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1369,7 +1368,7 @@ func TestLateICloudBatchAfterReadyApplyExtendsSameSelection(t *testing.T) {
 	first := filepath.Join(tempDir, "post-apply-first.txt")
 	second := filepath.Join(tempDir, "post-apply-second.txt")
 	for _, path := range []string{first, second} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1413,14 +1412,14 @@ func TestLateICloudFileBatchAfterFolderApplyExtendsSameSelection(t *testing.T) {
 	a := createUIReadyDropTestApp(t, fyneApp)
 	tempDir := t.TempDir()
 	folder := filepath.Join(tempDir, "icloud-late-folder")
-	if err := os.Mkdir(folder, 0755); err != nil {
+	if err := os.Mkdir(folder, 0o755); err != nil {
 		t.Fatalf("Create test folder: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(folder, "child.txt"), []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(folder, "child.txt"), []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create child file: %v", err)
 	}
 	file := filepath.Join(tempDir, "icloud-late-file.txt")
-	if err := os.WriteFile(file, []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -1486,7 +1485,7 @@ func TestSeparateICloudOpenAfterMergeWindowReplacesSelection(t *testing.T) {
 	first := filepath.Join(tempDir, "expired-window-first.txt")
 	second := filepath.Join(tempDir, "expired-window-second.txt")
 	for _, path := range []string{first, second} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1537,7 +1536,7 @@ func TestManualDropAfterCloudApplySuppressesLateBatch(t *testing.T) {
 	cloudLate := filepath.Join(tempDir, "cloud-late-after-apply.txt")
 	manual := filepath.Join(tempDir, "manual-after-apply.txt")
 	for _, path := range []string{cloudFirst, cloudLate, manual} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1586,7 +1585,7 @@ func TestForeignScanFinishesOpenedPathReadinessSession(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
 	cloudFile := filepath.Join(t.TempDir(), "cloud-during-foreign-scan.txt")
-	if err := os.WriteFile(cloudFile, []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(cloudFile, []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -1653,7 +1652,7 @@ func TestOpenedPathSessionSurvivesOwnGestureScan(t *testing.T) {
 	first := filepath.Join(tempDir, "own-scan-first.txt")
 	late := filepath.Join(tempDir, "own-scan-late.txt")
 	for _, path := range []string{first, late} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1715,7 +1714,7 @@ func TestManualDropAfterCloudApplySuppressesLateBatchUntilMergeWindowEnds(t *tes
 	cloudLate := filepath.Join(tempDir, "cloud-gap-late.txt")
 	manual := filepath.Join(tempDir, "manual-gap.txt")
 	for _, path := range []string{cloudFirst, cloudLate, manual} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1778,7 +1777,7 @@ func TestStragglersCannotShortenManualDropSuppressionWindow(t *testing.T) {
 	cloudLate2 := filepath.Join(tempDir, "cloud-shorten-late2.txt")
 	manual := filepath.Join(tempDir, "manual-shorten.txt")
 	for _, path := range []string{cloudFirst, cloudLate1, cloudLate2, manual} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1830,7 +1829,7 @@ func TestOpenedPathReadinessCancellationPreventsStaleApply(t *testing.T) {
 	pendingFile := filepath.Join(t.TempDir(), "pending.txt")
 	manualFile := filepath.Join(t.TempDir(), "manual.txt")
 	for _, path := range []string{pendingFile, manualFile} {
-		if err := os.WriteFile(path, []byte("payload"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
 			t.Fatalf("Create test file %q: %v", path, err)
 		}
 	}
@@ -1874,7 +1873,7 @@ func TestInvalidStartCancelsOpenedPathReadiness(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
 	pendingFile := filepath.Join(t.TempDir(), "pending-start.txt")
-	if err := os.WriteFile(pendingFile, []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(pendingFile, []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -1925,7 +1924,7 @@ func TestOpenedPathReadinessPendingStatusDoesNotOverwriteBusyStatus(t *testing.T
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
 	pendingFile := filepath.Join(t.TempDir(), "pending-status.txt")
-	if err := os.WriteFile(pendingFile, []byte("payload"), 0644); err != nil {
+	if err := os.WriteFile(pendingFile, []byte("payload"), 0o644); err != nil {
 		t.Fatalf("Create test file: %v", err)
 	}
 
@@ -2029,11 +2028,11 @@ func TestKeyfileDropHandling(t *testing.T) {
 	key2 := filepath.Join(dir, "key2.bin")
 	subdir := filepath.Join(dir, "adir")
 	for _, p := range []string{key1, key2} {
-		if err := os.WriteFile(p, []byte("k"), 0644); err != nil {
+		if err := os.WriteFile(p, []byte("k"), 0o644); err != nil {
 			t.Fatalf("write keyfile %q: %v", p, err)
 		}
 	}
-	if err := os.Mkdir(subdir, 0755); err != nil {
+	if err := os.Mkdir(subdir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -2318,7 +2317,7 @@ func TestHandleDecryptDropNonCommentDecodeErrorIsHeaderDamage(t *testing.T) {
 	}
 
 	pcvPath := filepath.Join(t.TempDir(), "non-comment-corrupt.pcv")
-	if err := os.WriteFile(pcvPath, raw, 0644); err != nil {
+	if err := os.WriteFile(pcvPath, raw, 0o644); err != nil {
 		t.Fatalf("write crafted .pcv: %v", err)
 	}
 
@@ -2375,7 +2374,7 @@ func TestHandleDecryptDropMalformedCommentLen(t *testing.T) {
 			raw = append(raw, make([]byte, header.BaseHeaderSize)...)
 
 			pcvPath := filepath.Join(t.TempDir(), "crafted.pcv")
-			if err := os.WriteFile(pcvPath, raw, 0644); err != nil {
+			if err := os.WriteFile(pcvPath, raw, 0o644); err != nil {
 				t.Fatalf("write crafted .pcv: %v", err)
 			}
 

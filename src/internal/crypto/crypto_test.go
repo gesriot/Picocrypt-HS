@@ -3,7 +3,6 @@ package crypto
 import (
 	"bytes"
 	"encoding/hex"
-	"fmt"
 	"testing"
 )
 
@@ -95,10 +94,10 @@ func TestDeriveKey(t *testing.T) {
 		wantNormal   = "6aa5327cce3126fc935fddfd3eccf45db2479880e33196e235d261c7dbd8d369"
 		wantParanoid = "f57a11e75223311f35e8b21def3a0abd579985c9f6a2ea61fb35d1282bf6966d"
 	)
-	if got := fmt.Sprintf("%x", key1); got != wantNormal {
+	if got := hex.EncodeToString(key1); got != wantNormal {
 		t.Errorf("normal key = %s; want %s", got, wantNormal)
 	}
-	if got := fmt.Sprintf("%x", key2); got != wantParanoid {
+	if got := hex.EncodeToString(key2); got != wantParanoid {
 		t.Errorf("paranoid key = %s; want %s", got, wantParanoid)
 	}
 }
@@ -146,7 +145,6 @@ func TestSubkeyReader(t *testing.T) {
 	if len(serpentKey) != SubkeySerpentSize {
 		t.Errorf("Serpent key length = %d; want %d", len(serpentKey), SubkeySerpentSize)
 	}
-
 }
 
 func TestSubkeyReaderOrdering(t *testing.T) {

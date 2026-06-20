@@ -45,7 +45,7 @@ func BufferStdinToTemp(outputPath string) (string, error) {
 	tmpPath := tmp.Name()
 
 	// Set restrictive permissions
-	if err := tmp.Chmod(0600); err != nil {
+	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("setting temp file permissions: %w", err)
@@ -104,7 +104,7 @@ func CreateTempOutput(estimatedSize int64) (string, error) {
 	tmpPath := tmp.Name()
 
 	// Set restrictive permissions
-	if err := tmp.Chmod(0600); err != nil {
+	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("setting temp file permissions: %w", err)

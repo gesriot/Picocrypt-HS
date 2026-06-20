@@ -1,13 +1,12 @@
 package header
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
 	"strconv"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // ErrCorruptedHeader indicates the header could not be decoded

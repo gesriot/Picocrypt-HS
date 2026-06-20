@@ -1,13 +1,12 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
 )
 
 // TestIsDeniableReturnsFalseOnVersionReadError covers IsDeniable's I/O-error

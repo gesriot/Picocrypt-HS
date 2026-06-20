@@ -64,7 +64,7 @@ func TestSentinelErrors(t *testing.T) {
 	for i := range tests {
 		for j := i + 1; j < len(tests); j++ {
 			a, b := tests[i], tests[j]
-			if a.err == b.err {
+			if errors.Is(a.err, b.err) {
 				t.Errorf("%s and %s are the same error value; sentinels must be distinct", a.name, b.name)
 			}
 			if errors.Is(a.err, b.err) {
@@ -85,7 +85,7 @@ func TestCryptoError(t *testing.T) {
 		t.Errorf("unexpected error message: %s", cryptoErr.Error())
 	}
 
-	if cryptoErr.Unwrap() != baseErr {
+	if !errors.Is(cryptoErr.Unwrap(), baseErr) {
 		t.Error("Unwrap should return underlying error")
 	}
 
@@ -104,7 +104,7 @@ func TestFileError(t *testing.T) {
 		t.Errorf("unexpected error message: %s", fileErr.Error())
 	}
 
-	if fileErr.Unwrap() != baseErr {
+	if !errors.Is(fileErr.Unwrap(), baseErr) {
 		t.Error("Unwrap should return underlying error")
 	}
 
@@ -132,7 +132,7 @@ func TestHeaderError(t *testing.T) {
 		t.Errorf("unexpected error message: %s", headerErr.Error())
 	}
 
-	if headerErr.Unwrap() != baseErr {
+	if !errors.Is(headerErr.Unwrap(), baseErr) {
 		t.Error("Unwrap should return underlying error")
 	}
 }

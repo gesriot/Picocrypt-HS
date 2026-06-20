@@ -41,9 +41,9 @@ func newOperationID() string {
 }
 
 // startOperation creates a new operation and returns its ID
-func startOperation() (string, context.Context, context.CancelFunc) {
+func startOperation() string {
 	id := newOperationID()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is stored in globalProgressMap.cancels and called by cancelOperation
 
 	globalProgressMap.mu.Lock()
 	defer globalProgressMap.mu.Unlock()
@@ -59,7 +59,7 @@ func startOperation() (string, context.Context, context.CancelFunc) {
 	globalProgressMap.ctxs[id] = ctx
 	globalProgressMap.cancels[id] = cancel
 
-	return id, ctx, cancel
+	return id
 }
 
 // updateProgress updates the progress state for an operation

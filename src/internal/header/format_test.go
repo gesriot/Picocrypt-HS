@@ -1,14 +1,13 @@
 package header
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // rootVersion reads the canonical root VERSION file by walking up from the test's

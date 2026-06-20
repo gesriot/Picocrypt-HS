@@ -14,7 +14,7 @@ func createTestKeyfiles(t *testing.T, dir string, contents map[string][]byte) []
 	var paths []string
 	for name, data := range contents {
 		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, data, 0600); err != nil {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatalf("failed to create test keyfile %s: %v", name, err)
 		}
 		paths = append(paths, path)
@@ -137,10 +137,10 @@ func TestProcessEmpty(t *testing.T) {
 // algorithm) breaks the pinned value.
 func TestProcessOrderedKAT(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "alpha.key"), []byte("alpha"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "alpha.key"), []byte("alpha"), 0o600); err != nil {
 		t.Fatalf("write alpha: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "beta.key"), []byte("beta"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "beta.key"), []byte("beta"), 0o600); err != nil {
 		t.Fatalf("write beta: %v", err)
 	}
 
@@ -172,10 +172,10 @@ func TestProcessOrderedKAT(t *testing.T) {
 // (XOR commutativity) and that it is distinct from the ordered derivation.
 func TestProcessUnorderedKAT(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "alpha.key"), []byte("alpha"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "alpha.key"), []byte("alpha"), 0o600); err != nil {
 		t.Fatalf("write alpha: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "beta.key"), []byte("beta"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "beta.key"), []byte("beta"), 0o600); err != nil {
 		t.Fatalf("write beta: %v", err)
 	}
 
@@ -224,10 +224,10 @@ func TestProcessProgressBoundedMonotonic(t *testing.T) {
 
 	// Multi-MiB file across two files to force several callback invocations.
 	content := bytes.Repeat([]byte("y"), 1024*1024*3) // 3 MiB
-	if err := os.WriteFile(filepath.Join(dir, "p1.key"), content, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "p1.key"), content, 0o600); err != nil {
 		t.Fatalf("write p1: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "p2.key"), content, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "p2.key"), content, 0o600); err != nil {
 		t.Fatalf("write p2: %v", err)
 	}
 
@@ -385,7 +385,7 @@ func TestProcessOrderedReadError(t *testing.T) {
 
 	// Create a directory instead of a file (will cause read error)
 	dirPath := filepath.Join(dir, "not_a_file")
-	if err := os.Mkdir(dirPath, 0755); err != nil {
+	if err := os.Mkdir(dirPath, 0o755); err != nil {
 		t.Fatalf("Create dir: %v", err)
 	}
 
@@ -400,7 +400,7 @@ func TestProcessUnorderedReadError(t *testing.T) {
 
 	// Create a directory instead of a file (will cause read error)
 	dirPath := filepath.Join(dir, "not_a_file")
-	if err := os.Mkdir(dirPath, 0755); err != nil {
+	if err := os.Mkdir(dirPath, 0o755); err != nil {
 		t.Fatalf("Create dir: %v", err)
 	}
 
@@ -422,13 +422,13 @@ func TestProcessReadersMatchesProcess(t *testing.T) {
 	pa := filepath.Join(dir, "a.key")
 	pb := filepath.Join(dir, "b.key")
 	pc := filepath.Join(dir, "c.key")
-	if err := os.WriteFile(pa, a, 0600); err != nil {
+	if err := os.WriteFile(pa, a, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pb, b, 0600); err != nil {
+	if err := os.WriteFile(pb, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pc, c, 0600); err != nil {
+	if err := os.WriteFile(pc, c, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
