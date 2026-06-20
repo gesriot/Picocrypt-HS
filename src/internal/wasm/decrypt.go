@@ -15,14 +15,15 @@ import (
 
 // Error codes matching website convention
 const (
-	ErrUnsupported       = 1 // Keyfiles required, deniability, split chunks
-	ErrCorruptedHeader   = 2 // RS decode failure
-	ErrWrongPassword     = 3 // Auth verification failed
-	ErrModifiedData      = 4 // Payload MAC mismatch
-	ErrRandomFailure     = 5 // Random generation failed (encrypt only)
-	ErrKeyfilesRequired  = 7 // volume needs keyfiles, none provided
-	ErrKeyfilesIncorrect = 8 // provided keyfiles don't match the stored hash
-	ErrKeyfilesDuplicate = 9 // keyfiles XOR to an all-zero key
+	ErrUnsupported       = 1  // Keyfiles required, deniability, split chunks
+	ErrCorruptedHeader   = 2  // RS decode failure
+	ErrWrongPassword     = 3  // Auth verification failed
+	ErrModifiedData      = 4  // Payload MAC mismatch
+	ErrRandomFailure     = 5  // Random generation failed (encrypt only)
+	ErrKeyfilesRequired  = 7  // volume needs keyfiles, none provided
+	ErrKeyfilesIncorrect = 8  // provided keyfiles don't match the stored hash
+	ErrKeyfilesDuplicate = 9  // keyfiles XOR to an all-zero key
+	ErrModifiedButKept   = 10 // payload MAC failed; output kept on user-forced decrypt (untrusted)
 )
 
 // DecryptResult is the successful output of DecryptVolume. On error the int
@@ -30,11 +31,13 @@ const (
 type DecryptResult struct {
 	Plaintext []byte
 	Comments  string // plaintext header comments ("" if none)
+	Kept      bool   // true iff returned under ErrModifiedButKept (untrusted, force-decrypt)
 }
 
 // DecryptOptions configures an in-memory decryption.
 type DecryptOptions struct {
 	Keyfiles [][]byte // required iff the volume's header sets UseKeyfiles
+	Force    bool     // keep best-effort output despite a payload MAC failure (untrusted)
 }
 
 // DecryptVolume decrypts a Picocrypt volume from memory.
@@ -179,48 +182,76 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 	// Read payload from remaining bytes
 	payload := volumeData[headerSize:]
 
-	// Pass 1: decrypt with the fast path (RS strips parity without correction).
+	// Pass 1: fast path (RS strips parity without correction; plain stream decrypt).
 	reedSolomon := hdr.Flags.ReedSolomon
 	var counter int64
 	var plaintext []byte
 	if reedSolomon {
-		plaintext, err = decryptRSPayload(payload, cipherSuite, rsCodecs, hdr.Flags.Padded, true)
+		plaintext, err = decryptRSPayload(payload, cipherSuite, rsCodecs, hdr.Flags.Padded, false, true)
 	} else {
 		plaintext, err = decryptPlainPayload(payload, cipherSuite, &counter)
 	}
-	if err != nil {
+
+	if err == nil {
+		computedMAC := cipherSuite.Sum()
+		macValid := subtle.ConstantTimeCompare(computedMAC, hdr.AuthTag) == 1
+		zeroWASMSensitiveBuffer(wasmZeroingDecryptComputedMAC, computedMAC)
+		if macValid {
+			return DecryptResult{Plaintext: plaintext, Comments: hdr.Comments}, 0
+		}
+		// RS guarded retry: correctable damage makes the fast pass yield a wrong
+		// MAC. Rebuild the cipher suite and re-decrypt ONCE with full correction.
+		if reedSolomon {
+			zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, plaintext)
+			retryCS, code := buildDecryptCipherSuite(key, cipherKey, hdr, isLegacyV1)
+			if code != 0 {
+				return DecryptResult{}, code
+			}
+			defer retryCS.Close()
+			plaintext, err = decryptRSPayload(payload, retryCS, rsCodecs, hdr.Flags.Padded, false, false)
+			if err == nil {
+				retryMAC := retryCS.Sum()
+				macValid = subtle.ConstantTimeCompare(retryMAC, hdr.AuthTag) == 1
+				zeroWASMSensitiveBuffer(wasmZeroingDecryptComputedMAC, retryMAC)
+				if macValid {
+					return DecryptResult{Plaintext: plaintext, Comments: hdr.Comments}, 0
+				}
+			} else {
+				plaintext = nil // uncorrectable; only a forced salvage can recover
+			}
+		}
+	}
+
+	// Payload did not verify. Without force, fail closed (unchanged behavior).
+	if !opts.Force {
+		if plaintext != nil {
+			zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, plaintext)
+		}
 		return DecryptResult{}, ErrModifiedData
 	}
 
-	computedMAC := cipherSuite.Sum()
-	macValid := subtle.ConstantTimeCompare(computedMAC, hdr.AuthTag) == 1
-	zeroWASMSensitiveBuffer(wasmZeroingDecryptComputedMAC, computedMAC)
-
-	// RS guarded retry: correctable damage makes the fast pass yield a wrong MAC.
-	// Rebuild the cipher suite and re-decrypt ONCE with full RS correction before
-	// rejecting. cipherKey is still live here (its wipe is deferred to return).
-	if !macValid && reedSolomon {
-		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, plaintext)
-		retryCS, code := buildDecryptCipherSuite(key, cipherKey, hdr, isLegacyV1)
+	// Forced best-effort recovery — UNTRUSTED output under a distinct code.
+	// A non-nil plaintext here is the best effort already computed: pass-1 bytes
+	// (non-RS) or the full-RS-corrected-but-unauthenticated retry; both are kept
+	// as-is. Only a nil plaintext (RS uncorrectable, or a stream error) needs a
+	// dedicated forceDecode salvage pass.
+	if plaintext == nil {
+		// Nothing coherent yet: a non-RS stream error cannot be recovered; an RS
+		// payload gets one forceDecode pass (raw bytes on uncorrectable blocks).
+		if !reedSolomon {
+			return DecryptResult{}, ErrModifiedData
+		}
+		salvageCS, code := buildDecryptCipherSuite(key, cipherKey, hdr, isLegacyV1)
 		if code != 0 {
 			return DecryptResult{}, code
 		}
-		defer retryCS.Close()
-		plaintext, err = decryptRSPayload(payload, retryCS, rsCodecs, hdr.Flags.Padded, false)
+		defer salvageCS.Close()
+		plaintext, err = decryptRSPayload(payload, salvageCS, rsCodecs, hdr.Flags.Padded, true, false)
 		if err != nil {
 			return DecryptResult{}, ErrModifiedData
 		}
-		retryMAC := retryCS.Sum()
-		macValid = subtle.ConstantTimeCompare(retryMAC, hdr.AuthTag) == 1
-		zeroWASMSensitiveBuffer(wasmZeroingDecryptComputedMAC, retryMAC)
 	}
-
-	if !macValid {
-		zeroWASMSensitiveBuffer(wasmZeroingDecryptPlaintextChunk, plaintext)
-		return DecryptResult{}, ErrModifiedData
-	}
-
-	return DecryptResult{Plaintext: plaintext, Comments: hdr.Comments}, 0
+	return DecryptResult{Plaintext: plaintext, Comments: hdr.Comments, Kept: true}, ErrModifiedButKept
 }
 
 // verifyWASMHeader checks whether key authenticates the volume header and, on
@@ -262,19 +293,19 @@ func hasUnsupportedWASMFeature(flags header.Flags) bool {
 
 // decryptRSPayload decrypts an RS128-framed payload block-by-block. fastDecode=true
 // strips parity without correction (fast first pass); false applies full RS
-// correction (repairs <=4 errors per 136-byte block). forceDecode is false (P2
-// fails closed): an uncorrectable block returns the error from the shared codec.
+// correction (repairs <=4 errors per 136-byte block). forceDecode=true returns raw
+// bytes on uncorrectable blocks (user force-decrypt) instead of erroring.
 // DecodeRSPayloadBlock returns a freshly-allocated slice, so paranoid Decrypt
 // (which mutates src) never touches the caller's payload, keeping it pristine for
 // a retry pass.
-func decryptRSPayload(payload []byte, cs *crypto.CipherSuite, rs *encoding.RSCodecs, padded, fastDecode bool) ([]byte, error) {
+func decryptRSPayload(payload []byte, cs *crypto.CipherSuite, rs *encoding.RSCodecs, padded, forceDecode, fastDecode bool) ([]byte, error) {
 	plaintext := make([]byte, 0, len(payload))
 	var counter int64
 	blockSize := encoding.RSEncodedBlockSize
 	for offset := 0; offset < len(payload); offset += blockSize {
 		end := min(offset+blockSize, len(payload))
 		isLast := end >= len(payload)
-		data, err := encoding.DecodeRSPayloadBlock(payload[offset:end], rs, isLast, padded, false, fastDecode)
+		data, err := encoding.DecodeRSPayloadBlock(payload[offset:end], rs, isLast, padded, forceDecode, fastDecode)
 		if err != nil {
 			return nil, err
 		}
