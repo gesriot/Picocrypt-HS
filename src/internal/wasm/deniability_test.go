@@ -59,6 +59,93 @@ func TestDeniabilityWrapDesktopUnwrap(t *testing.T) {
 	}
 }
 
+// Full WASM roundtrip: encrypt with deniability, decrypt back byte-exact.
+func TestDeniabilityRoundtrip(t *testing.T) {
+	original := []byte(strings.Repeat("p4-roundtrip-", 400))
+	pw := []byte("p4-roundtrip-pw")
+	vol, code := EncryptVolume(original, pw, EncryptOptions{Deniability: true})
+	if code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+	res, code := DecryptVolume(vol, pw, DecryptOptions{})
+	if code != 0 {
+		t.Fatalf("decrypt code %d", code)
+	}
+	if !bytes.Equal(res.Plaintext, original) {
+		t.Fatalf("roundtrip mismatch\ngot:  %q\nwant: %q", res.Plaintext, original)
+	}
+}
+
+// Desktop-wrapped deniable volume must open in WASM (reverse cross-compat).
+func TestDeniabilityDesktopWrapWASMUnwrap(t *testing.T) {
+	original := []byte("P4: desktop-wrapped deniable volume opens in WASM.")
+	pw := []byte("p4-desktop-wrap")
+
+	// WASM produces the inner .pcv; desktop wraps it in deniability in place.
+	inner, code := EncryptVolume(original, pw, EncryptOptions{})
+	if code != 0 {
+		t.Fatalf("encrypt inner code %d", code)
+	}
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "vol.pcv")
+	if err := os.WriteFile(path, inner, 0o600); err != nil {
+		t.Fatalf("write inner: %v", err)
+	}
+	if err := volume.AddDeniability(path, pw, nil); err != nil {
+		t.Fatalf("desktop AddDeniability: %v", err)
+	}
+	wrapped, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read wrapped: %v", err)
+	}
+
+	res, code := DecryptVolume(wrapped, pw, DecryptOptions{})
+	if code != 0 {
+		t.Fatalf("WASM decrypt of desktop-wrapped deniable code %d", code)
+	}
+	if !bytes.Equal(res.Plaintext, original) {
+		t.Fatalf("plaintext mismatch\ngot:  %q\nwant: %q", res.Plaintext, original)
+	}
+}
+
+// Wrong password on a deniable volume → ErrWrongPassword, no plaintext.
+// The unauthenticated wrapper must not leak inner bytes without the right key.
+func TestDeniabilityWrongPassword(t *testing.T) {
+	vol, code := EncryptVolume([]byte("secret deniable payload"), []byte("right-pw"), EncryptOptions{Deniability: true})
+	if code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+	res, c := DecryptVolume(vol, []byte("wrong-pw"), DecryptOptions{})
+	if c != ErrWrongPassword {
+		t.Fatalf("got code %d, want ErrWrongPassword(%d)", c, ErrWrongPassword)
+	}
+	if res.Plaintext != nil {
+		t.Fatal("no plaintext may be returned for a wrong password on a deniable volume")
+	}
+}
+
+// Force is ignored for deniable volumes: result is identical with/without Force.
+func TestDeniabilityIgnoresForce(t *testing.T) {
+	original := []byte("p4 force-ignored on deniable")
+	pw := []byte("p4-force-ignored")
+	vol, code := EncryptVolume(original, pw, EncryptOptions{Deniability: true})
+	if code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+	// Right pw + Force: still a clean code 0, never code 10.
+	res, c := DecryptVolume(vol, pw, DecryptOptions{Force: true})
+	if c != 0 || res.Kept {
+		t.Fatalf("force on deniable: code %d kept %v; want 0/false", c, res.Kept)
+	}
+	if !bytes.Equal(res.Plaintext, original) {
+		t.Fatal("plaintext mismatch with force on")
+	}
+	// Wrong pw + Force: still ErrWrongPassword, never a forced keep.
+	if _, c := DecryptVolume(vol, []byte("nope"), DecryptOptions{Force: true}); c != ErrWrongPassword {
+		t.Fatalf("force + wrong pw on deniable: code %d; want ErrWrongPassword(%d)", c, ErrWrongPassword)
+	}
+}
+
 // isDeniable must be TRUE for a wrapped volume and FALSE for every normal volume
 // variant (no false positives — a valid header decodes to a version immediately).
 func TestIsDeniableDetection(t *testing.T) {

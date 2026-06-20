@@ -15,7 +15,7 @@ import (
 
 // Error codes matching website convention
 const (
-	ErrUnsupported       = 1  // Keyfiles required, deniability, split chunks
+	ErrUnsupported       = 1  // split chunks, or legacy-v1 keyfile volumes
 	ErrCorruptedHeader   = 2  // RS decode failure
 	ErrWrongPassword     = 3  // Auth verification failed
 	ErrModifiedData      = 4  // Payload MAC mismatch
@@ -47,6 +47,21 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
 		return DecryptResult{}, ErrCorruptedHeader
+	}
+
+	// Deniability: a wrapped volume has no readable header (random salt/nonce
+	// prefix), so detect it first, strip the outer XChaCha20 layer, and decrypt
+	// the recovered inner .pcv. Force is intentionally ignored for deniable
+	// volumes (desktop convention: the unauthenticated wrapper has no payload MAC
+	// to force). Recursion is one level: inner is a real .pcv whose leading bytes
+	// decode to a valid version, so isDeniable(inner) is false.
+	if isDeniable(volumeData, rsCodecs) {
+		inner, code := unwrapDeniability(volumeData, password, rsCodecs)
+		if code != 0 {
+			return DecryptResult{}, code
+		}
+		defer crypto.SecureZero(inner)
+		return DecryptVolume(inner, password, DecryptOptions{Keyfiles: opts.Keyfiles})
 	}
 
 	// Create reader from volume data

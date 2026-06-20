@@ -147,3 +147,84 @@ func headerFlagsBytesPlausible(b []byte) bool {
 	}
 	return true
 }
+
+// selectDeniabilityKey returns the outer key for the first password normalization
+// form (NFC/NFD/raw) whose keystream decodes a valid inner volume version from
+// probe (the encrypted version field at offset salt+nonce). The deniable wrapper
+// has no MAC, so the inner-version match is the only key check. Non-winning keys
+// and every candidate buffer are zeroed. Returns ErrWrongPassword if none match.
+func selectDeniabilityKey(password, salt, nonce, probe []byte, rs *encoding.RSCodecs) ([]byte, int) {
+	for _, cand := range pwnorm.Candidates(password) {
+		key, err := crypto.DeriveKey(cand, salt, false)
+		zeroWASMSensitiveBuffer(wasmZeroingDeniabilityKDFInput, cand)
+		if err != nil {
+			continue // degenerate all-zero key (effectively never); treat as non-match
+		}
+		cipher, cerr := chacha20.NewUnauthenticatedCipher(key, nonce)
+		if cerr != nil {
+			zeroWASMSensitiveBuffer(wasmZeroingDeniabilityKey, key)
+			continue
+		}
+		dec := make([]byte, len(probe))
+		cipher.XORKeyStream(dec, probe)
+		if versionDec, derr := encoding.Decode(rs.RS5, dec, false); derr == nil && header.MatchVersion(versionDec) {
+			return key, 0
+		}
+		zeroWASMSensitiveBuffer(wasmZeroingDeniabilityKey, key)
+	}
+	return nil, ErrWrongPassword
+}
+
+// unwrapDeniability strips the outer deniability layer and returns the inner .pcv
+// bytes. salt(16) ‖ nonce(24) prefix selects the key (via selectDeniabilityKey);
+// the rest is XOR-decrypted. A defensive inner-version re-check guards the result.
+func unwrapDeniability(volume, password []byte, rs *encoding.RSCodecs) ([]byte, int) {
+	if len(volume) < deniabilitySaltSize+deniabilityNonceSize+header.VersionEncSize {
+		return nil, ErrWrongPassword
+	}
+	salt := volume[:deniabilitySaltSize]
+	nonce := append([]byte(nil), volume[deniabilitySaltSize:deniabilitySaltSize+deniabilityNonceSize]...)
+	probeStart := deniabilitySaltSize + deniabilityNonceSize
+	probe := append([]byte(nil), volume[probeStart:probeStart+header.VersionEncSize]...)
+
+	key, code := selectDeniabilityKey(password, salt, nonce, probe, rs)
+	if code != 0 {
+		return nil, code
+	}
+	defer zeroWASMSensitiveBuffer(wasmZeroingDeniabilityKey, key)
+
+	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
+	if err != nil {
+		return nil, ErrCorruptedHeader
+	}
+
+	encrypted := volume[probeStart:]
+	inner := make([]byte, 0, len(encrypted))
+	var counter int64
+	for offset := 0; offset < len(encrypted); offset += util.MiB {
+		end := min(offset+util.MiB, len(encrypted))
+		dst := make([]byte, end-offset)
+		cipher.XORKeyStream(dst, encrypted[offset:end])
+		inner = append(inner, dst...)
+		counter += int64(end - offset)
+		if counter >= crypto.RekeyThreshold { // dead under the 1 GiB cap (fidelity only)
+			cipher, nonce, err = crypto.DeniabilityRekey(key, nonce)
+			if err != nil {
+				return nil, ErrCorruptedHeader
+			}
+			counter = 0
+		}
+	}
+
+	// Defensive: selectDeniabilityKey already matched the probe (same keystream),
+	// so this re-confirms the inner header decoded coherently before we recurse.
+	if len(inner) < header.VersionEncSize {
+		return nil, ErrWrongPassword
+	}
+	versionEnc := append([]byte(nil), inner[:header.VersionEncSize]...)
+	versionDec, derr := encoding.Decode(rs.RS5, versionEnc, false)
+	if derr != nil || !header.MatchVersion(versionDec) {
+		return nil, ErrWrongPassword
+	}
+	return inner, 0
+}
