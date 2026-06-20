@@ -41,6 +41,8 @@ const (
 	wasmZeroingCipherKey             wasmZeroingBufferKind = "keyfile cipher key"
 	wasmZeroingDecryptKeyfileKey     wasmZeroingBufferKind = "decrypt keyfile key"
 	wasmZeroingDecryptCipherKey      wasmZeroingBufferKind = "decrypt keyfile cipher key"
+	wasmZeroingDeniabilityKey        wasmZeroingBufferKind = "deniability key"
+	wasmZeroingDeniabilityKDFInput   wasmZeroingBufferKind = "deniability kdf input"
 )
 
 type wasmZeroingEvent struct {
@@ -104,6 +106,7 @@ type EncryptOptions struct {
 	Keyfiles       [][]byte // each element is one keyfile's full contents
 	KeyfileOrdered bool     // true = order matters (sequential hash); false = XOR
 	ReedSolomon    bool     // RS128 error-correction framing of the payload
+	Deniability    bool     // wrap the finished volume in an outer deniability layer
 }
 
 // EncryptVolume encrypts plaintext data into a Picocrypt volume.
@@ -345,5 +348,13 @@ func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int
 	zeroWASMSensitiveBuffer(wasmZeroingCiphertextBuffer, ciphertextBytes)
 	ciphertextBufferZeroed = true
 
+	if opts.Deniability {
+		wrapped, code := wrapDeniability(result, password)
+		crypto.SecureZero(result) // inner .pcv ciphertext, no longer needed
+		if code != 0 {
+			return nil, code
+		}
+		return wrapped, 0
+	}
 	return result, 0
 }

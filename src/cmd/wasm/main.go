@@ -124,6 +124,7 @@ func encrypt(this js.Value, args []js.Value) (result any) {
 	}
 	keyfileOrdered := optBool(opts, "keyfileOrdered")
 	reedSolomon := optBool(opts, "reedSolomon")
+	deniability := optBool(opts, "deniability")
 
 	passwordBytes := []byte(pw.String())
 	defer crypto.SecureZero(passwordBytes)
@@ -138,6 +139,7 @@ func encrypt(this js.Value, args []js.Value) (result any) {
 		Keyfiles:       keyfiles,
 		KeyfileOrdered: keyfileOrdered,
 		ReedSolomon:    reedSolomon,
+		Deniability:    deniability,
 	})
 	if code != 0 {
 		return errorResult(code)
