@@ -35,6 +35,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.17" date="2026-06-20">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v217</url>
+      <description>
+        <ul>
+          <li>Web app: paranoid mode, comments, keyfiles, Reed-Solomon, force-decrypt, and plausible deniability — byte-compatible with the desktop app</li>
+          <li>Web app: fully client-side and handles files up to 1 GiB; splitting, recursive volumes, and multi-file archives remain desktop-only</li>
+          <li>Web app: the file selector is re-enabled after a completed operation</li>
+          <li>Internal: unified, stricter static analysis across the codebase</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.16" date="2026-06-17">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v216</url>
       <description>

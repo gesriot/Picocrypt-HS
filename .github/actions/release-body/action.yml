@@ -9,7 +9,7 @@ description: >-
 
 inputs:
   version:
-    description: Release version, e.g. 2.16
+    description: Release version, e.g. 2.17
     required: true
   output:
     description: Where to write the Markdown body (relative paths resolve against the workspace)
