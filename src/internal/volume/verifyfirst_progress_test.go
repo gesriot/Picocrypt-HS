@@ -66,7 +66,7 @@ func (r *recordingReporter) pass1Fractions() []float32 {
 // BEFORE the clamp, so it fails RED against the fixed-block bug and passes only once
 // the increment is `int64(n)` (faithful to ctx.Total's raw-byte basis).
 func TestVerifyFirstProgressDeltaFaithful(t *testing.T) {
-	const fixedBlock = int64(rsEncodedBlockSize)
+	const fixedBlock = int64(encoding.RSEncodedBlockSize)
 
 	tests := []struct {
 		name string
