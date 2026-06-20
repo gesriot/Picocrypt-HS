@@ -124,3 +124,74 @@ func TestForceDecryptRSOverBudgetKeeps(t *testing.T) {
 		t.Fatal("first RS chunk should reflect corruption, not be pristine")
 	}
 }
+
+// RS + keyfiles + force: the salvage cipher suite must be rebuilt with the
+// keyfile-XOR'd cipher key and v2 subkey ordering. Also proves force does NOT
+// bypass the keyfile requirement (invariant: force gates only the payload MAC).
+func TestForceDecryptRSKeyfilesKeeps(t *testing.T) {
+	plaintext := []byte(strings.Repeat("rs-kf-force-", 1500))
+	pw := []byte("pw-rs-kf-force")
+	kfs := [][]byte{
+		[]byte(strings.Repeat("keyfile-alpha-", 8)),
+		[]byte(strings.Repeat("keyfile-beta--", 8)),
+	}
+	vol, code := EncryptVolume(plaintext, pw, EncryptOptions{ReedSolomon: true, Keyfiles: kfs})
+	if code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+	payloadStart := header.HeaderSize(0)
+	tampered := append([]byte(nil), vol...)
+	for i := range 9 { // > RS128 budget -> uncorrectable -> salvage path
+		tampered[payloadStart+i] ^= 0xFF
+	}
+
+	// force=on but keyfiles missing: must still demand keyfiles, not salvage.
+	if _, c := DecryptVolume(tampered, pw, DecryptOptions{Force: true}); c != ErrKeyfilesRequired {
+		t.Fatalf("force + no keyfiles: got %d, want ErrKeyfilesRequired(%d)", c, ErrKeyfilesRequired)
+	}
+	// force=off with correct keyfiles: fail closed.
+	if _, c := DecryptVolume(tampered, pw, DecryptOptions{Keyfiles: kfs}); c != ErrModifiedData {
+		t.Fatalf("force=off: got %d, want ErrModifiedData(%d)", c, ErrModifiedData)
+	}
+	// force=on with correct keyfiles: best-effort salvage through the keyfile suite.
+	res, c := DecryptVolume(tampered, pw, DecryptOptions{Keyfiles: kfs, Force: true})
+	if c != ErrModifiedButKept {
+		t.Fatalf("force=on: got %d, want ErrModifiedButKept(%d)", c, ErrModifiedButKept)
+	}
+	if !res.Kept || len(res.Plaintext) != len(plaintext) {
+		t.Fatalf("kept=%v len=%d (want true, %d)", res.Kept, len(res.Plaintext), len(plaintext))
+	}
+	if !bytes.Equal(res.Plaintext[128:], plaintext[128:]) {
+		t.Fatal("undamaged region must be intact (keyfile salvage subkey ordering)")
+	}
+}
+
+// RS + paranoid + force: exercises the salvage path with the paranoid cipher
+// cascade (Serpent-CTR + XChaCha20, HMAC-SHA3) re-derived for the salvage suite.
+func TestForceDecryptParanoidRSKeeps(t *testing.T) {
+	plaintext := []byte(strings.Repeat("paranoid-rs-force-", 1200))
+	pw := []byte("pw-paranoid-rs-force")
+	vol, code := EncryptVolume(plaintext, pw, EncryptOptions{Paranoid: true, ReedSolomon: true})
+	if code != 0 {
+		t.Fatalf("encrypt code %d", code)
+	}
+	payloadStart := header.HeaderSize(0)
+	tampered := append([]byte(nil), vol...)
+	for i := range 9 { // > RS128 budget -> uncorrectable -> salvage path
+		tampered[payloadStart+i] ^= 0xFF
+	}
+
+	if _, c := DecryptVolume(tampered, pw, DecryptOptions{}); c != ErrModifiedData {
+		t.Fatalf("force=off: got %d, want ErrModifiedData(%d)", c, ErrModifiedData)
+	}
+	res, c := DecryptVolume(tampered, pw, DecryptOptions{Force: true})
+	if c != ErrModifiedButKept {
+		t.Fatalf("force=on: got %d, want ErrModifiedButKept(%d)", c, ErrModifiedButKept)
+	}
+	if !res.Kept || len(res.Plaintext) != len(plaintext) {
+		t.Fatalf("kept=%v len=%d (want true, %d)", res.Kept, len(res.Plaintext), len(plaintext))
+	}
+	if !bytes.Equal(res.Plaintext[128:], plaintext[128:]) {
+		t.Fatal("undamaged region must be intact (paranoid RS salvage)")
+	}
+}

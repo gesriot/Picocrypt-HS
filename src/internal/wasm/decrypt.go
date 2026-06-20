@@ -231,6 +231,10 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 	}
 
 	// Forced best-effort recovery — UNTRUSTED output under a distinct code.
+	// A non-nil plaintext here is the best effort already computed: pass-1 bytes
+	// (non-RS) or the full-RS-corrected-but-unauthenticated retry; both are kept
+	// as-is. Only a nil plaintext (RS uncorrectable, or a stream error) needs a
+	// dedicated forceDecode salvage pass.
 	if plaintext == nil {
 		// Nothing coherent yet: a non-RS stream error cannot be recovered; an RS
 		// payload gets one forceDecode pass (raw bytes on uncorrectable blocks).
