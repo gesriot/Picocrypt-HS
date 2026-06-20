@@ -1,3 +1,11 @@
+# v2.17
+<ul>
+	<li>✓ <strong>Web app: encryption options</strong>: the in-browser tool at <a href="https://picocrypt-ng.github.io">picocrypt-ng.github.io</a> now supports paranoid mode, header comments, keyfiles (with an optional enforced order), Reed-Solomon error correction, force-decrypt (best-effort recovery of a damaged or modified volume, clearly flagged as unverified), and plausible deniability — all byte-compatible with the desktop app, so a volume created in the browser opens on the desktop and vice versa</li>
+	<li>✓ <strong>Web app: scope &amp; privacy</strong>: the browser tool is fully client-side (files never leave your device) and handles files up to 1 GiB; volume splitting, recursive volumes, and multi-file or compressed archives remain desktop-only</li>
+	<li>✓ <strong>Web app: usability</strong>: the file selector is re-enabled after a completed operation, so a second encrypt or decrypt no longer requires reloading the page</li>
+	<li>✓ <strong>Internal</strong>: unified, stricter static analysis (gofumpt/goimports formatting and a curated golangci-lint set) across the codebase</li>
+</ul>
+
 # v2.16
 <ul>
 	<li>✓ <strong>Signed releases</strong>: every release artifact (Windows, macOS, Linux, AppImage, Snap, Android) is now signed with keyless <a href="https://github.com/sigstore/cosign">cosign</a> and published with a build-provenance attestation, so a download can be verified against the exact GitHub Actions workflow that produced it; the old SHA-256 text blocks in the release notes are dropped in favor of verifiable signatures</li>
