@@ -59,3 +59,91 @@ If you genuinely think a convention is harmful, surface it. Don't fork silently.
 "Completed" is wrong if anything was skipped silently.
 "Tests pass" is wrong if any were skipped.
 Default to surfacing uncertainty, not hiding it.
+
+# Repository Context
+Picocrypt NG is a security-sensitive file encryption app. Treat correctness,
+compatibility, privacy, and release integrity as first-class requirements.
+Always say "Picocrypt NG" or "Picocrypt-NG" when referring to this project.
+
+## Sources Of Truth
+- `README.md`: user-facing product, platform, and feature description.
+- `ARCHITECTURE.md`: package map, crypto data flow, audit-critical areas.
+- `API.md`: internal API contracts for maintainers.
+- `Internals.md`: cryptographic and volume-format details.
+- `CLI.md`: command-line behavior and flags.
+- `src/README.md`: desktop/CLI source build and Go test notes.
+- `android/README.md`: native Android architecture, gomobile, signing, release notes.
+- `VERSION`: root release version; keep lockstep with cmd/app/header constants,
+  `src/FyneApp.toml`, packaging metadata, and release workflows.
+- `Changelog.md`, `SIGNING.md`, `fastlane/`: release-facing metadata.
+
+## Repository Map
+- `src/`: main Go module. Honor `src/go.mod` for the required Go version and deps.
+- `src/cmd/picocrypt/`: desktop GUI + CLI entry point.
+- `src/cmd/wasm/`: browser/WASM entry point.
+- `src/mobile/`: gomobile bindings used by the Android app.
+- `src/internal/app/`: operation state and progress reporting.
+- `src/internal/cli/`: Cobra CLI implementation.
+- `src/internal/ui/`: Fyne desktop UI.
+- `src/internal/wasm/`: browser bridge behavior and WASM feature limits.
+- `src/internal/fileops/`: zip, split, recombine, unpack, path handling.
+- `src/internal/encoding/`: Reed-Solomon and padding.
+- `src/internal/diskspace/`, `src/internal/distmeta/`, `src/internal/docs/`,
+  `src/internal/workflowpolicy/`: platform, release, embedded-doc, and CI policy support.
+- `android/`: native Android app using Kotlin/Compose + gomobile AAR.
+- `dist/`: tracked packaging metadata for Windows, macOS, Linux, Snap, Flatpak, MIME.
+- `.github/workflows/`: release and PR validation workflows.
+
+## Audit-Critical Code
+These packages directly affect encrypted volume semantics:
+- `src/internal/crypto/`
+- `src/internal/header/`
+- `src/internal/keyfile/`
+- `src/internal/volume/`
+
+For changes there, read immediate callers and relevant docs first. Preserve v1/v2
+compatibility, golden vectors, deniability semantics, keyfile behavior, Reed-Solomon
+behavior, and verify-first behavior. Use crypto-secure randomness, constant-time
+MAC comparison, explicit sensitive-memory zeroing, and existing cleanup patterns.
+Never rely on AI confidence for a cryptographic decision.
+
+## Platform And Feature Notes
+- Desktop GUI uses Fyne; CLI-only builds use the `cli` tag.
+- Web/WASM is an in-memory bridge (`src/cmd/wasm/`, `src/internal/wasm/`)
+  with its own feature contract and a 1 GiB input guard. Check code and tests
+  before assuming parity or limits; file/folder/streaming/splitting need bridge
+  changes. Account for JS/runtime copy limits when discussing zeroing.
+- Android is a native app under `android/`; rebuild the gomobile AAR after Go bridge
+  changes. Passwords cross Kotlin to Go as bytes, but Go operation internals may use
+  strings as documented.
+- Comments stored in volumes are plaintext header data; never describe them as
+  secret. Current v2 header auth covers comments, but verify version/format nuance
+  before making authentication claims.
+- Deniability changes are high risk: random-looking output, comment behavior, manual
+  naming, and mode interactions are part of the user-visible contract.
+- File associations and packaging metadata are release behavior, not cosmetic files.
+
+## Common Commands
+Run commands from `src/` unless noted.
+- Fast Go suite: `go test ./...`
+- Golden compatibility: `go test -run 'TestGoldenDecryption|TestGoldenCompressedDecryption|TestGoldenWrongPassword|TestGoldenV1WrongPassword' ./internal/volume`
+- CLI package: `go test ./internal/cli`
+- Opt-in CLI integration: `PICOCRYPT_RUN_CLI_INTEGRATION=1 go test ./internal/cli`
+- Race-sensitive Go work: `go test -race ./...`
+- Desktop build: `CGO_ENABLED=1 go build -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt`
+- CLI-only build: `CGO_ENABLED=1 go build -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt`
+- Android gomobile AAR from `android/`: `./build-gomobile.sh`
+- Android app from `android/`: `./build-app`
+
+## Change Discipline
+- Make surgical changes. Do not refactor crypto, UI, Android, or packaging while
+  solving an unrelated issue.
+- When docs disagree with executable config, prefer executable config and surface
+  the conflict.
+- For release/version work, check `VERSION`, `src/cmd/picocrypt/main.go`,
+  `src/internal/app/state.go`, `src/internal/header/format.go`,
+  `src/internal/distmeta`, packaging metadata, changelog, and workflows together.
+- For dependency or library/API questions, use Context7 docs first as required above.
+- Keep generated/local artifacts out of commits: build outputs, gomobile AARs unless
+  explicitly intended, local signing material, IDE files, and AI-agent state.
+- If a validation command cannot run, say exactly which command was skipped and why.
