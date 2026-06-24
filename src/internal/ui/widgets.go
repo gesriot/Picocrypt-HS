@@ -234,6 +234,7 @@ type DisabledEntry struct {
 // NewDisabledEntry creates a new disabled entry.
 func NewDisabledEntry() *DisabledEntry {
 	e := &DisabledEntry{}
+	e.Wrapping = fyne.TextWrap(fyne.TextTruncateClip)
 	e.ExtendBaseWidget(e)
 	e.Disable()
 	return e

@@ -1,0 +1,225 @@
+package ui
+
+import (
+	"image/color"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/theme"
+)
+
+type fixedVariantTheme struct {
+	fyne.Theme
+	variant fyne.ThemeVariant
+}
+
+func (t fixedVariantTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
+	return t.Theme.Color(name, t.variant)
+}
+
+func TestOutputDisplayFollowsThemeChanges(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
+	}
+
+	fyneApp := newTestFyneApp(t)
+	darkTheme := fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantDark}
+	lightTheme := fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight}
+	fyneApp.Settings().SetTheme(darkTheme)
+
+	a, err := NewApp("v2.test")
+	if err != nil {
+		t.Fatalf("NewApp returned error: %v", err)
+	}
+	a.fyneApp = fyneApp
+
+	var output fyne.CanvasObject
+	fyne.DoAndWait(func() {
+		output = a.buildOutputSection()
+		output.Resize(output.MinSize())
+	})
+
+	fyneApp.Settings().SetTheme(lightTheme)
+	fyne.DoAndWait(func() {
+		output.Refresh()
+	})
+
+	wantLight := lightTheme.Color(theme.ColorNameInputBackground, theme.VariantLight)
+	staleDark := darkTheme.Color(theme.ColorNameInputBackground, theme.VariantDark)
+	if !hasRectangleFill(output, wantLight) {
+		t.Fatalf("output display did not render the light input background after a theme change")
+	}
+	if hasRectangleFill(output, staleDark) {
+		t.Fatalf("output display kept a stale dark input background after a light theme change")
+	}
+}
+
+func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
+	}
+
+	cases := []struct {
+		name      string
+		configure func(*App)
+	}{
+		{
+			name: "initial",
+		},
+		{
+			name: "encrypt",
+			configure: func(a *App) {
+				a.State.Mode = "encrypt"
+				a.State.OnlyFiles = []string{"input.txt"}
+				a.State.InputLabel = "input.txt"
+				a.State.OutputFile = "input.txt.pcv"
+			},
+		},
+		{
+			name: "decrypt",
+			configure: func(a *App) {
+				a.State.Mode = "decrypt"
+				a.State.OnlyFiles = []string{"input.txt.pcv"}
+				a.State.InputLabel = "input.txt.pcv"
+				a.State.OutputFile = "input.txt"
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fyneApp := newTestFyneApp(t)
+			fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
+
+			a, err := NewApp("v2.test")
+			if err != nil {
+				t.Fatalf("NewApp returned error: %v", err)
+			}
+			a.fyneApp = fyneApp
+			if tc.configure != nil {
+				tc.configure(a)
+			}
+
+			fyne.DoAndWait(func() {
+				a.Window = fyneApp.NewWindow("layout-test")
+				a.Window.SetFixedSize(true)
+				a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
+				content := a.buildUI()
+				a.Window.SetContent(content)
+				a.resizeDesktopWindowForContent(content, preferredDesktopWindowHeight(a.State.Mode))
+			})
+
+			assertWindowFitsContent(t, a)
+		})
+	}
+}
+
+func TestDesktopUILayoutFitsWindowAfterModeChange(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
+	}
+
+	fyneApp := newTestFyneApp(t)
+	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
+
+	a, err := NewApp("v2.test")
+	if err != nil {
+		t.Fatalf("NewApp returned error: %v", err)
+	}
+	a.fyneApp = fyneApp
+
+	fyne.DoAndWait(func() {
+		a.Window = fyneApp.NewWindow("layout-test")
+		a.Window.SetFixedSize(true)
+		a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
+		content := a.buildUI()
+		a.Window.SetContent(content)
+		a.resizeDesktopWindowForContent(content, preferredDesktopWindowHeight(a.State.Mode))
+	})
+	assertWindowFitsContent(t, a)
+
+	fyne.DoAndWait(func() {
+		a.State.Mode = "encrypt"
+		a.State.OnlyFiles = []string{"input.txt"}
+		a.State.InputLabel = "input.txt"
+		a.State.OutputFile = "input.txt.pcv"
+		a.updateAdvancedSection()
+		a.updateUIState()
+	})
+	assertWindowFitsContent(t, a)
+}
+
+func TestDesktopOutputDisplayLongNameDoesNotGrowWindow(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
+	}
+
+	fyneApp := newTestFyneApp(t)
+	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
+
+	a, err := NewApp("v2.test")
+	if err != nil {
+		t.Fatalf("NewApp returned error: %v", err)
+	}
+	a.fyneApp = fyneApp
+	a.State.Mode = "encrypt"
+	a.State.OnlyFiles = []string{"input.txt"}
+	a.State.InputLabel = "input.txt"
+	a.State.OutputFile = filepath.Join("/tmp", strings.Repeat("very-long-output-name-", 20)+".pcv")
+
+	var size fyne.Size
+	fyne.DoAndWait(func() {
+		a.Window = fyneApp.NewWindow("layout-test")
+		a.Window.SetFixedSize(true)
+		a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
+		content := a.buildUI()
+		a.Window.SetContent(content)
+		a.resizeDesktopWindowForContent(content, preferredDesktopWindowHeight(a.State.Mode))
+		size = a.Window.Canvas().Size()
+	})
+
+	if size.Width > windowWidth {
+		t.Fatalf("long output basename grew desktop window width to %.1f; want <= %.1f", size.Width, float32(windowWidth))
+	}
+}
+
+func assertWindowFitsContent(t *testing.T, a *App) {
+	t.Helper()
+
+	var min, size fyne.Size
+	fyne.DoAndWait(func() {
+		content := a.Window.Content()
+		min = content.MinSize()
+		size = a.Window.Canvas().Size()
+	})
+
+	if size.Width < min.Width {
+		t.Fatalf("window width %.1f is smaller than content MinSize width %.1f", size.Width, min.Width)
+	}
+	if size.Height < min.Height {
+		t.Fatalf("window height %.1f is smaller than content MinSize height %.1f", size.Height, min.Height)
+	}
+}
+
+func hasRectangleFill(root fyne.CanvasObject, fill color.Color) bool {
+	for _, obj := range test.LaidOutObjects(root) {
+		rect, ok := obj.(*canvas.Rectangle)
+		if !ok {
+			continue
+		}
+		if sameColor(rect.FillColor, fill) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameColor(a, b color.Color) bool {
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
+}

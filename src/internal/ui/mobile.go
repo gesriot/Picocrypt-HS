@@ -599,9 +599,10 @@ func (a *App) buildMobileDecryptOptions() {
 
 // buildMobileOutputSection creates the output section for mobile
 func (a *App) buildMobileOutputSection() fyne.CanvasObject {
-	a.outputEntry = widget.NewLabel("")
+	outputEntry := widget.NewLabel("")
 	// Truncate long filenames with ellipsis to prevent excessive wrapping
-	a.outputEntry.Truncation = fyne.TextTruncateEllipsis
+	outputEntry.Truncation = fyne.TextTruncateEllipsis
+	a.outputEntry = outputEntry
 
 	a.changeBtn = widget.NewButton("Change", func() {
 		a.changeOutputFile()
@@ -609,7 +610,7 @@ func (a *App) buildMobileOutputSection() fyne.CanvasObject {
 
 	return container.NewVBox(
 		widget.NewLabel("Save output as:"),
-		a.outputEntry,
+		outputEntry,
 		a.changeBtn,
 	)
 }

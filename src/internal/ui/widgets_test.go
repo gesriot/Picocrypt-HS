@@ -315,6 +315,13 @@ func TestDisabledEntry(t *testing.T) {
 		if !entry.Disabled() {
 			t.Error("Expected entry to be disabled")
 		}
+
+		// The output display uses DisabledEntry for long filenames; it must keep
+		// the same single-line clipping default as widget.NewEntry instead of
+		// relying on widget.Entry's zero-value wrapping.
+		if entry.Wrapping != fyne.TextWrap(fyne.TextTruncateClip) {
+			t.Errorf("Wrapping = %v; want TextTruncateClip", entry.Wrapping)
+		}
 	})
 
 	t.Run("SetText", func(t *testing.T) {

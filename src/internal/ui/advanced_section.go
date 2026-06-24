@@ -30,27 +30,21 @@ func (a *App) updateAdvancedSection() {
 			a.advancedLabel.Hide()
 		}
 		// Resize to compact initial height
-		if a.Window != nil {
-			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightInitial))
-		}
+		a.resizeDesktopWindowForCurrentContent(windowHeightInitial)
 	case "encrypt":
 		if a.advancedLabel != nil {
 			a.advancedLabel.Show()
 		}
 		a.buildEncryptOptions()
 		// Resize window for encrypt mode (more options)
-		if a.Window != nil {
-			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
-		}
+		a.resizeDesktopWindowForCurrentContent(windowHeightEncrypt)
 	case "decrypt":
 		if a.advancedLabel != nil {
 			a.advancedLabel.Show()
 		}
 		a.buildDecryptOptions()
 		// Resize window for decrypt mode (fewer options)
-		if a.Window != nil {
-			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightDecrypt))
-		}
+		a.resizeDesktopWindowForCurrentContent(windowHeightDecrypt)
 	}
 
 	// IMPORTANT: Update disable state for newly created checkboxes
