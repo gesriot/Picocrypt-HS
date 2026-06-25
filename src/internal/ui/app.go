@@ -41,7 +41,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	fyneApp "fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
@@ -58,7 +57,7 @@ var appIconData []byte
 
 // UI dimensions matching original giu implementation
 const (
-	windowWidth         = 318
+	windowWidth         = 340
 	windowHeightEncrypt = 510 // Full height for encrypt mode (more options)
 	windowHeightDecrypt = 430 // Reduced height for decrypt mode (fewer options)
 	windowHeightInitial = 350 // Compact height for initial state (no advanced options)
@@ -111,7 +110,7 @@ type App struct {
 	commentsEntry     *widget.Entry
 	advancedLabel     *widget.Label
 	advancedContainer *fyne.Container
-	outputEntry       *widget.Label
+	outputEntry       interface{ SetText(string) }
 	startButton       *widget.Button
 	statusLabel       *ColoredLabel
 
@@ -284,6 +283,7 @@ func (a *App) Run(startupPaths []string) {
 		content = fynetooltip.AddWindowToolTipLayer(content, a.Window.Canvas())
 	}
 	a.Window.SetContent(content)
+	a.resizeDesktopWindowForContent(content, preferredDesktopWindowHeight(a.State.Mode))
 	a.Window.ShowAndRun()
 }
 
@@ -331,17 +331,14 @@ func (a *App) showFileDialogWithResize(d dialog.Dialog, dialogSize fyne.Size) {
 	}
 
 	// Calculate current window size to restore later
-	originalHeight := float32(windowHeightEncrypt)
-	if a.State.Mode == "decrypt" {
-		originalHeight = windowHeightDecrypt
-	}
+	originalHeight := preferredDesktopWindowHeight(a.State.Mode)
 
 	// Temporarily allow window resizing and make room for dialog
 	a.Window.SetFixedSize(false)
 	a.Window.Resize(fyne.NewSize(dialogSize.Width+50, dialogSize.Height+50))
 
 	d.SetOnClosed(func() {
-		a.Window.Resize(fyne.NewSize(windowWidth, originalHeight))
+		a.resizeDesktopWindowForCurrentContent(originalHeight)
 		a.Window.SetFixedSize(true)
 	})
 
@@ -450,6 +447,36 @@ func (a *App) buildUI() fyne.CanvasObject {
 	return padded
 }
 
+func preferredDesktopWindowHeight(mode string) float32 {
+	switch mode {
+	case "encrypt":
+		return windowHeightEncrypt
+	case "decrypt":
+		return windowHeightDecrypt
+	default:
+		return windowHeightInitial
+	}
+}
+
+func (a *App) resizeDesktopWindowForCurrentContent(preferredHeight float32) {
+	var content fyne.CanvasObject
+	if a.Window != nil {
+		content = a.Window.Content()
+	}
+	a.resizeDesktopWindowForContent(content, preferredHeight)
+}
+
+func (a *App) resizeDesktopWindowForContent(content fyne.CanvasObject, preferredHeight float32) {
+	if isMobile() || a.Window == nil {
+		return
+	}
+	size := fyne.NewSize(windowWidth, preferredHeight)
+	if content != nil {
+		size = size.Max(content.MinSize())
+	}
+	a.Window.Resize(size)
+}
+
 // buildCommentsSection creates the comments input section.
 func (a *App) buildCommentsSection() fyne.CanvasObject {
 	a.commentsLabel = widget.NewLabel(a.State.CommentsLabel)
@@ -476,20 +503,14 @@ func (a *App) buildCommentsSection() fyne.CanvasObject {
 
 // buildOutputSection creates the output file section.
 func (a *App) buildOutputSection() fyne.CanvasObject {
-	a.outputEntry = widget.NewLabel("")
-	// Truncate long filenames with ellipsis to prevent window resizing
-	a.outputEntry.Truncation = fyne.TextTruncateEllipsis
-
-	// Create a disabled entry style appearance
-	outputBg := canvas.NewRectangle(theme.Color(theme.ColorNameInputBackground))
-	outputBg.CornerRadius = theme.InputRadiusSize()
-	outputWithBg := container.NewStack(outputBg, container.NewPadded(a.outputEntry))
+	outputEntry := NewDisabledEntry()
+	a.outputEntry = outputEntry
 
 	a.changeBtn = widget.NewButton("Change", func() {
 		a.changeOutputFile()
 	})
 
-	row := container.NewBorder(nil, nil, nil, a.changeBtn, outputWithBg)
+	row := container.NewBorder(nil, nil, nil, a.changeBtn, outputEntry)
 
 	// Create bold label for better visual hierarchy
 	outputLabel := widget.NewLabel("Save output as:")

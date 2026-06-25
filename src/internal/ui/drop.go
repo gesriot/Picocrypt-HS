@@ -232,9 +232,6 @@ func (a *App) onDrop(names []string) {
 		for _, name := range a.State.OnlyFolders {
 			if filepath.Walk(name, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
-					fyne.DoAndWait(func() {
-						a.applyFolderWalkError()
-					})
 					return err
 				}
 				// If 'path' is a valid regular file, add to 'allFiles'
