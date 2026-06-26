@@ -42,6 +42,12 @@ If your antivirus flags Picocrypt NG as a virus, please report it as a false pos
 ## macOS
 Download Picocrypt NG <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG.dmg">here</a>, open the container, and drag Picocrypt NG to your Applications.
 
+Picocrypt NG is also available through the third-party MacPorts port:
+```
+sudo port install picocrypt-ng
+```
+This port is maintained outside this repository and is not published by the Picocrypt NG maintainers, so release timing, build flags, and packaging behavior are controlled by MacPorts and its maintainers.
+
 **Apple Silicon vs Intel:** The released macOS app is built for Apple Silicon and targets macOS 15.0+. Intel Mac users and users on older macOS releases need to <a href="src/README.md">build from source</a> or use the CLI-only version where appropriate.
 
 **Gatekeeper Warning:** The release is ad-hoc signed but not notarized (notarization needs a paid Apple Developer ID), so macOS shows a Gatekeeper warning the first time you open it. This is a Gatekeeper prompt, not a Picocrypt NG runtime error.
