@@ -173,6 +173,8 @@ jobs:
 
     - name: Build Signed Release APK
       working-directory: android
+      env:
+        ORG_GRADLE_PROJECT_PICOCRYPT_REQUIRE_RELEASE_SIGNING: "true"
       run: ./gradlew assembleRelease
 
     - name: Prepare artifacts

@@ -27,6 +27,11 @@ val releaseSigningProps = mapOf(
 )
 
 val releaseSigningConfigured = releaseSigningProps.values.none { it.isNullOrBlank() }
+val releaseSigningRequired = providers
+    .gradleProperty("PICOCRYPT_REQUIRE_RELEASE_SIGNING")
+    .map(String::toBoolean)
+    .orElse(false)
+    .get()
 
 android {
     namespace = "io.github.picocrypt_ng.picocrypt_ng"
@@ -135,7 +140,7 @@ androidComponents {
     }
 }
 
-if (releaseSigningRequested && !releaseSigningConfigured) {
+if (releaseSigningRequested && releaseSigningRequired && !releaseSigningConfigured) {
     throw GradleException(
         "Missing Android release signing properties. Expected PICOCRYPT_KEYSTORE_PATH, " +
             "PICOCRYPT_KEYSTORE_PASSWORD, PICOCRYPT_KEY_ALIAS, and PICOCRYPT_KEY_PASSWORD."

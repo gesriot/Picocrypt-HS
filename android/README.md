@@ -120,6 +120,10 @@ UI (`ui/components/`):
   `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. The workflow decodes the
   keystore and maps them to the Gradle properties the build reads
   (`ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH`, `…_KEYSTORE_PASSWORD`, `…_KEY_ALIAS`, `…_KEY_PASSWORD`)
+- F-Droid builds should run release Gradle tasks without maintainer signing properties; AGP then
+  emits unsigned release APKs for F-Droid to sign. GitHub release CI sets
+  `PICOCRYPT_REQUIRE_RELEASE_SIGNING=true` so official GitHub release builds still fail if signing
+  secrets are missing.
 - Release builds produce **per-ABI APKs** (armeabi-v7a, arm64-v8a, x86, x86_64) plus a **universal**
   fallback APK (AGP ABI splits). Each per-ABI APK gets a unique versionCode (`base*10 + {1..4}`; the
   universal APK keeps `base`); fdroiddata must mirror this as `VercodeOperation: [10*%c+1 .. 10*%c+4]`
