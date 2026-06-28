@@ -1,3 +1,13 @@
+# v2.18
+<ul>
+	<li>✓ <strong>Desktop GUI</strong>: fixed the Linux desktop layout and output theming so the compact window keeps controls/results readable and visually consistent</li>
+	<li>✓ <strong>Windows installer</strong>: upgrades now replace the installed GUI executable in place, detect a running Picocrypt NG instance instead of silently leaving the old binary, and clean up the orphaned portable executable left by the previous upgrade path</li>
+	<li>✓ <strong>Android/F-Droid readiness</strong>: Android release tasks can now assemble unsigned release APKs for F-Droid source builds while GitHub release CI still requires the maintainer signing secrets for official upstream APKs</li>
+	<li>✓ <strong>Android reproducibility</strong>: gomobile AAR builds now use stable empty Go build IDs and stripped native debug metadata for <code>libgojni.so</code>, removing the build-id metadata drift that blocked F-Droid reproducible APK comparison</li>
+	<li>✓ <strong>Security maintenance</strong>: updated <code>golang.org/x/image</code> to v0.43.0 to include the TIFF decoder vulnerability fixes reported by <code>govulncheck</code></li>
+	<li>✓ <strong>Package availability</strong>: the README now documents the third-party MacPorts port while keeping project-owned release channels distinct</li>
+</ul>
+
 # v2.17
 <ul>
 	<li>✓ <strong>Web app: encryption options</strong>: the in-browser tool at <a href="https://picocrypt-ng.github.io">picocrypt-ng.github.io</a> now supports paranoid mode, header comments, keyfiles (with an optional enforced order), Reed-Solomon error correction, force-decrypt (best-effort recovery of a damaged or modified volume, clearly flagged as unverified), and plausible deniability — all byte-compatible with the desktop app, so a volume created in the browser opens on the desktop and vice versa</li>

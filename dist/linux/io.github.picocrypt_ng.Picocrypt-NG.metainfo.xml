@@ -35,6 +35,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.18" date="2026-06-28">
+      <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v218</url>
+      <description>
+        <ul>
+          <li>Desktop GUI layout and output theming are fixed for the compact Linux desktop window</li>
+          <li>Windows installer upgrades now replace the installed GUI executable in place, detect a running app, and clean up the previous orphaned portable executable</li>
+          <li>Android release tasks can assemble unsigned release APKs for F-Droid source builds while official GitHub release builds still require maintainer signing secrets</li>
+          <li>Android gomobile AAR builds now use stable empty Go build IDs for native libgojni.so files, supporting reproducible APK comparison</li>
+          <li>Updated golang.org/x/image to v0.43.0 for TIFF decoder vulnerability fixes reported by govulncheck</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.17" date="2026-06-20">
       <url type="details">https://github.com/Picocrypt-NG/Picocrypt-NG/blob/main/Changelog.md#v217</url>
       <description>
