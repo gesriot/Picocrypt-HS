@@ -52,10 +52,15 @@ func repoRoot(t *testing.T) string {
 
 func mustReadWorkflow(t *testing.T, relPath string) string {
 	t.Helper()
+	return mustReadRepoFile(t, relPath)
+}
+
+func mustReadRepoFile(t *testing.T, relPath string) string {
+	t.Helper()
 
 	content, err := os.ReadFile(filepath.Join(repoRoot(t), relPath))
 	if err != nil {
-		t.Fatalf("read workflow %s: %v", relPath, err)
+		t.Fatalf("read %s: %v", relPath, err)
 	}
 	return strings.ReplaceAll(string(content), "\r\n", "\n")
 }

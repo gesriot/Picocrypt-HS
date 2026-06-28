@@ -267,6 +267,13 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 	mustMatch(t, downloadStep.Uses, `actions/download-artifact@[0-9a-f]{40}`)
 }
 
+func TestAndroidGomobileBuildUsesReproducibleLinkerFlags(t *testing.T) {
+	content := mustReadRepoFile(t, "android/build-gomobile.sh")
+
+	mustContain(t, content, `-ldflags="$GOMOBILE_LDFLAGS"`)
+	mustContain(t, content, `-s -w -buildid=`)
+}
+
 func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	content := mustReadWorkflow(t, ".github/workflows/android-instrumented.yml")
 	mustContain(t, content, "workflow_dispatch:")

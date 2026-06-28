@@ -109,8 +109,9 @@ UI (`ui/components/`):
   service when the app is backgrounded
 - Operations run in background threads (Go goroutines + Kotlin coroutines)
 - The Go mobile AAR must be rebuilt whenever Go code changes
-- `build-gomobile.sh` builds the AAR with `-trimpath` (via `GOFLAGS`) so the native `.so` files don't
-  embed local build paths — needed for reproducible / source-built F-Droid verification
+- `build-gomobile.sh` builds the AAR with `-trimpath` (via `GOFLAGS`) and `-buildid=` (via
+  `GOMOBILE_LDFLAGS`) so the native `.so` files don't embed local build paths or unstable Go build
+  IDs — needed for reproducible / source-built F-Droid verification
 - Permissions requested: `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC`
   (for the progress notification / long-running operations). No Google Play Services, Firebase, ads,
   or tracking — relevant for F-Droid/IzzyOnDroid inclusion (#155)
@@ -120,6 +121,10 @@ UI (`ui/components/`):
   `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. The workflow decodes the
   keystore and maps them to the Gradle properties the build reads
   (`ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH`, `…_KEYSTORE_PASSWORD`, `…_KEY_ALIAS`, `…_KEY_PASSWORD`)
+- F-Droid builds should run release Gradle tasks without maintainer signing properties; AGP then
+  emits unsigned release APKs for F-Droid to sign. GitHub release CI sets
+  `PICOCRYPT_REQUIRE_RELEASE_SIGNING=true` so official GitHub release builds still fail if signing
+  secrets are missing.
 - Release builds produce **per-ABI APKs** (armeabi-v7a, arm64-v8a, x86, x86_64) plus a **universal**
   fallback APK (AGP ABI splits). Each per-ABI APK gets a unique versionCode (`base*10 + {1..4}`; the
   universal APK keeps `base`); fdroiddata must mirror this as `VercodeOperation: [10*%c+1 .. 10*%c+4]`
