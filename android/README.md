@@ -109,8 +109,9 @@ UI (`ui/components/`):
   service when the app is backgrounded
 - Operations run in background threads (Go goroutines + Kotlin coroutines)
 - The Go mobile AAR must be rebuilt whenever Go code changes
-- `build-gomobile.sh` builds the AAR with `-trimpath` (via `GOFLAGS`) so the native `.so` files don't
-  embed local build paths — needed for reproducible / source-built F-Droid verification
+- `build-gomobile.sh` builds the AAR with `-trimpath` (via `GOFLAGS`) and `-buildid=` (via
+  `GOMOBILE_LDFLAGS`) so the native `.so` files don't embed local build paths or unstable Go build
+  IDs — needed for reproducible / source-built F-Droid verification
 - Permissions requested: `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC`
   (for the progress notification / long-running operations). No Google Play Services, Firebase, ads,
   or tracking — relevant for F-Droid/IzzyOnDroid inclusion (#155)

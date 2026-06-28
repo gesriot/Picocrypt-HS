@@ -7,6 +7,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO_SRC_DIR="$SCRIPT_DIR/../src"
 OUTPUT_DIR="$SCRIPT_DIR/app/libs"
+GOMOBILE_LDFLAGS="${GOMOBILE_LDFLAGS:--s -w -buildid=}"
 
 # Set Android SDK/NDK paths
 export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
@@ -86,6 +87,7 @@ echo "Go source directory: $GO_SRC_DIR"
 echo "Output directory: $OUTPUT_DIR"
 echo "Android SDK: $ANDROID_HOME"
 echo "Android NDK: ${ANDROID_NDK_HOME:-not set}"
+echo "Go linker flags: $GOMOBILE_LDFLAGS"
 
 # Check if gomobile is installed
 if ! command -v gomobile &> /dev/null; then
@@ -143,7 +145,7 @@ cd "$GO_SRC_DIR"
 
 # gomobile uses ANDROID_NDK_HOME environment variable (already set above)
 # Always use API level 24 (matches app's minSdk, required for NDK 29+)
-PATH="$WRAPPER_DIR:$PATH" gomobile bind -target android $USE_ANDROID_API -o "$OUTPUT_DIR/picocrypt-mobile.aar" ./mobile
+PATH="$WRAPPER_DIR:$PATH" gomobile bind -target android $USE_ANDROID_API -ldflags="$GOMOBILE_LDFLAGS" -o "$OUTPUT_DIR/picocrypt-mobile.aar" ./mobile
 
 echo "✓ Build successful!"
 echo "  AAR location: $OUTPUT_DIR/picocrypt-mobile.aar"
