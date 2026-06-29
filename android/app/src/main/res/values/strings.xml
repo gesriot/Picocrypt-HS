@@ -101,7 +101,7 @@
     <!-- Privacy & Security -->
     <string name="privacy_security">Privacy &amp; Security</string>
     <string name="prevent_screenshots">Prevent screenshots</string>
-    <string name="prevent_screenshots_description">Blocks screenshots and screen recording, and hides the app in the recent apps list.</string>
+    <string name="prevent_screenshots_description">Blocks screenshots and screen recording, and hides app content from recent apps previews.</string>
 
     <!-- Foreground Service -->
     <string name="fgs_channel_name">Operation Progress</string>
