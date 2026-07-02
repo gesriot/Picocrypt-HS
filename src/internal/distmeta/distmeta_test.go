@@ -209,6 +209,8 @@ func oldVersionLiteralCategory(relPath string) (string, bool) {
 		return "third-party dependency version pin (AndroidX lifecycle 2.10.0), not an app version", true
 	case relPath == ".github/workflows/pr-static-checks.yml":
 		return "third-party tool version pin (golangci-lint), not an app version", true
+	case relPath == "mise.toml":
+		return "third-party tool/runtime version pins, not app versions", true
 	default:
 		return "", false
 	}
