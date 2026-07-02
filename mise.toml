@@ -1,0 +1,178 @@
+# Keep this file aligned with src/go.mod, android/README.md, and CI workflows.
+min_version = "2026.6.14"
+
+[tools]
+go = "1.26.0"
+java = "temurin-17"
+golangci-lint = "2.12.2"
+"go:golang.org/x/mobile/cmd/gobind" = "v0.0.0-20260209203831-923679eb55af"
+"go:golang.org/x/mobile/cmd/gomobile" = "v0.0.0-20260209203831-923679eb55af"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.5.0"
+
+[env]
+# Preserve user/CI Android SDK settings; this default matches Android Studio on Linux.
+ANDROID_HOME = { default = "{{ env.HOME }}/Android/Sdk" }
+GOMOBILE_LDFLAGS = "-s -w -buildid="
+
+[tasks.bootstrap]
+description = "Install project tools and download Go module dependencies"
+alias = "bs"
+run = [
+  "mise install",
+  "cd src && go mod download",
+  "mkdir -p \"$(go env GOPATH | cut -d: -f1)/pkg/gomobile\"",
+]
+
+[tasks.doctor]
+description = "Print the active Picocrypt-NG toolchain"
+alias = "d"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "mise: $(mise --version)"
+go version
+java -version
+echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+command -v gomobile
+command -v gobind
+command -v golangci-lint
+command -v govulncheck
+'''
+
+[tasks.fmt]
+description = "Check Go formatting"
+dir = "src"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+unformatted="$(gofmt -l . | grep -v '^testdata/legacy/' || true)"
+if [ -n "$unformatted" ]; then
+  echo "These files are not gofmt-clean (run: gofmt -w <file>):"
+  echo "$unformatted"
+  exit 1
+fi
+'''
+
+[tasks.vet]
+description = "Run go vet with CGO enabled"
+dir = "src"
+run = "CGO_ENABLED=1 go vet ./..."
+
+[tasks.lint]
+description = "Run golangci-lint"
+dir = "src"
+run = "golangci-lint run ./..."
+
+[tasks.vuln]
+description = "Run govulncheck"
+dir = "src"
+run = "govulncheck ./..."
+
+[tasks.test]
+description = "Run the fast Go test suite"
+alias = "t"
+dir = "src"
+run = "go test ./..."
+
+[tasks."test:golden"]
+description = "Run volume golden compatibility tests"
+dir = "src"
+run = "go test -run 'TestGoldenDecryption|TestGoldenCompressedDecryption|TestGoldenWrongPassword|TestGoldenV1WrongPassword' ./internal/volume"
+
+[tasks."test:cli"]
+description = "Run CLI package tests"
+dir = "src"
+run = "go test ./internal/cli"
+
+[tasks."test:cli-integration"]
+description = "Run opt-in CLI stdin/stdout integration tests"
+dir = "src"
+run = "PICOCRYPT_RUN_CLI_INTEGRATION=1 go test ./internal/cli"
+
+[tasks."test:race"]
+description = "Run race-sensitive Go tests with bounded package parallelism"
+dir = "src"
+run = "CGO_ENABLED=1 go test -race -p 2 -timeout 15m ./..."
+
+[tasks."build:desktop"]
+description = "Build the desktop GUI binary"
+alias = "bd"
+dir = "src"
+run = "CGO_ENABLED=1 go build -ldflags='-s -w' -o Picocrypt-NG ./cmd/picocrypt"
+
+[tasks."build:cli"]
+description = "Build the CLI-only binary"
+alias = "bc"
+dir = "src"
+run = "CGO_ENABLED=1 go build -tags cli -ldflags='-s -w' -o Picocrypt-NG-cli ./cmd/picocrypt"
+
+[tasks.check]
+description = "Run local Go quality gates"
+alias = "c"
+run = [
+  "mise run fmt",
+  "mise run vet",
+  "mise run lint",
+  "mise run vuln",
+  "mise run test",
+]
+
+[tasks."android:gomobile"]
+description = "Build the Android gomobile AAR"
+dir = "android"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+tmpdir="$(mktemp -d)"
+cp ../src/go.mod "$tmpdir/go.mod"
+cp ../src/go.sum "$tmpdir/go.sum"
+cleanup() {
+  cp "$tmpdir/go.mod" ../src/go.mod
+  cp "$tmpdir/go.sum" ../src/go.sum
+  rm -rf "$tmpdir"
+}
+trap cleanup EXIT
+
+./build-gomobile.sh
+'''
+
+[tasks."android:test"]
+description = "Run Android JVM tests after rebuilding the gomobile AAR"
+depends = ["android:gomobile"]
+dir = "android"
+run = "./gradlew test"
+
+[tasks."android:assemble-debug"]
+description = "Assemble the Android debug APK after rebuilding the gomobile AAR"
+depends = ["android:gomobile"]
+dir = "android"
+run = "./gradlew assembleDebug"
+
+[tasks."android:build"]
+description = "Run the project's Android debug build script"
+alias = "ab"
+depends = ["android:gomobile"]
+dir = "android"
+run = "./build-app"
+
+[tasks."android:assemble-release"]
+description = "Assemble unsigned/signed Android release APKs, depending on Gradle signing properties"
+depends = ["android:gomobile"]
+dir = "android"
+run = "./gradlew assembleRelease"
+
+[tasks.ci]
+description = "Run local non-emulator CI gates"
+run = [
+  "mise run check",
+  "mise run android:test",
+  "mise run android:assemble-debug",
+]
+
+[tasks.default]
+description = "Run the default local validation suite"
+depends = ["check"]
