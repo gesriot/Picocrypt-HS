@@ -241,24 +241,10 @@ fun ProgressCard(
             // Data (outputFile/formData) comes from the polled OperationState; the sealed
             // Success state only drives control flow + carries the type.
             val op = operationState
-            val outputFileName = op?.formData?.suggestedOutputName?.takeIf { it.isNotEmpty() }
-                ?: op?.formData?.selectedFilename?.let { selectedFilename ->
-                    if (ui.type == OperationType.ENCRYPT) {
-                        // For encryption: add .pcv if not present
-                        if (selectedFilename.endsWith(".pcv")) {
-                            selectedFilename
-                        } else {
-                            "$selectedFilename.pcv"
-                        }
-                    } else {
-                        // For decryption: remove .pcv if present
-                        if (selectedFilename.endsWith(".pcv")) {
-                            selectedFilename.removeSuffix(".pcv")
-                        } else {
-                            selectedFilename
-                        }
-                    }
-                } ?: op?.let { File(it.outputFile).name } // Fallback to internal storage name if formData is null
+            val outputFileName = op?.formData
+                ?.suggestedOutputNameFor(ui.type)
+                ?.takeIf { it.isNotEmpty() }
+                ?: op?.let { File(it.outputFile).name } // Fallback to internal storage name if formData is null
 
             AlertDialog(
                 modifier = modifier,

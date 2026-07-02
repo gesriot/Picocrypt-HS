@@ -24,6 +24,7 @@ object TestDataBuilders {
         reedSolomon: Boolean = false,
         paranoid: Boolean = false,
         deniability: Boolean = false,
+        compress: Boolean = false,
         keyfiles: List<KeyfileInfo> = emptyList(),
         keyfileOrdered: Boolean = false
     ): FormData {
@@ -36,6 +37,7 @@ object TestDataBuilders {
             reedSolomon = reedSolomon,
             paranoid = paranoid,
             deniability = deniability,
+            compress = compress,
             keyfileFilenames = keyfiles,
             keyfileOrdered = keyfileOrdered,
             decryptionInfo = null
@@ -174,5 +176,4 @@ object TestDataBuilders {
         password.fill('\u0000')
     }
 }
-
 

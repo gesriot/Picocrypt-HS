@@ -158,6 +158,16 @@ data class FormData(
         get() = selectedFilename.isNotEmpty() && isPasswordValid &&
             !areKeyfilesRequiredButMissing && !isSplitVolumeChunk
 
+    fun suggestedOutputNameFor(type: OperationType): String {
+        suggestedOutputName.takeIf { it.isNotEmpty() }?.let { return it }
+        if (selectedFilename.isEmpty()) return ""
+
+        return when (type) {
+            OperationType.ENCRYPT -> encryptedOutputName(selectedFilename, compress)
+            OperationType.DECRYPT -> decryptedOutputName(selectedFilename)
+        }
+    }
+
     companion object {
         // Mirrors Go fileops.splitChunkRE: (?i)\.pcv\.[0-9]+$ matched on the base name.
         private val SPLIT_CHUNK_REGEX = Regex("""(?i)\.pcv\.[0-9]+$""")
@@ -169,5 +179,17 @@ data class FormData(
          */
         fun isSplitVolumeChunkName(filename: String): Boolean =
             SPLIT_CHUNK_REGEX.containsMatchIn(filename.substringAfterLast('/'))
+
+        private fun encryptedOutputName(filename: String, compress: Boolean): String {
+            if (filename.endsWith(".pcv")) return filename
+            return if (compress) "$filename.zip.pcv" else "$filename.pcv"
+        }
+
+        private fun decryptedOutputName(filename: String): String =
+            if (filename.endsWith(".pcv")) {
+                filename.removeSuffix(".pcv")
+            } else {
+                filename
+            }
     }
 }
