@@ -142,21 +142,35 @@ object FileCopyService {
     }
 
     /**
-     * Cleans up all files in the internal storage directory.
+     * Cleans up all files copied into the internal runtime directory.
+     *
+     * This is used for process-start stale-file cleanup. Do not use it as the
+     * pre-operation cleanup path: staged folder/multi-file inputs live under
+     * staging/ and must survive until the Go operation has consumed them.
      */
     suspend fun cleanupAllFiles(context: Context): Boolean = withContext(Dispatchers.IO) {
         try {
             val internalDir = File(context.filesDir, INTERNAL_FILES_DIR)
-            if (internalDir.exists() && internalDir.isDirectory) {
-                internalDir.listFiles()?.forEach { file ->
-                    if (file.isFile) {
-                        file.delete()
-                    }
-                }
-                true
-            } else {
-                false
+            if (!internalDir.exists()) {
+                return@withContext true
             }
+            if (!internalDir.isDirectory) {
+                return@withContext false
+            }
+
+            var allDeleted = true
+            internalDir.listFiles()?.forEach { file ->
+                val deleted = if (file.isDirectory) {
+                    file.deleteRecursively()
+                } else {
+                    file.delete()
+                }
+                if (!deleted || file.exists()) {
+                    allDeleted = false
+                }
+            }
+
+            allDeleted
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -416,4 +430,3 @@ object FileCopyService {
         }
     }
 }
-
