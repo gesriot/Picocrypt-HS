@@ -44,7 +44,7 @@ The Android build path now lives in the repository root `android/` project and u
 
 ## WebAssembly
 
-The browser WASM build supports standard password-only single-file volumes. It does not enable Paranoid mode, keyfiles, Reed-Solomon payload protection, splitting, or deniability. Go-owned byte buffers are wiped best-effort after use, but JavaScript engine copies and garbage-collected runtime copies cannot be guaranteed wiped.
+The browser WASM build supports in-memory single-file encryption and decryption on modern browsers, including mobile devices. In this repository, the WASM bridge caps inputs at 1 GiB and supports comments, Paranoid mode, keyfiles, Reed-Solomon payload protection, force decrypt, and deniability. The browser workflow is still intentionally non-streaming and single-file oriented; folder workflows, split volumes, and large streaming jobs remain desktop/CLI/native-app features. Go-owned byte buffers are wiped best-effort after use, but JavaScript engine copies and garbage-collected runtime copies cannot be guaranteed wiped.
 
 ## Test
 
