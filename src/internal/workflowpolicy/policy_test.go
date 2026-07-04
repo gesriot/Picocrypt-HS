@@ -300,14 +300,28 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 	mustNotHaveStepNamed(t, buildJob, "Build Signed Release APK")
 
 	decodeStep := mustStepNamed(t, releaseJob, "Decode Android signing keystore")
+	if decodeStep.Id != "android-keystore" {
+		t.Fatalf("release keystore decode step id = %q, want android-keystore", decodeStep.Id)
+	}
 	if _, ok := decodeStep.Env["ANDROID_KEYSTORE_BASE64"]; !ok {
 		t.Fatal("release keystore decode step should declare ANDROID_KEYSTORE_BASE64")
 	}
-	mustNotContain(t, decodeStep.Run, "ANDROID_KEYSTORE_PASSWORD")
-	mustNotContain(t, decodeStep.Run, "ANDROID_KEY_PASSWORD")
+	for _, key := range []string{
+		"ANDROID_KEYSTORE_PASSWORD",
+		"ANDROID_KEY_ALIAS",
+		"ANDROID_KEY_PASSWORD",
+	} {
+		if _, ok := decodeStep.Env[key]; ok {
+			t.Fatalf("release keystore decode step must not declare env %q", key)
+		}
+		mustNotContain(t, decodeStep.Run, key)
+	}
 	mustNotContain(t, decodeStep.Run, "PICOCRYPT_KEYSTORE_PASSWORD")
+	mustNotContain(t, decodeStep.Run, "PICOCRYPT_KEY_ALIAS")
 	mustNotContain(t, decodeStep.Run, "PICOCRYPT_KEY_PASSWORD")
 	mustNotContain(t, decodeStep.Run, "$GITHUB_ENV")
+	mustContain(t, decodeStep.Run, "path=$KEYSTORE_PATH")
+	mustMatch(t, decodeStep.Run, `(?m)>>\s*"\$GITHUB_OUTPUT"`)
 
 	buildSignedStep := mustStepNamed(t, releaseJob, "Build Signed Release APK")
 	for _, key := range []string{
@@ -319,6 +333,9 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 		if _, ok := buildSignedStep.Env[key]; !ok {
 			t.Fatalf("signed build step missing scoped env %q", key)
 		}
+	}
+	if got := buildSignedStep.Env["ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH"]; got != "${{ steps.android-keystore.outputs.path }}" {
+		t.Fatalf("signed build keystore path env = %q, want android-keystore step output", got)
 	}
 	downloadStep := mustHaveStepUsingPrefix(t, releaseJob, "actions/download-artifact@")
 	mustMatch(t, downloadStep.Uses, `actions/download-artifact@[0-9a-f]{40}`)

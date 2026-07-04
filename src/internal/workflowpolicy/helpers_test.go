@@ -23,6 +23,7 @@ type workflowJob struct {
 }
 
 type workflowStep struct {
+	Id   string            `yaml:"id"`
 	Name string            `yaml:"name"`
 	Uses string            `yaml:"uses"`
 	Run  string            `yaml:"run"`
