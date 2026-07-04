@@ -45,6 +45,7 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 		{name: "build-linux", path: ".github/workflows/build-linux.yml", job: "release"},
 		{name: "build-macos", path: ".github/workflows/build-macos.yml", job: "release"},
 		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
+		{name: "build-windows-legacy", path: ".github/workflows/build-windows-legacy.yml", job: "release"},
 		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
 		{name: "build-appimage", path: ".github/workflows/build-appimage.yml", job: "release"},
 	}
