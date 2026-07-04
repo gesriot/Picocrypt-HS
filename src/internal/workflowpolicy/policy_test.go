@@ -1,6 +1,10 @@
 package workflowpolicy
 
-import "testing"
+import (
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
 
 func TestStaticChecksWorkflowEnforcesFormatVetLintAndVuln(t *testing.T) {
 	const path = ".github/workflows/pr-static-checks.yml"
@@ -342,17 +346,44 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 }
 
 func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
+	const gradle813Sha256 = "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78"
+
 	wrapper := mustReadRepoFile(t, "android/gradle/wrapper/gradle-wrapper.properties")
 	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.13-bin.zip")
-	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=[0-9a-f]{64}$`)
+	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle813Sha256+`$`)
 
 	metadata := mustReadRepoFile(t, "android/gradle/verification-metadata.xml")
 	mustContain(t, metadata, "<verification-metadata")
-	mustContain(t, metadata, "sha256")
+	mustContain(t, metadata, "<verify-metadata>true</verify-metadata>")
+	mustMatch(t, metadata, `<sha256 value="[0-9a-f]{64}"`)
 
-	dependabot := mustReadRepoFile(t, ".github/dependabot.yml")
-	mustContain(t, dependabot, `package-ecosystem: "gradle"`)
-	mustContain(t, dependabot, `directory: "android/"`)
+	var dependabot struct {
+		Updates []struct {
+			PackageEcosystem string `yaml:"package-ecosystem"`
+			Directory        string `yaml:"directory"`
+		} `yaml:"updates"`
+	}
+	if err := yaml.Unmarshal([]byte(mustReadRepoFile(t, ".github/dependabot.yml")), &dependabot); err != nil {
+		t.Fatalf("unmarshal dependabot yaml: %v", err)
+	}
+	for _, want := range []struct {
+		ecosystem string
+		directory string
+	}{
+		{ecosystem: "gomod", directory: "src/"},
+		{ecosystem: "gradle", directory: "android/"},
+	} {
+		found := false
+		for _, update := range dependabot.Updates {
+			if update.PackageEcosystem == want.ecosystem && update.Directory == want.directory {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("dependabot updates missing package-ecosystem %q with directory %q together", want.ecosystem, want.directory)
+		}
+	}
 }
 
 func TestAndroidGomobileBuildUsesReproducibleLinkerFlags(t *testing.T) {
