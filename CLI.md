@@ -197,7 +197,7 @@ picocrypt encrypt -i "*.jpg" -i "*.png" -o images.pcv -p "password"
 picocrypt encrypt -i sensitive.db -o sensitive.pcv -p "password" \
     --paranoid --reed-solomon
 
-# Add keyfile for two-factor authentication
+# Add keyfile as an additional decryption factor
 picocrypt encrypt -i data.zip -o data.pcv -p "password" -k keyfile.key
 
 # Multiple keyfiles with ordered hashing

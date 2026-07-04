@@ -21,6 +21,7 @@
     <string name="comments">Comments</string>
     <string name="comments_not_readable">Comments not readable (deniability mode)</string>
     <string name="comments_disabled_deniability">Disabled in deniability mode</string>
+    <string name="comments_plaintext_warning">Comments are plaintext metadata. Do not put secrets here.</string>
     
     <!-- Keyfile Card -->
     <string name="keyfiles">Keyfiles</string>

@@ -364,7 +364,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 
 	if kept {
 		a.State.SetKept(true)
-		a.State.SetStatus("The input file was modified. Please be careful", util.YELLOW)
+		a.State.SetStatus("Integrity check failed; kept output is unverified and may be corrupted", util.YELLOW)
 	} else {
 		a.State.SetStatus("Completed", util.GREEN)
 	}

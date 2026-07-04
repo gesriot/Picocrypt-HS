@@ -68,7 +68,7 @@ func isExitCodeError(err error) bool {
 var rootCmd = &cobra.Command{
 	Use:   "Picocrypt-NG",
 	Short: "Secure file encryption tool",
-	Long: `Picocrypt-NG is a secure, audited file encryption tool that uses:
+	Long: `Picocrypt-NG is a secure file encryption tool that uses:
   - Argon2id for password-based key derivation (memory-hard, GPU-resistant)
   - XChaCha20 for symmetric encryption (256-bit security, extended nonce)
   - BLAKE2b-512 for message authentication (or HMAC-SHA3 in paranoid mode)
