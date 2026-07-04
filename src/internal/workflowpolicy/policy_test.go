@@ -341,6 +341,20 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 	mustMatch(t, downloadStep.Uses, `actions/download-artifact@[0-9a-f]{40}`)
 }
 
+func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
+	wrapper := mustReadRepoFile(t, "android/gradle/wrapper/gradle-wrapper.properties")
+	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.13-bin.zip")
+	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=[0-9a-f]{64}$`)
+
+	metadata := mustReadRepoFile(t, "android/gradle/verification-metadata.xml")
+	mustContain(t, metadata, "<verification-metadata")
+	mustContain(t, metadata, "sha256")
+
+	dependabot := mustReadRepoFile(t, ".github/dependabot.yml")
+	mustContain(t, dependabot, `package-ecosystem: "gradle"`)
+	mustContain(t, dependabot, `directory: "android/"`)
+}
+
 func TestAndroidGomobileBuildUsesReproducibleLinkerFlags(t *testing.T) {
 	content := mustReadRepoFile(t, "android/build-gomobile.sh")
 
