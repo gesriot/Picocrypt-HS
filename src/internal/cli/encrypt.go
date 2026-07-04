@@ -117,17 +117,26 @@ func init() {
 	_ = encryptCmd.MarkFlagRequired("input")
 }
 
-func defaultEncryptOutput(rawInput string, allFiles []string, useStdin bool) string {
-	if useStdin {
-		return "encrypted.pcv"
+func defaultEncryptOutput(rawInput string, allFiles []string, onlyFolders []string, useStdin, payloadZip bool) string {
+	extension := ".pcv"
+	if payloadZip {
+		extension = ".zip.pcv"
 	}
-	if len(allFiles) == 1 {
-		return allFiles[0] + ".pcv"
+
+	if useStdin {
+		return "encrypted" + extension
+	}
+
+	if payloadZip && len(onlyFolders) == 1 && len(allFiles) <= 1 && rawInput != "" {
+		return rawInput + extension
+	}
+	if len(allFiles) == 1 && len(onlyFolders) == 0 {
+		return allFiles[0] + extension
 	}
 	if len(allFiles) == 0 && rawInput != "" {
-		return rawInput + ".pcv"
+		return rawInput + extension
 	}
-	return "encrypted.pcv"
+	return "encrypted" + extension
 }
 
 func runEncrypt(cmd *cobra.Command, args []string) error {
@@ -171,6 +180,9 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	outputFile := encOutput
 	if outputFile == "" && useStdin {
 		outputFile = "encrypted.pcv"
+		if encCompress {
+			outputFile = "encrypted.zip.pcv"
+		}
 	}
 	if outputFile != "" && !useStdout && !strings.HasSuffix(outputFile, ".pcv") {
 		outputFile += ".pcv"
@@ -270,7 +282,8 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		if len(encInput) > 0 {
 			rawInput = encInput[0]
 		}
-		outputFile = defaultEncryptOutput(rawInput, allFiles, useStdin)
+		payloadZip := len(allFiles) > 1 || len(onlyFolders) > 0 || encCompress
+		outputFile = defaultEncryptOutput(rawInput, allFiles, onlyFolders, useStdin, payloadZip)
 	}
 
 	// Add .pcv extension if missing (not for stdout temp)

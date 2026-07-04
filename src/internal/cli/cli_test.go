@@ -836,10 +836,10 @@ func TestDefaultEncryptOutput(t *testing.T) {
 		pattern := "/tmp/*.txt"
 		allFiles := []string{"/tmp/a.txt", "/tmp/b.txt"}
 
-		got := defaultEncryptOutput(pattern, allFiles, false)
-		if got != "encrypted.pcv" {
-			t.Fatalf("defaultEncryptOutput(%q, %q, false) = %q, want %q",
-				pattern, allFiles, got, "encrypted.pcv")
+		got := defaultEncryptOutput(pattern, allFiles, nil, false, true)
+		if got != "encrypted.zip.pcv" {
+			t.Fatalf("defaultEncryptOutput(%q, %q, nil, false, true) = %q, want %q",
+				pattern, allFiles, got, "encrypted.zip.pcv")
 		}
 	})
 
@@ -847,12 +847,105 @@ func TestDefaultEncryptOutput(t *testing.T) {
 		pattern := "/tmp/*.txt"
 		allFiles := []string{"/tmp/a.txt"}
 
-		got := defaultEncryptOutput(pattern, allFiles, false)
+		got := defaultEncryptOutput(pattern, allFiles, nil, false, false)
 		if got != "/tmp/a.txt.pcv" {
-			t.Fatalf("defaultEncryptOutput(%q, %q, false) = %q, want %q",
+			t.Fatalf("defaultEncryptOutput(%q, %q, nil, false, false) = %q, want %q",
 				pattern, allFiles, got, "/tmp/a.txt.pcv")
 		}
 	})
+
+	t.Run("compressed stdin", func(t *testing.T) {
+		got := defaultEncryptOutput("", []string{"stdin-temp"}, nil, true, true)
+		if got != "encrypted.zip.pcv" {
+			t.Fatalf("defaultEncryptOutput(%q, %q, nil, true, true) = %q, want %q",
+				"", []string{"stdin-temp"}, got, "encrypted.zip.pcv")
+		}
+	})
+}
+
+func TestDefaultCompressOutputNameUsesZipSuffix(t *testing.T) {
+	resetEncryptFlagsForDirTest()
+	resetDecryptFlagsForDirTest()
+	t.Cleanup(resetEncryptFlagsForDirTest)
+	t.Cleanup(resetDecryptFlagsForDirTest)
+
+	tmpDir := t.TempDir()
+	inputFile := filepath.Join(tmpDir, "page.html")
+	plaintext := []byte("<!doctype html><h1>compressed</h1>\n")
+	if err := os.WriteFile(inputFile, plaintext, 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	encInput = []string{inputFile}
+	encPassword = "pw"
+	encCompress = true
+	encQuiet = true
+	encYes = true
+
+	if err := encryptCmd.RunE(encryptCmd, []string{}); err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+
+	want := inputFile + ".zip.pcv"
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("compressed default output %q missing: %v", want, err)
+	}
+	if _, err := os.Stat(inputFile + ".pcv"); !os.IsNotExist(err) {
+		t.Fatalf("compressed default output should not hide zip payload as %q", inputFile+".pcv")
+	}
+
+	resetDecryptFlagsForDirTest()
+	decInput = want
+	decPassword = "pw"
+	decQuiet = true
+	decYes = true
+
+	if err := decryptCmd.RunE(decryptCmd, []string{}); err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	assertZipContainsPlaintext(t, inputFile+".zip", plaintext)
+}
+
+func TestDefaultCompressStdinOutputNameUsesZipSuffix(t *testing.T) {
+	resetEncryptFlagsForDirTest()
+	t.Cleanup(resetEncryptFlagsForDirTest)
+
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	})
+	if _, err := w.Write([]byte("<!doctype html><h1>compressed stdin</h1>\n")); err != nil {
+		t.Fatalf("write stdin pipe: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdin pipe: %v", err)
+	}
+
+	encInput = []string{"-"}
+	encPassword = "pw"
+	encCompress = true
+	encQuiet = true
+	encYes = true
+
+	if err := encryptCmd.RunE(encryptCmd, []string{}); err != nil {
+		t.Fatalf("encrypt stdin: %v", err)
+	}
+
+	if _, err := os.Stat("encrypted.zip.pcv"); err != nil {
+		t.Fatalf("compressed stdin default output missing: %v", err)
+	}
+	if _, err := os.Stat("encrypted.pcv"); !os.IsNotExist(err) {
+		t.Fatal("compressed stdin default output should use encrypted.zip.pcv, not encrypted.pcv")
+	}
 }
 
 func TestEncryptStdinValidation(t *testing.T) {

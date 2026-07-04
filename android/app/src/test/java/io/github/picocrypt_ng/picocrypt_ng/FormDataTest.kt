@@ -317,6 +317,30 @@ class FormDataTest {
     }
 
     @Test
+    fun `compressed single-file encrypt suggests zip pcv export name`() {
+        val formData = TestDataBuilders.createEncryptFormData(
+            selectedFilename = "page.html",
+            compress = true
+        )
+
+        assertEquals("page.html.zip.pcv", formData.suggestedOutputNameFor(OperationType.ENCRYPT))
+    }
+
+    @Test
+    fun `legacy pcv decrypt keeps filename-derived export name`() {
+        val formData = TestDataBuilders.createDecryptFormData(selectedFilename = "page.html.pcv")
+
+        assertEquals("page.html", formData.suggestedOutputNameFor(OperationType.DECRYPT))
+    }
+
+    @Test
+    fun `zip pcv decrypt keeps zip export suffix without sniffing`() {
+        val formData = TestDataBuilders.createDecryptFormData(selectedFilename = "page.html.zip.pcv")
+
+        assertEquals("page.html.zip", formData.suggestedOutputNameFor(OperationType.DECRYPT))
+    }
+
+    @Test
     fun `equals and hashCode reflect selection fields`() {
         // The selection model (inputFiles/onlyFolders/onlyFiles/selectionKind/
         // suggestedOutputName) is part of FormData's identity: two forms that differ only
@@ -364,5 +388,3 @@ class FormDataTest {
         assertFalse(fd.hasSelectedInput)
     }
 }
-
-
