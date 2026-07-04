@@ -16,6 +16,8 @@ type workflowDoc struct {
 }
 
 type workflowJob struct {
+	If          string            `yaml:"if"`
+	Environment any               `yaml:"environment"`
 	Permissions map[string]string `yaml:"permissions"`
 	Steps       []workflowStep    `yaml:"steps"`
 }

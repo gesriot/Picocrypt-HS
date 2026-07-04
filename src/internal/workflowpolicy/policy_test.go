@@ -55,6 +55,47 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 	}
 }
 
+func TestReleaseJobsRequireMainBranchAndReleaseEnvironment(t *testing.T) {
+	testCases := []struct {
+		name string
+		path string
+		job  string
+	}{
+		{name: "build-android", path: ".github/workflows/build-android.yml", job: "release"},
+		{name: "build-appimage", path: ".github/workflows/build-appimage.yml", job: "release"},
+		{name: "build-linux", path: ".github/workflows/build-linux.yml", job: "release"},
+		{name: "build-macos", path: ".github/workflows/build-macos.yml", job: "release"},
+		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
+		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
+		{name: "build-windows-legacy", path: ".github/workflows/build-windows-legacy.yml", job: "release"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, tc.path)
+			releaseJob := mustJob(t, workflow, tc.job)
+			if releaseJob.If != "${{ github.ref == 'refs/heads/main' }}" {
+				t.Fatalf("release job if = %q, want main branch guard", releaseJob.If)
+			}
+			if got := releaseEnvironmentName(releaseJob.Environment); got != "release" {
+				t.Fatalf("release job environment = %#v, want release", releaseJob.Environment)
+			}
+		})
+	}
+}
+
+func releaseEnvironmentName(env any) string {
+	switch v := env.(type) {
+	case string:
+		return v
+	case map[string]any:
+		if name, ok := v["name"].(string); ok {
+			return name
+		}
+	}
+	return ""
+}
+
 func TestBuildPermissionsStayLeastPrivilege(t *testing.T) {
 	buildAndroid := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
 	mustPermission(t, buildAndroid.Permissions, "contents", "read")
