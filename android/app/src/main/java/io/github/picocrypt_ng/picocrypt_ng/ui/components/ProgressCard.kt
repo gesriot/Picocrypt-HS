@@ -51,7 +51,7 @@ fun ProgressCard(
     ) { uri: Uri? ->
         uri?.let { destinationUri ->
             val op = operationState
-            if (op != null && op.done && op.error == null) {
+            if (op != null && op.done && op.error == null && op.status != "Cancelled") {
                 scope.launch {
                     val result = FileCopyService.saveFileToUri(context, op.outputFile, destinationUri)
                     result.onSuccess {
@@ -234,6 +234,29 @@ fun ProgressCard(
                     )
                 }
             }
+        }
+
+        is OperationUiState.Cancelled -> {
+            AlertDialog(
+                modifier = modifier,
+                onDismissRequest = { /* Non-dismissible */ },
+                title = {
+                    Text(stringResource(R.string.operation_cancelled))
+                },
+                text = {
+                    Text(stringResource(R.string.operation_cancelled_message))
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            operationViewModel.clearOperation(context, shouldCleanupFiles = true)
+                            mainViewModel.clearSensitiveData(clearFiles = true)
+                        }
+                    ) {
+                        Text(stringResource(R.string.close))
+                    }
+                }
+            )
         }
 
         is OperationUiState.Success -> {
