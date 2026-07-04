@@ -77,4 +77,22 @@ class StartupCleanupTest {
 
         assertEquals("Test reset should simulate a fresh process", 2, cleanupRuns.get())
     }
+
+    @Test
+    fun runBeforeUi_retriesAfterCleanupFailure() {
+        val cleanupRuns = AtomicInteger(0)
+
+        val firstResult = StartupCleanup.runBeforeUi(context) {
+            cleanupRuns.incrementAndGet()
+            false
+        }
+        val secondResult = StartupCleanup.runBeforeUi(context) {
+            cleanupRuns.incrementAndGet()
+            true
+        }
+
+        assertFalse("Failed cleanup should be reported", firstResult)
+        assertTrue("Second cleanup attempt should be allowed to succeed", secondResult)
+        assertEquals("Failed cleanup must not be marked done for the process", 2, cleanupRuns.get())
+    }
 }

@@ -63,7 +63,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        StartupCleanup.runBeforeUi(this)
+        check(StartupCleanup.runBeforeUi(this)) {
+            "Startup cleanup failed before UI initialization"
+        }
         
         // Request notification permission if needed (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

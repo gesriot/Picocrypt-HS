@@ -12,19 +12,20 @@ internal object StartupCleanup {
         cleanup: suspend (Context) -> Boolean = FileCopyService::cleanupAllFiles,
     ): Boolean {
         val shouldRunCleanup = synchronized(lock) {
-            if (cleanupDoneInThisProcess) {
-                false
-            } else {
-                cleanupDoneInThisProcess = true
-                true
-            }
+            !cleanupDoneInThisProcess
         }
 
         if (!shouldRunCleanup) return true
 
-        return runBlocking {
+        val cleanupSucceeded = runBlocking {
             cleanup(context)
         }
+        if (cleanupSucceeded) {
+            synchronized(lock) {
+                cleanupDoneInThisProcess = true
+            }
+        }
+        return cleanupSucceeded
     }
 
     internal fun resetForTests() {
