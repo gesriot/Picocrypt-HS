@@ -151,23 +151,15 @@ jobs:
         echo "ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
     - name: Decode Android signing keystore
+      id: android-keystore
       env:
         ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       run: |
         : "${ANDROID_KEYSTORE_BASE64:?Missing ANDROID_KEYSTORE_BASE64 secret}"
-        : "${ANDROID_KEYSTORE_PASSWORD:?Missing ANDROID_KEYSTORE_PASSWORD secret}"
-        : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
-        : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
         KEYSTORE_PATH="$RUNNER_TEMP/picocrypt-release.keystore"
         printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
         chmod 600 "$KEYSTORE_PATH"
-        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
-        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
-        echo "ORG_GRADLE_PROJECT_PICOCRYPT_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+        echo "path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Make gradlew executable
       working-directory: android
@@ -176,8 +168,17 @@ jobs:
     - name: Build Signed Release APK
       working-directory: android
       env:
-        ORG_GRADLE_PROJECT_PICOCRYPT_REQUIRE_RELEASE_SIGNING: "true"
-      run: ./gradlew assembleRelease
+        ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH: ${{ steps.android-keystore.outputs.path }}
+        ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ORG_GRADLE_PROJECT_PICOCRYPT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ORG_GRADLE_PROJECT_PICOCRYPT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        : "${ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH:?Missing keystore path}"
+        : "${ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PASSWORD:?Missing ANDROID_KEYSTORE_PASSWORD secret}"
+        : "${ORG_GRADLE_PROJECT_PICOCRYPT_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+        : "${ORG_GRADLE_PROJECT_PICOCRYPT_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+        ./gradlew :app:assembleRelease \
+          -PPICOCRYPT_REQUIRE_RELEASE_SIGNING=true
 
     - name: Prepare artifacts
       run: |
