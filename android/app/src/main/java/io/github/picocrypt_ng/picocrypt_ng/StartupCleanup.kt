@@ -1,36 +1,27 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 internal object StartupCleanup {
-    private val lock = Any()
+    private val lock = Mutex()
     private var cleanupDoneInThisProcess = false
 
-    fun runBeforeUi(
+    suspend fun runBeforeUi(
         context: Context,
         cleanup: suspend (Context) -> Boolean = FileCopyService::cleanupAllFiles,
-    ): Boolean {
-        val shouldRunCleanup = synchronized(lock) {
-            !cleanupDoneInThisProcess
-        }
+    ): Boolean = lock.withLock {
+        if (cleanupDoneInThisProcess) return@withLock true
 
-        if (!shouldRunCleanup) return true
-
-        val cleanupSucceeded = runBlocking {
-            cleanup(context)
-        }
+        val cleanupSucceeded = cleanup(context)
         if (cleanupSucceeded) {
-            synchronized(lock) {
-                cleanupDoneInThisProcess = true
-            }
+            cleanupDoneInThisProcess = true
         }
-        return cleanupSucceeded
+        cleanupSucceeded
     }
 
     internal fun resetForTests() {
-        synchronized(lock) {
-            cleanupDoneInThisProcess = false
-        }
+        cleanupDoneInThisProcess = false
     }
 }

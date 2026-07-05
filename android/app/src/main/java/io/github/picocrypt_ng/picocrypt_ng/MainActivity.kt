@@ -63,10 +63,27 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        check(StartupCleanup.runBeforeUi(this)) {
-            "Startup cleanup failed before UI initialization"
+        // Apply screenshot protection before the first frame so the cold-start frame is
+        // already secure under the default-ON setting. Orthogonal to enableEdgeToEdge().
+        val settingsRepository = SettingsRepository.getInstance(this)
+        if (settingsRepository.screenshotProtectionEnabled.value) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
-        
+
+        enableEdgeToEdge()
+
+        lifecycleScope.launch {
+            check(StartupCleanup.runBeforeUi(this@MainActivity)) {
+                "Startup cleanup failed before UI initialization"
+            }
+
+            requestNotificationPermissionIfNeeded()
+            showMainContent()
+            observeScreenshotProtection(settingsRepository)
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
         // Request notification permission if needed (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -77,15 +94,9 @@ class MainActivity : ComponentActivity() {
                 requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-        
-        // Apply screenshot protection before the first frame so the cold-start frame is
-        // already secure under the default-ON setting. Orthogonal to enableEdgeToEdge().
-        val settingsRepository = SettingsRepository.getInstance(this)
-        if (settingsRepository.screenshotProtectionEnabled.value) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
+    }
 
-        enableEdgeToEdge()
+    private fun showMainContent() {
         setContent {
             PicocryptNGTheme {
                 Scaffold { innerPadding ->
@@ -95,7 +106,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
 
+    private fun observeScreenshotProtection(settingsRepository: SettingsRepository) {
         // Apply runtime toggles of the screenshot-protection setting to the activity window.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {

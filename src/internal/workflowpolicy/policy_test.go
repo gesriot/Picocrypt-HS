@@ -89,6 +89,27 @@ func TestReleaseJobsRequireMainBranchAndReleaseEnvironment(t *testing.T) {
 	}
 }
 
+func TestAppImageSigningSecretsRequireReleaseEnvironment(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-appimage.yml")
+	buildJob := mustJob(t, workflow, "build")
+
+	if buildJob.If != "${{ github.ref == 'refs/heads/main' }}" {
+		t.Fatalf("AppImage signing build job if = %q, want main branch guard", buildJob.If)
+	}
+	if got := releaseEnvironmentName(buildJob.Environment); got != "release" {
+		t.Fatalf("AppImage signing build job environment = %#v, want release", buildJob.Environment)
+	}
+
+	importStep := mustStepNamed(t, buildJob, "Import GPG signing key")
+	if _, ok := importStep.Env["GPG_PRIVATE_KEY"]; !ok {
+		t.Fatal("AppImage signing build job should keep the GPG private key scoped to its import step")
+	}
+	buildStep := mustStepNamed(t, buildJob, "Build AppImage")
+	if _, ok := buildStep.Env["APPIMAGETOOL_SIGN_PASSPHRASE"]; !ok {
+		t.Fatal("AppImage signing build job should keep the AppImage passphrase scoped to its build step")
+	}
+}
+
 func releaseEnvironmentName(env any) string {
 	switch v := env.(type) {
 	case string:

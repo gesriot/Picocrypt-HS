@@ -2,12 +2,12 @@ package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
 import io.mockk.mockk
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.concurrent.thread
+import java.io.File
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -30,32 +30,45 @@ class StartupCleanupTest {
     }
 
     @Test
-    fun runBeforeUi_waitsForCleanupToFinishBeforeReturning() {
-        val cleanupStarted = CountDownLatch(1)
+    fun runBeforeUi_isSuspendApiWithoutRunBlocking() {
+        val suspendMethod = StartupCleanup::class.java.declaredMethods.any { method ->
+            method.name == "runBeforeUi" &&
+                method.parameterTypes.lastOrNull()?.name == "kotlin.coroutines.Continuation"
+        }
+
+        assertTrue("Startup cleanup must be a suspend API so MainActivity cannot call it directly on the UI thread", suspendMethod)
+
+        val source = File("../app/src/main/java/io/github/picocrypt_ng/picocrypt_ng/StartupCleanup.kt")
+            .readText()
+        assertFalse("Startup cleanup must not use runBlocking from Activity startup", source.contains("runBlocking"))
+    }
+
+    @Test
+    fun runBeforeUi_waitsForCleanupToFinishBeforeReturning() = runTest {
+        val cleanupStarted = CompletableDeferred<Unit>()
         val allowCleanupToFinish = CompletableDeferred<Unit>()
         val returned = AtomicBoolean(false)
 
-        val cleanupThread = thread(start = true) {
+        val cleanupJob = async {
             StartupCleanup.runBeforeUi(context) {
-                cleanupStarted.countDown()
+                cleanupStarted.complete(Unit)
                 allowCleanupToFinish.await()
                 true
             }
             returned.set(true)
         }
 
-        assertTrue("Cleanup should start", cleanupStarted.await(1, TimeUnit.SECONDS))
+        cleanupStarted.await()
         assertFalse("UI gate must not return while cleanup is still running", returned.get())
 
         allowCleanupToFinish.complete(Unit)
-        cleanupThread.join(1_000)
+        cleanupJob.await()
 
-        assertFalse("Cleanup thread should finish after cleanup completes", cleanupThread.isAlive)
         assertTrue("UI gate should return after cleanup completes", returned.get())
     }
 
     @Test
-    fun runBeforeUi_runsCleanupOnlyOncePerProcessReset() {
+    fun runBeforeUi_runsCleanupOnlyOncePerProcessReset() = runTest {
         val cleanupRuns = AtomicInteger(0)
 
         StartupCleanup.runBeforeUi(context) {
@@ -79,7 +92,7 @@ class StartupCleanupTest {
     }
 
     @Test
-    fun runBeforeUi_retriesAfterCleanupFailure() {
+    fun runBeforeUi_retriesAfterCleanupFailure() = runTest {
         val cleanupRuns = AtomicInteger(0)
 
         val firstResult = StartupCleanup.runBeforeUi(context) {

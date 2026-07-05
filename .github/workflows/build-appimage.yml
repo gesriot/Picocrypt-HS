@@ -17,12 +17,14 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.ref == 'refs/heads/main' }}
     # ubuntu-22.04 (glibc 2.35) is the portability floor. AppImage was dropped once
     # "for better portability" (Changelog v1.34); building on the newest runner's glibc
     # forward-binds symbols that fail on older distros and would reproduce that. GL and
     # GPU-driver libraries are intentionally NOT bundled (linuxdeploy excludelist) -- they
     # are provided by the host, which is what keeps the AppImage portable (incl. Nvidia).
     runs-on: ubuntu-22.04
+    environment: release
     steps:
     - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
