@@ -21,6 +21,7 @@
     <string name="comments">Comments</string>
     <string name="comments_not_readable">Comments not readable (deniability mode)</string>
     <string name="comments_disabled_deniability">Disabled in deniability mode</string>
+    <string name="comments_plaintext_warning">Comments are plaintext metadata. Do not put secrets here.</string>
     
     <!-- Keyfile Card -->
     <string name="keyfiles">Keyfiles</string>
@@ -85,6 +86,8 @@
     <string name="error">Error</string>
     <string name="unknown_error_occurred">An unknown error occurred</string>
     <string name="close">Close</string>
+    <string name="operation_cancelled">Operation cancelled</string>
+    <string name="operation_cancelled_message">No output was completed. Temporary files will be cleaned up.</string>
     <string name="encryption_complete">Encryption Complete</string>
     <string name="decryption_complete">Decryption Complete</string>
     <string name="operation_completed_successfully">Operation completed successfully.</string>

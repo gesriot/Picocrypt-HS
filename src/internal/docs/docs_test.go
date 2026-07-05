@@ -39,22 +39,25 @@ func mustReadDoc(t *testing.T, relPath string) string {
 	return strings.ReplaceAll(string(content), "\r\n", "\n")
 }
 
-func TestWASMDocumentationStatesReducedSurfaceAndZeroingLimits(t *testing.T) {
+func TestWASMDocumentationStatesCurrentSurfaceAndZeroingLimits(t *testing.T) {
 	docs := map[string]string{
 		"web README":   mustReadDoc(t, "README.md"),
 		"build README": mustReadDoc(t, "src/README.md"),
 	}
 
 	requiredSnippets := []string{
-		"standard password-only single-file volumes",
-		"Paranoid mode",
-		"keyfiles",
-		"Reed-Solomon payload protection",
-		"splitting",
-		"deniability",
+		"in-memory single-file encryption and decryption",
+		"WASM bridge caps inputs at 1 GiB",
+		"supports comments, Paranoid mode, keyfiles, Reed-Solomon payload protection, force decrypt, and deniability",
+		"non-streaming and single-file oriented",
+		"folder workflows, split volumes, and large streaming jobs remain desktop/CLI/native-app features",
 		"Go-owned byte buffers are wiped best-effort",
-		"JavaScript engine",
+		"JavaScript engine copies",
 		"garbage-collected runtime copies cannot be guaranteed wiped",
+	}
+	forbiddenSnippets := []string{
+		"standard password-only single-file volumes",
+		"does not enable Paranoid mode, keyfiles, Reed-Solomon payload protection, splitting, or deniability",
 	}
 
 	for name, doc := range docs {
@@ -62,6 +65,11 @@ func TestWASMDocumentationStatesReducedSurfaceAndZeroingLimits(t *testing.T) {
 			for _, snippet := range requiredSnippets {
 				if !strings.Contains(doc, snippet) {
 					t.Errorf("missing %q", snippet)
+				}
+			}
+			for _, snippet := range forbiddenSnippets {
+				if strings.Contains(doc, snippet) {
+					t.Errorf("contains stale WASM wording %q", snippet)
 				}
 			}
 		})

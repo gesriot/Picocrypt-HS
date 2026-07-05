@@ -100,7 +100,9 @@ jobs:
 
   release:
     needs: build
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: windows-2022
+    environment: release
     permissions:
       contents: write
       id-token: write

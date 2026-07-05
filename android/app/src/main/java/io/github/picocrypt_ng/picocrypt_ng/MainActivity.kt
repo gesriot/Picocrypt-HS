@@ -31,8 +31,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import io.github.picocrypt_ng.picocrypt_ng.FileCopyService
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.Alignment
@@ -55,13 +53,6 @@ import io.github.picocrypt_ng.picocrypt_ng.ui.components.WorkButton
 import io.github.picocrypt_ng.picocrypt_ng.ui.theme.PicocryptNGTheme
 
 class MainActivity : ComponentActivity() {
-    // Static flag to track if cleanup has been done in this process lifecycle
-    // This ensures cleanup only happens once per app process, not on every activity recreation
-    companion object {
-        @Volatile
-        private var cleanupDoneInThisProcess = false
-    }
-    
     // Permission launcher for notification permission (Android 13+)
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -71,16 +62,28 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Cleanup files on app startup (only once per process lifecycle, not on activity recreation)
-        // Use a static flag to ensure cleanup only happens once per app process
-        if (!cleanupDoneInThisProcess) {
-            cleanupDoneInThisProcess = true
-            lifecycleScope.launch(Dispatchers.IO) {
-                FileCopyService.cleanupAllFiles(this@MainActivity)
-            }
+
+        // Apply screenshot protection before the first frame so the cold-start frame is
+        // already secure under the default-ON setting. Orthogonal to enableEdgeToEdge().
+        val settingsRepository = SettingsRepository.getInstance(this)
+        if (settingsRepository.screenshotProtectionEnabled.value) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
-        
+
+        enableEdgeToEdge()
+
+        lifecycleScope.launch {
+            check(StartupCleanup.runBeforeUi(this@MainActivity)) {
+                "Startup cleanup failed before UI initialization"
+            }
+
+            requestNotificationPermissionIfNeeded()
+            showMainContent()
+            observeScreenshotProtection(settingsRepository)
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
         // Request notification permission if needed (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -91,15 +94,9 @@ class MainActivity : ComponentActivity() {
                 requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-        
-        // Apply screenshot protection before the first frame so the cold-start frame is
-        // already secure under the default-ON setting. Orthogonal to enableEdgeToEdge().
-        val settingsRepository = SettingsRepository.getInstance(this)
-        if (settingsRepository.screenshotProtectionEnabled.value) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        }
+    }
 
-        enableEdgeToEdge()
+    private fun showMainContent() {
         setContent {
             PicocryptNGTheme {
                 Scaffold { innerPadding ->
@@ -109,7 +106,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
 
+    private fun observeScreenshotProtection(settingsRepository: SettingsRepository) {
         // Apply runtime toggles of the screenshot-protection setting to the activity window.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {

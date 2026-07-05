@@ -108,6 +108,37 @@ class ProgressCardTest {
             restoreOperationState(originalState)
         }
     }
+
+    @Test
+    fun progressCard_shows_cancelled_dialog_without_save_button() {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        val mainViewModel = MainViewModel(application, savedStateHandle)
+        val operationViewModel = OperationViewModel()
+        val originalState = swapOperationState(
+            TestDataBuilders.createOperationState(
+                type = OperationType.ENCRYPT,
+                status = "Cancelled",
+                done = true,
+                error = null,
+                formData = TestDataBuilders.createEncryptFormData()
+            )
+        )
+
+        try {
+            composeTestRule.setContent {
+                ProgressCard(
+                    mainViewModel = mainViewModel,
+                    operationViewModel = operationViewModel
+                )
+            }
+
+            composeTestRule.onNodeWithText(application.getString(R.string.operation_cancelled)).assertIsDisplayed()
+            composeTestRule.onNodeWithText(application.getString(R.string.save)).assertDoesNotExist()
+        } finally {
+            restoreOperationState(originalState)
+        }
+    }
 }
 
 private fun swapOperationState(state: OperationState?): MutableStateFlow<OperationState?> {

@@ -9,6 +9,7 @@ sealed interface OperationUiState {
         val status: String,
         val info: String,
     ) : OperationUiState
+    data class Cancelled(val type: OperationType) : OperationUiState
     data class Success(val type: OperationType) : OperationUiState
     data class Failed(val type: OperationType, val error: AppError) : OperationUiState
 }
@@ -18,22 +19,21 @@ sealed interface OperationUiState {
  * [OperationUiState] consumed by the UI. This replaces the prior done/error/magic-status boolean
  * machine.
  *
- * Behaviour is preserved exactly from the old ProgressCard branches:
+ * Behaviour is preserved from the old ProgressCard branches except that cancelled terminal states
+ * now remain distinct from successful output-producing completion:
  *  - null            -> Idle    (no operation)
  *  - !done           -> Running (operation in progress; cancel affordance)
  *  - done && error   -> Failed  (carries the full AppError so ProgressCard can gate the
  *                                force-decrypt (DataCorruption) and password-retry (PasswordAuth)
  *                                buttons via allowsForceDecrypt()/allowsPasswordRetry())
+ *  - done && status=Cancelled
+ *                    -> Cancelled (terminal, but no successful output to save)
  *  - done && !error  -> Success (the "Completed" save dialog)
- *
- * NOTE on cancel: OperationManager.cancelOperation() leaves the state at done=true, error=null
- * (status="Cancelled"). The old ProgressCard's showSuccess = done && error == null therefore
- * rendered the success/save dialog for a cancelled op, so "Cancelled" maps to Success here to
- * preserve that exact UX rather than collapsing to Idle.
  */
 fun OperationState?.toUiState(): OperationUiState = when {
     this == null -> OperationUiState.Idle
     !done -> OperationUiState.Running(type, progress, status, info)
     error != null -> OperationUiState.Failed(type, error)
+    status == "Cancelled" -> OperationUiState.Cancelled(type)
     else -> OperationUiState.Success(type)
 }

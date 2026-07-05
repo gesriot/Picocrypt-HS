@@ -16,11 +16,14 @@ type workflowDoc struct {
 }
 
 type workflowJob struct {
+	If          string            `yaml:"if"`
+	Environment any               `yaml:"environment"`
 	Permissions map[string]string `yaml:"permissions"`
 	Steps       []workflowStep    `yaml:"steps"`
 }
 
 type workflowStep struct {
+	ID   string            `yaml:"id"`
 	Name string            `yaml:"name"`
 	Uses string            `yaml:"uses"`
 	Run  string            `yaml:"run"`

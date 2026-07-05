@@ -60,7 +60,7 @@ func (a *App) buildEncryptOptions() {
 	a.paranoidCheck = ttwidget.NewCheck("Paranoid mode", func(checked bool) {
 		a.State.Paranoid = checked
 	})
-	a.paranoidCheck.SetToolTip("Provides the highest level of security attainable")
+	a.paranoidCheck.SetToolTip("Adds Serpent-CTR and stronger KDF/MAC settings for defense in depth")
 	a.paranoidCheck.SetChecked(a.State.Paranoid)
 
 	a.compressCheck = ttwidget.NewCheck("Compress files", func(checked bool) {
@@ -77,7 +77,7 @@ func (a *App) buildEncryptOptions() {
 	a.reedSolomonCheck = ttwidget.NewCheck("Reed-Solomon", func(checked bool) {
 		a.State.ReedSolomon = checked
 	})
-	a.reedSolomonCheck.SetToolTip("Prevent file corruption with erasure coding")
+	a.reedSolomonCheck.SetToolTip("Add redundancy to repair limited file corruption")
 	a.reedSolomonCheck.SetChecked(a.State.ReedSolomon)
 
 	a.deleteCheck = ttwidget.NewCheck("Delete files", func(checked bool) {
@@ -161,7 +161,7 @@ func (a *App) buildDecryptOptions() {
 	a.forceDecryptCheck = ttwidget.NewCheck("Force decrypt", func(checked bool) {
 		a.State.Keep = checked
 	})
-	a.forceDecryptCheck.SetToolTip("Override security measures when decrypting")
+	a.forceDecryptCheck.SetToolTip("Keep unverified output when integrity checks fail; output may be corrupted")
 	a.forceDecryptCheck.SetChecked(a.State.Keep)
 
 	a.verifyFirstCheck = ttwidget.NewCheck("Verify first", func(checked bool) {

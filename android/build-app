@@ -17,7 +17,7 @@ if [ -z "$JAVA_BIN" ] || [ ! -x "$JAVA_BIN" ]; then
 fi
 
 if [ -z "$JAVA_BIN" ]; then
-    echo "Error: Java runtime not found. JDK 17 is required." >&2
+    echo "Error: Java runtime not found. JDK 21 is required." >&2
     exit 1
 fi
 
@@ -27,10 +27,10 @@ if [ "$JAVA_MAJOR" = "1" ]; then
     JAVA_MAJOR="$(echo "$JAVA_VERSION" | cut -d. -f2)"
 fi
 
-if [ "$JAVA_MAJOR" != "17" ]; then
-    echo "Error: JDK 17 is required for the native Android build." >&2
+if [ "$JAVA_MAJOR" != "21" ]; then
+    echo "Error: JDK 21 is required for the native Android build." >&2
     echo "  Detected Java version: ${JAVA_VERSION:-unknown}" >&2
-    echo "  Set JAVA_HOME to a JDK 17 installation before running this script." >&2
+    echo "  Set JAVA_HOME to a JDK 21 installation before running this script." >&2
     exit 1
 fi
 

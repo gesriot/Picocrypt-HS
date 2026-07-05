@@ -120,7 +120,7 @@ When "Verify first" is enabled, decryption proceeds in two passes:
 This feature is available in the decrypt advanced options as "Verify first" checkbox.
 
 # Keyfile Design
-Picocrypt NG allows the use of keyfiles as an additional form of authentication. Picocrypt NG's unique "Require correct order" feature enforces the user to drop keyfiles into the window in the same order as they did when encrypting in order to decrypt the volume successfully. Here's how it works:
+Picocrypt NG allows the use of keyfiles as an additional decryption factor. Picocrypt NG's unique "Require correct order" feature enforces the user to drop keyfiles into the window in the same order as they did when encrypting in order to decrypt the volume successfully. Here's how it works:
 
 If correct order is not required, Picocrypt NG will take the SHA3-256 of each keyfile individually and XOR the hashes together. Finally, the result is XORed with the master key. Because the XOR operation is both commutative and associative, the order in which the keyfile hashes are XORed with each other doesn't matter - the end result is the same.
 

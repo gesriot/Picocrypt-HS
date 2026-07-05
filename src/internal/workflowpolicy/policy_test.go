@@ -1,6 +1,11 @@
 package workflowpolicy
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
 
 func TestStaticChecksWorkflowEnforcesFormatVetLintAndVuln(t *testing.T) {
 	const path = ".github/workflows/pr-static-checks.yml"
@@ -41,6 +46,7 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 		{name: "build-linux", path: ".github/workflows/build-linux.yml", job: "release"},
 		{name: "build-macos", path: ".github/workflows/build-macos.yml", job: "release"},
 		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
+		{name: "build-windows-legacy", path: ".github/workflows/build-windows-legacy.yml", job: "release"},
 		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
 		{name: "build-appimage", path: ".github/workflows/build-appimage.yml", job: "release"},
 	}
@@ -53,6 +59,68 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 			mustMatch(t, releaseStep.Uses, `softprops/action-gh-release@[0-9a-f]{40}`)
 		})
 	}
+}
+
+func TestReleaseJobsRequireMainBranchAndReleaseEnvironment(t *testing.T) {
+	testCases := []struct {
+		name string
+		path string
+		job  string
+	}{
+		{name: "build-android", path: ".github/workflows/build-android.yml", job: "release"},
+		{name: "build-appimage", path: ".github/workflows/build-appimage.yml", job: "release"},
+		{name: "build-linux", path: ".github/workflows/build-linux.yml", job: "release"},
+		{name: "build-macos", path: ".github/workflows/build-macos.yml", job: "release"},
+		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
+		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
+		{name: "build-windows-legacy", path: ".github/workflows/build-windows-legacy.yml", job: "release"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, tc.path)
+			releaseJob := mustJob(t, workflow, tc.job)
+			if releaseJob.If != "${{ github.ref == 'refs/heads/main' }}" {
+				t.Fatalf("release job if = %q, want main branch guard", releaseJob.If)
+			}
+			if got := releaseEnvironmentName(releaseJob.Environment); got != "release" {
+				t.Fatalf("release job environment = %#v, want release", releaseJob.Environment)
+			}
+		})
+	}
+}
+
+func TestAppImageSigningSecretsRequireReleaseEnvironment(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-appimage.yml")
+	buildJob := mustJob(t, workflow, "build")
+
+	if buildJob.If != "${{ github.ref == 'refs/heads/main' }}" {
+		t.Fatalf("AppImage signing build job if = %q, want main branch guard", buildJob.If)
+	}
+	if got := releaseEnvironmentName(buildJob.Environment); got != "release" {
+		t.Fatalf("AppImage signing build job environment = %#v, want release", buildJob.Environment)
+	}
+
+	importStep := mustStepNamed(t, buildJob, "Import GPG signing key")
+	if _, ok := importStep.Env["GPG_PRIVATE_KEY"]; !ok {
+		t.Fatal("AppImage signing build job should keep the GPG private key scoped to its import step")
+	}
+	buildStep := mustStepNamed(t, buildJob, "Build AppImage")
+	if _, ok := buildStep.Env["APPIMAGETOOL_SIGN_PASSPHRASE"]; !ok {
+		t.Fatal("AppImage signing build job should keep the AppImage passphrase scoped to its build step")
+	}
+}
+
+func releaseEnvironmentName(env any) string {
+	switch v := env.(type) {
+	case string:
+		return v
+	case map[string]any:
+		if name, ok := v["name"].(string); ok {
+			return name
+		}
+	}
+	return ""
 }
 
 func TestBuildPermissionsStayLeastPrivilege(t *testing.T) {
@@ -258,13 +326,138 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 	mustNotHaveStepNamed(t, buildJob, "Decode Android signing keystore")
 	mustNotHaveStepNamed(t, buildJob, "Build Signed Release APK")
 
-	releaseStep := mustStepNamed(t, releaseJob, "Decode Android signing keystore")
-	if _, ok := releaseStep.Env["ANDROID_KEYSTORE_BASE64"]; !ok {
+	decodeStep := mustStepNamed(t, releaseJob, "Decode Android signing keystore")
+	if decodeStep.ID != "android-keystore" {
+		t.Fatalf("release keystore decode step id = %q, want android-keystore", decodeStep.ID)
+	}
+	if _, ok := decodeStep.Env["ANDROID_KEYSTORE_BASE64"]; !ok {
 		t.Fatal("release keystore decode step should declare ANDROID_KEYSTORE_BASE64")
 	}
-	mustStepNamed(t, releaseJob, "Build Signed Release APK")
+	for _, key := range []string{
+		"ANDROID_KEYSTORE_PASSWORD",
+		"ANDROID_KEY_ALIAS",
+		"ANDROID_KEY_PASSWORD",
+	} {
+		if _, ok := decodeStep.Env[key]; ok {
+			t.Fatalf("release keystore decode step must not declare env %q", key)
+		}
+		mustNotContain(t, decodeStep.Run, key)
+	}
+	mustNotContain(t, decodeStep.Run, "PICOCRYPT_KEYSTORE_PASSWORD")
+	mustNotContain(t, decodeStep.Run, "PICOCRYPT_KEY_ALIAS")
+	mustNotContain(t, decodeStep.Run, "PICOCRYPT_KEY_PASSWORD")
+	mustNotContain(t, decodeStep.Run, "$GITHUB_ENV")
+	mustContain(t, decodeStep.Run, "path=$KEYSTORE_PATH")
+	mustMatch(t, decodeStep.Run, `(?m)>>\s*"\$GITHUB_OUTPUT"`)
+
+	buildSignedStep := mustStepNamed(t, releaseJob, "Build Signed Release APK")
+	for _, key := range []string{
+		"ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH",
+		"ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PASSWORD",
+		"ORG_GRADLE_PROJECT_PICOCRYPT_KEY_ALIAS",
+		"ORG_GRADLE_PROJECT_PICOCRYPT_KEY_PASSWORD",
+	} {
+		if _, ok := buildSignedStep.Env[key]; !ok {
+			t.Fatalf("signed build step missing scoped env %q", key)
+		}
+	}
+	if got := buildSignedStep.Env["ORG_GRADLE_PROJECT_PICOCRYPT_KEYSTORE_PATH"]; got != "${{ steps.android-keystore.outputs.path }}" {
+		t.Fatalf("signed build keystore path env = %q, want android-keystore step output", got)
+	}
 	downloadStep := mustHaveStepUsingPrefix(t, releaseJob, "actions/download-artifact@")
 	mustMatch(t, downloadStep.Uses, `actions/download-artifact@[0-9a-f]{40}`)
+}
+
+func TestAndroidBuildWorkflowsUseJDK21(t *testing.T) {
+	for _, path := range []string{
+		".github/workflows/build-android.yml",
+		".github/workflows/pr-test-build-android.yml",
+		".github/workflows/android-instrumented.yml",
+	} {
+		workflow := mustReadWorkflowDoc(t, path)
+		for jobName, job := range workflow.Jobs {
+			setupSteps := 0
+			for _, step := range job.Steps {
+				if !strings.HasPrefix(step.Uses, "actions/setup-java@") {
+					continue
+				}
+				setupSteps++
+				if step.Name != "Set up JDK 21" {
+					t.Fatalf("%s job %s setup-java step name = %q, want Set up JDK 21", path, jobName, step.Name)
+				}
+				if got := step.With["distribution"]; got != "temurin" {
+					t.Fatalf("%s job %s setup-java distribution = %#v, want temurin", path, jobName, got)
+				}
+				if got := step.With["java-version"]; got != "21" {
+					t.Fatalf("%s job %s setup-java java-version = %#v, want 21", path, jobName, got)
+				}
+			}
+			if setupSteps == 0 {
+				t.Fatalf("%s job %s has no actions/setup-java step", path, jobName)
+			}
+		}
+	}
+
+	mustContain(t, mustReadRepoFile(t, "mise.toml"), `java = "temurin-21"`)
+	mustContain(t, mustReadRepoFile(t, "android/README.md"), "CI and recommended local builds use JDK 21")
+
+	buildScript := mustReadRepoFile(t, "android/build-app")
+	mustContain(t, buildScript, "JDK 21 is required")
+	mustContain(t, buildScript, `"$JAVA_MAJOR" != "21"`)
+	mustNotContain(t, buildScript, "JDK 17 is required")
+}
+
+func TestAndroidApiFloorStaysAt24(t *testing.T) {
+	gradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
+	mustContain(t, gradle, "minSdk = 24")
+
+	gomobile := mustReadRepoFile(t, "android/build-gomobile.sh")
+	mustContain(t, gomobile, "-androidapi 24")
+	mustContain(t, gomobile, "-ldflags=\"$GOMOBILE_LDFLAGS\"")
+
+	readme := mustReadRepoFile(t, "android/README.md")
+	mustContain(t, readme, "minimum API level 24")
+}
+
+func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
+	const gradle813Sha256 = "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78"
+
+	wrapper := mustReadRepoFile(t, "android/gradle/wrapper/gradle-wrapper.properties")
+	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.13-bin.zip")
+	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle813Sha256+`$`)
+
+	metadata := mustReadRepoFile(t, "android/gradle/verification-metadata.xml")
+	mustContain(t, metadata, "<verification-metadata")
+	mustContain(t, metadata, "<verify-metadata>true</verify-metadata>")
+	mustMatch(t, metadata, `<sha256 value="[0-9a-f]{64}"`)
+
+	var dependabot struct {
+		Updates []struct {
+			PackageEcosystem string `yaml:"package-ecosystem"`
+			Directory        string `yaml:"directory"`
+		} `yaml:"updates"`
+	}
+	if err := yaml.Unmarshal([]byte(mustReadRepoFile(t, ".github/dependabot.yml")), &dependabot); err != nil {
+		t.Fatalf("unmarshal dependabot yaml: %v", err)
+	}
+	for _, want := range []struct {
+		ecosystem string
+		directory string
+	}{
+		{ecosystem: "gomod", directory: "src/"},
+		{ecosystem: "gradle", directory: "android/"},
+	} {
+		found := false
+		for _, update := range dependabot.Updates {
+			if update.PackageEcosystem == want.ecosystem && update.Directory == want.directory {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("dependabot updates missing package-ecosystem %q with directory %q together", want.ecosystem, want.directory)
+		}
+	}
 }
 
 func TestAndroidGomobileBuildUsesReproducibleLinkerFlags(t *testing.T) {
