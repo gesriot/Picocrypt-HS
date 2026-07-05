@@ -15,7 +15,7 @@ This directory contains the Android app that integrates with the Go encryption b
 
 2. **Android SDK**: Ensure Android SDK is installed and `ANDROID_HOME` is set.
    - Requires NDK 29.0+ (minimum API level 24, matching app's minSdk)
-   - CI and recommended local builds use JDK 17
+   - CI and recommended local builds use JDK 21
 
 3. **Application ID**: The native Android app uses:
    ```text

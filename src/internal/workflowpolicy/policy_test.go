@@ -1,6 +1,7 @@
 package workflowpolicy
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -365,6 +366,57 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 	}
 	downloadStep := mustHaveStepUsingPrefix(t, releaseJob, "actions/download-artifact@")
 	mustMatch(t, downloadStep.Uses, `actions/download-artifact@[0-9a-f]{40}`)
+}
+
+func TestAndroidBuildWorkflowsUseJDK21(t *testing.T) {
+	for _, path := range []string{
+		".github/workflows/build-android.yml",
+		".github/workflows/pr-test-build-android.yml",
+		".github/workflows/android-instrumented.yml",
+	} {
+		workflow := mustReadWorkflowDoc(t, path)
+		for jobName, job := range workflow.Jobs {
+			setupSteps := 0
+			for _, step := range job.Steps {
+				if !strings.HasPrefix(step.Uses, "actions/setup-java@") {
+					continue
+				}
+				setupSteps++
+				if step.Name != "Set up JDK 21" {
+					t.Fatalf("%s job %s setup-java step name = %q, want Set up JDK 21", path, jobName, step.Name)
+				}
+				if got := step.With["distribution"]; got != "temurin" {
+					t.Fatalf("%s job %s setup-java distribution = %#v, want temurin", path, jobName, got)
+				}
+				if got := step.With["java-version"]; got != "21" {
+					t.Fatalf("%s job %s setup-java java-version = %#v, want 21", path, jobName, got)
+				}
+			}
+			if setupSteps == 0 {
+				t.Fatalf("%s job %s has no actions/setup-java step", path, jobName)
+			}
+		}
+	}
+
+	mustContain(t, mustReadRepoFile(t, "mise.toml"), `java = "temurin-21"`)
+	mustContain(t, mustReadRepoFile(t, "android/README.md"), "CI and recommended local builds use JDK 21")
+
+	buildScript := mustReadRepoFile(t, "android/build-app")
+	mustContain(t, buildScript, "JDK 21 is required")
+	mustContain(t, buildScript, `"$JAVA_MAJOR" != "21"`)
+	mustNotContain(t, buildScript, "JDK 17 is required")
+}
+
+func TestAndroidApiFloorStaysAt24(t *testing.T) {
+	gradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
+	mustContain(t, gradle, "minSdk = 24")
+
+	gomobile := mustReadRepoFile(t, "android/build-gomobile.sh")
+	mustContain(t, gomobile, "-androidapi 24")
+	mustContain(t, gomobile, "-ldflags=\"$GOMOBILE_LDFLAGS\"")
+
+	readme := mustReadRepoFile(t, "android/README.md")
+	mustContain(t, readme, "minimum API level 24")
 }
 
 func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
