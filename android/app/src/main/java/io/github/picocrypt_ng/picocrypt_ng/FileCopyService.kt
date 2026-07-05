@@ -158,8 +158,10 @@ object FileCopyService {
                 return@withContext false
             }
 
+            val files = internalDir.listFiles() ?: return@withContext false
+
             var allDeleted = true
-            internalDir.listFiles()?.forEach { file ->
+            files.forEach { file ->
                 val deleted = if (file.isDirectory) {
                     file.deleteRecursively()
                 } else {
