@@ -327,8 +327,8 @@ func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 	mustNotHaveStepNamed(t, buildJob, "Build Signed Release APK")
 
 	decodeStep := mustStepNamed(t, releaseJob, "Decode Android signing keystore")
-	if decodeStep.Id != "android-keystore" {
-		t.Fatalf("release keystore decode step id = %q, want android-keystore", decodeStep.Id)
+	if decodeStep.ID != "android-keystore" {
+		t.Fatalf("release keystore decode step id = %q, want android-keystore", decodeStep.ID)
 	}
 	if _, ok := decodeStep.Env["ANDROID_KEYSTORE_BASE64"]; !ok {
 		t.Fatal("release keystore decode step should declare ANDROID_KEYSTORE_BASE64")
