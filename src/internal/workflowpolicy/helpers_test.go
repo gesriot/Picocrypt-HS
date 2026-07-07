@@ -16,19 +16,23 @@ type workflowDoc struct {
 }
 
 type workflowJob struct {
-	If          string            `yaml:"if"`
-	Environment any               `yaml:"environment"`
-	Permissions map[string]string `yaml:"permissions"`
-	Steps       []workflowStep    `yaml:"steps"`
+	If              string            `yaml:"if"`
+	ContinueOnError any               `yaml:"continue-on-error"`
+	Environment     any               `yaml:"environment"`
+	Permissions     map[string]string `yaml:"permissions"`
+	Steps           []workflowStep    `yaml:"steps"`
 }
 
 type workflowStep struct {
-	ID   string            `yaml:"id"`
-	Name string            `yaml:"name"`
-	Uses string            `yaml:"uses"`
-	Run  string            `yaml:"run"`
-	With map[string]any    `yaml:"with"`
-	Env  map[string]string `yaml:"env"`
+	ID               string            `yaml:"id"`
+	Name             string            `yaml:"name"`
+	Uses             string            `yaml:"uses"`
+	Run              string            `yaml:"run"`
+	If               string            `yaml:"if"`
+	WorkingDirectory string            `yaml:"working-directory"`
+	ContinueOnError  any               `yaml:"continue-on-error"`
+	With             map[string]any    `yaml:"with"`
+	Env              map[string]string `yaml:"env"`
 }
 
 func repoRoot(t *testing.T) string {

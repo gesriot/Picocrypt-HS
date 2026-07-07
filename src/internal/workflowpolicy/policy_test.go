@@ -356,9 +356,26 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 func TestAndroidPRWorkflowBuildsReleaseWithR8(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
 	job := mustJob(t, workflow, "pr-test-build-android")
+	if job.If != "" {
+		t.Fatalf("PR Android job if = %q, want unconditional release-build gate", job.If)
+	}
+	if job.ContinueOnError != nil && job.ContinueOnError != false {
+		t.Fatalf("PR Android job continue-on-error = %#v, want absent or false", job.ContinueOnError)
+	}
 
 	releaseStep := mustStepNamed(t, job, "Build Release APK")
-	mustContain(t, releaseStep.Run, "./gradlew :app:assembleRelease")
+	if got := strings.TrimSpace(releaseStep.Run); got != "./gradlew :app:assembleRelease" {
+		t.Fatalf("release build step run = %q, want exact blocking release assemble command", got)
+	}
+	if releaseStep.If != "" {
+		t.Fatalf("release build step if = %q, want unconditional PR gate", releaseStep.If)
+	}
+	if releaseStep.ContinueOnError != nil && releaseStep.ContinueOnError != false {
+		t.Fatalf("release build step continue-on-error = %#v, want absent or false", releaseStep.ContinueOnError)
+	}
+	if releaseStep.WorkingDirectory != "android" {
+		t.Fatalf("release build step working-directory = %q, want android", releaseStep.WorkingDirectory)
+	}
 
 	appGradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
 	mustContain(t, appGradle, "isMinifyEnabled = true")
