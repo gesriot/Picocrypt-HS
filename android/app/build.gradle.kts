@@ -41,7 +41,7 @@ val releaseSigningRequired = providers
 
 android {
     namespace = "io.github.picocrypt_ng.picocrypt_ng"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.picocrypt_ng.picocrypt_ng"
