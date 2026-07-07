@@ -468,11 +468,11 @@ func TestAndroidApiFloorStaysAt24(t *testing.T) {
 }
 
 func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
-	const gradle813Sha256 = "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78"
+	const gradle931Sha256 = "b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06"
 
 	wrapper := mustReadRepoFile(t, "android/gradle/wrapper/gradle-wrapper.properties")
-	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.13-bin.zip")
-	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle813Sha256+`$`)
+	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip")
+	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle931Sha256+`$`)
 
 	metadata := mustReadRepoFile(t, "android/gradle/verification-metadata.xml")
 	mustContain(t, metadata, "<verification-metadata")
