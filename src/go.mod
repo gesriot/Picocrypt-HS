@@ -9,13 +9,13 @@ require (
 	github.com/Picocrypt/infectious v0.0.0-20250713161924-ae9b3ccb49d7
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
 	github.com/dweymouth/fyne-tooltip v0.4.0
-	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260406072232-3ac4aa2bb164
+	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260707082822-2a407d02d01a
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/crypto v0.53.0
 	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.44.0
-	golang.org/x/text v0.38.0
+	golang.org/x/text v0.39.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

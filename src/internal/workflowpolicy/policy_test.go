@@ -1,6 +1,8 @@
 package workflowpolicy
 
 import (
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -58,6 +60,40 @@ func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
 			releaseStep := mustHaveStepUsingPrefix(t, releaseJob, "softprops/action-gh-release@")
 			mustMatch(t, releaseStep.Uses, `softprops/action-gh-release@[0-9a-f]{40}`)
 		})
+	}
+}
+
+func TestExternalGitHubActionsPinnedToFullSHAWithVersionComment(t *testing.T) {
+	actionRef := regexp.MustCompile(`uses:\s*([^@\s]+)@([0-9a-f]{40})(?:\s+#\s+v[0-9][^\s]*)?$`)
+	workflowFiles, err := filepath.Glob(filepath.Join(repoRoot(t), ".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatalf("glob workflows: %v", err)
+	}
+	actionFiles, err := filepath.Glob(filepath.Join(repoRoot(t), ".github", "actions", "*", "action.yml"))
+	if err != nil {
+		t.Fatalf("glob composite actions: %v", err)
+	}
+
+	files := make([]string, 0, len(workflowFiles)+len(actionFiles))
+	files = append(files, workflowFiles...)
+	files = append(files, actionFiles...)
+	for _, absPath := range files {
+		relPath, err := filepath.Rel(repoRoot(t), absPath)
+		if err != nil {
+			t.Fatalf("rel path for %s: %v", absPath, err)
+		}
+		content := mustReadRepoFile(t, relPath)
+		for lineNo, line := range strings.Split(content, "\n") {
+			if !strings.Contains(line, "uses:") {
+				continue
+			}
+			if strings.Contains(line, "uses: ./") {
+				continue
+			}
+			if !actionRef.MatchString(strings.TrimSpace(line)) {
+				t.Fatalf("%s:%d external action must use a 40-hex SHA and same-line version comment, got %q", relPath, lineNo+1, strings.TrimSpace(line))
+			}
+		}
 	}
 }
 
@@ -446,6 +482,7 @@ func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
 	}{
 		{ecosystem: "gomod", directory: "src/"},
 		{ecosystem: "gradle", directory: "android/"},
+		{ecosystem: "github-actions", directory: "/"},
 	} {
 		found := false
 		for _, update := range dependabot.Updates {
