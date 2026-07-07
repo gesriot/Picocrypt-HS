@@ -1,6 +1,7 @@
 package workflowpolicy
 
 import (
+	"encoding/xml"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -352,6 +353,35 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 	}
 }
 
+func TestAndroidPRWorkflowBuildsReleaseWithR8(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
+	job := mustJob(t, workflow, "pr-test-build-android")
+	if job.If != "" {
+		t.Fatalf("PR Android job if = %q, want unconditional release-build gate", job.If)
+	}
+	if job.ContinueOnError != nil && job.ContinueOnError != false {
+		t.Fatalf("PR Android job continue-on-error = %#v, want absent or false", job.ContinueOnError)
+	}
+
+	releaseStep := mustStepNamed(t, job, "Build Release APK")
+	if got := strings.TrimSpace(releaseStep.Run); got != "./gradlew :app:assembleRelease" {
+		t.Fatalf("release build step run = %q, want exact blocking release assemble command", got)
+	}
+	if releaseStep.If != "" {
+		t.Fatalf("release build step if = %q, want unconditional PR gate", releaseStep.If)
+	}
+	if releaseStep.ContinueOnError != nil && releaseStep.ContinueOnError != false {
+		t.Fatalf("release build step continue-on-error = %#v, want absent or false", releaseStep.ContinueOnError)
+	}
+	if releaseStep.WorkingDirectory != "android" {
+		t.Fatalf("release build step working-directory = %q, want android", releaseStep.WorkingDirectory)
+	}
+
+	appGradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
+	mustContain(t, appGradle, "isMinifyEnabled = true")
+	mustContain(t, appGradle, "isShrinkResources = true")
+}
+
 func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
 	buildJob := mustJob(t, workflow, "build")
@@ -456,11 +486,13 @@ func TestAndroidApiFloorStaysAt24(t *testing.T) {
 }
 
 func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
-	const gradle813Sha256 = "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78"
+	const gradle931Sha256 = "b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06"
 
 	wrapper := mustReadRepoFile(t, "android/gradle/wrapper/gradle-wrapper.properties")
-	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.13-bin.zip")
-	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle813Sha256+`$`)
+	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip")
+	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle931Sha256+`$`)
+	mustMatch(t, wrapper, `(?m)^validateDistributionUrl=true$`)
+	mustMatch(t, wrapper, `(?m)^networkTimeout=60000$`)
 
 	metadata := mustReadRepoFile(t, "android/gradle/verification-metadata.xml")
 	mustContain(t, metadata, "<verification-metadata")
@@ -493,6 +525,113 @@ func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("dependabot updates missing package-ecosystem %q with directory %q together", want.ecosystem, want.directory)
+		}
+	}
+}
+
+func TestAndroidGradleVerificationPrereleaseMetadataIsExplicitlyScoped(t *testing.T) {
+	var metadata struct {
+		Components []struct {
+			Group   string `xml:"group,attr"`
+			Name    string `xml:"name,attr"`
+			Version string `xml:"version,attr"`
+		} `xml:"components>component"`
+	}
+	if err := xml.Unmarshal([]byte(mustReadRepoFile(t, "android/gradle/verification-metadata.xml")), &metadata); err != nil {
+		t.Fatalf("parse Gradle verification metadata XML: %v", err)
+	}
+
+	// These are accepted build-tool/test-platform metadata entries, not app
+	// runtime/library upgrades. Any future prerelease metadata needs explicit
+	// review before being added here.
+	allowedPrereleaseComponents := map[string]struct{}{
+		"com.android.tools.build.jetifier:jetifier-core:1.0.0-beta10":              {},
+		"com.android.tools.build.jetifier:jetifier-processor:1.0.0-beta10":         {},
+		"com.google.testing.platform:android-device-provider-local:0.0.9-alpha03":  {},
+		"com.google.testing.platform:android-device-provider-local:0.0.9-alpha04":  {},
+		"com.google.testing.platform:android-driver-instrumentation:0.0.9-alpha03": {},
+		"com.google.testing.platform:android-driver-instrumentation:0.0.9-alpha04": {},
+		"com.google.testing.platform:android-test-plugin:0.0.9-alpha03":            {},
+		"com.google.testing.platform:android-test-plugin:0.0.9-alpha04":            {},
+		"com.google.testing.platform:core:0.0.9-alpha03":                           {},
+		"com.google.testing.platform:core:0.0.9-alpha04":                           {},
+		"com.google.testing.platform:core-proto:0.0.9-alpha03":                     {},
+		"com.google.testing.platform:core-proto:0.0.9-alpha04":                     {},
+		"com.google.testing.platform:launcher:0.0.9-alpha03":                       {},
+		"com.google.testing.platform:launcher:0.0.9-alpha04":                       {},
+		"org.junit:junit-bom:5.11.0-M2":                                            {},
+	}
+	presentAllowed := make(map[string]struct{}, len(allowedPrereleaseComponents))
+
+	var unreviewed []string
+	for _, component := range metadata.Components {
+		if !isPrereleaseVersion(component.Version) {
+			continue
+		}
+		id := component.Group + ":" + component.Name + ":" + component.Version
+		if _, ok := allowedPrereleaseComponents[id]; ok {
+			presentAllowed[id] = struct{}{}
+			continue
+		}
+		unreviewed = append(unreviewed, id)
+	}
+	if len(unreviewed) > 0 {
+		t.Fatalf("Gradle verification metadata contains unreviewed prerelease components:\n%s", strings.Join(unreviewed, "\n"))
+	}
+	for id := range allowedPrereleaseComponents {
+		if _, ok := presentAllowed[id]; !ok {
+			t.Fatalf("allowlisted Gradle prerelease metadata entry %q is not present", id)
+		}
+	}
+}
+
+func TestGradleWrapperLineEndingsAreGoverned(t *testing.T) {
+	attributes := mustReadRepoFile(t, ".gitattributes")
+	for _, want := range []struct {
+		path string
+		eol  string
+	}{
+		{path: "/android/gradlew", eol: "lf"},
+		{path: "/android/gradlew.bat", eol: "crlf"},
+	} {
+		pattern := `(?m)^` + regexp.QuoteMeta(want.path) + `\s+text\s+eol=` + want.eol + `$`
+		if !regexp.MustCompile(pattern).MatchString(attributes) {
+			t.Errorf(".gitattributes must pin %s as text eol=%s", want.path, want.eol)
+		}
+	}
+}
+
+var prereleaseVersionPattern = regexp.MustCompile(`(?i)(?:^|[-.])(?:alpha|beta|rc|m[0-9]+|milestone|snapshot|eap|preview|canary|dev)(?:[0-9]+)?(?:$|[-.])`)
+
+func isPrereleaseVersion(version string) bool {
+	return prereleaseVersionPattern.MatchString(version)
+}
+
+func TestPrereleaseVersionPatternCoversCommonMarkers(t *testing.T) {
+	for _, version := range []string{
+		"0.0.9-alpha03",
+		"1.0.0-beta10",
+		"5.11.0-M2",
+		"1.0.0-milestone-1",
+		"1.0.0-SNAPSHOT",
+		"2.0.0-eap1",
+		"2.0.0-preview.1",
+		"2.0.0-canary",
+		"2.0.0-dev-20260707",
+	} {
+		if !isPrereleaseVersion(version) {
+			t.Errorf("isPrereleaseVersion(%q) = false, want true", version)
+		}
+	}
+
+	for _, version := range []string{
+		"1.0.0",
+		"1.0.0-release",
+		"1.0.0-device",
+		"1.0.0-previewable",
+	} {
+		if isPrereleaseVersion(version) {
+			t.Errorf("isPrereleaseVersion(%q) = true, want false", version)
 		}
 	}
 }

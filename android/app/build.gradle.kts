@@ -3,9 +3,15 @@ import com.android.build.api.variant.FilterConfiguration.FilterType.ABI
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("kotlin-parcelize")
+    alias(libs.plugins.kotlin.parcelize)
+}
+
+configurations.matching { it.name == "kotlinAbiValidationCompatClasspath" }.configureEach {
+    // Kotlin 2.4.0's ABI validation classpath otherwise resolves build tools to a pre-release version.
+    resolutionStrategy.force(
+        "org.jetbrains.kotlin:kotlin-build-tools-impl:${libs.versions.kotlin.get()}"
+    )
 }
 
 val releaseSigningRequested = gradle.startParameter.taskNames.any { task ->
