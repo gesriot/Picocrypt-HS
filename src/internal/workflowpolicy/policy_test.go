@@ -568,10 +568,55 @@ func TestAndroidGradleVerificationPrereleaseMetadataIsExplicitlyScoped(t *testin
 	}
 }
 
-var prereleaseVersionPattern = regexp.MustCompile(`(?i)(?:^|[-.])(?:alpha|beta|rc|m[0-9]+|milestone|snapshot)`)
+func TestGradleWrapperLineEndingsAreGoverned(t *testing.T) {
+	attributes := mustReadRepoFile(t, ".gitattributes")
+	for _, want := range []struct {
+		path string
+		eol  string
+	}{
+		{path: "/android/gradlew", eol: "lf"},
+		{path: "/android/gradlew.bat", eol: "crlf"},
+	} {
+		pattern := `(?m)^` + regexp.QuoteMeta(want.path) + `\s+text\s+eol=` + want.eol + `$`
+		if !regexp.MustCompile(pattern).MatchString(attributes) {
+			t.Errorf(".gitattributes must pin %s as text eol=%s", want.path, want.eol)
+		}
+	}
+}
+
+var prereleaseVersionPattern = regexp.MustCompile(`(?i)(?:^|[-.])(?:alpha|beta|rc|m[0-9]+|milestone|snapshot|eap|preview|canary|dev)(?:[0-9]+)?(?:$|[-.])`)
 
 func isPrereleaseVersion(version string) bool {
 	return prereleaseVersionPattern.MatchString(version)
+}
+
+func TestPrereleaseVersionPatternCoversCommonMarkers(t *testing.T) {
+	for _, version := range []string{
+		"0.0.9-alpha03",
+		"1.0.0-beta10",
+		"5.11.0-M2",
+		"1.0.0-milestone-1",
+		"1.0.0-SNAPSHOT",
+		"2.0.0-eap1",
+		"2.0.0-preview.1",
+		"2.0.0-canary",
+		"2.0.0-dev-20260707",
+	} {
+		if !isPrereleaseVersion(version) {
+			t.Errorf("isPrereleaseVersion(%q) = false, want true", version)
+		}
+	}
+
+	for _, version := range []string{
+		"1.0.0",
+		"1.0.0-release",
+		"1.0.0-device",
+		"1.0.0-previewable",
+	} {
+		if isPrereleaseVersion(version) {
+			t.Errorf("isPrereleaseVersion(%q) = true, want false", version)
+		}
+	}
 }
 
 func TestAndroidGomobileBuildUsesReproducibleLinkerFlags(t *testing.T) {
