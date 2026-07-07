@@ -40,26 +40,25 @@ func TestStaticChecksWorkflowEnforcesFormatVetLintAndVuln(t *testing.T) {
 }
 
 func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
-	testCases := []struct {
-		name string
-		path string
-		job  string
-	}{
-		{name: "build-android", path: ".github/workflows/build-android.yml", job: "release"},
-		{name: "build-linux", path: ".github/workflows/build-linux.yml", job: "release"},
-		{name: "build-macos", path: ".github/workflows/build-macos.yml", job: "release"},
-		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
-		{name: "build-windows-legacy", path: ".github/workflows/build-windows-legacy.yml", job: "release"},
-		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
-		{name: "build-appimage", path: ".github/workflows/build-appimage.yml", job: "release"},
-	}
-
-	for _, tc := range testCases {
+	for _, tc := range releaseWorkflowCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			workflow := mustReadWorkflowDoc(t, tc.path)
 			releaseJob := mustJob(t, workflow, tc.job)
 			releaseStep := mustHaveStepUsingPrefix(t, releaseJob, "softprops/action-gh-release@")
 			mustMatch(t, releaseStep.Uses, `softprops/action-gh-release@[0-9a-f]{40}`)
+		})
+	}
+}
+
+func TestReleaseUploadsNeverOverwriteExistingAssets(t *testing.T) {
+	for _, tc := range releaseWorkflowCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, tc.path)
+			releaseJob := mustJob(t, workflow, tc.job)
+			releaseStep := mustHaveStepUsingPrefix(t, releaseJob, "softprops/action-gh-release@")
+			if got := releaseStep.With["overwrite_files"]; got != false && got != "false" {
+				t.Fatalf("release overwrite_files = %#v, want false to preserve published binaries", got)
+			}
 		})
 	}
 }
@@ -99,7 +98,46 @@ func TestExternalGitHubActionsPinnedToFullSHAWithVersionComment(t *testing.T) {
 }
 
 func TestReleaseJobsRequireMainBranchAndReleaseEnvironment(t *testing.T) {
-	testCases := []struct {
+	const releaseGuard = "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish_release) }}"
+
+	for _, tc := range releaseWorkflowCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, tc.path)
+			releaseJob := mustJob(t, workflow, tc.job)
+			if releaseJob.If != releaseGuard {
+				t.Fatalf("release job if = %q, want guarded push or explicit manual release", releaseJob.If)
+			}
+			if got := releaseEnvironmentName(releaseJob.Environment); got != "release" {
+				t.Fatalf("release job environment = %#v, want release", releaseJob.Environment)
+			}
+
+			content := mustReadWorkflow(t, tc.path)
+			mustContain(t, content, "publish_release:")
+			mustContain(t, content, "Existing assets are never overwritten.")
+		})
+	}
+}
+
+func TestMacOSReleaseWorkflowOnlyAutoRunsOnVersionChanges(t *testing.T) {
+	content := mustReadWorkflow(t, ".github/workflows/build-macos.yml")
+
+	mustContainInOrder(t, content,
+		"on:",
+		"push:",
+		"paths:",
+		"- \"VERSION\"",
+		"branches:",
+	)
+	mustNotContain(t, content, "- \".github/workflows/build-macos.yml\"")
+	mustNotContain(t, content, "- \".github/scripts/assert-macos-minos.sh\"")
+}
+
+func releaseWorkflowCases() []struct {
+	name string
+	path string
+	job  string
+} {
+	return []struct {
 		name string
 		path string
 		job  string
@@ -111,19 +149,6 @@ func TestReleaseJobsRequireMainBranchAndReleaseEnvironment(t *testing.T) {
 		{name: "build-snapcraft", path: ".github/workflows/build-snapcraft.yml", job: "release"},
 		{name: "build-windows", path: ".github/workflows/build-windows.yml", job: "release"},
 		{name: "build-windows-legacy", path: ".github/workflows/build-windows-legacy.yml", job: "release"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			workflow := mustReadWorkflowDoc(t, tc.path)
-			releaseJob := mustJob(t, workflow, tc.job)
-			if releaseJob.If != "${{ github.ref == 'refs/heads/main' }}" {
-				t.Fatalf("release job if = %q, want main branch guard", releaseJob.If)
-			}
-			if got := releaseEnvironmentName(releaseJob.Environment); got != "release" {
-				t.Fatalf("release job environment = %#v, want release", releaseJob.Environment)
-			}
-		})
 	}
 }
 
