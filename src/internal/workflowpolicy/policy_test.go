@@ -352,6 +352,18 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 	}
 }
 
+func TestAndroidPRWorkflowBuildsReleaseWithR8(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
+	job := mustJob(t, workflow, "pr-test-build-android")
+
+	releaseStep := mustStepNamed(t, job, "Build Release APK")
+	mustContain(t, releaseStep.Run, "./gradlew :app:assembleRelease")
+
+	appGradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
+	mustContain(t, appGradle, "isMinifyEnabled = true")
+	mustContain(t, appGradle, "isShrinkResources = true")
+}
+
 func TestAndroidReleaseWorkflowKeepsSigningSecretsOutOfBuildJob(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
 	buildJob := mustJob(t, workflow, "build")

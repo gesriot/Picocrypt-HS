@@ -85,6 +85,10 @@ jobs:
       working-directory: android
       run: ./gradlew assembleDebug
 
+    - name: Build Release APK
+      working-directory: android
+      run: ./gradlew :app:assembleRelease
+
     - name: Compile Instrumented Tests
       working-directory: android
       run: ./gradlew :app:compileDebugAndroidTestKotlin
