@@ -10,6 +10,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish artifacts to the GitHub release. Existing assets are never overwritten."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -166,7 +172,7 @@ jobs:
 
   release:
     needs: build
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish_release) }}
     runs-on: ubuntu-24.04
     environment: release
     permissions:
@@ -215,3 +221,4 @@ jobs:
           artifacts/${{ env.APPIMAGE_NAME }}.sigstore.json
           artifacts/${{ env.APPIMAGE_NAME }}.zsync.sigstore.json
         tag_name: ${{ env.VERSION }}
+        overwrite_files: false
