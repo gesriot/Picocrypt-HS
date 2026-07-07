@@ -1,6 +1,7 @@
 package workflowpolicy
 
 import (
+	"encoding/xml"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -473,6 +474,8 @@ func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
 	wrapper := mustReadRepoFile(t, "android/gradle/wrapper/gradle-wrapper.properties")
 	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip")
 	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle931Sha256+`$`)
+	mustMatch(t, wrapper, `(?m)^validateDistributionUrl=true$`)
+	mustMatch(t, wrapper, `(?m)^networkTimeout=60000$`)
 
 	metadata := mustReadRepoFile(t, "android/gradle/verification-metadata.xml")
 	mustContain(t, metadata, "<verification-metadata")
@@ -507,6 +510,68 @@ func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
 			t.Fatalf("dependabot updates missing package-ecosystem %q with directory %q together", want.ecosystem, want.directory)
 		}
 	}
+}
+
+func TestAndroidGradleVerificationPrereleaseMetadataIsExplicitlyScoped(t *testing.T) {
+	var metadata struct {
+		Components []struct {
+			Group   string `xml:"group,attr"`
+			Name    string `xml:"name,attr"`
+			Version string `xml:"version,attr"`
+		} `xml:"components>component"`
+	}
+	if err := xml.Unmarshal([]byte(mustReadRepoFile(t, "android/gradle/verification-metadata.xml")), &metadata); err != nil {
+		t.Fatalf("parse Gradle verification metadata XML: %v", err)
+	}
+
+	// These are accepted build-tool/test-platform metadata entries, not app
+	// runtime/library upgrades. Any future prerelease metadata needs explicit
+	// review before being added here.
+	allowedPrereleaseComponents := map[string]struct{}{
+		"com.android.tools.build.jetifier:jetifier-core:1.0.0-beta10":              {},
+		"com.android.tools.build.jetifier:jetifier-processor:1.0.0-beta10":         {},
+		"com.google.testing.platform:android-device-provider-local:0.0.9-alpha03":  {},
+		"com.google.testing.platform:android-device-provider-local:0.0.9-alpha04":  {},
+		"com.google.testing.platform:android-driver-instrumentation:0.0.9-alpha03": {},
+		"com.google.testing.platform:android-driver-instrumentation:0.0.9-alpha04": {},
+		"com.google.testing.platform:android-test-plugin:0.0.9-alpha03":            {},
+		"com.google.testing.platform:android-test-plugin:0.0.9-alpha04":            {},
+		"com.google.testing.platform:core:0.0.9-alpha03":                           {},
+		"com.google.testing.platform:core:0.0.9-alpha04":                           {},
+		"com.google.testing.platform:core-proto:0.0.9-alpha03":                     {},
+		"com.google.testing.platform:core-proto:0.0.9-alpha04":                     {},
+		"com.google.testing.platform:launcher:0.0.9-alpha03":                       {},
+		"com.google.testing.platform:launcher:0.0.9-alpha04":                       {},
+		"org.junit:junit-bom:5.11.0-M2":                                            {},
+	}
+	presentAllowed := make(map[string]struct{}, len(allowedPrereleaseComponents))
+
+	var unreviewed []string
+	for _, component := range metadata.Components {
+		if !isPrereleaseVersion(component.Version) {
+			continue
+		}
+		id := component.Group + ":" + component.Name + ":" + component.Version
+		if _, ok := allowedPrereleaseComponents[id]; ok {
+			presentAllowed[id] = struct{}{}
+			continue
+		}
+		unreviewed = append(unreviewed, id)
+	}
+	if len(unreviewed) > 0 {
+		t.Fatalf("Gradle verification metadata contains unreviewed prerelease components:\n%s", strings.Join(unreviewed, "\n"))
+	}
+	for id := range allowedPrereleaseComponents {
+		if _, ok := presentAllowed[id]; !ok {
+			t.Fatalf("allowlisted Gradle prerelease metadata entry %q is not present", id)
+		}
+	}
+}
+
+var prereleaseVersionPattern = regexp.MustCompile(`(?i)(?:^|[-.])(?:alpha|beta|rc|m[0-9]+|milestone|snapshot)`)
+
+func isPrereleaseVersion(version string) bool {
+	return prereleaseVersionPattern.MatchString(version)
 }
 
 func TestAndroidGomobileBuildUsesReproducibleLinkerFlags(t *testing.T) {
