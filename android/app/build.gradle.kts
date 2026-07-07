@@ -3,9 +3,8 @@ import com.android.build.api.variant.FilterConfiguration.FilterType.ABI
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("kotlin-parcelize")
+    alias(libs.plugins.kotlin.parcelize)
 }
 
 configurations.matching { it.name == "kotlinAbiValidationCompatClasspath" }.configureEach {
