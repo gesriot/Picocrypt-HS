@@ -91,7 +91,7 @@ object OperationManager {
                 type = OperationType.ENCRYPT,
                 inputFile = formData.copiedFilePath,
                 outputFile = outputFilePath,
-                status = "Starting...",
+                status = OperationStatus.STARTING,
                 progress = 0f,
                 info = "",
                 formData = formData
@@ -162,7 +162,7 @@ object OperationManager {
                 type = OperationType.DECRYPT,
                 inputFile = formData.copiedFilePath,
                 outputFile = outputFilePath,
-                status = "Starting...",
+                status = OperationStatus.STARTING,
                 progress = 0f,
                 info = "",
                 formData = formData
@@ -182,7 +182,8 @@ object OperationManager {
         val appError = if (error is AppError) error
                        else AppError.OperationError.GenericOperation(
                            error.message ?: "Operation failed to start",
-                           error.message
+                           error.message,
+                           R.string.error_operation_start_failed,
                        )
         _currentOperation.update { current ->
             if (current != null) current  // Don't clobber an already-running op.
@@ -191,7 +192,7 @@ object OperationManager {
                 type = type,
                 inputFile = "",
                 outputFile = "",
-                status = "Error",
+                status = OperationStatus.ERROR,
                 progress = 0f,
                 info = appError.userMessage,
                 done = true,
@@ -211,7 +212,7 @@ object OperationManager {
 
         val result = GoBridge.getProgress(operation.id)
         result.getOrNull()?.let { progressState ->
-            val error = if (progressState.done && progressState.status == "Error") {
+            val error = if (progressState.done && progressState.status == OperationStatus.ERROR) {
                 // Classify by the stable Go error code (not fragile substring matching)
                 AppError.fromGoError(progressState.info, operation.type, progressState.code)
             } else {
@@ -256,7 +257,7 @@ object OperationManager {
         val result = GoBridge.cancelOperation(operation.id)
         result.onSuccess {
             _currentOperation.value = operation.copy(
-                status = "Cancelled",
+                status = OperationStatus.CANCELLED,
                 done = true
             )
         }
@@ -392,7 +393,7 @@ object OperationManager {
                 type = OperationType.DECRYPT,
                 inputFile = operation.inputFile,
                 outputFile = operation.outputFile,
-                status = "Starting...",
+                status = OperationStatus.STARTING,
                 progress = 0f,
                 info = "",
                 formData = formData
@@ -423,4 +424,3 @@ enum class OperationType {
     ENCRYPT,
     DECRYPT
 }
-

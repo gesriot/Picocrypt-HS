@@ -5,9 +5,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import io.github.picocrypt_ng.picocrypt_ng.AppError
 import io.github.picocrypt_ng.picocrypt_ng.R
+import io.github.picocrypt_ng.picocrypt_ng.localizedMessage
 
 /**
  * Reusable error dialog component for displaying non-operation errors.
@@ -19,12 +21,13 @@ fun ErrorDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     error?.let {
         AlertDialog(
             modifier = modifier,
             onDismissRequest = onDismiss,
             title = { Text(stringResource(R.string.error)) },
-            text = { Text(it.userMessage) },
+            text = { Text(it.localizedMessage(context)) },
             confirmButton = {
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.ok))
@@ -33,4 +36,3 @@ fun ErrorDialog(
         )
     }
 }
-

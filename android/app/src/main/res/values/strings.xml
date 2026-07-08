@@ -112,4 +112,19 @@
     <string name="fgs_encrypting">Encrypting</string>
     <string name="fgs_decrypting">Decrypting</string>
     <string name="fgs_working">Working…</string>
+
+    <!-- Stable error display boundary -->
+    <string name="error_auth_failed">Authentication failed. Check the password, keyfiles, and keyfile order.</string>
+    <string name="error_data_corrupted">Integrity check failed. The output is unverified and may be corrupted.</string>
+    <string name="error_file_not_found">File not found or inaccessible.</string>
+    <string name="error_unknown">Unknown error occurred.</string>
+    <string name="error_operation_start_failed">Operation failed to start.</string>
+    <string name="error_no_file_selected">Please select a file.</string>
+    <string name="error_invalid_password">Please enter a password.</string>
+    <string name="error_passwords_mismatch">Passwords do not match.</string>
+    <string name="error_split_volume_not_supported">Split volumes are not supported on Android. Recombine the chunks on your computer first, then transfer the single .pcv file.</string>
+    <string name="error_copy_failed">Failed to copy file.</string>
+    <string name="error_save_failed">Failed to save file.</string>
+    <string name="error_delete_failed">Failed to delete file.</string>
+    <string name="error_insufficient_storage">Not enough free space to encrypt this selection.</string>
 </resources>

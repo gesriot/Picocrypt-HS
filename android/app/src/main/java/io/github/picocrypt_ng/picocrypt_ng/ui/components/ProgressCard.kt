@@ -25,11 +25,13 @@ import androidx.compose.ui.res.stringResource
 import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
 import io.github.picocrypt_ng.picocrypt_ng.OperationViewModel
 import io.github.picocrypt_ng.picocrypt_ng.OperationType
+import io.github.picocrypt_ng.picocrypt_ng.OperationStatus
 import io.github.picocrypt_ng.picocrypt_ng.OperationUiState
 import io.github.picocrypt_ng.picocrypt_ng.toUiState
 import io.github.picocrypt_ng.picocrypt_ng.AppError
 import io.github.picocrypt_ng.picocrypt_ng.FileCopyService
 import io.github.picocrypt_ng.picocrypt_ng.R
+import io.github.picocrypt_ng.picocrypt_ng.localizedMessage
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import java.io.File
@@ -51,7 +53,7 @@ fun ProgressCard(
     ) { uri: Uri? ->
         uri?.let { destinationUri ->
             val op = operationState
-            if (op != null && op.done && op.error == null && op.status != "Cancelled") {
+            if (op != null && op.done && op.error == null && op.status != OperationStatus.CANCELLED) {
                 scope.launch {
                     val result = FileCopyService.saveFileToUri(context, op.outputFile, destinationUri)
                     result.onSuccess {
@@ -137,7 +139,7 @@ fun ProgressCard(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = error.userMessage,
+                                    text = error.localizedMessage(context),
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Text(
@@ -180,7 +182,7 @@ fun ProgressCard(
                             Text(stringResource(R.string.authentication_error))
                         },
                         text = {
-                            Text(error.userMessage)
+                            Text(error.localizedMessage(context))
                         },
                         confirmButton = {
                             Button(
@@ -217,7 +219,7 @@ fun ProgressCard(
                             Text(stringResource(R.string.error))
                         },
                         text = {
-                            Text(error.userMessage)
+                            Text(error.localizedMessage(context))
                         },
                         confirmButton = {
                             TextButton(
@@ -291,7 +293,10 @@ fun ProgressCard(
                         Text(stringResource(R.string.operation_completed_successfully))
                         saveError?.let { error ->
                             Text(
-                                text = stringResource(R.string.error_saving_file, error.userMessage),
+                                text = stringResource(
+                                    R.string.error_saving_file,
+                                    error.localizedMessage(context)
+                                ),
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall
                             )

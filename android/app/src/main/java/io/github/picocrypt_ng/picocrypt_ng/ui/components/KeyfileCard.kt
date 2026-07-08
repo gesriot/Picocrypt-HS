@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.security.SecureRandom
 import io.github.picocrypt_ng.picocrypt_ng.R
+import io.github.picocrypt_ng.picocrypt_ng.localizedMessage
 
 
 @Composable
@@ -200,7 +201,7 @@ fun NewKeyfile(viewModel: MainViewModel) {
                     AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
                 }
                 viewModel.setError(appError)
-                errorMessage = appError.userMessage
+                errorMessage = appError.localizedMessage(context)
                 showErrorDialog = true
             }
         } catch (e: Exception) {
