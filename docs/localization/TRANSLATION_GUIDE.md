@@ -17,7 +17,7 @@ integrity, password, keyfile, corruption, and deletion concepts.
 
 | Surface | Current state | Translation path |
 |---|---|---|
-| Desktop Fyne UI | User-facing desktop UI strings are routed through `src/internal/ui/translation/en.json` via project wrappers around Fyne `lang`. | Keep using the project `tr`/`trn` wrappers and enable additional locale files only after a Fyne/Weblate JSON round-trip. |
+| Desktop Fyne UI | User-facing desktop UI strings are routed through `src/internal/ui/translation/en.json` via the project-local `go-i18n` runtime. | Keep using the project `tr`/`trn` wrappers and enable additional locale files only after a Fyne/Weblate JSON round-trip. |
 | Android app | Base English UI strings live in `android/app/src/main/res/values/strings.xml`; raw Go/runtime details are not translator source copy. | Continue with Android string resources and explicit display-boundary mappings. |
 | CLI | Cobra help, prompts, warnings, and errors are hard-coded Go strings. | Do not localize CLI output, command names, flags, or examples. Keep CLI English-only. |
 | Web/WASM | The Go WASM bridge exports functions and numeric error codes; it does not own the hosted web UI copy. | Localize the web frontend separately if/when that source is brought into scope. |
@@ -53,8 +53,8 @@ does not own every button label or status string.
 
 Use these sources before adding or changing localization mechanics:
 
-- Fyne app translations: <https://docs.fyne.io/explore/translations/>
-- Fyne `lang` package API: <https://docs.fyne.io/api/v2/lang/pkg/>
+- go-i18n runtime localization: <https://github.com/nicksnyder/go-i18n>
+- Fyne app preferences and widgets: <https://docs.fyne.io/>
 - Android localization: <https://developer.android.com/guide/topics/resources/localization>
 - Android string resources and plurals: <https://developer.android.com/guide/topics/resources/string-resource>
 - Android language and layout support: <https://developer.android.com/training/basics/supporting-devices/languages>
@@ -365,7 +365,7 @@ Initial high-risk entries:
 - Android XML strings must escape XML-sensitive characters and Android-sensitive
   leading characters correctly.
 - Fyne JSON strings must remain valid UTF-8 JSON and must preserve any template
-  markers consumed by Fyne `lang`.
+  markers consumed by the project-local `go-i18n` runtime.
 
 ## Reviewer Checklist
 
