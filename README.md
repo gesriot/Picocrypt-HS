@@ -76,6 +76,13 @@ Picocrypt NG includes a command-line interface in this repository; see <a href="
 ## Web
 Picocrypt NG provides a browser app <a href="https://picocrypt-ng.github.io/">here</a> for in-memory single-file encryption and decryption on modern browsers, including mobile devices. In this repository, the WASM bridge caps inputs at 1 GiB and supports comments, Paranoid mode, keyfiles, Reed-Solomon payload protection, force decrypt, and deniability. The browser workflow is still intentionally non-streaming and single-file oriented; folder workflows, split volumes, and large streaming jobs remain desktop/CLI/native-app features. Go-owned byte buffers are wiped best-effort after use, but JavaScript engine copies and garbage-collected runtime copies cannot be guaranteed wiped.
 
+## Translations
+Picocrypt NG uses Hosted Weblate for community UI translations. Translation
+work is reviewed before merge, and security-sensitive wording must preserve the
+meaning documented in the
+[translation guide](docs/localization/TRANSLATION_GUIDE.md).
+The CLI remains English-only.
+
 ## File Associations
 Double-click `.pcv` files to open Picocrypt NG in decrypt mode on Windows, macOS, and Linux. Installer/`.deb`/`.app` packages register the association automatically.
 
