@@ -273,7 +273,7 @@ fun ProgressCard(
                 modifier = modifier,
                 onDismissRequest = {
                     // Don't cleanup on dismiss - user might want to save later
-                    // Only cleanup when Cancel button is explicitly clicked
+                    // Only cleanup when the discard action is explicitly clicked
                 },
                 title = {
                     Text(

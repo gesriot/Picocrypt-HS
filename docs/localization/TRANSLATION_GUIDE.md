@@ -210,7 +210,7 @@ Use these translations unless a maintainer deliberately changes the glossary.
 | Paranoid mode | Параноидальный режим | Mode paranoïaque | Paranoid-Modus | Modo paranoico | Modalità paranoica |
 | Verify integrity first | Сначала проверить целостность | Vérifier d'abord l'intégrité | Integrität zuerst prüfen | Verificar primero la integridad | Verifica prima l'integrità |
 | Force decrypt | Принудительная расшифровка | Forcer le déchiffrement | Entschlüsselung erzwingen | Forzar descifrado | Forza decifratura |
-| Reed-Solomon | Reed-Solomon | Reed-Solomon | Reed-Solomon-Fehlerkorrektur | Reed-Solomon | Reed-Solomon |
+| Reed-Solomon | Reed-Solomon | Reed-Solomon | Reed-Solomon | Reed-Solomon | Reed-Solomon |
 | Compress | Сжать | Compresser | Komprimieren | Comprimir | Comprimi |
 | Split | Разбить на части | Fractionner | Aufteilen | Dividir | Dividi |
 | Auto unzip | Автоматически распаковать ZIP | Décompresser automatiquement | ZIP automatisch entpacken | Descomprimir automáticamente | Estrai automaticamente lo ZIP |
@@ -347,7 +347,8 @@ Initial high-risk entries:
 - Every plural resource must have the platform-required fallback form, normally
   `other`.
 - Keep keyboard shortcuts, command names, flags, environment variables, file
-  extensions, MIME identifiers, package IDs, and URLs unchanged.
+  extensions, MIME identifiers, package IDs, generated filename prefixes such
+  as `encrypted-` and `keyfile-`, and URLs unchanged.
 - Android XML strings must escape XML-sensitive characters and Android-sensitive
   leading characters correctly.
 - Fyne JSON strings must remain valid UTF-8 JSON and must preserve any template
