@@ -149,6 +149,49 @@ func TestDesktopLanguageSelectorStaysInHeaderOutsideWorkflowControls(t *testing.
 	}
 }
 
+func TestMobileLanguageSelectorStaysInUtilityRowBeforeFileWorkflow(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
+	}
+
+	fyneApp := newTestFyneApp(t)
+	a, err := NewApp("v2.test")
+	if err != nil {
+		t.Fatalf("NewApp returned error: %v", err)
+	}
+	a.fyneApp = fyneApp
+
+	fyne.DoAndWait(func() {
+		a.Window = fyneApp.NewWindow("mobile-layout-test")
+		content := a.buildMobileUI()
+		a.Window.SetContent(content)
+	})
+
+	if a.languageSelector == nil || a.languageSelector.button == nil {
+		t.Fatal("language selector was not built")
+	}
+	if a.mainContent == nil {
+		t.Fatal("mainContent was not built")
+	}
+	if len(a.mainContent.Objects) < 2 {
+		t.Fatalf("mainContent has %d objects; want utility row followed by file workflow", len(a.mainContent.Objects))
+	}
+
+	utilityRow := a.mainContent.Objects[0]
+	fileWorkflow := a.mainContent.Objects[1]
+	if !canvasTreeContainsObject(utilityRow, a.languageSelector.button) {
+		t.Fatal("mobile utility row does not contain the language selector")
+	}
+	if canvasTreeContainsObject(fileWorkflow, a.languageSelector.button) {
+		t.Fatal("language selector is inside the mobile file workflow; want utility row before it")
+	}
+	for i, obj := range a.mainContent.Objects[1:] {
+		if canvasTreeContainsObject(obj, a.languageSelector.button) {
+			t.Fatalf("language selector is inside mobile workflow control %d; want only the utility row", i+1)
+		}
+	}
+}
+
 func TestDesktopUILayoutFitsWindowAfterModeChange(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")

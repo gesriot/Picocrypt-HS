@@ -35,6 +35,7 @@ import (
 	_ "embed"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,24 +97,27 @@ type App struct {
 	openReadinessAppliedAt     time.Time
 
 	// UI widgets that need to be updated
-	inputLabel        *widget.Label
-	clearButton       *widget.Button
-	aboutButton       *widget.Button
-	languageSelector  *languageSelector
-	aboutVersionLabel *widget.Label
-	mainContent       *fyne.Container
-	passwordEntry     *PasswordEntry
-	cPasswordEntry    *PasswordEntry
-	strengthIndicator *PasswordStrengthIndicator
-	validIndicator    *ValidationIndicator
-	keyfileLabel      *widget.Label
-	commentsLabel     *widget.Label
-	commentsEntry     *widget.Entry
-	advancedLabel     *widget.Label
-	advancedContainer *fyne.Container
-	outputEntry       interface{ SetText(string) }
-	startButton       *widget.Button
-	statusLabel       *ColoredLabel
+	inputLabel         *widget.Label
+	clearButton        *widget.Button
+	aboutButton        *widget.Button
+	languageSelector   *languageSelector
+	aboutVersionLabel  *widget.Label
+	mainContent        *fyne.Container
+	passwordLabel      *widget.Label
+	passwordEntry      *PasswordEntry
+	cPasswordEntry     *PasswordEntry
+	strengthIndicator  *PasswordStrengthIndicator
+	validIndicator     *ValidationIndicator
+	keyfilesTitleLabel *widget.Label
+	keyfileLabel       *widget.Label
+	commentsLabel      *widget.Label
+	commentsEntry      *widget.Entry
+	advancedLabel      *widget.Label
+	advancedContainer  *fyne.Container
+	outputLabel        *widget.Label
+	outputEntry        interface{ SetText(string) }
+	startButton        *widget.Button
+	statusLabel        *ColoredLabel
 
 	// Confirm password section (hidden in decrypt mode)
 	confirmLabel *widget.Label
@@ -137,6 +141,12 @@ type App struct {
 
 	// Output section
 	changeBtn *widget.Button
+
+	// Mobile file-selection controls
+	mobileSelectFilesBtn  *widget.Button
+	mobileSelectFolderBtn *widget.Button
+	mobileAppStorageBtn   *widget.Button
+	mobileAppStorageHelp  *widget.Label
 
 	// Advanced options (encrypt mode)
 	paranoidCheck    *ttwidget.Check
@@ -252,9 +262,105 @@ func (a *App) refreshLocalizedText() {
 	if a.changeBtn != nil {
 		a.changeBtn.SetText(tr("action.change", "Change"))
 	}
+	setLabelText(a.passwordLabel, tr("password.label", "Password:"))
+	setEntryPlaceholder(a.passwordEntry, tr("password.placeholder", "Password"))
+	setEntryPlaceholder(a.cPasswordEntry, tr("password.confirm_placeholder", "Confirm password"))
+	setLabelText(a.confirmLabel, tr("password.confirm_label", "Confirm password:"))
+	setLabelText(a.nonASCIIHint, tr("password.non_ascii_hint",
+		"Non-ASCII password: it is normalized so the volume decrypts on any "+
+			"platform, but make sure you can type the same characters on every "+
+			"device where you'll decrypt it."))
+	setLabelText(a.keyfilesTitleLabel, tr("keyfiles.label", "Keyfiles:"))
+	setLabelText(a.commentsLabel, tr("comments.label", "Comments:"))
+	setEntryPlaceholder(a.commentsEntry, tr("comments.placeholder", "Comments (not encrypted)"))
+	setLabelText(a.advancedLabel, tr("advanced.label", "Advanced:"))
+	setLabelText(a.outputLabel, tr("output.label", "Save output as:"))
+	setButtonText(a.mobileSelectFilesBtn, tr("mobile.select_files", "Select Files"))
+	setButtonText(a.mobileSelectFolderBtn, tr("mobile.select_folder", "Select Folder"))
+	setButtonText(a.mobileAppStorageBtn, tr("mobile.app_storage.button", "App Storage (large files)"))
+	setLabelText(a.mobileAppStorageHelp, tr("mobile.app_storage.tip", "Tip: For large files, copy them to App Storage first"))
+	a.refreshAdvancedLocalizedText()
 	if a.State != nil {
 		a.updateUIState()
 	}
+}
+
+type localizedPlaceholder interface {
+	SetPlaceHolder(string)
+}
+
+func setLabelText(label *widget.Label, text string) {
+	if label != nil {
+		label.SetText(text)
+	}
+}
+
+func setButtonText(button *widget.Button, text string) {
+	if button != nil {
+		button.SetText(text)
+	}
+}
+
+func setEntryPlaceholder(entry localizedPlaceholder, text string) {
+	if entry == nil {
+		return
+	}
+	value := reflect.ValueOf(entry)
+	if value.Kind() == reflect.Ptr && value.IsNil() {
+		return
+	}
+	entry.SetPlaceHolder(text)
+}
+
+func setCheckText(check *ttwidget.Check, text string) {
+	if check != nil {
+		check.SetText(text)
+	}
+}
+
+func setCheckTooltip(check *ttwidget.Check, text string) {
+	if check != nil {
+		check.SetToolTip(text)
+	}
+}
+
+func (a *App) refreshAdvancedLocalizedText() {
+	setCheckText(a.paranoidCheck, tr("advanced.paranoid.label", "Paranoid mode"))
+	setCheckTooltip(a.paranoidCheck, tr("advanced.paranoid.tooltip", "Adds Serpent-CTR and stronger KDF/MAC settings for defense in depth"))
+	setCheckText(a.compressCheck, tr("advanced.compress.label", "Compress files"))
+	setCheckTooltip(a.compressCheck, tr("advanced.compress.tooltip", "Compress files with Deflate before encrypting"))
+	setCheckText(a.reedSolomonCheck, tr("advanced.reed_solomon.label", "Reed-Solomon"))
+	setCheckTooltip(a.reedSolomonCheck, tr("advanced.reed_solomon.tooltip", "Add redundancy to repair limited file corruption"))
+	if a.State != nil && a.State.Mode == "decrypt" {
+		setCheckText(a.deleteCheck, tr("advanced.delete_encrypted.label", "Delete encrypted"))
+	} else {
+		setCheckText(a.deleteCheck, tr("advanced.delete_files.label", "Delete files"))
+		setCheckTooltip(a.deleteCheck, tr("advanced.delete_files.tooltip", "Delete the input files after encryption"))
+	}
+	setCheckText(a.deniabilityCheck, tr("advanced.deniability.label", "Deniability"))
+	setCheckTooltip(a.deniabilityCheck, tr("advanced.security_warning.tooltip", "Warning: only use this if you know what it does!"))
+	setCheckText(a.recursivelyCheck, tr("advanced.recursively.label", "Recursively"))
+	setCheckTooltip(a.recursivelyCheck, tr("advanced.security_warning.tooltip", "Warning: only use this if you know what it does!"))
+	setCheckText(a.splitCheck, tr("advanced.split.label", "Split:"))
+	setCheckTooltip(a.splitCheck, tr("advanced.split.tooltip", "Split the output file into smaller chunks"))
+	setEntryPlaceholder(a.splitSizeEntry, tr("advanced.split.size_placeholder", "Size"))
+	if a.splitUnitSelect != nil {
+		a.splitUnitSelect.SetToolTip(tr("advanced.split.unit_tooltip", "Choose the chunk units"))
+	}
+	setCheckText(a.forceDecryptCheck, tr("advanced.force_decrypt.label", "Force decrypt"))
+	setCheckTooltip(a.forceDecryptCheck, tr("advanced.force_decrypt.tooltip", "Keep unverified output when integrity checks fail; output may be corrupted"))
+	setCheckText(a.verifyFirstCheck, tr("advanced.verify_first.label", "Verify first"))
+	setCheckTooltip(a.verifyFirstCheck, tr("advanced.verify_first.tooltip", "Verify integrity before decryption (slower but more secure)"))
+	setCheckText(a.deleteVolumeCheck, tr("advanced.delete_volume.label", "Delete volume"))
+	setCheckTooltip(a.deleteVolumeCheck, tr("advanced.delete_volume.tooltip", "Delete the volume after a successful decryption"))
+	setCheckText(a.autoUnzipCheck, tr("advanced.auto_unzip.label", "Auto unzip"))
+	setCheckTooltip(a.autoUnzipCheck, tr("advanced.auto_unzip.tooltip", "Extract {{.Extension}} upon decryption (may overwrite files)", map[string]any{
+		"Extension": ".zip",
+	}))
+	setCheckText(a.sameLevelCheck, tr("advanced.same_level.label", "Same level"))
+	setCheckTooltip(a.sameLevelCheck, tr("advanced.same_level.tooltip", "Extract {{.Extension}} contents to same folder as volume", map[string]any{
+		"Extension": ".zip",
+	}))
 }
 
 // Run starts the UI application and optionally loads files passed at startup.
@@ -733,11 +839,11 @@ func (a *App) buildOutputSection() fyne.CanvasObject {
 	row := container.NewBorder(nil, nil, nil, a.changeBtn, outputEntry)
 
 	// Create bold label for better visual hierarchy
-	outputLabel := widget.NewLabel(tr("output.label", "Save output as:"))
-	outputLabel.TextStyle = fyne.TextStyle{Bold: true}
+	a.outputLabel = widget.NewLabel(tr("output.label", "Save output as:"))
+	a.outputLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	return container.NewVBox(
-		outputLabel,
+		a.outputLabel,
 		row,
 	)
 }

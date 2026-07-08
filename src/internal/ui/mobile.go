@@ -45,6 +45,7 @@ func (a *App) buildMobileUI() fyne.CanvasObject {
 
 	// Advanced section
 	a.advancedContainer = container.NewVBox()
+	a.advancedLabel = widget.NewLabel(tr("advanced.label", "Advanced:"))
 	a.updateMobileAdvancedSection()
 
 	// Output section
@@ -68,7 +69,7 @@ func (a *App) buildMobileUI() fyne.CanvasObject {
 		keyfilesSection,
 		widget.NewSeparator(),
 		commentsSection,
-		widget.NewLabel(tr("advanced.label", "Advanced:")),
+		a.advancedLabel,
 		a.advancedContainer,
 		outputSection,
 		widget.NewSeparator(),
@@ -91,13 +92,13 @@ func (a *App) buildMobileFileSection() fyne.CanvasObject {
 	a.inputLabel.Wrapping = fyne.TextWrapWord
 
 	// Select Files button - opens file picker
-	selectFilesBtn := widget.NewButtonWithIcon(tr("mobile.select_files", "Select Files"), theme.FolderOpenIcon(), func() {
+	a.mobileSelectFilesBtn = widget.NewButtonWithIcon(tr("mobile.select_files", "Select Files"), theme.FolderOpenIcon(), func() {
 		a.showMobileFilePicker()
 	})
-	selectFilesBtn.Importance = widget.HighImportance
+	a.mobileSelectFilesBtn.Importance = widget.HighImportance
 
 	// Select Folder button
-	selectFolderBtn := widget.NewButtonWithIcon(tr("mobile.select_folder", "Select Folder"), theme.FolderIcon(), func() {
+	a.mobileSelectFolderBtn = widget.NewButtonWithIcon(tr("mobile.select_folder", "Select Folder"), theme.FolderIcon(), func() {
 		a.showMobileFolderPicker()
 	})
 
@@ -106,23 +107,23 @@ func (a *App) buildMobileFileSection() fyne.CanvasObject {
 	a.clearButton.Importance = widget.MediumImportance
 
 	// Button row
-	buttonRow := container.NewGridWithColumns(3, selectFilesBtn, selectFolderBtn, a.clearButton)
+	buttonRow := container.NewGridWithColumns(3, a.mobileSelectFilesBtn, a.mobileSelectFolderBtn, a.clearButton)
 
 	// App Storage button for large files (no copying required)
-	appStorageBtn := widget.NewButton(tr("mobile.app_storage.button", "App Storage (large files)"), func() {
+	a.mobileAppStorageBtn = widget.NewButton(tr("mobile.app_storage.button", "App Storage (large files)"), func() {
 		a.showAppStorageDialog()
 	})
 
 	// Help text
-	helpText := widget.NewLabel(tr("mobile.app_storage.tip", "Tip: For large files, copy them to App Storage first"))
-	helpText.Wrapping = fyne.TextWrapWord
-	helpText.TextStyle = fyne.TextStyle{Italic: true}
+	a.mobileAppStorageHelp = widget.NewLabel(tr("mobile.app_storage.tip", "Tip: For large files, copy them to App Storage first"))
+	a.mobileAppStorageHelp.Wrapping = fyne.TextWrapWord
+	a.mobileAppStorageHelp.TextStyle = fyne.TextStyle{Italic: true}
 
 	return container.NewVBox(
 		a.inputLabel,
 		buttonRow,
-		appStorageBtn,
-		helpText,
+		a.mobileAppStorageBtn,
+		a.mobileAppStorageHelp,
 	)
 }
 
@@ -435,15 +436,18 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 	}
 
 	a.validIndicator = NewValidationIndicator()
-	confirmRow := container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
+	a.confirmRow = container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
+
+	a.passwordLabel = widget.NewLabel(tr("password.label", "Password:"))
+	a.confirmLabel = widget.NewLabel(tr("password.confirm_label", "Confirm password:"))
 
 	return container.NewVBox(
-		widget.NewLabel(tr("password.label", "Password:")),
+		a.passwordLabel,
 		buttonRow1,
 		buttonRow2,
 		passwordRow,
-		widget.NewLabel(tr("password.confirm_label", "Confirm password:")),
-		confirmRow,
+		a.confirmLabel,
+		a.confirmRow,
 	)
 }
 
@@ -465,9 +469,10 @@ func (a *App) buildMobileKeyfilesSection() fyne.CanvasObject {
 	a.keyfileLabel.Wrapping = fyne.TextWrapWord
 
 	buttonRow := container.NewGridWithColumns(2, a.keyfileEditBtn, a.keyfileCreateBtn)
+	a.keyfilesTitleLabel = widget.NewLabel(tr("keyfiles.label", "Keyfiles:"))
 
 	return container.NewVBox(
-		widget.NewLabel(tr("keyfiles.label", "Keyfiles:")),
+		a.keyfilesTitleLabel,
 		buttonRow,
 		a.keyfileLabel,
 	)
@@ -634,9 +639,10 @@ func (a *App) buildMobileOutputSection() fyne.CanvasObject {
 	a.changeBtn = widget.NewButton(tr("action.change", "Change"), func() {
 		a.changeOutputFile()
 	})
+	a.outputLabel = widget.NewLabel(tr("output.label", "Save output as:"))
 
 	return container.NewVBox(
-		widget.NewLabel(tr("output.label", "Save output as:")),
+		a.outputLabel,
 		outputEntry,
 		a.changeBtn,
 	)

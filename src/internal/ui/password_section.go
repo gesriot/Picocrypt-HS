@@ -95,8 +95,8 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 	a.confirmRow = container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
 
 	// Create bold labels for better visual hierarchy
-	passwordLabel := widget.NewLabel(tr("password.label", "Password:"))
-	passwordLabel.TextStyle = fyne.TextStyle{Bold: true}
+	a.passwordLabel = widget.NewLabel(tr("password.label", "Password:"))
+	a.passwordLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	a.confirmLabel = widget.NewLabel(tr("password.confirm_label", "Confirm password:"))
 	a.confirmLabel.TextStyle = fyne.TextStyle{Bold: true}
@@ -111,7 +111,7 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 	a.nonASCIIHint.Hide()
 
 	return container.NewVBox(
-		passwordLabel,
+		a.passwordLabel,
 		buttonRow,
 		passwordRow,
 		a.nonASCIIHint,

@@ -56,12 +56,12 @@ func (a *App) buildKeyfilesSection() fyne.CanvasObject {
 	))
 
 	// Create bold label for better visual hierarchy
-	keyfilesLabel := widget.NewLabel(tr("keyfiles.label", "Keyfiles:"))
-	keyfilesLabel.TextStyle = fyne.TextStyle{Bold: true}
+	a.keyfilesTitleLabel = widget.NewLabel(tr("keyfiles.label", "Keyfiles:"))
+	a.keyfilesTitleLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	// Layout: "Keyfiles:" Edit Create [label fills rest]
 	return container.NewHBox(
-		keyfilesLabel,
+		a.keyfilesTitleLabel,
 		a.keyfileEditBtn,
 		a.keyfileCreateBtn,
 		a.keyfileLabel,
