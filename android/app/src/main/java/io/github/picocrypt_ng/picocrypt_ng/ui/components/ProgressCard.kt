@@ -317,7 +317,7 @@ fun ProgressCard(
                             mainViewModel.clearSensitiveData(clearFiles = true)
                         }
                     ) {
-                        Text(stringResource(R.string.cancel))
+                        Text(stringResource(R.string.discard_output))
                     }
                 }
             )

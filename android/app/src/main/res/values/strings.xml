@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Picocrypt-NG</string>
+    <string name="app_name" translatable="false">Picocrypt-NG</string>
     
     <!-- File Card -->
     <string name="choose_file">Choose a file</string>
@@ -19,7 +19,7 @@
     
     <!-- Comments Card -->
     <string name="comments">Comments</string>
-    <string name="comments_not_readable">Comments not readable (deniability mode)</string>
+    <string name="comments_not_readable">Comments cannot be previewed in deniability mode</string>
     <string name="comments_disabled_deniability">Disabled in deniability mode</string>
     <string name="comments_plaintext_warning">Comments are plaintext metadata. Do not put secrets here.</string>
     
@@ -36,8 +36,8 @@
     <string name="error_creating_keyfile">Error Creating Keyfile</string>
     <string name="keyfile_write_failed">Failed to write keyfile to selected location</string>
     <string name="keyfile_create_failed">Failed to create keyfile: %1$s</string>
-    <string name="keyfiles_required_warning">⚠️ Keyfiles required for this file</string>
-    <string name="keyfile_order_matters">⚠️ Keyfile order matters</string>
+    <string name="keyfiles_required_warning">Keyfiles are required for this volume</string>
+    <string name="keyfile_order_matters">Use the keyfiles in the required order</string>
     
     <!-- Advanced Card -->
     <string name="advanced_settings">Advanced Settings (%1$d)</string>
@@ -65,7 +65,7 @@
     <string name="enabled">Enabled</string>
     <string name="disabled">Disabled</string>
     <string name="unknown">Unknown</string>
-    <string name="deniability_note">Note: This file uses deniability mode. Metadata cannot be read without the password. Some information above may be incomplete.</string>
+    <string name="deniability_note">This volume uses deniability mode. Header metadata cannot be previewed before decryption; some settings are unknown.</string>
     <string name="comments_section">Comments</string>
     <string name="no_comments">No comments</string>
     
@@ -79,7 +79,7 @@
     <string name="decrypting">Decrypting…</string>
     <string name="cancel">Cancel</string>
     <string name="data_corruption_detected">Data Corruption Detected</string>
-    <string name="force_decrypt_warning">The encrypted file appears to be corrupted. Force decrypt will attempt to recover as much data as possible, but the output may be partially or completely corrupted.</string>
+    <string name="force_decrypt_warning">The encrypted volume failed an integrity check. Force decrypt keeps unverified output, which may be partially or completely corrupted.</string>
     <string name="force_decrypt">Force Decrypt</string>
     <string name="authentication_error">Authentication Error</string>
     <string name="retry">Retry</string>
@@ -90,9 +90,10 @@
     <string name="operation_cancelled_message">No output was completed. Temporary files will be cleaned up.</string>
     <string name="encryption_complete">Encryption Complete</string>
     <string name="decryption_complete">Decryption Complete</string>
-    <string name="operation_completed_successfully">Operation completed successfully.</string>
+    <string name="operation_completed_successfully">Operation completed. Save the output to keep it.</string>
     <string name="error_saving_file">Error saving file: %1$s</string>
     <string name="save">Save</string>
+    <string name="discard_output">Discard output</string>
     
     <!-- Error Dialog -->
     <string name="ok">OK</string>
