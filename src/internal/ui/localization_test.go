@@ -63,6 +63,7 @@ func TestLocalizationCatalogJSON(t *testing.T) {
 func TestLocalizationCatalogEmbeddedByLoader(t *testing.T) {
 	resetLocalizationForTest(t)
 
+	tempDir := t.TempDir()
 	oldWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get working directory: %v", err)
@@ -72,7 +73,7 @@ func TestLocalizationCatalogEmbeddedByLoader(t *testing.T) {
 			t.Fatalf("restore working directory: %v", err)
 		}
 	})
-	if err := os.Chdir(t.TempDir()); err != nil {
+	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("change to temp working directory: %v", err)
 	}
 
