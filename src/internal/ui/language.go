@@ -18,15 +18,6 @@ var knownLanguageOptions = []LanguageOption{
 	{Code: "es", Name: "Español"},
 }
 
-func languageName(code LanguageCode) string {
-	for _, opt := range knownLanguageOptions {
-		if opt.Code == code {
-			return opt.Name
-		}
-	}
-	return string(code)
-}
-
 func bundledLanguageOptions() []LanguageOption {
 	loaded := localizationState.loadedCodes()
 	options := make([]LanguageOption, 0, len(knownLanguageOptions))

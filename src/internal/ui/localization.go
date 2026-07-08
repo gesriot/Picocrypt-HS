@@ -3,6 +3,7 @@ package ui
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -45,12 +46,14 @@ func newLocalizationState() *localizationRuntime {
 
 func loadTranslations() error {
 	localizationState.once.Do(func() {
-		localizationState.loadErr = loadTranslationsFromFS(translationFS, "translation")
+		localizationState.loadErr = loadTranslationsFromFS(translationFS)
 	})
 	return localizationState.loadErr
 }
 
-func loadTranslationsFromFS(files fs.FS, dir string) error {
+func loadTranslationsFromFS(files fs.FS) error {
+	const dir = "translation"
+
 	entries, err := fs.ReadDir(files, dir)
 	if err != nil {
 		return err
@@ -84,7 +87,7 @@ func loadTranslationsFromFS(files fs.FS, dir string) error {
 		localizationState.tags[code] = messageFile.Tag.String()
 	}
 	if !localizationState.loaded["en"] {
-		return fmt.Errorf("translation/en.json is required")
+		return errors.New("translation/en.json is required")
 	}
 	localizationState.active = "en"
 	localizationState.localizer = i18n.NewLocalizer(localizationState.bundle, "en")

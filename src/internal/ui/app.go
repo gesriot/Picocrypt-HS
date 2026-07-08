@@ -305,8 +305,7 @@ func setEntryPlaceholder(entry localizedPlaceholder, text string) {
 	if entry == nil {
 		return
 	}
-	value := reflect.ValueOf(entry)
-	if value.Kind() == reflect.Ptr && value.IsNil() {
+	if value := reflect.ValueOf(entry); value.Kind() == reflect.Pointer && value.IsNil() {
 		return
 	}
 	entry.SetPlaceHolder(text)

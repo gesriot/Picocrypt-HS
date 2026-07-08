@@ -18,7 +18,7 @@ func TestProjectLocalTranslatorSwitchesActiveLanguage(t *testing.T) {
 		},
 	}
 
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 	if got := tr("status.ready", "fallback"); got != "Ready" {
@@ -43,7 +43,7 @@ func TestProjectLocalTranslatorRejectsUnavailableLanguage(t *testing.T) {
 		},
 	}
 
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 	if err := setActiveLanguage("ru"); err == nil {
@@ -65,7 +65,7 @@ func TestBundledLanguageOptionsOnlyIncludesLoadedCatalogs(t *testing.T) {
 		},
 	}
 
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 	got := bundledLanguageOptions()
@@ -109,7 +109,7 @@ func TestRuntimeLanguageSwitchRerendersInputSummary(t *testing.T) {
 			}`),
 		},
 	}
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 
@@ -135,7 +135,7 @@ func TestRuntimeLanguageSwitchRerendersStartAction(t *testing.T) {
 			Data: []byte(`{"action.start":"ZZ Start","action.encrypt":"ZZ Encrypt","action.decrypt":"ZZ Decrypt","action.zip_and_encrypt":"ZZ Zip","action.process":"ZZ Process"}`),
 		},
 	}
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 
@@ -159,7 +159,7 @@ func TestCustomReporterStatusSurvivesLanguageSwitch(t *testing.T) {
 		"translation/en.json": {Data: []byte(`{"status.completed":"Completed"}`)},
 		"translation/zz.json": {Data: []byte(`{"status.completed":"ZZ Completed"}`)},
 	}
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 	status := app.StatusMessage{Kind: app.StatusCustom, Text: "Encrypting...", Color: util.WHITE}

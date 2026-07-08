@@ -1,10 +1,9 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"testing"
 	"testing/fstest"
-
-	"Picocrypt-NG/internal/app"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
@@ -16,7 +15,7 @@ func TestLanguageSelectorClosedTextUsesLanguageCode(t *testing.T) {
 		"translation/en.json": {Data: []byte(`{"status.ready":"Ready"}`)},
 		"translation/de.json": {Data: []byte(`{"status.ready":"Bereit"}`)},
 	}
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 	if err := setActiveLanguage("de"); err != nil {
@@ -37,7 +36,7 @@ func TestLanguageSelectorMenuUsesNativeNamesAndNoIcons(t *testing.T) {
 		"translation/fr.json": {Data: []byte(`{"status.ready":"Pret"}`)},
 		"translation/it.json": {Data: []byte(`{"status.ready":"Pronto"}`)},
 	}
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 
@@ -71,7 +70,7 @@ func TestLanguagePreferenceRoundTrip(t *testing.T) {
 		"translation/en.json": {Data: []byte(`{"status.ready":"Ready"}`)},
 		"translation/fr.json": {Data: []byte(`{"status.ready":"Pret"}`)},
 	}
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 
@@ -139,7 +138,7 @@ func TestLanguageSelectionRelocalizesBuiltDesktopControls(t *testing.T) {
 			"status.ready":"ZZ Ready"
 		}`)},
 	}
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 
@@ -263,7 +262,7 @@ func TestLanguageSelectionRelocalizesBuiltMobileControls(t *testing.T) {
 			"status.ready":"ZZ Ready"
 		}`)},
 	}
-	if err := loadTranslationsFromFS(testFS, "translation"); err != nil {
+	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
 	}
 
