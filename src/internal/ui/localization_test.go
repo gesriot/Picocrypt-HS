@@ -87,6 +87,30 @@ func TestLocalizationCatalogEmbeddedByLoader(t *testing.T) {
 	}
 }
 
+func TestFyneProductionLocaleFilesRequireRoundTripProof(t *testing.T) {
+	entries, err := os.ReadDir("translation")
+	if err != nil {
+		t.Fatalf("read translation dir: %v", err)
+	}
+
+	var productionLocales []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		if entry.Name() != "en.json" {
+			productionLocales = append(productionLocales, entry.Name())
+		}
+	}
+	if len(productionLocales) == 0 {
+		return
+	}
+
+	if _, err := os.Stat("../../docs/localization/fyne-weblate-roundtrip.md"); err != nil {
+		t.Fatalf("production Fyne locale files %v require docs/localization/fyne-weblate-roundtrip.md proof: %v", productionLocales, err)
+	}
+}
+
 func TestAdvancedZipExtensionCatalogUsesTemplateData(t *testing.T) {
 	data, err := translationFS.ReadFile("translation/en.json")
 	if err != nil {

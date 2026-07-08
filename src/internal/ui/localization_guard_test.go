@@ -19,11 +19,82 @@ var forbiddenCLILocalizationTokens = []string{
 	"lang.XN(",
 }
 
+var forbiddenCLILanguageControlTokens = []string{
+	"ui.language",
+	"setActiveLanguage",
+	"SwitchLanguage",
+	"LanguageCode",
+	"languagePreferenceKey",
+	"--language",
+	"--locale",
+	"Use: \"language",
+	"Use: \"locale",
+}
+
 func TestCLIDoesNotUseLocalization(t *testing.T) {
 	failures := collectCLILocalizationFailures(t)
 	sort.Strings(failures)
 	if len(failures) > 0 {
 		t.Fatalf("CLI files must not depend on Fyne localization:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func TestCLIDoesNotExposeLanguageOrLocaleFlags(t *testing.T) {
+	roots := []string{
+		"../cli",
+		"../../cmd/picocrypt",
+	}
+
+	var failures []string
+	for _, root := range roots {
+		if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", path, err)
+			}
+			if filepath.Clean(root) == filepath.Clean("../../cmd/picocrypt") &&
+				!shouldScanPicocryptEntryForCLILocalization(path, data) {
+				return nil
+			}
+			failures = append(failures, collectForbiddenCLILanguageControlTokensFromSource(filepath.ToSlash(path), string(data))...)
+			return nil
+		}); err != nil {
+			t.Fatalf("walk %s for CLI language flag guard: %v", root, err)
+		}
+	}
+	sort.Strings(failures)
+	if len(failures) > 0 {
+		t.Fatalf("CLI must remain English-only and must not expose language controls:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func TestCLILanguageControlGuardDetectsForbiddenTokens(t *testing.T) {
+	source := `package cli
+
+func bad() {
+	_ = "--language"
+	_ = "--locale"
+	_ = "ui.language"
+	_ = "Use: \"language"
+	_ = "Use: \"locale"
+	_ = "setActiveLanguage"
+	_ = "SwitchLanguage"
+	_ = "LanguageCode"
+	_ = "languagePreferenceKey"
+}
+`
+	failures := collectForbiddenCLILanguageControlTokensFromSource("bad.go", source)
+	failureText := strings.Join(failures, "\n")
+	for _, token := range forbiddenCLILanguageControlTokens {
+		if !strings.Contains(failureText, fmt.Sprintf("%q", token)) {
+			t.Fatalf("guard did not report forbidden token %q in failures:\n%s", token, failureText)
+		}
 	}
 }
 
@@ -196,6 +267,19 @@ func collectForbiddenCLILocalizationTokensFromSource(filename, source string) []
 	for _, token := range forbiddenCLILocalizationTokens {
 		if strings.Contains(source, token) {
 			failures = append(failures, fmt.Sprintf("%s: forbidden %q", filename, token))
+		}
+	}
+	return failures
+}
+
+func collectForbiddenCLILanguageControlTokensFromSource(filename, source string) []string {
+	lowerSource := strings.ToLower(source)
+	var failures []string
+	for _, token := range forbiddenCLILanguageControlTokens {
+		lowerToken := strings.ToLower(token)
+		lowerEscapedToken := strings.ToLower(strings.ReplaceAll(token, `"`, `\"`))
+		if strings.Contains(lowerSource, lowerToken) || strings.Contains(lowerSource, lowerEscapedToken) {
+			failures = append(failures, fmt.Sprintf("%s: forbidden CLI language token %q", filename, token))
 		}
 	}
 	return failures

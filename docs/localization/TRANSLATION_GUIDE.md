@@ -87,6 +87,17 @@ Fyne supports app translations through `fyne.io/fyne/v2/lang`.
 - Load them with `lang.AddTranslationsFS`.
 - Use the project wrappers `tr` and `trn`; they centralize Fyne `lang.X` and
   `lang.XN` calls for UI code.
+- Desktop Fyne has a compact in-app language selector in the top content
+  utility row. The closed control shows a short code such as `en`; the popup
+  menu shows native language names. Do not use flags.
+- The selected desktop UI language is stored in Fyne preferences under
+  `ui.language`.
+- Only complete bundled Fyne catalogs appear in the selector. Target language
+  codes are `en`, `ru`, `de`, `fr`, `it`, and `es`, but non-English production
+  catalogs remain blocked until the Fyne/Weblate JSON round-trip proof exists.
+- UI state must store semantic display state for labels and UI-owned statuses.
+  Do not store translated strings as durable state when the text must relocalize
+  after a runtime language switch.
 - Use plural APIs for counted strings instead of building `file(s)` strings or
   English-shaped mixed forms such as separate `file_and_folders` keys.
 - Keep `en.json` complete. Locale matching should have a generic language file
