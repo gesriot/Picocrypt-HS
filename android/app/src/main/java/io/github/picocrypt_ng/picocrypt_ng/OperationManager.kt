@@ -252,7 +252,7 @@ object OperationManager {
     suspend fun cancelOperation(): Result<Unit> = withContext(Dispatchers.IO) {
         val operation = _currentOperation.value ?: return@withContext Result.failure(
             AppError.OperationError.GenericOperation(
-                userMessage = "No active operation",
+                userMessage = "",
                 messageResId = R.string.error_no_active_operation,
             )
         )
@@ -311,7 +311,7 @@ object OperationManager {
     ): Result<String> = withContext(Dispatchers.IO) {
         val operation = _currentOperation.value ?: return@withContext Result.failure(
             AppError.OperationError.GenericOperation(
-                userMessage = "No active operation to retry",
+                userMessage = "",
                 messageResId = R.string.error_no_operation_to_retry,
             )
         )
@@ -349,7 +349,7 @@ object OperationManager {
     suspend fun retryDecryptWithForce(): Result<String> = withContext(Dispatchers.IO) {
         val operation = _currentOperation.value ?: return@withContext Result.failure(
             AppError.OperationError.GenericOperation(
-                userMessage = "No active operation",
+                userMessage = "",
                 messageResId = R.string.error_no_active_operation,
             )
         )
@@ -357,7 +357,7 @@ object OperationManager {
         if (operation.type != OperationType.DECRYPT) {
             return@withContext Result.failure(
                 AppError.OperationError.GenericOperation(
-                    userMessage = "Only decryption operations can be retried with force decrypt",
+                    userMessage = "",
                     messageResId = R.string.error_decrypt_retry_only,
                 )
             )
@@ -365,7 +365,7 @@ object OperationManager {
         
         val formData = operation.formData ?: return@withContext Result.failure(
             AppError.OperationError.GenericOperation(
-                userMessage = "Operation data is not available for retry",
+                userMessage = "",
                 messageResId = R.string.error_operation_data_unavailable,
             )
         )

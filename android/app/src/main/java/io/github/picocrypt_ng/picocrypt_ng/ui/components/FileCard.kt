@@ -48,6 +48,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun ChooseFile(viewModel: MainViewModel) {
     val context = LocalContext.current
+    val unknownErrorMsg = stringResource(R.string.error_unknown)
     val formData by viewModel.formState.collectAsState()
     var isCopying by remember { mutableStateOf(false) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
@@ -106,7 +107,7 @@ fun ChooseFile(viewModel: MainViewModel) {
                         val appError = if (error is AppError) {
                             error
                         } else {
-                            AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
+                            AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
                         }
                         viewModel.setError(appError)
                         viewModel.updateFormData(
@@ -124,7 +125,7 @@ fun ChooseFile(viewModel: MainViewModel) {
                 val appError = if (error is AppError) {
                     error
                 } else {
-                    AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
+                    AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
                 }
                 viewModel.setError(appError)
                 viewModel.updateFormData(
@@ -140,7 +141,7 @@ fun ChooseFile(viewModel: MainViewModel) {
             val appError = if (error is AppError) {
                 error
             } else {
-                AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
+                AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
             }
             viewModel.setError(appError)
         }
@@ -186,7 +187,7 @@ fun ChooseFile(viewModel: MainViewModel) {
         isCopying = true
         scope.launch {
             val result = StagingService.copyTreeToStaging(context, uri)
-            applyStagedSelection(context, viewModel, result)
+            applyStagedSelection(viewModel, result, unknownErrorMsg)
             isCopying = false
         }
     }
@@ -198,7 +199,7 @@ fun ChooseFile(viewModel: MainViewModel) {
         isCopying = true
         scope.launch {
             val result = StagingService.copyFilesToStaging(context, uris, System.currentTimeMillis() / 1000)
-            applyStagedSelection(context, viewModel, result)
+            applyStagedSelection(viewModel, result, unknownErrorMsg)
             isCopying = false
         }
     }
@@ -245,9 +246,9 @@ fun ChooseFile(viewModel: MainViewModel) {
 }
 
 private fun applyStagedSelection(
-    context: android.content.Context,
     viewModel: MainViewModel,
-    result: Result<StagedSelection>
+    result: Result<StagedSelection>,
+    unknownErrorMsg: String,
 ) {
     result.onSuccess { sel ->
         viewModel.resetFormToDefaults()
@@ -268,7 +269,7 @@ private fun applyStagedSelection(
     }.onFailure { error ->
         viewModel.setError(
             (error as? AppError) ?: AppError.fromException(
-                error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown))
+                error as? Exception ?: Exception(error.message ?: unknownErrorMsg)
             )
         )
     }

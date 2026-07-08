@@ -43,6 +43,7 @@ fun ProgressCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val unknownErrorMsg = stringResource(R.string.error_unknown)
     val operationState by operationViewModel.operationState.collectAsState()
     var saveError by remember { mutableStateOf<AppError?>(null) }
     val scope = rememberCoroutineScope()
@@ -64,7 +65,7 @@ fun ProgressCard(
                         saveError = if (error is AppError) {
                             error
                         } else {
-                            AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
+                            AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
                         }
                     }
                 }

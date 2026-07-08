@@ -48,6 +48,7 @@ import io.github.picocrypt_ng.picocrypt_ng.localizedMessage
 @Composable
 fun AddKeyfile(viewModel: MainViewModel) {
     val context = LocalContext.current
+    val unknownErrorMsg = stringResource(R.string.error_unknown)
     val formData by viewModel.formState.collectAsState()
     var isCopying by remember { mutableStateOf(false) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
@@ -78,7 +79,7 @@ fun AddKeyfile(viewModel: MainViewModel) {
             val appError = if (error is AppError) {
                 error
             } else {
-                AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
+                AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
             }
             viewModel.setError(appError)
         }
@@ -199,7 +200,7 @@ fun NewKeyfile(viewModel: MainViewModel) {
                 val appError = if (error is AppError) {
                     error
                 } else {
-                    AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
+                    AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
                 }
                 viewModel.setError(appError)
                 errorMessage = appError.localizedMessage(context)

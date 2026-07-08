@@ -111,7 +111,7 @@ object GoBridge {
             // Return error instead of fallback - Go binding failure is a critical error
             Result.failure(
                 AppError.OperationError.GenericOperation(
-                    userMessage = "Failed to detect operation type.",
+                    userMessage = "",
                     technicalMessage = "Go binding error: ${e.message ?: e.toString()}",
                     messageResId = R.string.error_detect_operation_type_failed,
                 )

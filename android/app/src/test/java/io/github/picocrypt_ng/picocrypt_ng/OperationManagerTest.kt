@@ -148,9 +148,6 @@ class OperationManagerTest {
         result.onFailure { error ->
             assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
             assertEquals(R.string.error_no_active_operation, (error as AppError).messageResId)
-            val errorMessage = error.message ?: ""
-            assertTrue("Error message should mention no active operation", 
-                errorMessage.contains("No active operation", ignoreCase = true))
         }
     }
     
@@ -389,9 +386,6 @@ class OperationManagerTest {
         result.onFailure { error ->
             assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
             assertEquals(R.string.error_no_operation_to_retry, (error as AppError).messageResId)
-            val errorMessage = error.message ?: ""
-            assertTrue("Error message should mention no active operation to retry",
-                errorMessage.contains("No active operation to retry", ignoreCase = true))
         }
     }
     
@@ -522,10 +516,6 @@ class OperationManagerTest {
                     error is AppError.OperationError.GenericOperation
                 )
                 assertEquals(R.string.error_decrypt_retry_only, (error as AppError).messageResId)
-                assertTrue(
-                    "Message should explain only decryption can be retried",
-                    (error.message ?: "").contains("Only decryption operations", ignoreCase = true)
-                )
             }
         } finally {
             unmockkObject(GoBridge)
