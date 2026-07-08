@@ -337,6 +337,34 @@ func TestFyneUITranslationCallKeysExistInCatalog(t *testing.T) {
 	}
 }
 
+func TestUIStateDoesNotStoreLocalizedDisplayStrings(t *testing.T) {
+	files := uiProductionGoFiles(t)
+	var failures []string
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		source := string(data)
+		for _, bad := range []string{
+			".InputLabel = ",
+			".StartLabel = ",
+			".MainStatus = tr(",
+			".PopupStatus = tr(",
+			".SetStatus(tr(",
+			".SetPopupStatus(tr(",
+		} {
+			if strings.Contains(source, bad) {
+				failures = append(failures, path+": stores localized UI text via "+bad)
+			}
+		}
+	}
+	sort.Strings(failures)
+	if len(failures) > 0 {
+		t.Fatalf("UI state must store semantic display state, not localized strings:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
 func TestLocalizationLoadedByNewAppBeforeReturn(t *testing.T) {
 	source := readPackageSource(t, "app.go")
 	stateIndex := strings.Index(source, "app.NewState()")

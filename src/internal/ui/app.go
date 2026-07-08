@@ -189,8 +189,6 @@ func NewApp(version string) (*App, error) {
 	if err := loadTranslations(); err != nil {
 		return nil, fmt.Errorf("load translations: %w", err)
 	}
-	state.InputLabel = dropPromptLabel()
-	state.StartLabel = tr("action.start", "Start")
 
 	return &App{
 		Version:  version,
@@ -377,8 +375,10 @@ func (f *fixedWidthLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 
 // buildUI creates the main UI layout.
 func (a *App) buildUI() fyne.CanvasObject {
+	snap := a.State.UISnapshot()
+
 	// Input label with Clear button
-	a.inputLabel = widget.NewLabel(a.State.InputLabel)
+	a.inputLabel = widget.NewLabel(renderInputSummary(snap.InputSummary))
 	a.inputLabel.Wrapping = fyne.TextWrapWord
 	a.clearButton = widget.NewButton(tr("action.clear", "Clear"), func() {
 		a.cancelOpenedPathReadiness()
@@ -413,10 +413,10 @@ func (a *App) buildUI() fyne.CanvasObject {
 	outputSection := a.buildOutputSection()
 
 	// Start button and status
-	a.startButton = widget.NewButton(a.State.StartLabel, a.onClickStart)
+	a.startButton = widget.NewButton(renderStartAction(snap.StartAction, snap.Recursively), a.onClickStart)
 	a.startButton.Importance = widget.HighImportance
 
-	a.statusLabel = NewColoredLabel(a.State.MainStatus, a.State.MainStatusColor)
+	a.statusLabel = NewColoredLabel(renderStatus(snap.Status, snap), snap.Status.Color)
 
 	// Advanced section label (hidden when no mode selected)
 	a.advancedLabel = widget.NewLabel(tr("advanced.label", "Advanced:"))
@@ -500,6 +500,136 @@ func commentsDisplayText(mode, comments string, state app.CommentsPreviewState) 
 		return ""
 	default:
 		return comments
+	}
+}
+
+func renderInputSummary(input app.InputSummary) string {
+	switch input.Kind {
+	case app.InputSummaryScanning:
+		return selectionScanningLabel(input.SizeBytes)
+	case app.InputSummarySelection:
+		label := selectionSummary(input.Files, input.Folders)
+		if input.ShowSize {
+			return selectionWithSize(label, input.SizeBytes)
+		}
+		return label
+	case app.InputSummaryDecryptVolume:
+		return tr("selection.volume_for_decryption", "Volume for decryption")
+	default:
+		return dropPromptLabel()
+	}
+}
+
+func renderStartAction(action app.StartAction, recursively bool) string {
+	if recursively {
+		return tr("action.process", "Process")
+	}
+	switch action {
+	case app.StartActionEncrypt:
+		return tr("action.encrypt", "Encrypt")
+	case app.StartActionZipAndEncrypt:
+		return tr("action.zip_and_encrypt", "Zip and Encrypt")
+	case app.StartActionDecrypt:
+		return tr("action.decrypt", "Decrypt")
+	default:
+		return tr("action.start", "Start")
+	}
+}
+
+func renderStatus(msg app.StatusMessage, snap app.UISnapshot) string {
+	if msg.Kind == app.StatusCustom {
+		return msg.Text
+	}
+	switch msg.Kind {
+	case app.StatusCompleted:
+		return tr("status.completed", "Completed")
+	case app.StatusCancelledByUser:
+		return tr("status.cancelled_by_user", "Operation cancelled by user")
+	case app.StatusNoFilesToProcess:
+		return tr("status.no_files_to_process", "No files to process")
+	case app.StatusProcessingFile:
+		return tr("status.processing_file", "Processing file {{.Index}}/{{.Total}}...", map[string]any{
+			"Index": msg.Args.Index,
+			"Total": msg.Args.Total,
+		})
+	case app.StatusRecursiveCompleted:
+		return recursiveStatusCompleted(msg.Args.Count)
+	case app.StatusRecursiveFailedAll:
+		return recursiveStatusFailedAll(msg.Args.Count)
+	case app.StatusRecursiveCompletedFailed:
+		return recursiveStatusCompletedFailed(msg.Args.OK, msg.Args.Failed)
+	case app.StatusInvalidSplitSize:
+		return tr("status.invalid_split_size", "Invalid split size")
+	case app.StatusCompletedSomeDeleteFailed:
+		return tr("status.completed_some_delete_failed", "Completed (some files couldn't be deleted)")
+	case app.StatusKeptOutputUnverified:
+		return tr("status.kept_output_unverified", "Integrity check failed; kept output is unverified and may be corrupted")
+	case app.StatusCompletedVolumeDeleteFailed:
+		return tr("status.completed_volume_delete_failed", "Completed (volume couldn't be deleted)")
+	case app.StatusStartupPathAccessFailed:
+		return startupPathAccessStatus()
+	case app.StatusStartupPathPartialAccessFailed:
+		return startupPathPartialAccessStatus()
+	case app.StatusOpenedPathsPreparing:
+		return openedPathsPreparingStatus()
+	case app.StatusOpenedPathsTimeout:
+		return openedPathsTimeoutStatus()
+	case app.StatusDropFailedWalk:
+		return tr("drop.failed_walk", "Failed to walk through dropped items")
+	case app.StatusDropFailedStatItem:
+		return tr("drop.failed_stat_item", "Failed to stat dropped item")
+	case app.StatusDropFailedStatItems:
+		return tr("drop.failed_stat_items", "Failed to stat dropped items")
+	case app.StatusDropReadAccessDenied:
+		return tr("drop.read_access_denied", "Read access denied")
+	case app.StatusDropHeaderMayBeDeniable:
+		return tr("drop.header_may_be_deniable", "Cannot read header, volume may be deniable")
+	case app.StatusDropHeaderDamaged:
+		return tr("drop.header_damaged", "The volume header is damaged")
+	case app.StatusDropFailedSplitPath:
+		return tr("drop.failed_split_path", "Failed to derive split volume path")
+	case app.StatusKeyfileReadAccessDenied:
+		return tr("keyfiles.read_access_denied", "Keyfile read access denied")
+	case app.StatusKeyfileGenerateFailed:
+		return tr("keyfiles.generate_failed", "Failed to generate keyfile")
+	case app.StatusKeyfileWriteFailed:
+		return tr("keyfiles.write_failed", "Failed to write keyfile")
+	case app.StatusMobileAppStorageCreateFailed:
+		return tr("mobile.app_storage.create_failed", "Failed to create app storage")
+	case app.StatusMobileAppStorageReadFailed:
+		return tr("mobile.app_storage.read_failed", "Failed to read app storage")
+	case app.StatusMobileAppStoragePathCopied:
+		return tr("mobile.app_storage.path_copied", "Path copied to clipboard")
+	case app.StatusMobileAppStorageNoFiles:
+		return tr("mobile.app_storage.no_files", "No files in app storage")
+	case app.StatusMobileFileAccessFailed:
+		return tr("mobile.file_access_failed", "Failed to access file: {{.Error}}", map[string]any{"Error": msg.Args.Error})
+	case app.StatusMobileFileAccessUnsafeName:
+		return tr("mobile.file_access_failed_unsafe_name", "Failed to access file: unsafe file name")
+	default:
+		statusText := tr("status.ready", "Ready")
+		if snap.RequiredFreeSpace > 0 {
+			multiplier := 1
+			if snap.AllFileCount > 1 || snap.OnlyFolderCount > 0 {
+				multiplier++
+			}
+			if snap.Deniability {
+				multiplier++
+			}
+			if snap.Split {
+				multiplier++
+			}
+			if snap.Recombine {
+				multiplier++
+			}
+			if snap.AutoUnzip {
+				multiplier++
+			}
+			statusText = tr("status.ready_free_space", "Ready (ensure >{{.Size}} free)", map[string]any{
+				"Size": util.Sizeify(snap.RequiredFreeSpace * int64(multiplier)),
+			})
+		}
+		return statusText
 	}
 }
 
@@ -621,12 +751,7 @@ func (a *App) updateUIState() {
 
 	// Start button - MUST be disabled when no credentials or passwords don't match
 	if a.startButton != nil {
-		label := snap.StartLabel
-		if snap.Recursively {
-			label = tr("action.process", "Process")
-		}
-		a.startButton.SetText(label)
-
+		a.startButton.SetText(renderStartAction(snap.StartAction, snap.Recursively))
 		if mainDisabled || advancedAndStartDisabled {
 			a.startButton.Disable()
 		} else {
@@ -660,38 +785,13 @@ func (a *App) updateUIState() {
 
 	// Update status
 	if a.statusLabel != nil {
-		statusText := snap.MainStatus
-		if snap.MainStatusKind == app.MainStatusReady {
-			statusText = tr("status.ready", "Ready")
-			if snap.RequiredFreeSpace > 0 {
-				multiplier := 1
-				if snap.AllFileCount > 1 || snap.OnlyFolderCount > 0 {
-					multiplier++
-				}
-				if snap.Deniability {
-					multiplier++
-				}
-				if snap.Split {
-					multiplier++
-				}
-				if snap.Recombine {
-					multiplier++
-				}
-				if snap.AutoUnzip {
-					multiplier++
-				}
-				statusText = tr("status.ready_free_space", "Ready (ensure >{{.Size}} free)", map[string]any{
-					"Size": util.Sizeify(snap.RequiredFreeSpace * int64(multiplier)),
-				})
-			}
-		}
-		a.statusLabel.SetText(statusText)
-		a.statusLabel.SetColor(snap.MainStatusColor)
+		a.statusLabel.SetText(renderStatus(snap.Status, snap))
+		a.statusLabel.SetColor(snap.Status.Color)
 	}
 
 	// Update labels
 	if a.inputLabel != nil {
-		a.inputLabel.SetText(snap.InputLabel)
+		a.inputLabel.SetText(renderInputSummary(snap.InputSummary))
 	}
 
 	if a.keyfileLabel != nil {
@@ -710,8 +810,6 @@ func (a *App) updateUIState() {
 // resetUI clears UI state but preserves progress flags.
 func (a *App) resetUI() {
 	a.State.ResetUI()
-	a.State.InputLabel = dropPromptLabel()
-	a.State.StartLabel = tr("action.start", "Start")
 	if a.passwordEntry != nil {
 		a.passwordEntry.SetText("")
 	}

@@ -159,14 +159,14 @@ func (a *App) createKeyfile() {
 
 		data := make([]byte, 32)
 		if n, err := rand.Read(data); err != nil || n != 32 {
-			a.State.SetStatus(tr("keyfiles.generate_failed", "Failed to generate keyfile"), util.RED)
+			a.State.SetStatusMessage(app.StatusKeyfileGenerateFailed, util.RED, app.StatusArgs{})
 			a.updateUIState()
 			return
 		}
 
 		n, err := writer.Write(data)
 		if err != nil || n != 32 {
-			a.State.SetStatus(tr("keyfiles.write_failed", "Failed to write keyfile"), util.RED)
+			a.State.SetStatusMessage(app.StatusKeyfileWriteFailed, util.RED, app.StatusArgs{})
 			a.updateUIState()
 			return
 		}

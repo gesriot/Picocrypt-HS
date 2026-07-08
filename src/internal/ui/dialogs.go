@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/util"
 	"net/url"
 	"path/filepath"
@@ -35,7 +36,7 @@ func (a *App) showProgressModal() {
 		a.State.SetWorking(false)
 		a.State.SetCanCancel(false)
 		a.cancelled.Store(true)
-		a.State.SetStatus(tr("status.cancelled_by_user", "Operation cancelled by user"), util.WHITE)
+		a.State.SetStatusMessage(app.StatusCancelledByUser, util.WHITE, app.StatusArgs{})
 		if a.cancelButton != nil {
 			a.cancelButton.Disable()
 		}

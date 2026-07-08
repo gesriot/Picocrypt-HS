@@ -75,7 +75,7 @@ func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
 			configure: func(a *App) {
 				a.State.Mode = "encrypt"
 				a.State.OnlyFiles = []string{"input.txt"}
-				a.State.InputLabel = "input.txt"
+				a.State.SetInputSelection(1, 0, 0, false)
 				a.State.OutputFile = "input.txt.pcv"
 			},
 		},
@@ -84,7 +84,7 @@ func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
 			configure: func(a *App) {
 				a.State.Mode = "decrypt"
 				a.State.OnlyFiles = []string{"input.txt.pcv"}
-				a.State.InputLabel = "input.txt.pcv"
+				a.State.SetInputDecryptVolume()
 				a.State.OutputFile = "input.txt"
 			},
 		},
@@ -145,7 +145,7 @@ func TestDesktopUILayoutFitsWindowAfterModeChange(t *testing.T) {
 	fyne.DoAndWait(func() {
 		a.State.Mode = "encrypt"
 		a.State.OnlyFiles = []string{"input.txt"}
-		a.State.InputLabel = "input.txt"
+		a.State.SetInputSelection(1, 0, 0, false)
 		a.State.OutputFile = "input.txt.pcv"
 		a.updateAdvancedSection()
 		a.updateUIState()
@@ -168,7 +168,7 @@ func TestDesktopOutputDisplayLongNameDoesNotGrowWindow(t *testing.T) {
 	a.fyneApp = fyneApp
 	a.State.Mode = "encrypt"
 	a.State.OnlyFiles = []string{"input.txt"}
-	a.State.InputLabel = "input.txt"
+	a.State.SetInputSelection(1, 0, 0, false)
 	a.State.OutputFile = filepath.Join("/tmp", strings.Repeat("very-long-output-name-", 20)+".pcv")
 
 	var size fyne.Size

@@ -29,6 +29,8 @@ func isMobile() bool {
 
 // buildMobileUI creates the mobile-optimized UI layout
 func (a *App) buildMobileUI() fyne.CanvasObject {
+	snap := a.State.UISnapshot()
+
 	// File selection section (replaces drag-drop)
 	fileSection := a.buildMobileFileSection()
 
@@ -49,10 +51,10 @@ func (a *App) buildMobileUI() fyne.CanvasObject {
 	outputSection := a.buildMobileOutputSection()
 
 	// Start button - large and prominent
-	a.startButton = widget.NewButton(a.State.StartLabel, a.onClickStart)
+	a.startButton = widget.NewButton(renderStartAction(snap.StartAction, snap.Recursively), a.onClickStart)
 	a.startButton.Importance = widget.HighImportance
 
-	a.statusLabel = NewColoredLabel(a.State.MainStatus, a.State.MainStatusColor)
+	a.statusLabel = NewColoredLabel(renderStatus(snap.Status, snap), snap.Status.Color)
 
 	// Main content in a vertical box
 	a.mainContent = container.NewVBox(
@@ -80,7 +82,8 @@ func (a *App) buildMobileUI() fyne.CanvasObject {
 
 // buildMobileFileSection creates the file selection section for mobile
 func (a *App) buildMobileFileSection() fyne.CanvasObject {
-	a.inputLabel = widget.NewLabel(a.State.InputLabel)
+	snap := a.State.UISnapshot()
+	a.inputLabel = widget.NewLabel(renderInputSummary(snap.InputSummary))
 	a.inputLabel.Wrapping = fyne.TextWrapWord
 
 	// Select Files button - opens file picker
@@ -136,7 +139,7 @@ func (a *App) showAppStorageDialog() {
 
 	// Ensure directory exists
 	if err := os.MkdirAll(appDir, 0o700); err != nil {
-		a.State.SetStatus(tr("mobile.app_storage.create_failed", "Failed to create app storage"), util.RED)
+		a.State.SetStatusMessage(app.StatusMobileAppStorageCreateFailed, util.RED, app.StatusArgs{})
 		a.refreshUI()
 		return
 	}
@@ -144,7 +147,7 @@ func (a *App) showAppStorageDialog() {
 	// List files in app storage
 	files, err := os.ReadDir(appDir)
 	if err != nil {
-		a.State.SetStatus(tr("mobile.app_storage.read_failed", "Failed to read app storage"), util.RED)
+		a.State.SetStatusMessage(app.StatusMobileAppStorageReadFailed, util.RED, app.StatusArgs{})
 		a.refreshUI()
 		return
 	}
@@ -164,7 +167,7 @@ func (a *App) showAppStorageDialog() {
 
 		copyPathBtn := widget.NewButton(tr("mobile.app_storage.copy_path", "Copy Path"), func() {
 			a.fyneApp.Clipboard().SetContent(appDir)
-			a.State.SetStatus(tr("mobile.app_storage.path_copied", "Path copied to clipboard"), util.WHITE)
+			a.State.SetStatusMessage(app.StatusMobileAppStoragePathCopied, util.WHITE, app.StatusArgs{})
 			a.refreshUI()
 		})
 
@@ -182,7 +185,7 @@ func (a *App) showAppStorageDialog() {
 	}
 
 	if len(items) == 0 {
-		a.State.SetStatus(tr("mobile.app_storage.no_files", "No files in app storage"), util.YELLOW)
+		a.State.SetStatusMessage(app.StatusMobileAppStorageNoFiles, util.YELLOW, app.StatusArgs{})
 		a.refreshUI()
 		return
 	}
@@ -218,7 +221,7 @@ func (a *App) showMobileFilePicker() {
 		if uri.Scheme() == "content" {
 			localPath, copyErr := a.copyURIToTemp(reader, uri.Name())
 			if copyErr != nil {
-				a.State.SetStatus(mobileFileAccessFailedStatus(copyErr), util.RED)
+				a.State.SetStatusMessage(mobileFileAccessStatusKind(copyErr), util.RED, mobileFileAccessStatusArgs(copyErr))
 				a.refreshUI()
 				return
 			}
@@ -255,7 +258,7 @@ func (a *App) showFolderNotSupportedDialog() {
 
 	copyPathBtn := widget.NewButton(tr("mobile.folder_selection.copy_path", "Copy Path to Clipboard"), func() {
 		a.fyneApp.Clipboard().SetContent(appDir)
-		a.State.SetStatus(tr("mobile.app_storage.path_copied", "Path copied to clipboard"), util.WHITE)
+		a.State.SetStatusMessage(app.StatusMobileAppStoragePathCopied, util.WHITE, app.StatusArgs{})
 		a.refreshUI()
 	})
 
@@ -269,13 +272,15 @@ func (a *App) showFolderNotSupportedDialog() {
 	d.Show()
 }
 
-func mobileFileAccessFailedStatus(err error) string {
+func mobileFileAccessStatusKind(err error) app.StatusKind {
 	if errors.Is(err, errUnsafeMobileFilename) {
-		return tr("mobile.file_access_failed_unsafe_name", "Failed to access file: unsafe file name")
+		return app.StatusMobileFileAccessUnsafeName
 	}
-	return tr("mobile.file_access_failed", "Failed to access file: {{.Error}}", map[string]any{
-		"Error": err.Error(),
-	})
+	return app.StatusMobileFileAccessFailed
+}
+
+func mobileFileAccessStatusArgs(err error) app.StatusArgs {
+	return app.StatusArgs{Error: err.Error()}
 }
 
 // getMobileTempDir returns the temp directory for mobile file copies.

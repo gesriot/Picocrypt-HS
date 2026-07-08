@@ -128,7 +128,7 @@ func (a *App) doWork() bool {
 // startRecursiveWork handles batch processing of multiple files individually.
 func (a *App) startRecursiveWork() {
 	if len(a.State.AllFiles) == 0 {
-		a.State.SetStatus(tr("status.no_files_to_process", "No files to process"), util.YELLOW)
+		a.State.SetStatusMessage(app.StatusNoFilesToProcess, util.YELLOW, app.StatusArgs{})
 		a.State.SetWorking(false)
 		a.State.SetShowProgress(false)
 		fyne.Do(func() {
@@ -193,11 +193,11 @@ func (a *App) startRecursiveWork() {
 			a.State.SetWorking(false)
 			a.State.SetShowProgress(false)
 			if failedCount == 0 {
-				a.State.SetStatus(recursiveStatusCompleted(successCount), util.GREEN)
+				a.State.SetStatusMessage(app.StatusRecursiveCompleted, util.GREEN, app.StatusArgs{Count: successCount})
 			} else if successCount == 0 {
-				a.State.SetStatus(recursiveStatusFailedAll(failedCount), util.RED)
+				a.State.SetStatusMessage(app.StatusRecursiveFailedAll, util.RED, app.StatusArgs{Count: failedCount})
 			} else {
-				a.State.SetStatus(recursiveStatusCompletedFailed(successCount, failedCount), util.YELLOW)
+				a.State.SetStatusMessage(app.StatusRecursiveCompletedFailed, util.YELLOW, app.StatusArgs{OK: successCount, Failed: failedCount})
 			}
 			if a.progressModal != nil {
 				a.progressModal.Hide()
@@ -214,7 +214,7 @@ func (a *App) applyRecursiveSelection(file string, saved app.RecursiveSnapshot, 
 	fyne.DoAndWait(func() {
 		a.onDrop([]string{file})
 		a.State.ApplyRecursiveSelection(saved)
-		a.State.SetPopupStatus(status)
+		a.State.SetPopupStatusText(status)
 		_ = a.boundStatus.Set(status)
 	})
 }
@@ -270,7 +270,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	if snap.SplitSize != "" {
 		n, err := strconv.Atoi(snap.SplitSize)
 		if err != nil || n <= 0 {
-			a.State.SetStatus(tr("status.invalid_split_size", "Invalid split size"), util.RED)
+			a.State.SetStatusMessage(app.StatusInvalidSplitSize, util.RED, app.StatusArgs{})
 			return false
 		}
 		chunkSize = n
@@ -318,9 +318,9 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	}
 
 	a.State.ResetUI()
-	a.State.InputLabel = dropPromptLabel()
-	a.State.StartLabel = tr("action.start", "Start")
-	a.State.SetStatus(tr("status.completed", "Completed"), util.GREEN)
+	a.State.SetInputPrompt()
+	a.State.SetStartAction(app.StartActionStart)
+	a.State.SetStatusMessage(app.StatusCompleted, util.GREEN, app.StatusArgs{})
 
 	// Clear UI widgets to match the reset state
 	fyne.Do(a.clearCredentialEntries)
@@ -344,7 +344,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 			}
 		}
 		if len(deleteErrors) > 0 {
-			a.State.SetStatus(tr("status.completed_some_delete_failed", "Completed (some files couldn't be deleted)"), util.YELLOW)
+			a.State.SetStatusMessage(app.StatusCompletedSomeDeleteFailed, util.YELLOW, app.StatusArgs{})
 		}
 	}
 
@@ -393,17 +393,17 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	}
 
 	a.State.ResetUI()
-	a.State.InputLabel = dropPromptLabel()
-	a.State.StartLabel = tr("action.start", "Start")
+	a.State.SetInputPrompt()
+	a.State.SetStartAction(app.StartActionStart)
 
 	// Clear UI widgets to match the reset state
 	fyne.Do(a.clearCredentialEntries)
 
 	if kept {
 		a.State.SetKept(true)
-		a.State.SetStatus(tr("status.kept_output_unverified", "Integrity check failed; kept output is unverified and may be corrupted"), util.YELLOW)
+		a.State.SetStatusMessage(app.StatusKeptOutputUnverified, util.YELLOW, app.StatusArgs{})
 	} else {
-		a.State.SetStatus(tr("status.completed", "Completed"), util.GREEN)
+		a.State.SetStatusMessage(app.StatusCompleted, util.GREEN, app.StatusArgs{})
 	}
 
 	if shouldDelete && !kept {
@@ -424,7 +424,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 			}
 		}
 		if deleteError {
-			a.State.SetStatus(tr("status.completed_volume_delete_failed", "Completed (volume couldn't be deleted)"), util.YELLOW)
+			a.State.SetStatusMessage(app.StatusCompletedVolumeDeleteFailed, util.YELLOW, app.StatusArgs{})
 		}
 	}
 
@@ -436,7 +436,7 @@ func (a *App) CreateReporter() *app.UIReporter {
 	return app.NewUIReporter(
 		func(text string) {
 			fyne.Do(func() {
-				a.State.SetPopupStatus(text)
+				a.State.SetPopupStatusText(text)
 			})
 			_ = a.boundStatus.Set(text)
 		},

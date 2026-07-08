@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/util"
 	"context"
 	"errors"
@@ -412,7 +413,7 @@ func applyOpenedPathPreparingStatus(a *App, generation uint64) {
 		if !a.openedPathReadinessUIGuard(generation) {
 			return
 		}
-		a.State.SetStatus(openedPathsPreparingStatus(), util.YELLOW)
+		a.State.SetStatusMessage(app.StatusOpenedPathsPreparing, util.YELLOW, app.StatusArgs{})
 		a.refreshUI()
 	})
 }
@@ -567,7 +568,7 @@ func (a *App) applyOpenedPathReadinessError(generation uint64) {
 		}
 
 		a.finishOpenedPathReadiness(generation)
-		a.State.SetStatus(startupPathAccessStatus(), util.RED)
+		a.State.SetStatusMessage(app.StatusStartupPathAccessFailed, util.RED, app.StatusArgs{})
 		a.refreshUI()
 	})
 }
@@ -579,7 +580,7 @@ func (a *App) applyOpenedPathReadinessTimeout(generation uint64) {
 		}
 
 		a.finishOpenedPathReadiness(generation)
-		a.State.SetStatus(openedPathsTimeoutStatus(), util.YELLOW)
+		a.State.SetStatusMessage(app.StatusOpenedPathsTimeout, util.YELLOW, app.StatusArgs{})
 		a.refreshUI()
 	})
 }

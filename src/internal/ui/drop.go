@@ -139,7 +139,7 @@ func (a *App) applyStartupPaths(paths []string) {
 	validPaths, err := collectStartupPaths(paths, startupPathStat)
 	if len(validPaths) == 0 {
 		if err != nil {
-			a.State.SetStatus(startupPathAccessStatus(), util.RED)
+			a.State.SetStatusMessage(app.StatusStartupPathAccessFailed, util.RED, app.StatusArgs{})
 			a.refreshUI()
 		}
 		return
@@ -147,7 +147,7 @@ func (a *App) applyStartupPaths(paths []string) {
 
 	a.onDrop(validPaths)
 	if err != nil {
-		a.State.SetStatus(startupPathPartialAccessStatus(), util.YELLOW)
+		a.State.SetStatusMessage(app.StatusStartupPathPartialAccessFailed, util.YELLOW, app.StatusArgs{})
 		a.refreshUI()
 	}
 }
@@ -155,7 +155,7 @@ func (a *App) applyStartupPaths(paths []string) {
 func (a *App) applyFolderWalkError() {
 	a.State.SetScanning(false)
 	a.resetUI()
-	a.State.SetStatus(tr("drop.failed_walk", "Failed to walk through dropped items"), util.RED)
+	a.State.SetStatusMessage(app.StatusDropFailedWalk, util.RED, app.StatusArgs{})
 	a.refreshUI()
 }
 
@@ -169,7 +169,7 @@ func (a *App) appendScannedFiles(files []scannedFile) {
 		a.State.CompressTotal += file.size
 		a.State.RequiredFreeSpace += file.size
 	}
-	a.State.InputLabel = selectionScanningLabel(a.State.CompressTotal)
+	a.State.SetInputScanning(a.State.CompressTotal)
 	a.refreshUI()
 }
 
@@ -199,7 +199,7 @@ func (a *App) onDrop(names []string) {
 	if len(names) == 1 {
 		stat, err := os.Stat(names[0])
 		if err != nil {
-			a.State.SetStatus(tr("drop.failed_stat_item", "Failed to stat dropped item"), util.RED)
+			a.State.SetStatusMessage(app.StatusDropFailedStatItem, util.RED, app.StatusArgs{})
 			a.State.SetScanning(false)
 			fyne.Do(func() {
 				a.refreshUI()
@@ -210,8 +210,8 @@ func (a *App) onDrop(names []string) {
 		// A folder was dropped
 		if stat.IsDir() {
 			a.State.Mode = "encrypt"
-			a.State.InputLabel = selectedFoldersLabel(1)
-			a.State.StartLabel = tr("action.zip_and_encrypt", "Zip and Encrypt")
+			a.State.SetInputSelection(0, 1, a.State.CompressTotal, false)
+			a.State.SetStartAction(app.StartActionZipAndEncrypt)
 			a.State.OnlyFolders = append(a.State.OnlyFolders, names[0])
 			a.State.InputFile = filepath.Join(filepath.Dir(names[0]),
 				"encrypted-"+strconv.Itoa(int(time.Now().Unix()))) + ".zip"
@@ -237,8 +237,8 @@ func (a *App) onDrop(names []string) {
 				// Encrypting a single file
 				a.State.Mode = "encrypt"
 				a.State.InputFile = names[0]
-				a.State.InputLabel = selectedFilesLabel(1)
-				a.State.StartLabel = tr("action.encrypt", "Encrypt")
+				a.State.SetInputSelection(1, 0, a.State.CompressTotal, false)
+				a.State.SetStartAction(app.StartActionEncrypt)
 				// Set output file based on compress state
 				if a.State.Compress {
 					a.State.OutputFile = names[0] + ".zip.pcv"
@@ -257,7 +257,7 @@ func (a *App) onDrop(names []string) {
 	}
 
 	if len(a.State.OnlyFolders) == 0 {
-		a.State.InputLabel = selectionWithSize(a.State.InputLabel, a.State.CompressTotal)
+		a.State.SetInputSelection(len(a.State.OnlyFiles), len(a.State.OnlyFolders), a.State.CompressTotal, true)
 		a.State.SetScanning(false)
 		a.refreshUI()
 		a.refreshAdvanced()
@@ -265,8 +265,9 @@ func (a *App) onDrop(names []string) {
 	}
 
 	// Recursively add all files in 'onlyFolders' to 'allFiles' (matches original lines 1133-1173)
+	oldFileCount := len(a.State.OnlyFiles)
+	oldFolderCount := len(a.State.OnlyFolders)
 	go func() {
-		oldInputLabel := a.State.InputLabel
 		pendingFiles := make([]scannedFile, 0, dropScanBatchSize)
 		lastFlush := time.Now()
 
@@ -308,7 +309,7 @@ func (a *App) onDrop(names []string) {
 		flushPendingFiles()
 
 		fyne.DoAndWait(func() {
-			a.State.InputLabel = selectionWithSize(oldInputLabel, a.State.CompressTotal)
+			a.State.SetInputSelection(oldFileCount, oldFolderCount, a.State.CompressTotal, true)
 			a.State.SetScanning(false)
 			a.refreshUI()
 			a.refreshAdvanced()
@@ -325,11 +326,20 @@ func (a *App) applyDropError(status string, closeKeyfileModal bool) {
 	a.refreshUI()
 }
 
+func (a *App) applyDropStatusMessage(kind app.StatusKind, closeKeyfileModal bool) {
+	if closeKeyfileModal && a.keyfileModal != nil {
+		a.keyfileModal.Hide()
+	}
+	a.resetUI()
+	a.State.SetStatusMessage(kind, util.RED, app.StatusArgs{})
+	a.refreshUI()
+}
+
 // handleDecryptDrop handles a .pcv file being dropped for decryption.
 func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	a.State.Mode = "decrypt"
-	a.State.InputLabel = tr("selection.volume_for_decryption", "Volume for decryption")
-	a.State.StartLabel = tr("action.decrypt", "Decrypt")
+	a.State.SetInputDecryptVolume()
+	a.State.SetStartAction(app.StartActionDecrypt)
 	a.State.CommentsPreviewState = app.CommentsPreviewUnavailable
 
 	// Add the file to onlyFiles (required for UI enable/disable logic)
@@ -339,7 +349,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	if isSplit {
 		basePath, ok := fileops.SplitChunkBase(name)
 		if !ok {
-			a.applyDropError(tr("drop.failed_split_path", "Failed to derive split volume path"), false)
+			a.applyDropStatusMessage(app.StatusDropFailedSplitPath, false)
 			return
 		}
 		name = basePath
@@ -375,7 +385,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	}
 	if err != nil {
 		fyne.Do(func() {
-			a.applyDropError(tr("drop.read_access_denied", "Read access denied"), false)
+			a.applyDropStatusMessage(app.StatusDropReadAccessDenied, false)
 		})
 		return
 	}
@@ -392,25 +402,25 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 			// Version field does not match ^v\d\.\d{2}$ — the volume may have a
 			// plausible-deniability wrapper (its leading bytes are random).
 			a.State.Deniability = true
-			a.State.SetStatus(tr("drop.header_may_be_deniable", "Cannot read header, volume may be deniable"), util.WHITE)
+			a.State.SetStatusMessage(app.StatusDropHeaderMayBeDeniable, util.WHITE, app.StatusArgs{})
 			return
 		case errors.Is(err, header.ErrInvalidCommentLength):
 			// Malformed comment length is a non-comment header-field failure:
 			// it must not leave the volume looking startable.
-			a.State.SetStatus(tr("drop.header_damaged", "The volume header is damaged"), util.RED)
+			a.State.SetStatusMessage(app.StatusDropHeaderDamaged, util.RED, app.StatusArgs{})
 			return
 		default:
-			a.State.SetStatus(tr("drop.header_damaged", "The volume header is damaged"), util.RED)
+			a.State.SetStatusMessage(app.StatusDropHeaderDamaged, util.RED, app.StatusArgs{})
 			return
 		}
 	} else if res.DecodeError != nil && res.NonCommentDecodeError {
-		a.State.SetStatus(tr("drop.header_damaged", "The volume header is damaged"), util.RED)
+		a.State.SetStatusMessage(app.StatusDropHeaderDamaged, util.RED, app.StatusArgs{})
 		return
 	} else if res.DecodeError != nil && res.CommentDecodeError {
 		a.State.Comments = ""
 		a.State.CommentsPreviewState = app.CommentsPreviewCorrupted
 	} else if res.DecodeError != nil {
-		a.State.SetStatus(tr("drop.header_damaged", "The volume header is damaged"), util.RED)
+		a.State.SetStatusMessage(app.StatusDropHeaderDamaged, util.RED, app.StatusArgs{})
 		return
 	} else {
 		a.State.Comments = res.Header.Comments
@@ -452,16 +462,16 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 // Matches original lines 1081-1131 exactly.
 func (a *App) handleMultipleDrop(names []string) {
 	a.State.Mode = "encrypt"
-	a.State.StartLabel = tr("action.zip_and_encrypt", "Zip and Encrypt")
+	a.State.SetStartAction(app.StartActionZipAndEncrypt)
 	files, folders := 0, 0
 
 	// Go through each dropped item and add to corresponding slices
 	for _, name := range names {
 		stat, err := os.Stat(name)
 		if err != nil {
-			a.State.SetStatus(tr("drop.failed_stat_items", "Failed to stat dropped items"), util.RED)
 			fyne.Do(func() {
 				a.resetUI()
+				a.State.SetStatusMessage(app.StatusDropFailedStatItems, util.RED, app.StatusArgs{})
 				a.refreshUI()
 			})
 			return
@@ -476,12 +486,12 @@ func (a *App) handleMultipleDrop(names []string) {
 
 			a.State.CompressTotal += stat.Size()
 			a.State.RequiredFreeSpace += stat.Size()
-			a.State.InputLabel = selectionScanningLabel(a.State.CompressTotal)
+			a.State.SetInputScanning(a.State.CompressTotal)
 		}
 	}
 
 	// Update UI with the number of files and folders selected (matches original lines 1111-1125)
-	a.State.InputLabel = selectionSummary(files, folders)
+	a.State.SetInputSelection(files, folders, a.State.CompressTotal, false)
 
 	// Set the input and output paths (matches original lines 1127-1129)
 	a.State.InputFile = filepath.Join(filepath.Dir(names[0]), "encrypted-"+strconv.Itoa(int(time.Now().Unix()))) + ".zip"
@@ -504,7 +514,7 @@ func (a *App) handleKeyfileDrop(paths []string) bool {
 		if err != nil {
 			a.State.ShowKeyfile = false
 			fyne.Do(func() {
-				a.applyDropError(tr("keyfiles.read_access_denied", "Keyfile read access denied"), true)
+				a.applyDropStatusMessage(app.StatusKeyfileReadAccessDenied, true)
 			})
 			return true
 		}
