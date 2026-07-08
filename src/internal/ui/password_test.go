@@ -83,12 +83,12 @@ func TestPasswordStrengthScoring(t *testing.T) {
 }
 
 // TestPasswordVisibilityToggle drives the real show/hide button built in
-// buildPasswordSection. The "Show"/"Hide" strings are state-machine values, not
-// copy: the button text IS PasswordStateLabel, and tapping flips both the label
-// and the masking on BOTH entries. The test taps the rendered button and asserts
-// (a) the button's drawn .Text pivots Show→Hide→Show, (b) IsPasswordHidden
-// tracks it, and (c) passwordEntry/cPasswordEntry masking follows. It fails if
-// the toggle stops re-labelling the button or stops un/re-masking the entries.
+// buildPasswordSection. The button text is rendered from PasswordMode, and
+// tapping flips both the label and the masking on BOTH entries. The test taps
+// the rendered button and asserts (a) the button's drawn .Text pivots
+// Show→Hide→Show, (b) IsPasswordHidden tracks it, and (c)
+// passwordEntry/cPasswordEntry masking follows. It fails if the toggle stops
+// re-labelling the button or stops un/re-masking the entries.
 func TestPasswordVisibilityToggle(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 

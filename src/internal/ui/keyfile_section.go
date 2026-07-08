@@ -16,6 +16,25 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+func keyfileApplicable(mode string, required bool, deniable bool) bool {
+	return mode != "decrypt" || required || deniable
+}
+
+func keyfileDisplayLabel(required bool, count int, applicable bool) string {
+	switch {
+	case !applicable:
+		return tr("keyfiles.not_applicable", "Not applicable")
+	case count == 0 && required:
+		return tr("keyfiles.required", "Keyfiles required")
+	case count == 0:
+		return tr("keyfiles.none_selected", "None selected")
+	default:
+		return trn("keyfiles.count", "Using {{.Count}} keyfiles", count, map[string]any{
+			"Count": count,
+		})
+	}
+}
+
 // buildKeyfilesSection creates the keyfiles input section.
 func (a *App) buildKeyfilesSection() fyne.CanvasObject {
 	a.keyfileEditBtn = widget.NewButton("Edit", func() {
@@ -26,7 +45,11 @@ func (a *App) buildKeyfilesSection() fyne.CanvasObject {
 		a.createKeyfile()
 	})
 
-	a.keyfileLabel = widget.NewLabel(a.State.KeyfileLabel)
+	a.keyfileLabel = widget.NewLabel(keyfileDisplayLabel(
+		a.State.Keyfile,
+		len(a.State.Keyfiles),
+		keyfileApplicable(a.State.Mode, a.State.Keyfile, a.State.Deniability),
+	))
 
 	// Create bold label for better visual hierarchy
 	keyfilesLabel := widget.NewLabel("Keyfiles:")
@@ -67,11 +90,6 @@ func (a *App) showKeyfileModal() {
 	// Buttons
 	clearBtn := widget.NewButton("Clear", func() {
 		a.State.Keyfiles = nil
-		if a.State.Keyfile {
-			a.State.KeyfileLabel = "Keyfiles required"
-		} else {
-			a.State.KeyfileLabel = "None selected"
-		}
 		a.State.ModalID++
 		a.updateKeyfileList()
 		a.updateUIState()
@@ -137,22 +155,19 @@ func (a *App) createKeyfile() {
 
 		data := make([]byte, 32)
 		if n, err := rand.Read(data); err != nil || n != 32 {
-			a.State.MainStatus = "Failed to generate keyfile"
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus("Failed to generate keyfile", util.RED)
 			a.updateUIState()
 			return
 		}
 
 		n, err := writer.Write(data)
 		if err != nil || n != 32 {
-			a.State.MainStatus = "Failed to write keyfile"
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus("Failed to write keyfile", util.RED)
 			a.updateUIState()
 			return
 		}
 
-		a.State.MainStatus = "Ready"
-		a.State.MainStatusColor = util.WHITE
+		a.State.SetReadyStatus()
 		a.updateUIState()
 	}, a.Window)
 

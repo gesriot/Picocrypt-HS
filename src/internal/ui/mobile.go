@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
 	"errors"
@@ -133,8 +134,7 @@ func (a *App) showAppStorageDialog() {
 
 	// Ensure directory exists
 	if err := os.MkdirAll(appDir, 0o700); err != nil {
-		a.State.MainStatus = "Failed to create app storage"
-		a.State.MainStatusColor = util.RED
+		a.State.SetStatus("Failed to create app storage", util.RED)
 		a.refreshUI()
 		return
 	}
@@ -142,8 +142,7 @@ func (a *App) showAppStorageDialog() {
 	// List files in app storage
 	files, err := os.ReadDir(appDir)
 	if err != nil {
-		a.State.MainStatus = "Failed to read app storage"
-		a.State.MainStatusColor = util.RED
+		a.State.SetStatus("Failed to read app storage", util.RED)
 		a.refreshUI()
 		return
 	}
@@ -161,8 +160,7 @@ func (a *App) showAppStorageDialog() {
 
 		copyPathBtn := widget.NewButton("Copy Path", func() {
 			a.fyneApp.Clipboard().SetContent(appDir)
-			a.State.MainStatus = "Path copied to clipboard"
-			a.State.MainStatusColor = util.WHITE
+			a.State.SetStatus("Path copied to clipboard", util.WHITE)
 			a.refreshUI()
 		})
 
@@ -180,8 +178,7 @@ func (a *App) showAppStorageDialog() {
 	}
 
 	if len(items) == 0 {
-		a.State.MainStatus = "No files in app storage"
-		a.State.MainStatusColor = util.YELLOW
+		a.State.SetStatus("No files in app storage", util.YELLOW)
 		a.refreshUI()
 		return
 	}
@@ -217,8 +214,7 @@ func (a *App) showMobileFilePicker() {
 		if uri.Scheme() == "content" {
 			localPath, copyErr := a.copyURIToTemp(reader, uri.Name())
 			if copyErr != nil {
-				a.State.MainStatus = "Failed to access file: " + copyErr.Error()
-				a.State.MainStatusColor = util.RED
+				a.State.SetStatus("Failed to access file: "+copyErr.Error(), util.RED)
 				a.refreshUI()
 				return
 			}
@@ -253,8 +249,7 @@ func (a *App) showFolderNotSupportedDialog() {
 
 	copyPathBtn := widget.NewButton("Copy Path to Clipboard", func() {
 		a.fyneApp.Clipboard().SetContent(appDir)
-		a.State.MainStatus = "Path copied to clipboard"
-		a.State.MainStatusColor = util.WHITE
+		a.State.SetStatus("Path copied to clipboard", util.WHITE)
 		a.refreshUI()
 	})
 
@@ -349,11 +344,13 @@ func (a *App) copyURIToTemp(reader io.Reader, filename string) (string, error) {
 // buildMobilePasswordSection creates the password section for mobile with larger buttons
 func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 	// Password buttons - 3 per row for better touch targets
-	a.showHideBtn = widget.NewButton(a.State.PasswordStateLabel, func() {
+	a.showHideBtn = widget.NewButton(passwordVisibilityLabel(a.State.PasswordMode), func() {
 		a.State.TogglePasswordVisibility()
-		a.showHideBtn.SetText(a.State.PasswordStateLabel)
-		a.passwordEntry.SetHidden(a.State.IsPasswordHidden())
-		a.cPasswordEntry.SetHidden(a.State.IsPasswordHidden())
+		snap := a.State.UISnapshot()
+		a.showHideBtn.SetText(passwordVisibilityLabel(snap.PasswordMode))
+		hidden := snap.PasswordMode == app.PasswordModeHidden
+		a.passwordEntry.SetHidden(hidden)
+		a.cPasswordEntry.SetHidden(hidden)
 	})
 
 	a.clearPwdBtn = widget.NewButton("Clear", func() {
@@ -436,7 +433,11 @@ func (a *App) buildMobileKeyfilesSection() fyne.CanvasObject {
 		a.createKeyfile()
 	})
 
-	a.keyfileLabel = widget.NewLabel(a.State.KeyfileLabel)
+	a.keyfileLabel = widget.NewLabel(keyfileDisplayLabel(
+		a.State.Keyfile,
+		len(a.State.Keyfiles),
+		keyfileApplicable(a.State.Mode, a.State.Keyfile, a.State.Deniability),
+	))
 	a.keyfileLabel.Wrapping = fyne.TextWrapWord
 
 	buttonRow := container.NewGridWithColumns(2, a.keyfileEditBtn, a.keyfileCreateBtn)
@@ -450,14 +451,16 @@ func (a *App) buildMobileKeyfilesSection() fyne.CanvasObject {
 
 // buildMobileCommentsSection creates the comments section for mobile
 func (a *App) buildMobileCommentsSection() fyne.CanvasObject {
-	a.commentsLabel = widget.NewLabel(a.State.CommentsLabel)
+	a.commentsLabel = widget.NewLabel(commentsLabelText(a.State.Mode))
 	a.commentsEntry = widget.NewEntry()
 	a.commentsEntry.SetPlaceHolder("Comments (not encrypted)")
 	a.commentsEntry.MultiLine = true
 	a.commentsEntry.OnChanged = func(text string) {
 		if a.State.Mode == "decrypt" {
-			if text != a.State.Comments {
-				a.commentsEntry.SetText(a.State.Comments)
+			snap := a.State.UISnapshot()
+			displayText := commentsDisplayText(snap.Mode, snap.Comments, snap.CommentsPreviewState)
+			if text != displayText {
+				a.commentsEntry.SetText(displayText)
 			}
 			return
 		}

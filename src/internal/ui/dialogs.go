@@ -192,8 +192,7 @@ func (a *App) changeOutputFile() {
 			a.State.Compress,
 		)
 		a.State.OutputChosenViaSaveDialog = true
-		a.State.MainStatus = "Ready"
-		a.State.MainStatusColor = util.WHITE
+		a.State.SetReadyStatus()
 		a.updateUIState()
 	}, a.Window)
 

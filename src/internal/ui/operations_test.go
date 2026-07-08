@@ -111,7 +111,6 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 		Keyfile:        true,
 		Keyfiles:       []string{"k1", "k2"},
 		KeyfileOrdered: true,
-		KeyfileLabel:   "Using multiple keyfiles",
 		Comments:       "saved comments",
 		Paranoid:       true,
 		ReedSolomon:    true,
@@ -151,7 +150,7 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	if a.State.SplitSize != saved.SplitSize || a.State.SplitSelected != saved.SplitSelected {
 		t.Fatal("split settings were not restored")
 	}
-	if a.State.Comments != saved.Comments || a.State.KeyfileLabel != saved.KeyfileLabel {
+	if a.State.Comments != saved.Comments || len(a.State.Keyfiles) != len(saved.Keyfiles) {
 		t.Fatal("saved metadata was not restored")
 	}
 }

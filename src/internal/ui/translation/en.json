@@ -9,8 +9,12 @@
   "status.ready": "Ready",
   "keyfiles.none_selected": "None selected",
   "keyfiles.required": "Keyfiles required",
+  "keyfiles.not_applicable": "Not applicable",
   "keyfiles.count": {
     "one": "Using {{.Count}} keyfile",
     "other": "Using {{.Count}} keyfiles"
-  }
+  },
+  "comments.label": "Comments:",
+  "comments.read_only": "Comments (read-only):",
+  "comments.corrupted": "Comments are corrupted"
 }

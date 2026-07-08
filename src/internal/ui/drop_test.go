@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
@@ -207,8 +208,7 @@ func TestApplyDropErrorPreservesStatusAfterReset(t *testing.T) {
 				advancedContainer: container.NewVBox(),
 			}
 			a.State.StartLabel = "Decrypt"
-			a.State.MainStatus = "Old status"
-			a.State.MainStatusColor = util.GREEN
+			a.State.SetStatus("Old status", util.GREEN)
 
 			a.applyDropError(tc.status, tc.closeKeyfileModal)
 
@@ -1941,8 +1941,7 @@ func TestOpenedPathReadinessPendingStatusDoesNotOverwriteBusyStatus(t *testing.T
 	const busyStatus = "Encrypting active file"
 	fyne.DoAndWait(func() {
 		a.State.SetWorking(true)
-		a.State.MainStatus = busyStatus
-		a.State.MainStatusColor = util.WHITE
+		a.State.SetStatus(busyStatus, util.WHITE)
 		a.refreshUI()
 	})
 	defer func() {
@@ -2051,7 +2050,7 @@ func TestKeyfileDropHandling(t *testing.T) {
 	var label string
 	fyne.DoAndWait(func() {
 		got = append([]string(nil), a.State.Keyfiles...)
-		label = a.State.KeyfileLabel
+		label = a.keyfileLabel.Text
 	})
 
 	if len(got) != 2 {
@@ -2061,16 +2060,17 @@ func TestKeyfileDropHandling(t *testing.T) {
 		t.Fatalf("Keyfiles = %#v; want [%q %q] in order", got, key1, key2)
 	}
 	if label != "Using 2 keyfiles" {
-		t.Fatalf("KeyfileLabel = %q; want %q", label, "Using 2 keyfiles")
+		t.Fatalf("rendered keyfile label = %q; want %q", label, "Using 2 keyfiles")
 	}
 }
 
 // TestStatusFreeSpaceMultiplier drives the real updateUIState free-space
-// estimation: with MainStatus "Ready" and RequiredFreeSpace set, updateUIState
+// estimation: with MainStatusKind ready and RequiredFreeSpace set, updateUIState
 // (app.go) rewrites the status label to "Ready (ensure >SIZE free)" where SIZE is
 // RequiredFreeSpace times a multiplier that grows with multi-file/deniability/
-// split/etc. The test sets only the inputs and reads the rendered statusLabel,
-// so it fails if the multiplier or formatting logic in updateUIState changes.
+// split/etc. The test intentionally poisons MainStatus in ready cases so it
+// fails if updateUIState compares the English status text instead of the
+// semantic kind.
 func TestStatusFreeSpaceMultiplier(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 
@@ -2084,7 +2084,8 @@ func TestStatusFreeSpaceMultiplier(t *testing.T) {
 			a.State.CPassword = "secret"
 			a.State.AllFiles = []string{"only.txt"}
 			a.State.OnlyFiles = []string{"only.txt"}
-			a.State.MainStatus = "Ready"
+			a.State.MainStatus = "Localized ready"
+			a.State.MainStatusKind = app.MainStatusReady
 			a.State.RequiredFreeSpace = base
 			a.updateUIState()
 		})
@@ -2106,7 +2107,8 @@ func TestStatusFreeSpaceMultiplier(t *testing.T) {
 			a.State.OnlyFiles = []string{"a.txt", "b.txt"}
 			a.State.Deniability = true
 			a.State.Split = true
-			a.State.MainStatus = "Ready"
+			a.State.MainStatus = "Localized ready"
+			a.State.MainStatusKind = app.MainStatusReady
 			a.State.RequiredFreeSpace = base
 			a.updateUIState()
 		})
@@ -2114,6 +2116,25 @@ func TestStatusFreeSpaceMultiplier(t *testing.T) {
 		want := "Ready (ensure >" + util.Sizeify(base*4) + " free)"
 		if got := statusLabelText(t, a); got != want {
 			t.Fatalf("status = %q; want %q (4x multiplier)", got, want)
+		}
+	})
+
+	t.Run("CustomReadyTextDoesNotTriggerFreeSpace", func(t *testing.T) {
+		a := createUIReadyDropTestApp(t, fyneApp)
+		fyne.DoAndWait(func() {
+			a.State.Mode = "encrypt"
+			a.State.Password = "secret"
+			a.State.CPassword = "secret"
+			a.State.AllFiles = []string{"only.txt"}
+			a.State.OnlyFiles = []string{"only.txt"}
+			a.State.MainStatus = "Ready"
+			a.State.MainStatusKind = app.MainStatusCustom
+			a.State.RequiredFreeSpace = base
+			a.updateUIState()
+		})
+
+		if got := statusLabelText(t, a); got != "Ready" {
+			t.Fatalf("status = %q; want custom Ready text without free-space suffix", got)
 		}
 	})
 }
@@ -2337,6 +2358,44 @@ func TestHandleDecryptDropNonCommentDecodeErrorIsHeaderDamage(t *testing.T) {
 	}
 	if mainStatus != "The volume header is damaged" {
 		t.Fatalf("MainStatus = %q; want %q", mainStatus, "The volume header is damaged")
+	}
+}
+
+func TestHandleDecryptDropCommentDecodeErrorUsesSemanticPreviewState(t *testing.T) {
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	raw := craftFullHeaderBytes(t, rs, "visible")
+	commentOffset := header.VersionEncSize + header.CommentLenEncSize
+	copy(raw[commentOffset:commentOffset+3], []byte{0x00, 0x01, 0x02})
+
+	pcvPath := filepath.Join(t.TempDir(), "comment-corrupt.pcv")
+	if err := os.WriteFile(pcvPath, raw, 0o644); err != nil {
+		t.Fatalf("write crafted .pcv: %v", err)
+	}
+
+	fyne.DoAndWait(func() {
+		a.onDrop([]string{pcvPath})
+	})
+	waitForDropProcessing(t, a)
+
+	var comments string
+	var previewState app.CommentsPreviewState
+	fyne.DoAndWait(func() {
+		comments = a.State.Comments
+		previewState = a.State.CommentsPreviewState
+	})
+
+	if comments != "" {
+		t.Fatalf("Comments = %q; want empty payload when comment preview is corrupted", comments)
+	}
+	if previewState != app.CommentsPreviewCorrupted {
+		t.Fatalf("CommentsPreviewState = %v; want CommentsPreviewCorrupted", previewState)
 	}
 }
 

@@ -12,14 +12,23 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+func passwordVisibilityLabel(mode app.PasswordInputMode) string {
+	if mode == app.PasswordModeVisible {
+		return tr("password.hide", "Hide")
+	}
+	return tr("password.show", "Show")
+}
+
 // buildPasswordSection creates the password input section.
 func (a *App) buildPasswordSection() fyne.CanvasObject {
 	// Password buttons row
-	a.showHideBtn = widget.NewButton(a.State.PasswordStateLabel, func() {
+	a.showHideBtn = widget.NewButton(passwordVisibilityLabel(a.State.PasswordMode), func() {
 		a.State.TogglePasswordVisibility()
-		a.showHideBtn.SetText(a.State.PasswordStateLabel)
-		a.passwordEntry.SetHidden(a.State.IsPasswordHidden())
-		a.cPasswordEntry.SetHidden(a.State.IsPasswordHidden())
+		snap := a.State.UISnapshot()
+		a.showHideBtn.SetText(passwordVisibilityLabel(snap.PasswordMode))
+		hidden := snap.PasswordMode == app.PasswordModeHidden
+		a.passwordEntry.SetHidden(hidden)
+		a.cPasswordEntry.SetHidden(hidden)
 	})
 
 	a.clearPwdBtn = widget.NewButton("Clear", func() {
@@ -158,6 +167,7 @@ func (a *App) updatePasswordUIState(mainDisabled bool, snap app.UISnapshot) {
 	}
 
 	if a.showHideBtn != nil {
+		a.showHideBtn.SetText(passwordVisibilityLabel(snap.PasswordMode))
 		if mainDisabled {
 			a.showHideBtn.Disable()
 		} else {

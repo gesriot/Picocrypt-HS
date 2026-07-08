@@ -480,9 +480,30 @@ func (a *App) resizeDesktopWindowForContent(content fyne.CanvasObject, preferred
 	a.Window.Resize(size)
 }
 
+func commentsLabelText(mode string) string {
+	if mode == "decrypt" {
+		return tr("comments.read_only", "Comments (read-only):")
+	}
+	return tr("comments.label", "Comments:")
+}
+
+func commentsDisplayText(mode, comments string, state app.CommentsPreviewState) string {
+	if mode != "decrypt" {
+		return comments
+	}
+	switch state {
+	case app.CommentsPreviewCorrupted:
+		return tr("comments.corrupted", "Comments are corrupted")
+	case app.CommentsPreviewUnavailable:
+		return ""
+	default:
+		return comments
+	}
+}
+
 // buildCommentsSection creates the comments input section.
 func (a *App) buildCommentsSection() fyne.CanvasObject {
-	a.commentsLabel = widget.NewLabel(a.State.CommentsLabel)
+	a.commentsLabel = widget.NewLabel(commentsLabelText(a.State.Mode))
 	a.commentsLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	a.commentsEntry = widget.NewEntry()
@@ -490,8 +511,10 @@ func (a *App) buildCommentsSection() fyne.CanvasObject {
 	a.commentsEntry.OnChanged = func(text string) {
 		// In decrypt mode, comments are read-only - revert any changes
 		if a.State.Mode == "decrypt" {
-			if text != a.State.Comments {
-				a.commentsEntry.SetText(a.State.Comments)
+			snap := a.State.UISnapshot()
+			displayText := commentsDisplayText(snap.Mode, snap.Comments, snap.CommentsPreviewState)
+			if text != displayText {
+				a.commentsEntry.SetText(displayText)
 			}
 			return
 		}
@@ -568,14 +591,20 @@ func (a *App) updateUIState() {
 			(snap.Password != snap.CPassword))) ||
 		snap.Deniability
 	commentsInnerDisabled := snap.Mode == "decrypt" &&
-		(snap.Comments == "" || snap.Comments == "Comments are corrupted")
+		snap.CommentsPreviewState != app.CommentsPreviewNormal
 
 	if a.commentsEntry != nil {
+		if snap.Mode == "decrypt" {
+			displayText := commentsDisplayText(snap.Mode, snap.Comments, snap.CommentsPreviewState)
+			if a.commentsEntry.Text != displayText {
+				a.commentsEntry.SetText(displayText)
+			}
+		}
 		// In decrypt mode with valid comments, keep entry enabled but read-only
 		// (OnChanged will prevent actual changes). This keeps text visible, not pale.
-		if snap.Mode == "decrypt" && snap.Comments != "" && snap.Comments != "Comments are corrupted" {
+		if snap.Mode == "decrypt" && snap.CommentsPreviewState == app.CommentsPreviewNormal && snap.Comments != "" {
 			a.commentsEntry.Enable() // Keep text visible (not pale)
-		} else if mainDisabled || commentsOuterDisabled || commentsInnerDisabled || snap.CommentsDisabled {
+		} else if mainDisabled || commentsOuterDisabled || commentsInnerDisabled {
 			a.commentsEntry.Disable()
 		} else {
 			a.commentsEntry.Enable()
@@ -630,24 +659,27 @@ func (a *App) updateUIState() {
 	// Update status
 	if a.statusLabel != nil {
 		statusText := snap.MainStatus
-		if snap.MainStatus == "Ready" && snap.RequiredFreeSpace > 0 {
-			multiplier := 1
-			if snap.AllFileCount > 1 || snap.OnlyFolderCount > 0 {
-				multiplier++
+		if snap.MainStatusKind == app.MainStatusReady {
+			statusText = tr("status.ready", "Ready")
+			if snap.RequiredFreeSpace > 0 {
+				multiplier := 1
+				if snap.AllFileCount > 1 || snap.OnlyFolderCount > 0 {
+					multiplier++
+				}
+				if snap.Deniability {
+					multiplier++
+				}
+				if snap.Split {
+					multiplier++
+				}
+				if snap.Recombine {
+					multiplier++
+				}
+				if snap.AutoUnzip {
+					multiplier++
+				}
+				statusText = statusText + " (ensure >" + util.Sizeify(snap.RequiredFreeSpace*int64(multiplier)) + " free)"
 			}
-			if snap.Deniability {
-				multiplier++
-			}
-			if snap.Split {
-				multiplier++
-			}
-			if snap.Recombine {
-				multiplier++
-			}
-			if snap.AutoUnzip {
-				multiplier++
-			}
-			statusText = "Ready (ensure >" + util.Sizeify(snap.RequiredFreeSpace*int64(multiplier)) + " free)"
 		}
 		a.statusLabel.SetText(statusText)
 		a.statusLabel.SetColor(snap.MainStatusColor)
@@ -659,11 +691,15 @@ func (a *App) updateUIState() {
 	}
 
 	if a.keyfileLabel != nil {
-		a.keyfileLabel.SetText(snap.KeyfileLabel)
+		a.keyfileLabel.SetText(keyfileDisplayLabel(
+			snap.Keyfile,
+			snap.KeyfileCount,
+			keyfileApplicable(snap.Mode, snap.Keyfile, snap.Deniability),
+		))
 	}
 
 	if a.commentsLabel != nil {
-		a.commentsLabel.SetText(snap.CommentsLabel)
+		a.commentsLabel.SetText(commentsLabelText(snap.Mode))
 	}
 }
 

@@ -407,8 +407,7 @@ func applyOpenedPathPreparingStatus(a *App, generation uint64) {
 		if !a.openedPathReadinessUIGuard(generation) {
 			return
 		}
-		a.State.MainStatus = openedPathsPreparingStatus
-		a.State.MainStatusColor = util.YELLOW
+		a.State.SetStatus(openedPathsPreparingStatus, util.YELLOW)
 		a.refreshUI()
 	})
 }
@@ -563,8 +562,7 @@ func (a *App) applyOpenedPathReadinessError(generation uint64) {
 		}
 
 		a.finishOpenedPathReadiness(generation)
-		a.State.MainStatus = startupPathAccessStatus
-		a.State.MainStatusColor = util.RED
+		a.State.SetStatus(startupPathAccessStatus, util.RED)
 		a.refreshUI()
 	})
 }
@@ -576,8 +574,7 @@ func (a *App) applyOpenedPathReadinessTimeout(generation uint64) {
 		}
 
 		a.finishOpenedPathReadiness(generation)
-		a.State.MainStatus = openedPathsTimeoutStatus
-		a.State.MainStatusColor = util.YELLOW
+		a.State.SetStatus(openedPathsTimeoutStatus, util.YELLOW)
 		a.refreshUI()
 	})
 }

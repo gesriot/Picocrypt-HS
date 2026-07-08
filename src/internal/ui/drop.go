@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/util"
@@ -81,8 +82,7 @@ func (a *App) applyStartupPaths(paths []string) {
 	validPaths, err := collectStartupPaths(paths, startupPathStat)
 	if len(validPaths) == 0 {
 		if err != nil {
-			a.State.MainStatus = startupPathAccessStatus
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus(startupPathAccessStatus, util.RED)
 			a.refreshUI()
 		}
 		return
@@ -90,8 +90,7 @@ func (a *App) applyStartupPaths(paths []string) {
 
 	a.onDrop(validPaths)
 	if err != nil {
-		a.State.MainStatus = startupPathPartialAccessStatus
-		a.State.MainStatusColor = util.YELLOW
+		a.State.SetStatus(startupPathPartialAccessStatus, util.YELLOW)
 		a.refreshUI()
 	}
 }
@@ -99,8 +98,7 @@ func (a *App) applyStartupPaths(paths []string) {
 func (a *App) applyFolderWalkError() {
 	a.State.SetScanning(false)
 	a.resetUI()
-	a.State.MainStatus = "Failed to walk through dropped items"
-	a.State.MainStatusColor = util.RED
+	a.State.SetStatus("Failed to walk through dropped items", util.RED)
 	a.refreshUI()
 }
 
@@ -144,8 +142,7 @@ func (a *App) onDrop(names []string) {
 	if len(names) == 1 {
 		stat, err := os.Stat(names[0])
 		if err != nil {
-			a.State.MainStatus = "Failed to stat dropped item"
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus("Failed to stat dropped item", util.RED)
 			a.State.SetScanning(false)
 			fyne.Do(func() {
 				a.refreshUI()
@@ -267,8 +264,7 @@ func (a *App) applyDropError(status string, closeKeyfileModal bool) {
 		a.keyfileModal.Hide()
 	}
 	a.resetUI()
-	a.State.MainStatus = status
-	a.State.MainStatusColor = util.RED
+	a.State.SetStatus(status, util.RED)
 	a.refreshUI()
 }
 
@@ -277,8 +273,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	a.State.Mode = "decrypt"
 	a.State.InputLabel = "Volume for decryption"
 	a.State.StartLabel = "Decrypt"
-	a.State.CommentsLabel = "Comments (read-only):"
-	a.State.CommentsDisabled = true
+	a.State.CommentsPreviewState = app.CommentsPreviewUnavailable
 
 	// Add the file to onlyFiles (required for UI enable/disable logic)
 	a.State.OnlyFiles = append(a.State.OnlyFiles, name)
@@ -340,37 +335,40 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 			// Version field does not match ^v\d\.\d{2}$ — the volume may have a
 			// plausible-deniability wrapper (its leading bytes are random).
 			a.State.Deniability = true
-			a.State.MainStatus = "Cannot read header, volume may be deniable"
+			a.State.SetStatus("Cannot read header, volume may be deniable", util.WHITE)
 			return
 		case errors.Is(err, header.ErrInvalidCommentLength):
 			// Malformed comment length is a non-comment header-field failure:
 			// it must not leave the volume looking startable.
-			a.State.MainStatus = "The volume header is damaged"
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus("The volume header is damaged", util.RED)
 			return
 		default:
-			a.State.MainStatus = "The volume header is damaged"
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus("The volume header is damaged", util.RED)
 			return
 		}
 	} else if res.DecodeError != nil && res.NonCommentDecodeError {
-		a.State.MainStatus = "The volume header is damaged"
-		a.State.MainStatusColor = util.RED
+		a.State.SetStatus("The volume header is damaged", util.RED)
 		return
 	} else if res.DecodeError != nil && res.CommentDecodeError {
-		a.State.Comments = "Comments are corrupted"
+		a.State.Comments = ""
+		a.State.CommentsPreviewState = app.CommentsPreviewCorrupted
 	} else if res.DecodeError != nil {
-		a.State.MainStatus = "The volume header is damaged"
-		a.State.MainStatusColor = util.RED
+		a.State.SetStatus("The volume header is damaged", util.RED)
 		return
 	} else {
 		a.State.Comments = res.Header.Comments
+		if a.State.Comments == "" {
+			a.State.CommentsPreviewState = app.CommentsPreviewUnavailable
+		} else {
+			a.State.CommentsPreviewState = app.CommentsPreviewNormal
+		}
 	}
 
 	// Update comments entry if it exists
 	fyne.Do(func() {
 		if a.commentsEntry != nil {
-			a.commentsEntry.SetText(a.State.Comments)
+			snap := a.State.UISnapshot()
+			a.commentsEntry.SetText(commentsDisplayText(snap.Mode, snap.Comments, snap.CommentsPreviewState))
 		}
 	})
 
@@ -379,9 +377,8 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		flagsStruct := res.Header.Flags
 		if flagsStruct.UseKeyfiles {
 			a.State.Keyfile = true
-			a.State.KeyfileLabel = "Keyfiles required"
 		} else {
-			a.State.KeyfileLabel = "Not applicable"
+			a.State.Keyfile = false
 		}
 		if flagsStruct.KeyfileOrdered {
 			a.State.KeyfileOrdered = true
@@ -405,8 +402,7 @@ func (a *App) handleMultipleDrop(names []string) {
 	for _, name := range names {
 		stat, err := os.Stat(name)
 		if err != nil {
-			a.State.MainStatus = "Failed to stat dropped items"
-			a.State.MainStatusColor = util.RED
+			a.State.SetStatus("Failed to stat dropped items", util.RED)
 			fyne.Do(func() {
 				a.resetUI()
 				a.refreshUI()
@@ -473,20 +469,6 @@ func (a *App) handleKeyfileDrop(paths []string) bool {
 		if !duplicate && !stat.IsDir() {
 			a.State.Keyfiles = append(a.State.Keyfiles, path)
 		}
-	}
-
-	// Update label
-	switch len(a.State.Keyfiles) {
-	case 0:
-		if a.State.Keyfile {
-			a.State.KeyfileLabel = "Keyfiles required"
-		} else {
-			a.State.KeyfileLabel = "None selected"
-		}
-	case 1:
-		a.State.KeyfileLabel = "Using 1 keyfile"
-	default:
-		a.State.KeyfileLabel = "Using " + strconv.Itoa(len(a.State.Keyfiles)) + " keyfiles"
 	}
 
 	// Update the keyfile list in the modal and increment modalId like original
