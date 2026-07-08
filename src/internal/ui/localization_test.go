@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -106,8 +107,46 @@ func TestFyneProductionLocaleFilesRequireRoundTripProof(t *testing.T) {
 		return
 	}
 
-	if _, err := os.Stat("../../docs/localization/fyne-weblate-roundtrip.md"); err != nil {
+	if _, err := os.Stat(fyneRoundTripProofPath(t)); err != nil {
 		t.Fatalf("production Fyne locale files %v require docs/localization/fyne-weblate-roundtrip.md proof: %v", productionLocales, err)
+	}
+}
+
+func TestFyneRoundTripProofPathUsesRepositoryRoot(t *testing.T) {
+	proofPath := fyneRoundTripProofPath(t)
+	wantDir := filepath.Join(repoRoot(t), "docs", "localization")
+	if filepath.Dir(proofPath) != wantDir {
+		t.Fatalf("Fyne round-trip proof dir = %q; want repo-root docs/localization dir %q", filepath.Dir(proofPath), wantDir)
+	}
+	if _, err := os.Stat(wantDir); err != nil {
+		t.Fatalf("Fyne round-trip proof dir %q must exist at repo root: %v", wantDir, err)
+	}
+}
+
+func fyneRoundTripProofPath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(repoRoot(t), "docs", "localization", "fyne-weblate-roundtrip.md")
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+
+	current := wd
+	for {
+		if _, err := os.Stat(filepath.Join(current, ".github", "workflows")); err == nil {
+			return current
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			t.Fatal("could not find repository root from test working directory")
+		}
+		current = parent
 	}
 }
 

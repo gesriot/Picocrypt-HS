@@ -82,8 +82,7 @@ after the setup gates in
 [WEBLATE_SETUP.md](docs/localization/WEBLATE_SETUP.md) are complete.
 Translation work is reviewed before merge, and security-sensitive wording must
 preserve the meaning documented in the
-[translation guide](docs/localization/TRANSLATION_GUIDE.md). The CLI remains
-English-only.
+[translation guide](docs/localization/TRANSLATION_GUIDE.md).
 The desktop UI can select among bundled UI languages when reviewed catalogs are
 present. The CLI remains English-only.
 
