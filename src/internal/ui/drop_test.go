@@ -144,10 +144,10 @@ func TestMultipleDropLabels(t *testing.T) {
 		{"OnlyFiles_5", 5, 0, trn("selection.files", "{{.Count}} files", 5, map[string]any{"Count": 5})},
 		{"OnlyFolders_2", 0, 2, trn("selection.folders", "{{.Count}} folders", 2, map[string]any{"Count": 2})},
 		{"OnlyFolders_5", 0, 5, trn("selection.folders", "{{.Count}} folders", 5, map[string]any{"Count": 5})},
-		{"1File1Folder", 1, 1, tr("selection.file_and_folder", "{{.Files}} file and {{.Folders}} folder", map[string]any{"Files": 1, "Folders": 1})},
-		{"1FileManyFolders", 1, 3, tr("selection.file_and_folders", "{{.Files}} file and {{.Folders}} folders", map[string]any{"Files": 1, "Folders": 3})},
-		{"ManyFiles1Folder", 3, 1, tr("selection.files_and_folder", "{{.Files}} files and {{.Folders}} folder", map[string]any{"Files": 3, "Folders": 1})},
-		{"ManyBoth", 3, 2, tr("selection.files_and_folders", "{{.Files}} files and {{.Folders}} folders", map[string]any{"Files": 3, "Folders": 2})},
+		{"1File1Folder", 1, 1, tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{"Files": "1 file", "Folders": "1 folder"})},
+		{"1FileManyFolders", 1, 3, tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{"Files": "1 file", "Folders": "3 folders"})},
+		{"ManyFiles1Folder", 3, 1, tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{"Files": "3 files", "Folders": "1 folder"})},
+		{"ManyBoth", 3, 2, tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{"Files": "3 files", "Folders": "2 folders"})},
 	}
 
 	for _, tc := range testCases {

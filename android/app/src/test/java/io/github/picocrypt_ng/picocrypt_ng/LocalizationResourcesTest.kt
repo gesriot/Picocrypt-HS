@@ -95,6 +95,14 @@ class LocalizationResourcesTest {
     }
 
     @Test
+    fun `insufficient storage message keeps required and available byte placeholders`() {
+        assertEquals(
+            "Not enough free space to encrypt this selection. Need %1\$d bytes; available %2\$d bytes.",
+            stringElement("error_insufficient_storage").textContent,
+        )
+    }
+
+    @Test
     fun `counted keyfile and selected file labels are plural resources`() {
         assertPlural(
             name = "keyfiles_count",

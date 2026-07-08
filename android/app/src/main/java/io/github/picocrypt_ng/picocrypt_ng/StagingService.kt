@@ -75,7 +75,9 @@ object StagingService {
                 wipeStaging(context)
                 val total = treeSize(tree)
                 val usable = usableSpace(context)
-                if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(context, total, usable))
+                if (!hasSpaceFor(total, usable)) {
+                    return@withContext Result.failure(insufficientStorageError(context, total, usable))
+                }
                 val rootName = sanitizeName(tree.name ?: "folder")
                 val root = File(stagingDir(context), rootName)
                 val files = mutableListOf<String>()
@@ -148,7 +150,9 @@ object StagingService {
                 wipeStaging(context)
                 val total = uris.sumOf { DocumentFile.fromSingleUri(context, it)?.length() ?: 0L }
                 val usable = usableSpace(context)
-                if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(context, total, usable))
+                if (!hasSpaceFor(total, usable)) {
+                    return@withContext Result.failure(insufficientStorageError(context, total, usable))
+                }
                 val dir = stagingDir(context)
                 val used = mutableSetOf<String>()
                 val files = mutableListOf<String>()
@@ -210,12 +214,15 @@ object StagingService {
         return null
     }
 
-    private fun insufficient(context: Context, total: Long, usable: Long) =
-        AppError.FileError.InsufficientStorage(
-            userMessage = context.getString(R.string.error_insufficient_storage),
-            technicalMessage = "required=${requiredBytes(total)} usable=$usable",
+    internal fun insufficientStorageError(context: Context, total: Long, usable: Long): AppError.FileError.InsufficientStorage {
+        val required = requiredBytes(total)
+        return AppError.FileError.InsufficientStorage(
+            userMessage = context.getString(R.string.error_insufficient_storage, required, usable),
+            technicalMessage = "required=$required usable=$usable",
             messageResId = R.string.error_insufficient_storage,
+            messageArgs = listOf(required, usable),
         )
+    }
 
     private fun copyError(
         context: Context,

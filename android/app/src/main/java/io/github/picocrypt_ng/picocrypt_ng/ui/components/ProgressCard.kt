@@ -32,6 +32,7 @@ import io.github.picocrypt_ng.picocrypt_ng.AppError
 import io.github.picocrypt_ng.picocrypt_ng.FileCopyService
 import io.github.picocrypt_ng.picocrypt_ng.R
 import io.github.picocrypt_ng.picocrypt_ng.localizedMessage
+import io.github.picocrypt_ng.picocrypt_ng.localizedOperationStatus
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import java.io.File
@@ -101,11 +102,7 @@ fun ProgressCard(
                             modifier = Modifier.fillMaxWidth()
                         )
                         Text(
-                            text = if (ui.status.isNotEmpty()) {
-                                ui.status
-                            } else {
-                                stringResource(R.string.unknown)
-                            },
+                            text = localizedOperationStatus(context, ui.status),
                             style = MaterialTheme.typography.bodyMedium
                         )
                         if (ui.info.isNotEmpty()) {

@@ -123,6 +123,12 @@
     <string name="fgs_decrypting">Decrypting</string>
     <string name="fgs_working">Working…</string>
 
+    <!-- Operation status display text; OperationStatus.kt constants remain bridge strings. -->
+    <string name="status_starting">Starting…</string>
+    <string name="status_completed">Completed</string>
+    <string name="status_cancelled">Cancelled</string>
+    <string name="status_error">Error</string>
+
     <!-- Stable error display boundary -->
     <string name="error_auth_failed">Authentication failed. Check the password, keyfiles, and keyfile order.</string>
     <string name="error_data_corrupted">Integrity check failed. The output is unverified and may be corrupted.</string>
@@ -140,7 +146,7 @@
     <string name="error_copy_failed">Failed to copy file.</string>
     <string name="error_save_failed">Failed to save file.</string>
     <string name="error_delete_failed">Failed to delete file.</string>
-    <string name="error_insufficient_storage">Not enough free space to encrypt this selection.</string>
+    <string name="error_insufficient_storage">Not enough free space to encrypt this selection. Need %1$d bytes; available %2$d bytes.</string>
     <string name="error_could_not_open_folder">Could not open folder.</string>
     <string name="error_selected_folder_empty">The selected folder is empty.</string>
     <string name="error_read_folder_failed">Failed to read folder: %1$s</string>

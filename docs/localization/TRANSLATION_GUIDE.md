@@ -17,8 +17,8 @@ integrity, password, keyfile, corruption, and deletion concepts.
 
 | Surface | Current state | Translation path |
 |---|---|---|
-| Desktop Fyne UI | User-facing strings are mostly Go literals under `src/internal/ui` and `src/internal/app`. | Use Fyne `fyne.io/fyne/v2/lang` catalogs after strings are extracted. |
-| Android app | Many strings already live in `android/app/src/main/res/values/strings.xml`; some Kotlin user messages are still hard-coded. | Continue with Android string resources. |
+| Desktop Fyne UI | User-facing desktop UI strings are routed through `src/internal/ui/translation/en.json` via project wrappers around Fyne `lang`. | Keep using the project `tr`/`trn` wrappers and enable additional locale files only after a Fyne/Weblate JSON round-trip. |
+| Android app | Base English UI strings live in `android/app/src/main/res/values/strings.xml`; raw Go/runtime details are not translator source copy. | Continue with Android string resources and explicit display-boundary mappings. |
 | CLI | Cobra help, prompts, warnings, and errors are hard-coded Go strings. | Do not localize CLI output, command names, flags, or examples. Keep CLI English-only. |
 | Web/WASM | The Go WASM bridge exports functions and numeric error codes; it does not own the hosted web UI copy. | Localize the web frontend separately if/when that source is brought into scope. |
 
@@ -41,8 +41,8 @@ The source of truth is platform-native:
 
 | Surface | Source of truth | Rule |
 |---|---|---|
-| Android app | `android/app/src/main/res/values/strings.xml` | The base English file owns Android UI strings that are already resource-backed. Hard-coded Kotlin user messages must be externalized before a locale can be released for Android. |
-| Desktop Fyne UI | `src/internal/ui/translation/en.json` after Fyne localization is wired | Do not add a dead `en.json`. Create it in the same change that embeds Fyne translations and replaces UI literals with `lang.L`, `lang.X`, `lang.N`, or `lang.XN`. |
+| Android app | `android/app/src/main/res/values/strings.xml` | The base English file owns Android UI strings that are resource-backed. Hard-coded Kotlin user messages must be externalized or explicitly mapped before a locale can be released for Android. |
+| Desktop Fyne UI | `src/internal/ui/translation/en.json` | Keep the embedded catalog wired through `loadTranslations` and the project `tr`/`trn` wrappers. Do not add locale files without guard tests and a round-trip check. |
 | CLI | none | CLI is not localized. |
 | Web/WASM | external web frontend source, if brought into scope | Do not add web UI strings to the Go WASM bridge. |
 
@@ -85,19 +85,20 @@ Fyne supports app translations through `fyne.io/fyne/v2/lang`.
 
 - Put embedded JSON translation files under a `translation` directory.
 - Load them with `lang.AddTranslationsFS`.
-- Use `lang.Localize` / `lang.L` for direct source-string translation.
-- Use `lang.LocalizeKey` / `lang.X` where the English string is ambiguous.
-- Use plural APIs for counted strings instead of building `file(s)` strings.
+- Use the project wrappers `tr` and `trn`; they centralize Fyne `lang.X` and
+  `lang.XN` calls for UI code.
+- Use plural APIs for counted strings instead of building `file(s)` strings or
+  English-shaped mixed forms such as separate `file_and_folders` keys.
 - Keep `en.json` complete. Locale matching should have a generic language file
   when region-specific variants exist; for example, do not add only `fr-FR.json`
   if `fr.json` is missing.
 - `en.json` must use Fyne's object shape, not an array of objects:
   `"string.id": "English text"` for singular strings and
   `"string.id": {"one": "...", "other": "..."}` for plurals.
-- Prefer stable keyed strings for ambiguous or security-critical copy. Examples:
-  `auth.failed.body`, `force_decrypt.warning`,
-  `comments.plaintext_warning`, `delete.encrypted_volume`,
-  `deniability.header_preview`.
+- Prefer stable keyed strings for ambiguous or security-critical copy. Current
+  examples include `advanced.force_decrypt.tooltip`,
+  `status.kept_output_unverified`, `comments.placeholder`,
+  `advanced.delete_volume.label`, and `drop.header_may_be_deniable`.
 - Do not put translator comments in Fyne JSON. Keep context in this guide,
   Weblate component metadata, or a review-only companion file.
 
@@ -325,17 +326,17 @@ Initial high-risk entries:
 | Surface | ID or source | Risk class | Translator note |
 |---|---|---|---|
 | Android | `force_decrypt_warning` | `P0-integrity` | Force decrypt keeps unverified output; it does not repair data. |
-| Android | `authentication_error` | `P0-auth` | This is volume authentication, not login or account authorization. |
+| Android | `authentication_error`, `error_auth_failed` | `P0-auth` | This is volume authentication, not login or account authorization. |
 | Android | `comments_plaintext_warning` | `P0-metadata` | Comments are plaintext metadata; do not call them private. |
 | Android | `comments_not_readable` | `P0-deniability` | Deniability prevents previewing comments before decryption. |
 | Android | `deniability_note` | `P0-deniability` | Header metadata cannot be previewed before decryption; this is not anonymity. |
 | Android | `keyfiles_required_warning` | `P0-auth` | A keyfile is a user-provided file credential, not a password or cryptographic key label. |
 | Android | `keyfile_order_matters` | `P0-auth` | Preserve that the order of keyfiles is required. |
 | Android | `discard_output` | `P1-destructive` | The output is discarded/cleaned up, not merely dismissed. |
-| Fyne desktop | future `force_decrypt.warning` | `P0-integrity` | Same invariant as Android `force_decrypt_warning`. |
-| Fyne desktop | future `deniability.header_preview` | `P0-deniability` | Preserve "may" when header preview cannot prove deniability. |
-| Fyne desktop | future `comments.plaintext_warning` | `P0-metadata` | Prefer "plaintext metadata" over "not encrypted" alone. |
-| Fyne desktop | future `delete.encrypted_volume` | `P1-destructive` | Name the encrypted volume, not a generic delete action. |
+| Fyne desktop | `advanced.force_decrypt.tooltip`, `status.kept_output_unverified` | `P0-integrity` | Same invariant as Android `force_decrypt_warning`. |
+| Fyne desktop | `drop.header_may_be_deniable` | `P0-deniability` | Preserve "may" when header preview cannot prove deniability. |
+| Fyne desktop | `comments.placeholder`, `comments.corrupted` | `P0-metadata` | Comments are not confidential; do not call them private or secret. |
+| Fyne desktop | `advanced.delete_volume.label`, `advanced.delete_files.label` | `P1-destructive` | Name the deleted object, not a generic delete action. |
 
 ## Placeholders, Plurals, And Escaping
 

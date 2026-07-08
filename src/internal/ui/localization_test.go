@@ -125,6 +125,36 @@ func TestAdvancedZipExtensionCatalogUsesTemplateData(t *testing.T) {
 	}
 }
 
+func TestSelectionMixedCatalogComposesPluralizedPhrases(t *testing.T) {
+	data, err := translationFS.ReadFile("translation/en.json")
+	if err != nil {
+		t.Fatalf("read embedded en catalog: %v", err)
+	}
+	var catalog map[string]any
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatalf("parse translation/en.json: %v", err)
+	}
+
+	for _, key := range []string{
+		"selection.file_and_folder",
+		"selection.file_and_folders",
+		"selection.files_and_folder",
+		"selection.files_and_folders",
+	} {
+		if _, ok := catalog[key]; ok {
+			t.Fatalf("%s should be composed from pluralized file/folder phrases, not cataloged as an English-shaped mixed plural", key)
+		}
+	}
+
+	value, ok := catalog["selection.mixed"].(string)
+	if !ok {
+		t.Fatalf("selection.mixed is %T; want string", catalog["selection.mixed"])
+	}
+	if value != "{{.Files}} and {{.Folders}}" {
+		t.Fatalf("selection.mixed = %q; want composed phrase template", value)
+	}
+}
+
 func TestCatalogValueValidationRequiresEnglishPluralForms(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -232,6 +262,7 @@ func TestCountedHelperFallbacksWithoutLoadedTranslations(t *testing.T) {
 		{"selection file plural", selectedFilesLabel(2), "2 files"},
 		{"selection folder singular", selectedFoldersLabel(1), "1 folder"},
 		{"selection folder plural", selectedFoldersLabel(2), "2 folders"},
+		{"selection mixed", selectionSummary(1, 3), "1 file and 3 folders"},
 		{"recursive completed singular", recursiveStatusCompleted(1), "Completed (1 file)"},
 		{"recursive completed plural", recursiveStatusCompleted(2), "Completed (2 files)"},
 		{"recursive failed singular", recursiveStatusFailedAll(1), "Failed (all 1 file)"},

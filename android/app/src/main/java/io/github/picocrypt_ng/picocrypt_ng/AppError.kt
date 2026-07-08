@@ -142,9 +142,9 @@ sealed class AppError(
          * Folder/multi-file encryption peaks at ~3x the selection size before cleanup.
          */
         class InsufficientStorage(
-            userMessage: String = "Not enough free space to encrypt this selection",
+            userMessage: String = "Not enough free space to encrypt this selection.",
             technicalMessage: String? = null,
-            @StringRes messageResId: Int? = R.string.error_insufficient_storage,
+            @StringRes messageResId: Int? = null,
             messageArgs: List<Any> = emptyList(),
         ) : FileError(userMessage, technicalMessage, messageResId, messageArgs)
     }
@@ -232,11 +232,20 @@ sealed class AppError(
                     technicalMessage = errorString,
                     messageResId = R.string.error_file_not_found,
                 )
-                else -> OperationError.GenericOperation(
-                    userMessage = errorString,
-                    technicalMessage = errorString,
-                    messageResId = R.string.error_unknown,
-                )
+                else -> {
+                    if (errorString.isBlank()) {
+                        OperationError.GenericOperation(
+                            userMessage = "Unknown error occurred",
+                            technicalMessage = errorString,
+                            messageResId = R.string.error_unknown,
+                        )
+                    } else {
+                        OperationError.GenericOperation(
+                            userMessage = errorString,
+                            technicalMessage = errorString,
+                        )
+                    }
+                }
             }
         }
         

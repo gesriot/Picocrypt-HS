@@ -34,6 +34,22 @@ class AppErrorTextTest {
     }
 
     @Test
+    fun `generic Go errors keep their raw display message`() {
+        val context = mockk<Context>()
+        every { context.getString(R.string.error_unknown) } returns "Unknown localized"
+
+        val error = AppError.fromGoError(
+            errorString = "header damaged: volume header is damaged",
+            operationType = OperationType.DECRYPT,
+            code = "CORRUPT_HEADER",
+        )
+
+        assertTrue(error is AppError.OperationError.GenericOperation)
+        assertEquals(null, error.messageResId)
+        assertEquals("header damaged: volume header is damaged", error.localizedMessage(context))
+    }
+
+    @Test
     fun `localizedMessage formats validation resource arguments`() {
         val context = mockk<Context>()
         every {

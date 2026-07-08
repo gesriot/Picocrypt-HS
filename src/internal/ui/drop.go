@@ -81,25 +81,10 @@ func selectionSummary(files, folders int) string {
 		return selectedFilesLabel(files)
 	case files == 0:
 		return selectedFoldersLabel(folders)
-	case files == 1 && folders == 1:
-		return tr("selection.file_and_folder", "{{.Files}} file and {{.Folders}} folder", map[string]any{
-			"Files":   files,
-			"Folders": folders,
-		})
-	case files == 1:
-		return tr("selection.file_and_folders", "{{.Files}} file and {{.Folders}} folders", map[string]any{
-			"Files":   files,
-			"Folders": folders,
-		})
-	case folders == 1:
-		return tr("selection.files_and_folder", "{{.Files}} files and {{.Folders}} folder", map[string]any{
-			"Files":   files,
-			"Folders": folders,
-		})
 	default:
-		return tr("selection.files_and_folders", "{{.Files}} files and {{.Folders}} folders", map[string]any{
-			"Files":   files,
-			"Folders": folders,
+		return tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{
+			"Files":   selectedFilesLabel(files),
+			"Folders": selectedFoldersLabel(folders),
 		})
 	}
 }

@@ -106,10 +106,7 @@
     "one": "{{.Count}} folder",
     "other": "{{.Count}} folders"
   },
-  "selection.file_and_folder": "{{.Files}} file and {{.Folders}} folder",
-  "selection.file_and_folders": "{{.Files}} file and {{.Folders}} folders",
-  "selection.files_and_folder": "{{.Files}} files and {{.Folders}} folder",
-  "selection.files_and_folders": "{{.Files}} files and {{.Folders}} folders",
+  "selection.mixed": "{{.Files}} and {{.Folders}}",
   "selection.volume_for_decryption": "Volume for decryption",
   "startup_path.access_failed": "Failed to access startup path",
   "startup_path.partial_access_failed": "Some startup paths could not be accessed",
