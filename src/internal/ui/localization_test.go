@@ -246,17 +246,7 @@ func TestCountedHelperFallbacksWithoutLoadedTranslations(t *testing.T) {
 }
 
 func TestFyneUIDisplayStringsUseLocalizationCalls(t *testing.T) {
-	files := []string{
-		"password_section.go",
-		"keyfile_section.go",
-		"advanced_section.go",
-		"dialogs.go",
-		"app.go",
-		"drop.go",
-		"mobile.go",
-		"open_readiness.go",
-		"operations.go",
-	}
+	files := uiProductionGoFiles(t)
 
 	var failures []string
 	for _, file := range files {
@@ -278,17 +268,7 @@ func TestFyneUITranslationCallKeysExistInCatalog(t *testing.T) {
 		t.Fatalf("parse translation/en.json: %v", err)
 	}
 
-	files := []string{
-		"password_section.go",
-		"keyfile_section.go",
-		"advanced_section.go",
-		"dialogs.go",
-		"app.go",
-		"drop.go",
-		"mobile.go",
-		"open_readiness.go",
-		"operations.go",
-	}
+	files := uiProductionGoFiles(t)
 
 	var missing []string
 	for _, file := range files {
@@ -302,8 +282,10 @@ func TestFyneUITranslationCallKeysExistInCatalog(t *testing.T) {
 			if !ok || !isTranslationCall(call) || len(call.Args) == 0 {
 				return true
 			}
+			callName := translationCallName(call)
 			keyLit, ok := call.Args[0].(*ast.BasicLit)
 			if !ok || keyLit.Kind != token.STRING {
+				missing = append(missing, fset.Position(call.Pos()).String()+": "+callName+" key must be a string literal")
 				return true
 			}
 			key, err := unquoteStringLiteral(keyLit)
@@ -316,9 +298,14 @@ func TestFyneUITranslationCallKeysExistInCatalog(t *testing.T) {
 				missing = append(missing, fset.Position(keyLit.Pos()).String()+": "+key)
 				return true
 			}
-			if translationCallName(call) == "trn" {
-				if _, ok := value.(map[string]any); !ok {
+			if callName == "trn" {
+				plural, ok := value.(map[string]any)
+				if !ok {
 					missing = append(missing, fset.Position(keyLit.Pos()).String()+": "+key+" is not plural")
+					return true
+				}
+				if err := catalogValueValidationError(key, plural); err != nil {
+					missing = append(missing, fset.Position(keyLit.Pos()).String()+": "+err.Error())
 				}
 			}
 			return true
