@@ -106,7 +106,7 @@ fun ChooseFile(viewModel: MainViewModel) {
                         val appError = if (error is AppError) {
                             error
                         } else {
-                            AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                            AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
                         }
                         viewModel.setError(appError)
                         viewModel.updateFormData(
@@ -124,7 +124,7 @@ fun ChooseFile(viewModel: MainViewModel) {
                 val appError = if (error is AppError) {
                     error
                 } else {
-                    AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                    AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
                 }
                 viewModel.setError(appError)
                 viewModel.updateFormData(
@@ -140,7 +140,7 @@ fun ChooseFile(viewModel: MainViewModel) {
             val appError = if (error is AppError) {
                 error
             } else {
-                AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
             }
             viewModel.setError(appError)
         }
@@ -186,7 +186,7 @@ fun ChooseFile(viewModel: MainViewModel) {
         isCopying = true
         scope.launch {
             val result = StagingService.copyTreeToStaging(context, uri)
-            applyStagedSelection(viewModel, result)
+            applyStagedSelection(context, viewModel, result)
             isCopying = false
         }
     }
@@ -198,7 +198,7 @@ fun ChooseFile(viewModel: MainViewModel) {
         isCopying = true
         scope.launch {
             val result = StagingService.copyFilesToStaging(context, uris, System.currentTimeMillis() / 1000)
-            applyStagedSelection(viewModel, result)
+            applyStagedSelection(context, viewModel, result)
             isCopying = false
         }
     }
@@ -244,7 +244,11 @@ fun ChooseFile(viewModel: MainViewModel) {
     }
 }
 
-private fun applyStagedSelection(viewModel: MainViewModel, result: Result<StagedSelection>) {
+private fun applyStagedSelection(
+    context: android.content.Context,
+    viewModel: MainViewModel,
+    result: Result<StagedSelection>
+) {
     result.onSuccess { sel ->
         viewModel.resetFormToDefaults()
         val base = viewModel.formState.value
@@ -263,7 +267,9 @@ private fun applyStagedSelection(viewModel: MainViewModel, result: Result<Staged
         )
     }.onFailure { error ->
         viewModel.setError(
-            (error as? AppError) ?: AppError.fromException(error as? Exception ?: Exception(error.message ?: "error"))
+            (error as? AppError) ?: AppError.fromException(
+                error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown))
+            )
         )
     }
 }

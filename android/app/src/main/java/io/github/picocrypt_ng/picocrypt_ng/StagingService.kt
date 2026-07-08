@@ -2,6 +2,7 @@ package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.documentfile.provider.DocumentFile
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -55,12 +56,6 @@ object StagingService {
         return sum
     }
 
-    private fun insufficient(total: Long, usable: Long) = AppError.FileError.InsufficientStorage(
-        userMessage = "Not enough free space. This selection needs about " +
-            "${requiredBytes(total) / (1024 * 1024)} MiB free; ${usable / (1024 * 1024)} MiB available.",
-        technicalMessage = "required=${requiredBytes(total)} usable=$usable",
-    )
-
     // ---- IO ----
     private fun stagingDir(context: Context): File = File(context.filesDir, STAGING_DIR).also { it.mkdirs() }
     fun wipeStaging(context: Context) { File(context.filesDir, STAGING_DIR).deleteRecursively() }
@@ -68,7 +63,9 @@ object StagingService {
     suspend fun copyTreeToStaging(context: Context, treeUri: Uri): Result<StagedSelection> =
         withContext(Dispatchers.IO) {
             val tree = DocumentFile.fromTreeUri(context, treeUri)
-                ?: return@withContext Result.failure(copyError("Could not open folder", "$treeUri"))
+                ?: return@withContext Result.failure(
+                    copyError(context, R.string.error_could_not_open_folder, "$treeUri")
+                )
             stageTree(context, tree)
         }
 
@@ -78,12 +75,16 @@ object StagingService {
                 wipeStaging(context)
                 val total = treeSize(tree)
                 val usable = usableSpace(context)
-                if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(total, usable))
+                if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(context, total, usable))
                 val rootName = sanitizeName(tree.name ?: "folder")
                 val root = File(stagingDir(context), rootName)
                 val files = mutableListOf<String>()
                 copyChildren(context, tree, root, files)
-                if (files.isEmpty()) return@withContext Result.failure(copyError("The selected folder is empty", rootName))
+                if (files.isEmpty()) {
+                    return@withContext Result.failure(
+                        copyError(context, R.string.error_selected_folder_empty, rootName)
+                    )
+                }
                 Result.success(
                     StagedSelection(
                         kind = SelectionKind.FOLDER,
@@ -99,7 +100,15 @@ object StagingService {
                 wipeStaging(context); throw e
             } catch (e: Exception) {
                 wipeStaging(context)
-                Result.failure(copyError("Failed to read folder: ${e.message ?: "error"}", e.message))
+                val reason = e.message ?: context.getString(R.string.error_unknown)
+                Result.failure(
+                    copyError(
+                        context,
+                        R.string.error_read_folder_failed,
+                        e.message,
+                        listOf(reason),
+                    )
+                )
             }
         }
 
@@ -139,7 +148,7 @@ object StagingService {
                 wipeStaging(context)
                 val total = uris.sumOf { DocumentFile.fromSingleUri(context, it)?.length() ?: 0L }
                 val usable = usableSpace(context)
-                if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(total, usable))
+                if (!hasSpaceFor(total, usable)) return@withContext Result.failure(insufficient(context, total, usable))
                 val dir = stagingDir(context)
                 val used = mutableSetOf<String>()
                 val files = mutableListOf<String>()
@@ -150,14 +159,24 @@ object StagingService {
                     val target = File(dir, name)
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         FileOutputStream(target).use { output -> input.copyTo(output) }
-                    } ?: return@withContext Result.failure(copyError("Could not open a selected file", "$uri"))
+                    } ?: return@withContext Result.failure(
+                        copyError(context, R.string.error_could_not_open_selected_file, "$uri")
+                    )
                     files.add(target.absolutePath)
                 }
-                if (files.isEmpty()) return@withContext Result.failure(copyError("No files selected", null))
+                if (files.isEmpty()) {
+                    return@withContext Result.failure(
+                        copyError(context, R.string.error_no_files_selected, null)
+                    )
+                }
                 Result.success(
                     StagedSelection(
                         kind = SelectionKind.MULTI_FILE,
-                        displayName = if (files.size == 1) used.first() else "${files.size} files",
+                        displayName = context.resources.getQuantityString(
+                            R.plurals.selected_files_count,
+                            files.size,
+                            files.size,
+                        ),
                         stagingRoot = dir.absolutePath,
                         inputFiles = files,
                         onlyFolders = emptyList(),
@@ -169,7 +188,15 @@ object StagingService {
                 wipeStaging(context); throw e
             } catch (e: Exception) {
                 wipeStaging(context)
-                Result.failure(copyError("Failed to copy files: ${e.message ?: "error"}", e.message))
+                val reason = e.message ?: context.getString(R.string.error_unknown)
+                Result.failure(
+                    copyError(
+                        context,
+                        R.string.error_copy_files_failed,
+                        e.message,
+                        listOf(reason),
+                    )
+                )
             }
         }
 
@@ -183,6 +210,26 @@ object StagingService {
         return null
     }
 
-    private fun copyError(user: String, tech: String?) =
-        AppError.FileError.CopyFailed(userMessage = user, technicalMessage = tech)
+    private fun insufficient(context: Context, total: Long, usable: Long) =
+        AppError.FileError.InsufficientStorage(
+            userMessage = context.getString(R.string.error_insufficient_storage),
+            technicalMessage = "required=${requiredBytes(total)} usable=$usable",
+            messageResId = R.string.error_insufficient_storage,
+        )
+
+    private fun copyError(
+        context: Context,
+        @StringRes messageResId: Int,
+        tech: String?,
+        messageArgs: List<Any> = emptyList(),
+    ) = AppError.FileError.CopyFailed(
+        userMessage = if (messageArgs.isEmpty()) {
+            context.getString(messageResId)
+        } else {
+            context.getString(messageResId, *messageArgs.toTypedArray())
+        },
+        technicalMessage = tech,
+        messageResId = messageResId,
+        messageArgs = messageArgs,
+    )
 }

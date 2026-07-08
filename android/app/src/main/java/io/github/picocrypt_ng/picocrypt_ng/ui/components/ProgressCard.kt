@@ -64,7 +64,7 @@ fun ProgressCard(
                         saveError = if (error is AppError) {
                             error
                         } else {
-                            AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                            AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
                         }
                     }
                 }
@@ -100,7 +100,11 @@ fun ProgressCard(
                             modifier = Modifier.fillMaxWidth()
                         )
                         Text(
-                            text = ui.status,
+                            text = if (ui.status.isNotEmpty()) {
+                                ui.status
+                            } else {
+                                stringResource(R.string.unknown)
+                            },
                             style = MaterialTheme.typography.bodyMedium
                         )
                         if (ui.info.isNotEmpty()) {

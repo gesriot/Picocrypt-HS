@@ -111,8 +111,9 @@ object GoBridge {
             // Return error instead of fallback - Go binding failure is a critical error
             Result.failure(
                 AppError.OperationError.GenericOperation(
-                    userMessage = "Failed to detect operation type: ${e.message ?: "Unknown error"}",
-                    technicalMessage = "Go binding error: ${e.message ?: e.toString()}"
+                    userMessage = "Failed to detect operation type.",
+                    technicalMessage = "Go binding error: ${e.message ?: e.toString()}",
+                    messageResId = R.string.error_detect_operation_type_failed,
                 )
             )
         }
@@ -223,7 +224,7 @@ object GoBridge {
             
             // Convert Go ProgressResult to Kotlin ProgressState
             Result.success(ProgressState(
-                status = result.getStatus() ?: "Unknown",
+                status = result.getStatus() ?: "",
                 progress = result.getProgress(),
                 info = info,
                 done = result.getDone(),

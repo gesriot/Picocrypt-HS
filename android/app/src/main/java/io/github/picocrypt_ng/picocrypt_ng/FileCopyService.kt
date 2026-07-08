@@ -46,10 +46,7 @@ object FileCopyService {
             // Open input stream from URI
             val inputStream: InputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(
-                    AppError.FileError.CopyFailed(
-                        userMessage = "Failed to open file",
-                        technicalMessage = "Could not open input stream for URI: $uri"
-                    )
+                    copyFailed(context, "Could not open input stream for URI: $uri")
                 )
 
             // Copy file (overwrite if exists)
@@ -64,10 +61,7 @@ object FileCopyService {
             throw e
         } catch (e: Exception) {
             Result.failure(
-                AppError.FileError.CopyFailed(
-                    userMessage = "Failed to copy file: ${e.message ?: "Unknown error"}",
-                    technicalMessage = e.message
-                )
+                copyFailed(context, e.message)
             )
         }
     }
@@ -96,10 +90,7 @@ object FileCopyService {
             // Open input stream from URI
             val inputStream: InputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(
-                    AppError.FileError.CopyFailed(
-                        userMessage = "Failed to open keyfile",
-                        technicalMessage = "Could not open input stream for URI: $uri"
-                    )
+                    copyFailed(context, "Could not open input stream for URI: $uri")
                 )
 
             // Copy file (overwrite if exists)
@@ -114,10 +105,7 @@ object FileCopyService {
             throw e
         } catch (e: Exception) {
             Result.failure(
-                AppError.FileError.CopyFailed(
-                    userMessage = "Failed to copy keyfile: ${e.message ?: "Unknown error"}",
-                    technicalMessage = e.message
-                )
+                copyFailed(context, e.message)
             )
         }
     }
@@ -260,10 +248,7 @@ object FileCopyService {
             val sourceFile = File(sourceFilePath)
             if (!sourceFile.exists()) {
                 return@withContext Result.failure(
-                    AppError.FileError.SaveFailed(
-                        userMessage = "Source file not found",
-                        technicalMessage = "File does not exist: $sourceFilePath"
-                    )
+                    saveFailed(context, "File does not exist: $sourceFilePath")
                 )
             }
             
@@ -272,10 +257,7 @@ object FileCopyService {
                     inputStream.copyTo(outputStream)
                 }
             } ?: return@withContext Result.failure(
-                AppError.FileError.SaveFailed(
-                    userMessage = "Failed to open destination location",
-                    technicalMessage = "Could not open output stream for URI: $destinationUri"
-                )
+                saveFailed(context, "Could not open output stream for URI: $destinationUri")
             )
             
             Result.success(Unit)
@@ -283,10 +265,7 @@ object FileCopyService {
             throw e
         } catch (e: Exception) {
             Result.failure(
-                AppError.FileError.SaveFailed(
-                    userMessage = "Failed to save file: ${e.message ?: "Unknown error"}",
-                    technicalMessage = e.message
-                )
+                saveFailed(context, e.message)
             )
         }
     }
@@ -431,4 +410,18 @@ object FileCopyService {
             false
         }
     }
+
+    private fun copyFailed(context: Context, technicalMessage: String?) =
+        AppError.FileError.CopyFailed(
+            userMessage = context.getString(R.string.error_copy_failed),
+            technicalMessage = technicalMessage,
+            messageResId = R.string.error_copy_failed,
+        )
+
+    private fun saveFailed(context: Context, technicalMessage: String?) =
+        AppError.FileError.SaveFailed(
+            userMessage = context.getString(R.string.error_save_failed),
+            technicalMessage = technicalMessage,
+            messageResId = R.string.error_save_failed,
+        )
 }

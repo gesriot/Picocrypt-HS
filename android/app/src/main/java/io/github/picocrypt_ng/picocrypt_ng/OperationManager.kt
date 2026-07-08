@@ -251,7 +251,10 @@ object OperationManager {
      */
     suspend fun cancelOperation(): Result<Unit> = withContext(Dispatchers.IO) {
         val operation = _currentOperation.value ?: return@withContext Result.failure(
-            AppError.OperationError.GenericOperation("No active operation")
+            AppError.OperationError.GenericOperation(
+                userMessage = "No active operation",
+                messageResId = R.string.error_no_active_operation,
+            )
         )
         
         val result = GoBridge.cancelOperation(operation.id)
@@ -307,7 +310,10 @@ object OperationManager {
         formData: FormData
     ): Result<String> = withContext(Dispatchers.IO) {
         val operation = _currentOperation.value ?: return@withContext Result.failure(
-            AppError.OperationError.GenericOperation("No active operation to retry")
+            AppError.OperationError.GenericOperation(
+                userMessage = "No active operation to retry",
+                messageResId = R.string.error_no_operation_to_retry,
+            )
         )
         
         if (formData.copiedFilePath.isEmpty()) {
@@ -342,17 +348,26 @@ object OperationManager {
      */
     suspend fun retryDecryptWithForce(): Result<String> = withContext(Dispatchers.IO) {
         val operation = _currentOperation.value ?: return@withContext Result.failure(
-            AppError.OperationError.GenericOperation("No active operation")
+            AppError.OperationError.GenericOperation(
+                userMessage = "No active operation",
+                messageResId = R.string.error_no_active_operation,
+            )
         )
         
         if (operation.type != OperationType.DECRYPT) {
             return@withContext Result.failure(
-                AppError.OperationError.GenericOperation("Can only retry decryption operations")
+                AppError.OperationError.GenericOperation(
+                    userMessage = "Only decryption operations can be retried with force decrypt",
+                    messageResId = R.string.error_decrypt_retry_only,
+                )
             )
         }
         
         val formData = operation.formData ?: return@withContext Result.failure(
-            AppError.OperationError.GenericOperation("Operation data not available for retry")
+            AppError.OperationError.GenericOperation(
+                userMessage = "Operation data is not available for retry",
+                messageResId = R.string.error_operation_data_unavailable,
+            )
         )
 
         // Force-decrypt BYPASSES integrity/RS checks, so an empty password (e.g. a

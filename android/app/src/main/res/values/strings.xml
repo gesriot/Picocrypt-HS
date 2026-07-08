@@ -8,6 +8,10 @@
     <string name="choose_single_file">Single file</string>
     <string name="choose_multiple_files">Multiple files</string>
     <string name="choose_folder">Folder</string>
+    <plurals name="selected_files_count">
+        <item quantity="one">%1$d file selected</item>
+        <item quantity="other">%1$d files selected</item>
+    </plurals>
     
     <!-- Password Card -->
     <string name="password">Password</string>
@@ -25,8 +29,14 @@
     
     <!-- Keyfile Card -->
     <string name="keyfiles">Keyfiles</string>
-    <string name="keyfiles_required">Keyfiles (%1$d) - Required</string>
-    <string name="keyfiles_count">Keyfiles (%1$d)</string>
+    <plurals name="keyfiles_count">
+        <item quantity="one">%1$d keyfile</item>
+        <item quantity="other">%1$d keyfiles</item>
+    </plurals>
+    <plurals name="keyfiles_required_count">
+        <item quantity="one">%1$d keyfile required</item>
+        <item quantity="other">%1$d keyfiles required</item>
+    </plurals>
     <string name="add">Add</string>
     <string name="new_keyfile">New</string>
     <string name="clear">Clear</string>
@@ -119,6 +129,10 @@
     <string name="error_file_not_found">File not found or inaccessible.</string>
     <string name="error_unknown">Unknown error occurred.</string>
     <string name="error_operation_start_failed">Operation failed to start.</string>
+    <string name="error_no_active_operation">No active operation.</string>
+    <string name="error_no_operation_to_retry">No active operation to retry.</string>
+    <string name="error_operation_data_unavailable">Operation data is not available for retry.</string>
+    <string name="error_decrypt_retry_only">Only decryption operations can be retried with force decrypt.</string>
     <string name="error_no_file_selected">Please select a file.</string>
     <string name="error_invalid_password">Please enter a password.</string>
     <string name="error_passwords_mismatch">Passwords do not match.</string>
@@ -127,4 +141,11 @@
     <string name="error_save_failed">Failed to save file.</string>
     <string name="error_delete_failed">Failed to delete file.</string>
     <string name="error_insufficient_storage">Not enough free space to encrypt this selection.</string>
+    <string name="error_could_not_open_folder">Could not open folder.</string>
+    <string name="error_selected_folder_empty">The selected folder is empty.</string>
+    <string name="error_read_folder_failed">Failed to read folder: %1$s</string>
+    <string name="error_could_not_open_selected_file">Could not open a selected file.</string>
+    <string name="error_no_files_selected">No files selected.</string>
+    <string name="error_copy_files_failed">Failed to copy files: %1$s</string>
+    <string name="error_detect_operation_type_failed">Failed to detect operation type.</string>
 </resources>

@@ -78,7 +78,7 @@ fun AddKeyfile(viewModel: MainViewModel) {
             val appError = if (error is AppError) {
                 error
             } else {
-                AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
             }
             viewModel.setError(appError)
         }
@@ -133,6 +133,7 @@ fun NewKeyfile(viewModel: MainViewModel) {
     var showErrorDialog by rememberSaveable { mutableStateOf(false) }
     val keyfileWriteFailedMsg = stringResource(R.string.keyfile_write_failed)
     val keyfileCreateFailedMsg = stringResource(R.string.keyfile_create_failed)
+    val unknownErrorMsg = stringResource(R.string.error_unknown)
     
     // Generate default filename with timestamp
     val defaultFileName = remember {
@@ -198,14 +199,14 @@ fun NewKeyfile(viewModel: MainViewModel) {
                 val appError = if (error is AppError) {
                     error
                 } else {
-                    AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                    AppError.fromException(error as? Exception ?: Exception(error.message ?: context.getString(R.string.error_unknown)))
                 }
                 viewModel.setError(appError)
                 errorMessage = appError.localizedMessage(context)
                 showErrorDialog = true
             }
         } catch (e: Exception) {
-            errorMessage = keyfileCreateFailedMsg.format(e.message ?: "Unknown error")
+            errorMessage = keyfileCreateFailedMsg.format(e.message ?: unknownErrorMsg)
             showErrorDialog = true
         } finally {
             isCreating = false
@@ -327,6 +328,7 @@ fun KeyfileNames(viewModel: MainViewModel) {
 
 @Composable
 fun KeyfileCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     val formData by viewModel.formState.collectAsState()
     if (!(formData.isDecrypt || formData.isEncrypt)) {
         return
@@ -348,9 +350,17 @@ fun KeyfileCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     
     // Build title with "Required" indicator if needed
     val titleText = if (keyfilesRequired) {
-        stringResource(R.string.keyfiles_required, formData.keyfileFilenames.size)
+        context.resources.getQuantityString(
+            R.plurals.keyfiles_required_count,
+            formData.keyfileFilenames.size,
+            formData.keyfileFilenames.size,
+        )
     } else {
-        stringResource(R.string.keyfiles_count, formData.keyfileFilenames.size)
+        context.resources.getQuantityString(
+            R.plurals.keyfiles_count,
+            formData.keyfileFilenames.size,
+            formData.keyfileFilenames.size,
+        )
     }
     
     // Use error color if keyfiles are required but missing

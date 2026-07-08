@@ -147,6 +147,7 @@ class OperationManagerTest {
         assertTrue("Should fail with no active operation", result.isFailure)
         result.onFailure { error ->
             assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
+            assertEquals(R.string.error_no_active_operation, (error as AppError).messageResId)
             val errorMessage = error.message ?: ""
             assertTrue("Error message should mention no active operation", 
                 errorMessage.contains("No active operation", ignoreCase = true))
@@ -387,6 +388,7 @@ class OperationManagerTest {
         assertTrue("Should fail with no active operation", result.isFailure)
         result.onFailure { error ->
             assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
+            assertEquals(R.string.error_no_operation_to_retry, (error as AppError).messageResId)
             val errorMessage = error.message ?: ""
             assertTrue("Error message should mention no active operation to retry",
                 errorMessage.contains("No active operation to retry", ignoreCase = true))
@@ -418,6 +420,7 @@ class OperationManagerTest {
         assertTrue("Should fail with no active operation", result.isFailure)
         result.onFailure { error ->
             assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
+            assertEquals(R.string.error_no_active_operation, (error as AppError).messageResId)
         }
     }
     
@@ -488,8 +491,8 @@ class OperationManagerTest {
     @Test
     fun `retryDecryptWithForce returns error when operation is not decrypt`() = runTest {
         // The guard at OperationManager.retryDecryptWithForce rejects a non-DECRYPT
-        // operation (operation.type != DECRYPT -> GenericOperation("Can only retry
-        // decryption operations")). It short-circuits BEFORE any decrypt-side GoBridge
+        // operation (operation.type != DECRYPT -> GenericOperation with
+        // error_decrypt_retry_only). It short-circuits BEFORE any decrypt-side GoBridge
         // call, so the Go AAR is not needed — establish an ENCRYPT op through the public
         // seam (GoBridge mocked) and assert the rejection. startEncrypt resolves an
         // output path under context.filesDir; back it with a real temp dir.
@@ -518,9 +521,10 @@ class OperationManagerTest {
                     "Error should be GenericOperation",
                     error is AppError.OperationError.GenericOperation
                 )
+                assertEquals(R.string.error_decrypt_retry_only, (error as AppError).messageResId)
                 assertTrue(
                     "Message should explain only decryption can be retried",
-                    (error.message ?: "").contains("Can only retry decryption", ignoreCase = true)
+                    (error.message ?: "").contains("Only decryption operations", ignoreCase = true)
                 )
             }
         } finally {
@@ -814,4 +818,3 @@ class OperationManagerTest {
         }
     }
 }
-

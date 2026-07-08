@@ -296,6 +296,7 @@ class GoBridgeTest {
         val result = GoBridge.detectOperation("")
         result.onFailure {
             assertTrue("must be a GenericOperation AppError", it is AppError.OperationError.GenericOperation)
+            assertEquals(R.string.error_detect_operation_type_failed, (it as AppError).messageResId)
         }
     }
 }
