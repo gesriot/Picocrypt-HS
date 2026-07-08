@@ -81,12 +81,13 @@ specification. When it conflicts with Picocrypt-NG semantics, this guide wins.
 
 ### Fyne desktop
 
-Fyne supports app translations through `fyne.io/fyne/v2/lang`.
+Picocrypt-NG keeps Fyne/Weblate-shaped flat JSON catalogs under
+`src/internal/ui/translation` and loads them through the project-local
+`go-i18n` runtime in `src/internal/ui/localization.go`.
 
-- Put embedded JSON translation files under a `translation` directory.
-- Load them with `lang.AddTranslationsFS`.
-- Use the project wrappers `tr` and `trn`; they centralize Fyne `lang.X` and
-  `lang.XN` calls for UI code.
+- Do not import `fyne.io/fyne/v2/lang` for runtime UI localization.
+- Use only the project wrappers `tr` and `trn` from UI code; they centralize
+  fallback, plural, template-data, and active-language behavior.
 - Desktop Fyne has a compact in-app language selector in the top content
   utility row. The closed control shows a short code such as `en`; the popup
   menu shows native language names. Do not use flags.
