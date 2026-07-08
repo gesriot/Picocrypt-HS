@@ -118,6 +118,37 @@ func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
 	}
 }
 
+func TestDesktopLanguageSelectorStaysInHeaderOutsideWorkflowControls(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
+	}
+
+	fyneApp := newTestFyneApp(t)
+	a, err := NewApp("v2.test")
+	if err != nil {
+		t.Fatalf("NewApp returned error: %v", err)
+	}
+	a.fyneApp = fyneApp
+
+	fyne.DoAndWait(func() {
+		a.Window = fyneApp.NewWindow("layout-test")
+		content := a.buildUI()
+		a.Window.SetContent(content)
+	})
+
+	if a.languageSelector == nil || a.languageSelector.button == nil {
+		t.Fatal("language selector was not built")
+	}
+	if a.mainContent == nil {
+		t.Fatal("mainContent was not built")
+	}
+	for _, obj := range a.mainContent.Objects {
+		if obj == a.languageSelector.button {
+			t.Fatal("language selector is inside main workflow content; want header utility control")
+		}
+	}
+}
+
 func TestDesktopUILayoutFitsWindowAfterModeChange(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")

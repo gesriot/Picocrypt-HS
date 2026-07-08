@@ -99,6 +99,7 @@ type App struct {
 	inputLabel        *widget.Label
 	clearButton       *widget.Button
 	aboutButton       *widget.Button
+	languageSelector  *languageSelector
 	aboutVersionLabel *widget.Label
 	mainContent       *fyne.Container
 	passwordEntry     *PasswordEntry
@@ -201,10 +202,69 @@ func NewApp(version string) (*App, error) {
 	}, nil
 }
 
+func (a *App) loadPreferredLanguage(p fyne.Preferences) error {
+	code := LanguageCode(p.StringWithFallback(languagePreferenceKey, string(activeLanguage())))
+	if code == "" {
+		code = "en"
+	}
+	return setActiveLanguage(code)
+}
+
+func (a *App) SwitchLanguage(code LanguageCode) error {
+	if err := setActiveLanguage(code); err != nil {
+		return err
+	}
+	if a.fyneApp != nil {
+		a.fyneApp.Preferences().SetString(languagePreferenceKey, string(code))
+	}
+	a.refreshLocalizedText()
+	return nil
+}
+
+func (a *App) refreshLocalizedText() {
+	if a.languageSelector != nil {
+		a.languageSelector.refresh()
+	}
+	if a.clearButton != nil {
+		a.clearButton.SetText(tr("action.clear", "Clear"))
+	}
+	if a.State != nil && a.showHideBtn != nil {
+		a.showHideBtn.SetText(passwordVisibilityLabel(a.State.PasswordMode))
+	}
+	if a.clearPwdBtn != nil {
+		a.clearPwdBtn.SetText(tr("action.clear", "Clear"))
+	}
+	if a.copyBtn != nil {
+		a.copyBtn.SetText(tr("action.copy", "Copy"))
+	}
+	if a.pasteBtn != nil {
+		a.pasteBtn.SetText(tr("action.paste", "Paste"))
+	}
+	if a.createBtn != nil {
+		a.createBtn.SetText(tr("action.create", "Create"))
+	}
+	if a.keyfileEditBtn != nil {
+		a.keyfileEditBtn.SetText(tr("action.edit", "Edit"))
+	}
+	if a.keyfileCreateBtn != nil {
+		a.keyfileCreateBtn.SetText(tr("action.create", "Create"))
+	}
+	if a.changeBtn != nil {
+		a.changeBtn.SetText(tr("action.change", "Change"))
+	}
+	if a.State != nil {
+		a.updateUIState()
+	}
+}
+
 // Run starts the UI application and optionally loads files passed at startup.
 func (a *App) Run(startupPaths []string) {
 	// Create Fyne app with unique ID for preferences API support
 	a.fyneApp = fyneApp.NewWithID(runtimeAppID())
+	if err := a.loadPreferredLanguage(a.fyneApp.Preferences()); err != nil {
+		_ = setActiveLanguage("en")
+		a.fyneApp.Preferences().SetString(languagePreferenceKey, "en")
+	}
 
 	// Clean up any leftover temp files from previous sessions (mobile only)
 	// Must be called AFTER Fyne app is initialized (isMobile() requires it)
@@ -394,7 +454,9 @@ func (a *App) buildUI() fyne.CanvasObject {
 	})
 	a.aboutButton.Importance = widget.LowImportance
 
-	headerRow := container.NewBorder(nil, nil, a.aboutButton, a.clearButton, a.inputLabel)
+	a.languageSelector = newLanguageSelector(a)
+	headerLeft := container.NewHBox(a.aboutButton, a.languageSelector.object())
+	headerRow := container.NewBorder(nil, nil, headerLeft, a.clearButton, a.inputLabel)
 
 	// Password section (from password_section.go)
 	passwordSection := a.buildPasswordSection()

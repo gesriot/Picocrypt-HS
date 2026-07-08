@@ -50,6 +50,9 @@ func (a *App) buildMobileUI() fyne.CanvasObject {
 	// Output section
 	outputSection := a.buildMobileOutputSection()
 
+	a.languageSelector = newLanguageSelector(a)
+	utilityRow := container.NewBorder(nil, nil, nil, a.languageSelector.object(), widget.NewLabel(""))
+
 	// Start button - large and prominent
 	a.startButton = widget.NewButton(renderStartAction(snap.StartAction, snap.Recursively), a.onClickStart)
 	a.startButton.Importance = widget.HighImportance
@@ -58,6 +61,7 @@ func (a *App) buildMobileUI() fyne.CanvasObject {
 
 	// Main content in a vertical box
 	a.mainContent = container.NewVBox(
+		utilityRow,
 		fileSection,
 		widget.NewSeparator(),
 		passwordSection,
