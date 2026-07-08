@@ -107,11 +107,30 @@ class LocalizationResourcesTest {
 
         val authenticationCopy = textResources()
             .joinToString(separator = "\n") { it.text.lowercase() }
-        val accountWords = Regex("""\b(account|login|log in|sign in|signin)\b""")
         assertFalse(
-            "Authentication copy must not imply Picocrypt-NG has accounts or logins",
-            accountWords.containsMatchIn(authenticationCopy),
+            "Authentication copy must not imply Picocrypt-NG has accounts, logins, or authorization",
+            disallowedAuthenticationWords.containsMatchIn(authenticationCopy),
         )
+    }
+
+    @Test
+    fun `authentication wording guard rejects account login and authorization terms`() {
+        val blockedTerms = listOf(
+            "account",
+            "login",
+            "log in",
+            "sign in",
+            "signin",
+            "authorization",
+            "authorize",
+            "authorized",
+        )
+
+        val missedTerms = blockedTerms.filterNot { term ->
+            disallowedAuthenticationWords.containsMatchIn("Volume $term failed")
+        }
+
+        assertTrue("Authentication wording guard missed: $missedTerms", missedTerms.isEmpty())
     }
 
     private fun stringElement(name: String): Element {
@@ -176,5 +195,7 @@ class LocalizationResourcesTest {
     private companion object {
         private val formatSpecifiers =
             Regex("""%(?!%)(?!n)(\d+\$)?[-#+ 0,(<]*\d*(?:\.\d+)?[a-zA-Z]""")
+        private val disallowedAuthenticationWords =
+            Regex("""\b(account|login|log in|sign in|signin|authorization|authorize|authorized)\b""")
     }
 }

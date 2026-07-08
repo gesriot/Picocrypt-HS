@@ -2,6 +2,7 @@ package io.github.picocrypt_ng.picocrypt_ng
 
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.w3c.dom.Element
@@ -33,6 +34,61 @@ class HardcodedAndroidTextTest {
         )
     }
 
+    @Test
+    fun `log tag allowlist does not exempt unrelated literals on the same line`() {
+        val line = """private const val TAG = "PicocryptNG"; val moved = "No active operation.""""
+        val logLine = """Log.w("PicocryptNG", "No active operation.")"""
+
+        assertTrue(
+            "Actual log tag literals should stay allowlisted",
+            isAllowedTechnicalLiteral(
+                SourceLiteral(
+                    file = File("Example.kt"),
+                    line = 1,
+                    column = line.indexOf("\"PicocryptNG\"") + 1,
+                    value = "PicocryptNG",
+                    lineText = line,
+                ),
+            ),
+        )
+        assertTrue(
+            "Literal Log tag arguments should stay allowlisted",
+            isAllowedTechnicalLiteral(
+                SourceLiteral(
+                    file = File("Example.kt"),
+                    line = 1,
+                    column = logLine.indexOf("\"PicocryptNG\"") + 1,
+                    value = "PicocryptNG",
+                    lineText = logLine,
+                ),
+            ),
+        )
+        assertFalse(
+            "A moved UI string on a TAG line must still be blocked",
+            isAllowedTechnicalLiteral(
+                SourceLiteral(
+                    file = File("Example.kt"),
+                    line = 1,
+                    column = line.indexOf("\"No active operation.\"") + 1,
+                    value = "No active operation.",
+                    lineText = line,
+                ),
+            ),
+        )
+        assertFalse(
+            "A moved UI string in a Log message must still be blocked",
+            isAllowedTechnicalLiteral(
+                SourceLiteral(
+                    file = File("Example.kt"),
+                    line = 1,
+                    column = logLine.indexOf("\"No active operation.\"") + 1,
+                    value = "No active operation.",
+                    lineText = logLine,
+                ),
+            ),
+        )
+    }
+
     private fun movedResourceTexts(): Map<String, String> {
         val resources = linkedMapOf<String, String>()
         movedStringResourceNames.forEach { name ->
@@ -57,9 +113,14 @@ class HardcodedAndroidTextTest {
         val text = file.readText()
         return stringLiteral.findAll(text).map { match ->
             val value = match.groups[1]?.value ?: match.groups[2]?.value.orEmpty()
+            val lineStart = text.lastIndexOf('\n', match.range.first)
+                .let { index -> if (index == -1) 0 else index + 1 }
+            val lineEnd = text.indexOf('\n', match.range.first)
+                .let { index -> if (index == -1) text.length else index }
             val line = text.substring(0, match.range.first).count { it == '\n' } + 1
-            val lineText = text.lineSequence().drop(line - 1).firstOrNull().orEmpty()
-            SourceLiteral(file, line, value, lineText)
+            val column = match.range.first - lineStart + 1
+            val lineText = text.substring(lineStart, lineEnd)
+            SourceLiteral(file, line, column, value, lineText)
         }.toList()
     }
 
@@ -73,8 +134,15 @@ class HardcodedAndroidTextTest {
             value in jsonFieldNames ||
             value in stableGoErrorCodes ||
             (literal.file.name == "OperationStatus.kt" && value in operationStatusConstants) ||
-            literal.lineText.contains("Log.") ||
-            literal.lineText.contains("TAG")
+            isLogTagLiteral(literal)
+    }
+
+    private fun isLogTagLiteral(literal: SourceLiteral): Boolean {
+        if (!logTagValue.matches(literal.value)) return false
+
+        val beforeLiteral = literal.lineText.take(literal.column - 1)
+        return tagConstantPrefix.containsMatchIn(beforeLiteral) ||
+            logCallFirstArgumentPrefix.containsMatchIn(beforeLiteral)
     }
 
     private fun stringElement(name: String): Element {
@@ -114,6 +182,7 @@ class HardcodedAndroidTextTest {
     private data class SourceLiteral(
         val file: File,
         val line: Int,
+        val column: Int,
         val value: String,
         val lineText: String,
     ) {
@@ -125,6 +194,9 @@ class HardcodedAndroidTextTest {
         private val mimeType = Regex("""^[a-z]+/[a-z0-9.+-]+$""")
         private val fileExtension = Regex("""^\.[A-Za-z0-9]+$""")
         private val generatedFileName = Regex("""^[A-Za-z0-9_./ -]+\.(pcv|zip|bin|incomplete)$""")
+        private val logTagValue = Regex("""^[A-Za-z][A-Za-z0-9_.-]{0,31}$""")
+        private val tagConstantPrefix = Regex("""\bTAG\s*=\s*$""")
+        private val logCallFirstArgumentPrefix = Regex("""\bLog\.(?:v|d|i|w|e|wtf)\s*\(\s*$""")
 
         private val movedStringResourceNames = setOf(
             "error_no_active_operation",
