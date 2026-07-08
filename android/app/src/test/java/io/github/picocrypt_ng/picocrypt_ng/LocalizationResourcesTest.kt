@@ -75,6 +75,26 @@ class LocalizationResourcesTest {
     }
 
     @Test
+    fun `technical filename extensions stay format arguments`() {
+        assertEquals(
+            "Split volumes are not supported on Android. Recombine the chunks on your computer first, then transfer the single %1\$s file.",
+            stringElement("error_split_volume_not_supported").textContent,
+        )
+
+        val rawExtensionMentions = textResources()
+            .filter { it.name != "app_name" }
+            .filter { resource ->
+                rawFilenameExtension.containsMatchIn(resource.text)
+            }
+            .map { "${it.name}: ${it.text}" }
+
+        assertTrue(
+            "Translator-facing strings must pass technical filename extensions as arguments: $rawExtensionMentions",
+            rawExtensionMentions.isEmpty(),
+        )
+    }
+
+    @Test
     fun `counted keyfile and selected file labels are plural resources`() {
         assertPlural(
             name = "keyfiles_count",
@@ -197,5 +217,7 @@ class LocalizationResourcesTest {
             Regex("""%(?!%)(?!n)(\d+\$)?[-#+ 0,(<]*\d*(?:\.\d+)?[a-zA-Z]""")
         private val disallowedAuthenticationWords =
             Regex("""\b(account|login|log in|sign in|signin|authorization|authorize|authorized)\b""")
+        private val rawFilenameExtension =
+            Regex("""\.(pcv|zip|bin|incomplete)\b""", RegexOption.IGNORE_CASE)
     }
 }

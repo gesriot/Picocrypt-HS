@@ -155,7 +155,8 @@ sealed class AppError(
     sealed class ValidationError(
         userMessage: String,
         @StringRes messageResId: Int,
-    ) : AppError(userMessage, messageResId = messageResId) {
+        messageArgs: List<Any> = emptyList(),
+    ) : AppError(userMessage, messageResId = messageResId, messageArgs = messageArgs) {
         /**
          * No file selected.
          */
@@ -189,6 +190,7 @@ sealed class AppError(
             "Split volumes aren't supported on Android. Recombine the chunks on your " +
                 "computer first, then transfer the single .pcv file.",
             R.string.error_split_volume_not_supported,
+            listOf(".pcv"),
         )
     }
     

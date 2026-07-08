@@ -390,19 +390,35 @@ class OperationManagerTest {
     }
     
     @Test
-    fun `retryOperation returns error when form data invalid`() = runTest {
-        // We can't easily set up an operation without GoBridge, but we can test
-        // that retryOperation validates form data
+    fun `retryOperation returns validation error when active operation has invalid form data`() = runTest {
         val invalidFormData = TestDataBuilders.createEncryptFormData(
             copiedFilePath = "" // Invalid - no file
         )
-        
-        // This will fail because there's no active operation, but we're testing
-        // the validation logic that happens after checking for active operation
-        val result = OperationManager.retryOperation(mockContext, invalidFormData)
-        
-        // Will fail either because no active operation or invalid form data
-        assertTrue("Should fail", result.isFailure)
+        val stateField = OperationManager::class.java.getDeclaredField("_currentOperation")
+        stateField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = stateField.get(OperationManager)
+            as kotlinx.coroutines.flow.MutableStateFlow<OperationState?>
+        flow.value = TestDataBuilders.createOperationState(
+            type = OperationType.ENCRYPT,
+            formData = TestDataBuilders.createEncryptFormData(),
+        )
+
+        mockkObject(GoBridge)
+        try {
+            val result = OperationManager.retryOperation(mockContext, invalidFormData)
+
+            assertTrue("Should fail with NoFileSelected", result.isFailure)
+            result.onFailure { error ->
+                assertTrue(
+                    "Error should be NoFileSelected",
+                    error is AppError.ValidationError.NoFileSelected,
+                )
+            }
+            verify(exactly = 0) { GoBridge.startOperation() }
+        } finally {
+            unmockkObject(GoBridge)
+        }
     }
     
     @Test

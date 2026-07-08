@@ -34,6 +34,19 @@ class AppErrorTextTest {
     }
 
     @Test
+    fun `localizedMessage formats validation resource arguments`() {
+        val context = mockk<Context>()
+        every {
+            context.getString(R.string.error_split_volume_not_supported, ".pcv")
+        } returns "Move the single .pcv file."
+
+        val error = AppError.ValidationError.SplitVolumeNotSupported
+
+        assertEquals(listOf(".pcv"), error.messageArgs)
+        assertEquals("Move the single .pcv file.", error.localizedMessage(context))
+    }
+
+    @Test
     fun `AUTH_FAILED maps to password auth with localized display resource`() {
         val error = AppError.fromGoError(
             errorString = "raw auth failure",
