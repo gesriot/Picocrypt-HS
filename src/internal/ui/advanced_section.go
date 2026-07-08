@@ -189,7 +189,9 @@ func (a *App) buildDecryptOptions() {
 		}
 		a.updateUIState()
 	})
-	a.autoUnzipCheck.SetToolTip(tr("advanced.auto_unzip.tooltip", "Extract .zip upon decryption (may overwrite files)"))
+	a.autoUnzipCheck.SetToolTip(tr("advanced.auto_unzip.tooltip", "Extract {{.Extension}} upon decryption (may overwrite files)", map[string]any{
+		"Extension": ".zip",
+	}))
 	a.autoUnzipCheck.SetChecked(a.State.AutoUnzip)
 
 	row2 := container.NewGridWithColumns(2, a.deleteVolumeCheck, a.autoUnzipCheck)
@@ -198,7 +200,9 @@ func (a *App) buildDecryptOptions() {
 	a.sameLevelCheck = ttwidget.NewCheck(tr("advanced.same_level.label", "Same level"), func(checked bool) {
 		a.State.SameLevel = checked
 	})
-	a.sameLevelCheck.SetToolTip(tr("advanced.same_level.tooltip", "Extract .zip contents to same folder as volume"))
+	a.sameLevelCheck.SetToolTip(tr("advanced.same_level.tooltip", "Extract {{.Extension}} contents to same folder as volume", map[string]any{
+		"Extension": ".zip",
+	}))
 	a.sameLevelCheck.SetChecked(a.State.SameLevel)
 
 	row3 := container.NewGridWithColumns(2, a.sameLevelCheck, widget.NewLabel(""))

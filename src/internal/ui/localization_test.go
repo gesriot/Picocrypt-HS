@@ -2,11 +2,14 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -95,6 +98,153 @@ func TestLocalizationCatalogEmbeddedByLoader(t *testing.T) {
 	}
 }
 
+func TestAdvancedZipExtensionCatalogUsesTemplateData(t *testing.T) {
+	data, err := translationFS.ReadFile("translation/en.json")
+	if err != nil {
+		t.Fatalf("read embedded en catalog: %v", err)
+	}
+	var catalog map[string]any
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatalf("parse translation/en.json: %v", err)
+	}
+
+	for _, key := range []string{
+		"advanced.auto_unzip.tooltip",
+		"advanced.same_level.tooltip",
+	} {
+		value, ok := catalog[key].(string)
+		if !ok {
+			t.Fatalf("%s is %T; want string", key, catalog[key])
+		}
+		if strings.Contains(value, ".zip") {
+			t.Fatalf("%s exposes .zip as translator-facing prose: %q", key, value)
+		}
+		if !strings.Contains(value, "{{.Extension}}") {
+			t.Fatalf("%s = %q; want {{.Extension}} placeholder", key, value)
+		}
+	}
+}
+
+func TestCatalogValueValidationRequiresEnglishPluralForms(t *testing.T) {
+	tests := []struct {
+		name  string
+		value map[string]any
+	}{
+		{
+			name: "missing one",
+			value: map[string]any{
+				"other": "{{.Count}} files",
+			},
+		},
+		{
+			name: "missing other",
+			value: map[string]any{
+				"one": "{{.Count}} file",
+			},
+		},
+		{
+			name: "missing count",
+			value: map[string]any{
+				"one":   "One file",
+				"other": "{{.Count}} files",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := catalogValueValidationError("selection.files", tc.value); err == nil {
+				t.Fatal("catalogValueValidationError returned nil; want validation error")
+			}
+		})
+	}
+
+	valid := map[string]any{
+		"one":   "{{.Count}} file",
+		"other": "{{.Count}} files",
+	}
+	if err := catalogValueValidationError("selection.files", valid); err != nil {
+		t.Fatalf("catalogValueValidationError(valid) = %v; want nil", err)
+	}
+}
+
+func TestDisplayStringGuardDetectsDirectDisplayLiteral(t *testing.T) {
+	source := `package ui
+
+import "fyne.io/fyne/v2/widget"
+
+func rawLabel() {
+	_ = widget.NewLabel("Raw visible text")
+}
+`
+	failures := collectRawDisplayStringFailuresFromSource(t, "raw.go", source)
+	if len(failures) != 1 {
+		t.Fatalf("failures = %#v; want one raw display literal failure", failures)
+	}
+	if !strings.Contains(failures[0], "Raw visible text") {
+		t.Fatalf("failure = %q; want literal text in failure", failures[0])
+	}
+}
+
+func TestDisplayStringGuardUnquotesInterpretedLiterals(t *testing.T) {
+	source := `package ui
+
+import "fyne.io/fyne/v2/dialog"
+
+func rawDialog() {
+	_ = dialog.NewCustom("Line 1\n\nLine 2", "Close", nil, nil)
+}
+`
+	failures := collectRawDisplayStringFailuresFromSource(t, "raw.go", source)
+	if len(failures) != 2 {
+		t.Fatalf("failures = %#v; want title and dismiss literal failures", failures)
+	}
+	if !strings.Contains(failures[0], "\n\n") && !strings.Contains(failures[1], "\n\n") {
+		t.Fatalf("failures = %#v; want interpreted newlines, not quoted escape text", failures)
+	}
+}
+
+func TestCountedHelperFallbacksWithoutLoadedTranslations(t *testing.T) {
+	if os.Getenv("PICOCRYPT_LOCALIZATION_FALLBACK_SUBPROCESS") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestCountedHelperFallbacksWithoutLoadedTranslations$")
+		cmd.Env = append(os.Environ(),
+			"PICOCRYPT_LOCALIZATION_FALLBACK_SUBPROCESS=1",
+			"LANGUAGE=ru_RU",
+			"LANG=ru_RU.UTF-8",
+			"LC_ALL=",
+			"LC_MESSAGES=",
+		)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("fallback subprocess failed: %v\n%s", err, output)
+		}
+		return
+	}
+
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"keyfile singular", keyfileDisplayLabel(false, 1, true), "Using 1 keyfile"},
+		{"keyfile plural", keyfileDisplayLabel(false, 2, true), "Using 2 keyfiles"},
+		{"selection file singular", selectedFilesLabel(1), "1 file"},
+		{"selection file plural", selectedFilesLabel(2), "2 files"},
+		{"selection folder singular", selectedFoldersLabel(1), "1 folder"},
+		{"selection folder plural", selectedFoldersLabel(2), "2 folders"},
+		{"recursive completed singular", recursiveStatusCompleted(1), "Completed (1 file)"},
+		{"recursive completed plural", recursiveStatusCompleted(2), "Completed (2 files)"},
+		{"recursive failed singular", recursiveStatusFailedAll(1), "Failed (all 1 file)"},
+		{"recursive failed plural", recursiveStatusFailedAll(2), "Failed (all 2 files)"},
+	}
+
+	for _, tc := range tests {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q; want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
 func TestFyneUIDisplayStringsUseLocalizationCalls(t *testing.T) {
 	files := []string{
 		"password_section.go",
@@ -108,92 +258,9 @@ func TestFyneUIDisplayStringsUseLocalizationCalls(t *testing.T) {
 		"operations.go",
 	}
 
-	displayLiterals := map[string]struct{}{
-		"Clear": {}, "Copy": {}, "Paste": {}, "Create": {}, "Edit": {},
-		"Done": {}, "Change": {}, "Cancel": {}, "Close": {}, "Generate": {},
-		"Password": {}, "Confirm password": {}, "Password:": {}, "Confirm password:": {},
-		"Non-ASCII password: it is normalized so the volume decrypts on any ": {},
-		"Keyfiles:": {}, "Require correct order": {}, "Correct ordering is required": {},
-		"Drag and drop your keyfiles here": {}, "Manage keyfiles:": {},
-		"Failed to generate keyfile": {}, "Failed to write keyfile": {},
-		"Paranoid mode": {}, "Compress files": {}, "Reed-Solomon": {}, "Delete files": {},
-		"Deniability": {}, "Recursively": {}, "Split:": {}, "Force decrypt": {},
-		"Verify first": {}, "Delete volume": {}, "Delete encrypted": {}, "Auto unzip": {},
-		"Same level": {}, "Size": {}, "Advanced:": {},
-		"Adds Serpent-CTR and stronger KDF/MAC settings for defense in depth":        {},
-		"Compress files with Deflate before encrypting":                              {},
-		"Add redundancy to repair limited file corruption":                           {},
-		"Delete the input files after encryption":                                    {},
-		"Warning: only use this if you know what it does!":                           {},
-		"Split the output file into smaller chunks":                                  {},
-		"Choose the chunk units":                                                     {},
-		"Keep unverified output when integrity checks fail; output may be corrupted": {},
-		"Verify integrity before decryption (slower but more secure)":                {},
-		"Delete the volume after a successful decryption":                            {},
-		"Extract .zip upon decryption (may overwrite files)":                         {},
-		"Extract .zip contents to same folder as volume":                             {},
-		"Comments (not encrypted)":                                                   {}, "Save output as:": {}, "Process": {},
-		"(multiple values)": {}, " (ensure >": {},
-		"Failed to access startup path": {}, "Some startup paths could not be accessed": {},
-		"Failed to walk through dropped items": {}, "Scanning files... (%s)": {},
-		"Failed to stat dropped item": {}, "1 folder": {}, "Zip and Encrypt": {},
-		"1 file": {}, "Encrypt": {}, "Volume for decryption": {}, "Decrypt": {},
-		"Failed to derive split volume path": {}, "Read access denied": {},
-		"Cannot read header, volume may be deniable": {}, "The volume header is damaged": {},
-		"Failed to stat dropped items": {}, "%d files": {}, "%d folders": {},
-		"1 file and %d folders": {}, "%d files and 1 folder": {},
-		"1 file and 1 folder": {}, "%d files and %d folders": {},
-		"Keyfile read access denied": {}, "Preparing iCloud files": {},
-		"Some iCloud files are not downloaded": {},
-		"Progress:":                            {}, "Operation cancelled by user": {}, "Picocrypt-NG on GitHub": {},
-		"About:": {}, "Length: %d": {}, "Uppercase": {}, "Lowercase": {},
-		"Numbers": {}, "Symbols": {}, "Copy to clipboard": {},
-		"Generate password:": {}, "Warning:": {}, "Output already exists. Overwrite?": {},
-		"Select Files": {}, "Select Folder": {}, "App Storage (large files)": {},
-		"Tip: For large files, copy them to App Storage first": {},
-		"Failed to create app storage":                         {}, "Failed to read app storage": {},
-		"App Storage is empty.\n\n": {}, "Copy Path": {}, "Path copied to clipboard": {},
-		"App Storage": {}, "No files in app storage": {}, "Select from App Storage": {},
-		"Failed to access file: ":                                 {},
-		"Folder selection is not fully supported on Android.\n\n": {},
-		"Copy Path to Clipboard":                                  {}, "Open App Storage": {}, "Folder Selection": {},
-		"No files to process": {}, "Completed (%d files)": {}, "Failed (all %d files)": {},
-		"Completed (%d ok, %d failed)": {}, "Processing file %d/%d...": {},
-		"Invalid split size": {}, "Completed": {},
-		"Completed (some files couldn't be deleted)":                             {},
-		"Integrity check failed; kept output is unverified and may be corrupted": {},
-		"Completed (volume couldn't be deleted)":                                 {},
-	}
-
 	var failures []string
 	for _, file := range files {
-		fset := token.NewFileSet()
-		parsed, err := parser.ParseFile(fset, file, nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", file, err)
-		}
-		var stack []ast.Node
-		ast.Inspect(parsed, func(n ast.Node) bool {
-			if n == nil {
-				stack = stack[:len(stack)-1]
-				return true
-			}
-			stack = append(stack, n)
-
-			lit, ok := n.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			value := strings.Trim(lit.Value, "`\"")
-			if _, ok := displayLiterals[value]; !ok {
-				return true
-			}
-			if stringLiteralInsideTranslationCall(stack) {
-				return true
-			}
-			failures = append(failures, fset.Position(lit.Pos()).String()+": "+value)
-			return true
-		})
+		failures = append(failures, collectRawDisplayStringFailuresFromFile(t, file)...)
 	}
 	sort.Strings(failures)
 	if len(failures) > 0 {
@@ -239,7 +306,11 @@ func TestFyneUITranslationCallKeysExistInCatalog(t *testing.T) {
 			if !ok || keyLit.Kind != token.STRING {
 				return true
 			}
-			key := strings.Trim(keyLit.Value, "`\"")
+			key, err := unquoteStringLiteral(keyLit)
+			if err != nil {
+				missing = append(missing, fset.Position(keyLit.Pos()).String()+": invalid translation key literal: "+err.Error())
+				return true
+			}
 			value, ok := catalog[key]
 			if !ok {
 				missing = append(missing, fset.Position(keyLit.Pos()).String()+": "+key)
@@ -275,33 +346,42 @@ func TestLocalizationLoadedByNewAppBeforeReturn(t *testing.T) {
 func validateCatalogValue(t *testing.T, key string, value any) {
 	t.Helper()
 
+	if err := catalogValueValidationError(key, value); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func catalogValueValidationError(key string, value any) error {
 	switch v := value.(type) {
 	case string:
 		if strings.TrimSpace(v) == "" {
-			t.Fatalf("translation %q has an empty value", key)
+			return fmt.Errorf("translation %q has an empty value", key)
 		}
 	case map[string]any:
-		if _, ok := v["other"]; !ok {
-			t.Fatalf("plural translation %q is missing other", key)
+		for _, form := range []string{"one", "other"} {
+			if _, ok := v[form]; !ok {
+				return fmt.Errorf("plural translation %q is missing %s", key, form)
+			}
 		}
 		for form, raw := range v {
 			if strings.TrimSpace(form) == "" {
-				t.Fatalf("plural translation %q contains an empty plural form", key)
+				return fmt.Errorf("plural translation %q contains an empty plural form", key)
 			}
 			text, ok := raw.(string)
 			if !ok {
-				t.Fatalf("plural translation %q form %q has non-string value %T", key, form, raw)
+				return fmt.Errorf("plural translation %q form %q has non-string value %T", key, form, raw)
 			}
 			if strings.TrimSpace(text) == "" {
-				t.Fatalf("plural translation %q form %q has an empty value", key, form)
+				return fmt.Errorf("plural translation %q form %q has an empty value", key, form)
 			}
 			if !strings.Contains(text, "{{.Count}}") {
-				t.Fatalf("plural translation %q form %q omits {{.Count}}", key, form)
+				return fmt.Errorf("plural translation %q form %q omits {{.Count}}", key, form)
 			}
 		}
 	default:
-		t.Fatalf("translation %q has unsupported value type %T", key, value)
+		return fmt.Errorf("translation %q has unsupported value type %T", key, value)
 	}
+	return nil
 }
 
 func readPackageSource(t *testing.T, path string) string {
@@ -314,14 +394,122 @@ func readPackageSource(t *testing.T, path string) string {
 	return string(data)
 }
 
-func stringLiteralInsideTranslationCall(stack []ast.Node) bool {
-	for i := len(stack) - 1; i >= 0; i-- {
-		call, ok := stack[i].(*ast.CallExpr)
-		if ok && isTranslationCall(call) {
+func collectRawDisplayStringFailuresFromFile(t *testing.T, file string) []string {
+	t.Helper()
+
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read %s: %v", file, err)
+	}
+	return collectRawDisplayStringFailuresFromSource(t, file, string(data))
+}
+
+func collectRawDisplayStringFailuresFromSource(t *testing.T, filename, source string) []string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	parsed, err := parser.ParseFile(fset, filename, source, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", filename, err)
+	}
+
+	var failures []string
+	ast.Inspect(parsed, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
 			return true
 		}
+		for _, argIndex := range displayArgumentIndexes(call) {
+			if argIndex >= len(call.Args) {
+				continue
+			}
+			collectRawDisplayStringFailuresInArg(fset, call.Args[argIndex], &failures)
+		}
+		return true
+	})
+	return failures
+}
+
+func collectRawDisplayStringFailuresInArg(fset *token.FileSet, arg ast.Expr, failures *[]string) {
+	if call, ok := arg.(*ast.CallExpr); ok && isTranslationCall(call) {
+		return
 	}
-	return false
+
+	ast.Inspect(arg, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && isTranslationCall(call) {
+			return false
+		}
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		value, err := unquoteStringLiteral(lit)
+		if err != nil {
+			*failures = append(*failures, fset.Position(lit.Pos()).String()+": invalid string literal: "+err.Error())
+			return true
+		}
+		if isAllowedDisplayStringLiteral(value) {
+			return true
+		}
+		*failures = append(*failures, fset.Position(lit.Pos()).String()+": "+value)
+		return true
+	})
+}
+
+func isAllowedDisplayStringLiteral(value string) bool {
+	// Empty labels are layout placeholders or icon-only buttons. Non-empty
+	// technical data such as extensions, schemes, filenames, and mode tokens are
+	// intentionally not allowed in display argument positions; pass those through
+	// variables or translation template data instead.
+	return value == ""
+}
+
+func displayArgumentIndexes(call *ast.CallExpr) []int {
+	name := callName(call)
+	switch name {
+	case "NewColoredLabel",
+		"widget.NewButton",
+		"widget.NewButtonWithIcon",
+		"widget.NewCheck",
+		"widget.NewHyperlink",
+		"widget.NewLabel",
+		"widget.NewLabelWithStyle",
+		"ttwidget.NewCheck":
+		return []int{0}
+	case "dialog.NewCustom":
+		return []int{0, 1}
+	case "dialog.NewCustomWithoutButtons":
+		return []int{0}
+	case "dialog.NewCustomConfirm":
+		return []int{0, 1, 2}
+	case "dialog.NewConfirm":
+		return []int{0, 1}
+	case "SetPlaceHolder", "SetStatus", "SetToolTip":
+		return []int{0}
+	default:
+		return nil
+	}
+}
+
+func callName(call *ast.CallExpr) string {
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		if ident, ok := fun.X.(*ast.Ident); ok {
+			return ident.Name + "." + fun.Sel.Name
+		}
+		return fun.Sel.Name
+	default:
+		return ""
+	}
+}
+
+func unquoteStringLiteral(lit *ast.BasicLit) (string, error) {
+	if lit.Kind != token.STRING {
+		return "", fmt.Errorf("literal kind %s is not string", lit.Kind)
+	}
+	return strconv.Unquote(lit.Value)
 }
 
 func isTranslationCall(call *ast.CallExpr) bool {
