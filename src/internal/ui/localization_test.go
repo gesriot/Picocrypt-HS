@@ -20,7 +20,7 @@ func TestLoadTranslations(t *testing.T) {
 	setEnglishLocaleForTest(t)
 	resetLoadTranslationsForTest(t)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := loadTranslations(); err != nil {
 			t.Fatalf("loadTranslations call %d returned error: %v", i+1, err)
 		}
@@ -356,7 +356,7 @@ func TestLocalizationLoadedByNewAppBeforeReturn(t *testing.T) {
 	if stateIndex < 0 || loadIndex < 0 || returnIndex < 0 {
 		t.Fatalf("app.go missing NewApp localization sequence: state=%d load=%d return=%d", stateIndex, loadIndex, returnIndex)
 	}
-	if !(stateIndex < loadIndex && loadIndex < returnIndex) {
+	if stateIndex >= loadIndex || loadIndex >= returnIndex {
 		t.Fatalf("loadTranslations order is wrong: state=%d load=%d return=%d", stateIndex, loadIndex, returnIndex)
 	}
 }
