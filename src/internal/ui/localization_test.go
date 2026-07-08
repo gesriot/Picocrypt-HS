@@ -11,14 +11,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"unicode/utf8"
 )
 
 func TestLoadTranslations(t *testing.T) {
-	setEnglishLocaleForTest(t)
-	resetLoadTranslationsForTest(t)
+	resetLocalizationForTest(t)
 
 	for i := range 2 {
 		if err := loadTranslations(); err != nil {
@@ -34,26 +32,6 @@ func TestLoadTranslations(t *testing.T) {
 	if got != "Using 2 keyfiles" {
 		t.Fatalf("trn(keyfiles.count, 2) = %q; want Using 2 keyfiles", got)
 	}
-}
-
-func setEnglishLocaleForTest(t *testing.T) {
-	t.Helper()
-
-	t.Setenv("LANGUAGE", "en_US")
-	t.Setenv("LC_ALL", "")
-	t.Setenv("LC_MESSAGES", "")
-	t.Setenv("LANG", "en_US.UTF-8")
-}
-
-func resetLoadTranslationsForTest(t *testing.T) {
-	t.Helper()
-
-	loadTranslationsOnce = sync.Once{}
-	loadTranslationsErr = nil
-	t.Cleanup(func() {
-		loadTranslationsOnce = sync.Once{}
-		loadTranslationsErr = nil
-	})
 }
 
 func TestLocalizationCatalogJSON(t *testing.T) {
@@ -82,19 +60,30 @@ func TestLocalizationCatalogJSON(t *testing.T) {
 }
 
 func TestLocalizationCatalogEmbeddedByLoader(t *testing.T) {
-	if _, err := os.Stat("translation/en.json"); err != nil {
-		t.Fatalf("translation/en.json missing from package: %v", err)
+	resetLocalizationForTest(t)
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("change to temp working directory: %v", err)
 	}
 
-	source := readPackageSource(t, "localization.go")
-	required := []string{
-		"//go:embed translation/*.json",
-		"lang.AddTranslationsFS(translationFS, \"translation\")",
+	if err := loadTranslations(); err != nil {
+		t.Fatalf("loadTranslations from embedded catalog returned error: %v", err)
 	}
-	for _, want := range required {
-		if !strings.Contains(source, want) {
-			t.Fatalf("localization.go missing %q", want)
-		}
+	if got := tr("status.ready", "fallback"); got != "Ready" {
+		t.Fatalf("tr(status.ready) after embedded load = %q; want Ready", got)
+	}
+	got := trn("keyfiles.count", "{{.Count}} fallback", 2, map[string]any{"Count": 2})
+	if got != "Using 2 keyfiles" {
+		t.Fatalf("trn(keyfiles.count, 2) after embedded load = %q; want Using 2 keyfiles", got)
 	}
 }
 

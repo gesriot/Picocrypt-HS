@@ -10,6 +10,7 @@ require (
 	github.com/Picocrypt/zxcvbn-go v0.0.0-20250412183938-d59695960527
 	github.com/dweymouth/fyne-tooltip v0.4.0
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260707082822-2a407d02d01a
+	github.com/nicksnyder/go-i18n/v2 v2.6.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/crypto v0.53.0
@@ -40,7 +41,6 @@ require (
 	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
 	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
-	github.com/nicksnyder/go-i18n/v2 v2.6.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rymdport/portal v0.4.2 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
