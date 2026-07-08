@@ -519,6 +519,75 @@ func TestSetPopupStatus(t *testing.T) {
 	}
 }
 
+func TestSemanticDisplayDefaultsAndReset(t *testing.T) {
+	state := mustNewState(t)
+
+	snap := state.UISnapshot()
+	if snap.InputSummary.Kind != InputSummaryDropPrompt {
+		t.Fatalf("InputSummary.Kind = %v; want InputSummaryDropPrompt", snap.InputSummary.Kind)
+	}
+	if snap.StartAction != StartActionStart {
+		t.Fatalf("StartAction = %v; want StartActionStart", snap.StartAction)
+	}
+	if snap.Status.Kind != StatusReady {
+		t.Fatalf("Status.Kind = %v; want StatusReady", snap.Status.Kind)
+	}
+
+	state.SetInputSelection(2, 1, 4096, true)
+	state.SetStartAction(StartActionEncrypt)
+	state.SetStatusMessage(StatusCompleted, util.GREEN, StatusArgs{})
+	state.ResetUI()
+
+	snap = state.UISnapshot()
+	if snap.InputSummary.Kind != InputSummaryDropPrompt {
+		t.Fatalf("InputSummary.Kind after ResetUI = %v; want InputSummaryDropPrompt", snap.InputSummary.Kind)
+	}
+	if snap.StartAction != StartActionStart {
+		t.Fatalf("StartAction after ResetUI = %v; want StartActionStart", snap.StartAction)
+	}
+	if snap.Status.Kind != StatusReady {
+		t.Fatalf("Status.Kind after ResetUI = %v; want StatusReady", snap.Status.Kind)
+	}
+}
+
+func TestSemanticDisplaySettersReachUISnapshot(t *testing.T) {
+	state := mustNewState(t)
+
+	state.SetInputSelection(3, 2, 12345, true)
+	state.SetStartAction(StartActionZipAndEncrypt)
+	state.SetStatusMessage(StatusProcessingFile, util.YELLOW, StatusArgs{Index: 2, Total: 5})
+	state.SetPopupStatusMessage(StatusRecursiveCompleted, StatusArgs{Count: 4})
+
+	snap := state.UISnapshot()
+	if snap.InputSummary != (InputSummary{Kind: InputSummarySelection, Files: 3, Folders: 2, SizeBytes: 12345, ShowSize: true}) {
+		t.Fatalf("InputSummary = %#v; want selection summary", snap.InputSummary)
+	}
+	if snap.StartAction != StartActionZipAndEncrypt {
+		t.Fatalf("StartAction = %v; want StartActionZipAndEncrypt", snap.StartAction)
+	}
+	if snap.Status.Kind != StatusProcessingFile || snap.Status.Args.Index != 2 || snap.Status.Args.Total != 5 {
+		t.Fatalf("Status = %#v; want processing file 2/5", snap.Status)
+	}
+	if snap.PopupStatus.Kind != StatusRecursiveCompleted || snap.PopupStatus.Args.Count != 4 {
+		t.Fatalf("PopupStatus = %#v; want recursive completed count 4", snap.PopupStatus)
+	}
+}
+
+func TestCustomStatusRemainsRawText(t *testing.T) {
+	state := mustNewState(t)
+
+	state.SetCustomStatus("volume error from lower layer", util.RED)
+	state.SetPopupStatusText("Encrypting...")
+
+	snap := state.UISnapshot()
+	if snap.Status.Kind != StatusCustom || snap.Status.Text != "volume error from lower layer" {
+		t.Fatalf("Status = %#v; want custom lower-layer text", snap.Status)
+	}
+	if snap.PopupStatus.Kind != StatusCustom || snap.PopupStatus.Text != "Encrypting..." {
+		t.Fatalf("PopupStatus = %#v; want custom reporter text", snap.PopupStatus)
+	}
+}
+
 // TestSetProgress pins both args of SetProgress to their fields. Two rows with
 // distinct fraction AND info (0.0/"0%" and 1.0/"100%") catch an arg-swap (fraction
 // vs info are different types so a swap won't compile, but a constant fraction or a

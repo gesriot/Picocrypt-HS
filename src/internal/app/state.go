@@ -54,6 +54,86 @@ const (
 	MainStatusReady
 )
 
+type InputSummaryKind int
+
+const (
+	InputSummaryDropPrompt InputSummaryKind = iota
+	InputSummaryScanning
+	InputSummarySelection
+	InputSummaryDecryptVolume
+)
+
+type InputSummary struct {
+	Kind      InputSummaryKind
+	Files     int
+	Folders   int
+	SizeBytes int64
+	ShowSize  bool
+}
+
+type StartAction int
+
+const (
+	StartActionStart StartAction = iota
+	StartActionEncrypt
+	StartActionZipAndEncrypt
+	StartActionDecrypt
+)
+
+type StatusKind int
+
+const (
+	StatusCustom StatusKind = iota
+	StatusReady
+	StatusCancelledByUser
+	StatusCompleted
+	StatusNoFilesToProcess
+	StatusProcessingFile
+	StatusRecursiveCompleted
+	StatusRecursiveFailedAll
+	StatusRecursiveCompletedFailed
+	StatusInvalidSplitSize
+	StatusCompletedSomeDeleteFailed
+	StatusKeptOutputUnverified
+	StatusCompletedVolumeDeleteFailed
+	StatusStartupPathAccessFailed
+	StatusStartupPathPartialAccessFailed
+	StatusOpenedPathsPreparing
+	StatusOpenedPathsTimeout
+	StatusDropFailedWalk
+	StatusDropFailedStatItem
+	StatusDropFailedStatItems
+	StatusDropReadAccessDenied
+	StatusDropHeaderMayBeDeniable
+	StatusDropHeaderDamaged
+	StatusDropFailedSplitPath
+	StatusKeyfileReadAccessDenied
+	StatusKeyfileGenerateFailed
+	StatusKeyfileWriteFailed
+	StatusMobileAppStorageCreateFailed
+	StatusMobileAppStorageReadFailed
+	StatusMobileAppStoragePathCopied
+	StatusMobileAppStorageNoFiles
+	StatusMobileFileAccessFailed
+	StatusMobileFileAccessUnsafeName
+)
+
+type StatusArgs struct {
+	Count  int
+	OK     int
+	Failed int
+	Index  int
+	Total  int
+	Error  string
+}
+
+type StatusMessage struct {
+	Kind  StatusKind
+	Args  StatusArgs
+	Text  string
+	Color color.RGBA
+}
+
 // CommentsPreviewState identifies whether decrypt-preview comments are usable.
 // Comments remains the header comment payload only; it must not carry display
 // sentinels such as "Comments are corrupted".
@@ -156,6 +236,10 @@ type State struct {
 	Recombine   bool
 
 	// Status
+	InputSummary    InputSummary
+	StartAction     StartAction
+	Status          StatusMessage
+	Popup           StatusMessage
 	StartLabel      string
 	MainStatus      string
 	MainStatusKind  MainStatusKind
@@ -198,6 +282,10 @@ func NewState() (*State, error) {
 	return &State{
 		// Defaults
 		InputLabel:           "Drop files and folders into this window",
+		InputSummary:         InputSummary{Kind: InputSummaryDropPrompt},
+		StartAction:          StartActionStart,
+		Status:               StatusMessage{Kind: StatusReady, Color: util.WHITE},
+		Popup:                StatusMessage{Kind: StatusCustom},
 		StartLabel:           "Start",
 		MainStatus:           "Ready",
 		MainStatusKind:       MainStatusReady,
@@ -314,6 +402,10 @@ func (s *State) resetUILocked() {
 	s.Delete = false
 	s.Recombine = false
 
+	s.InputSummary = InputSummary{Kind: InputSummaryDropPrompt}
+	s.StartAction = StartActionStart
+	s.Status = StatusMessage{Kind: StatusReady, Color: util.WHITE}
+	s.Popup = StatusMessage{Kind: StatusCustom}
 	s.StartLabel = "Start"
 	s.MainStatus = "Ready"
 	s.MainStatusKind = MainStatusReady
@@ -424,27 +516,88 @@ func (s *State) IsPasswordHidden() bool {
 
 // SetStatus updates the main status display.
 func (s *State) SetStatus(text string, c color.RGBA) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.MainStatus = text
-	s.MainStatusKind = MainStatusCustom
-	s.MainStatusColor = c
+	s.SetCustomStatus(text, c)
 }
 
 // SetReadyStatus restores the UI-owned ready status.
 func (s *State) SetReadyStatus() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.Status = StatusMessage{Kind: StatusReady, Color: util.WHITE}
 	s.MainStatus = "Ready"
 	s.MainStatusKind = MainStatusReady
 	s.MainStatusColor = util.WHITE
 }
 
-// SetPopupStatus updates the popup status display.
-func (s *State) SetPopupStatus(text string) {
+func (s *State) SetInputPrompt() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.InputSummary = InputSummary{Kind: InputSummaryDropPrompt}
+}
+
+func (s *State) SetInputScanning(sizeBytes int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputSummary = InputSummary{Kind: InputSummaryScanning, SizeBytes: sizeBytes}
+}
+
+func (s *State) SetInputSelection(files, folders int, sizeBytes int64, showSize bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputSummary = InputSummary{
+		Kind:      InputSummarySelection,
+		Files:     files,
+		Folders:   folders,
+		SizeBytes: sizeBytes,
+		ShowSize:  showSize,
+	}
+}
+
+func (s *State) SetInputDecryptVolume() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputSummary = InputSummary{Kind: InputSummaryDecryptVolume}
+}
+
+func (s *State) SetStartAction(action StartAction) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.StartAction = action
+}
+
+func (s *State) SetStatusMessage(kind StatusKind, c color.RGBA, args StatusArgs) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Status = StatusMessage{Kind: kind, Args: args, Color: c}
+	s.MainStatusKind = MainStatusCustom
+	s.MainStatusColor = c
+}
+
+func (s *State) SetCustomStatus(text string, c color.RGBA) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Status = StatusMessage{Kind: StatusCustom, Text: text, Color: c}
+	s.MainStatus = text
+	s.MainStatusKind = MainStatusCustom
+	s.MainStatusColor = c
+}
+
+func (s *State) SetPopupStatusMessage(kind StatusKind, args StatusArgs) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Popup = StatusMessage{Kind: kind, Args: args}
+}
+
+func (s *State) SetPopupStatusText(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Popup = StatusMessage{Kind: StatusCustom, Text: text}
 	s.PopupStatus = text
+}
+
+// SetPopupStatus updates the popup status display.
+func (s *State) SetPopupStatus(text string) {
+	s.SetPopupStatusText(text)
 }
 
 // SetProgress updates the progress display.
@@ -540,6 +693,11 @@ type UISnapshot struct {
 	Recombine            bool
 	AutoUnzip            bool
 	InputLabel           string
+	InputSummary         InputSummary
+	StartAction          StartAction
+	Status               StatusMessage
+	PopupStatus          StatusMessage
+	PopupStatusMessage   StatusMessage
 }
 
 // RecursiveSnapshot is a value-copy of the State fields the recursive (batch)
@@ -628,6 +786,11 @@ func (s *State) UISnapshot() UISnapshot {
 		Recombine:            s.Recombine,
 		AutoUnzip:            s.AutoUnzip,
 		InputLabel:           s.InputLabel,
+		InputSummary:         s.InputSummary,
+		StartAction:          s.StartAction,
+		Status:               s.Status,
+		PopupStatus:          s.Popup,
+		PopupStatusMessage:   s.Popup,
 	}
 }
 
