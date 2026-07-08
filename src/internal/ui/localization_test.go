@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"unicode/utf8"
 )
 
 func TestLoadTranslations(t *testing.T) {
+	setEnglishLocaleForTest(t)
+	resetLoadTranslationsForTest(t)
+
 	for i := 0; i < 2; i++ {
 		if err := loadTranslations(); err != nil {
 			t.Fatalf("loadTranslations call %d returned error: %v", i+1, err)
@@ -23,6 +27,26 @@ func TestLoadTranslations(t *testing.T) {
 	if got != "Using 2 keyfiles" {
 		t.Fatalf("trn(keyfiles.count, 2) = %q; want Using 2 keyfiles", got)
 	}
+}
+
+func setEnglishLocaleForTest(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("LANGUAGE", "en_US")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "en_US.UTF-8")
+}
+
+func resetLoadTranslationsForTest(t *testing.T) {
+	t.Helper()
+
+	loadTranslationsOnce = sync.Once{}
+	loadTranslationsErr = nil
+	t.Cleanup(func() {
+		loadTranslationsOnce = sync.Once{}
+		loadTranslationsErr = nil
+	})
 }
 
 func TestLocalizationCatalogJSON(t *testing.T) {
