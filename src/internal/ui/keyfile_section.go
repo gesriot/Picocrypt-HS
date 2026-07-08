@@ -28,6 +28,10 @@ func keyfileDisplayLabel(required bool, count int, applicable bool) string {
 		return tr("keyfiles.required", "Keyfiles required")
 	case count == 0:
 		return tr("keyfiles.none_selected", "None selected")
+	case count == 1:
+		return trn("keyfiles.count", "Using {{.Count}} keyfile", count, map[string]any{
+			"Count": count,
+		})
 	default:
 		return trn("keyfiles.count", "Using {{.Count}} keyfiles", count, map[string]any{
 			"Count": count,

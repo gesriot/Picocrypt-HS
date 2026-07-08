@@ -3,8 +3,6 @@ package ui
 import "testing"
 
 func TestKeyfileDisplayLabelUsesSemanticState(t *testing.T) {
-	newTestFyneApp(t)
-
 	tests := []struct {
 		name       string
 		required   bool
