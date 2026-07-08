@@ -31,7 +31,7 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 		a.cPasswordEntry.SetHidden(hidden)
 	})
 
-	a.clearPwdBtn = widget.NewButton("Clear", func() {
+	a.clearPwdBtn = widget.NewButton(tr("action.clear", "Clear"), func() {
 		a.State.Password = ""
 		a.State.CPassword = ""
 		a.passwordEntry.SetText("")
@@ -41,11 +41,11 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.copyBtn = widget.NewButton("Copy", func() {
+	a.copyBtn = widget.NewButton(tr("action.copy", "Copy"), func() {
 		a.fyneApp.Clipboard().SetContent(a.State.Password)
 	})
 
-	a.pasteBtn = widget.NewButton("Paste", func() {
+	a.pasteBtn = widget.NewButton(tr("action.paste", "Paste"), func() {
 		text := a.fyneApp.Clipboard().Content()
 		a.State.Password = text
 		a.passwordEntry.SetText(text)
@@ -58,7 +58,7 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.createBtn = widget.NewButton("Create", func() {
+	a.createBtn = widget.NewButton(tr("action.create", "Create"), func() {
 		a.showPassgenModal()
 	})
 
@@ -69,7 +69,7 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 
 	// Password input with strength indicator
 	a.passwordEntry = NewPasswordEntry()
-	a.passwordEntry.SetPlaceHolder("Password")
+	a.passwordEntry.SetPlaceHolder(tr("password.placeholder", "Password"))
 	a.passwordEntry.OnChanged = func(text string) {
 		a.State.Password = text
 		a.updatePasswordStrength()
@@ -83,7 +83,7 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 
 	// Confirm password
 	a.cPasswordEntry = NewPasswordEntry()
-	a.cPasswordEntry.SetPlaceHolder("Confirm password")
+	a.cPasswordEntry.SetPlaceHolder(tr("password.confirm_placeholder", "Confirm password"))
 	a.cPasswordEntry.OnChanged = func(text string) {
 		a.State.CPassword = text
 		a.updateValidation()
@@ -95,17 +95,17 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 	a.confirmRow = container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
 
 	// Create bold labels for better visual hierarchy
-	passwordLabel := widget.NewLabel("Password:")
+	passwordLabel := widget.NewLabel(tr("password.label", "Password:"))
 	passwordLabel.TextStyle = fyne.TextStyle{Bold: true}
 
-	a.confirmLabel = widget.NewLabel("Confirm password:")
+	a.confirmLabel = widget.NewLabel(tr("password.confirm_label", "Confirm password:"))
 	a.confirmLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	// Subtle advisory shown only while encrypting with a non-ASCII password (#19).
-	a.nonASCIIHint = widget.NewLabel(
-		"Non-ASCII password: it is normalized so the volume decrypts on any " +
-			"platform, but make sure you can type the same characters on every " +
-			"device where you'll decrypt it.")
+	a.nonASCIIHint = widget.NewLabel(tr("password.non_ascii_hint",
+		"Non-ASCII password: it is normalized so the volume decrypts on any "+
+			"platform, but make sure you can type the same characters on every "+
+			"device where you'll decrypt it."))
 	a.nonASCIIHint.Importance = widget.LowImportance
 	a.nonASCIIHint.Wrapping = fyne.TextWrapWord
 	a.nonASCIIHint.Hide()

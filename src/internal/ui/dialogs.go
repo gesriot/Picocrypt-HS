@@ -3,7 +3,6 @@ package ui
 
 import (
 	"Picocrypt-NG/internal/util"
-	"fmt"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -32,11 +31,11 @@ func (a *App) showProgressModal() {
 	// Progress bar already shows percentage, so no need for separate percentage label
 	a.progressStatus = widget.NewLabelWithData(a.boundStatus)
 
-	a.cancelButton = widget.NewButton("Cancel", func() {
+	a.cancelButton = widget.NewButton(tr("action.cancel", "Cancel"), func() {
 		a.State.SetWorking(false)
 		a.State.SetCanCancel(false)
 		a.cancelled.Store(true)
-		a.State.SetStatus("Operation cancelled by user", util.WHITE)
+		a.State.SetStatus(tr("status.cancelled_by_user", "Operation cancelled by user"), util.WHITE)
 		if a.cancelButton != nil {
 			a.cancelButton.Disable()
 		}
@@ -47,7 +46,7 @@ func (a *App) showProgressModal() {
 		a.progressStatus,
 	)
 
-	a.progressModal = dialog.NewCustomWithoutButtons("Progress:", progressContent, a.Window)
+	a.progressModal = dialog.NewCustomWithoutButtons(tr("dialog.progress.title", "Progress:"), progressContent, a.Window)
 	a.progressModal.Show()
 }
 
@@ -55,8 +54,10 @@ func (a *App) showProgressModal() {
 // indicator: the window title intentionally carries none (#133).
 func (a *App) showAboutModal() {
 	a.aboutVersionLabel = widget.NewLabelWithStyle(
-		"Picocrypt NG "+a.Version, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	repo := widget.NewHyperlink("Picocrypt-NG on GitHub", &url.URL{
+		tr("dialog.about.version_label", "Picocrypt NG {{.Version}}", map[string]any{
+			"Version": a.Version,
+		}), fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	repo := widget.NewHyperlink(tr("dialog.about.github_link", "Picocrypt-NG on GitHub"), &url.URL{
 		Scheme: "https",
 		Host:   "github.com",
 		Path:   "/Picocrypt-NG/Picocrypt-NG",
@@ -67,43 +68,49 @@ func (a *App) showAboutModal() {
 		container.NewCenter(repo),
 	)
 
-	a.aboutModal = dialog.NewCustom("About:", "Close", content, a.Window)
+	a.aboutModal = dialog.NewCustom(tr("dialog.about.title", "About:"), tr("action.close", "Close"), content, a.Window)
 	a.aboutModal.Show()
+}
+
+func passgenLengthText(length int) string {
+	return tr("dialog.passgen.length", "Length: {{.Length}}", map[string]any{
+		"Length": length,
+	})
 }
 
 // showPassgenModal shows the password generator dialog.
 func (a *App) showPassgenModal() {
-	lengthLabel := widget.NewLabel(fmt.Sprintf("Length: %d", a.State.PassgenLength))
+	lengthLabel := widget.NewLabel(passgenLengthText(int(a.State.PassgenLength)))
 
 	lengthSlider := widget.NewSlider(12, 64)
 	lengthSlider.Value = float64(a.State.PassgenLength)
 	lengthSlider.Step = 1
 	lengthSlider.OnChanged = func(value float64) {
 		a.State.PassgenLength = int32(value)
-		lengthLabel.SetText(fmt.Sprintf("Length: %d", int(value)))
+		lengthLabel.SetText(passgenLengthText(int(value)))
 	}
 
-	upperCheck := widget.NewCheck("Uppercase", func(checked bool) {
+	upperCheck := widget.NewCheck(tr("dialog.passgen.uppercase", "Uppercase"), func(checked bool) {
 		a.State.PassgenUpper = checked
 	})
 	upperCheck.SetChecked(a.State.PassgenUpper)
 
-	lowerCheck := widget.NewCheck("Lowercase", func(checked bool) {
+	lowerCheck := widget.NewCheck(tr("dialog.passgen.lowercase", "Lowercase"), func(checked bool) {
 		a.State.PassgenLower = checked
 	})
 	lowerCheck.SetChecked(a.State.PassgenLower)
 
-	numsCheck := widget.NewCheck("Numbers", func(checked bool) {
+	numsCheck := widget.NewCheck(tr("dialog.passgen.numbers", "Numbers"), func(checked bool) {
 		a.State.PassgenNums = checked
 	})
 	numsCheck.SetChecked(a.State.PassgenNums)
 
-	symbolsCheck := widget.NewCheck("Symbols", func(checked bool) {
+	symbolsCheck := widget.NewCheck(tr("dialog.passgen.symbols", "Symbols"), func(checked bool) {
 		a.State.PassgenSymbols = checked
 	})
 	symbolsCheck.SetChecked(a.State.PassgenSymbols)
 
-	copyCheck := widget.NewCheck("Copy to clipboard", func(checked bool) {
+	copyCheck := widget.NewCheck(tr("dialog.passgen.copy", "Copy to clipboard"), func(checked bool) {
 		a.State.PassgenCopy = checked
 	})
 	copyCheck.SetChecked(a.State.PassgenCopy)
@@ -118,7 +125,7 @@ func (a *App) showPassgenModal() {
 		copyCheck,
 	)
 
-	a.passgenModal = dialog.NewCustomConfirm("Generate password:", "Generate", "Cancel", content, func(generate bool) {
+	a.passgenModal = dialog.NewCustomConfirm(tr("dialog.passgen.title", "Generate password:"), tr("action.generate", "Generate"), tr("action.cancel", "Cancel"), content, func(generate bool) {
 		if generate {
 			// Check if at least one character type is selected
 			if !a.State.PassgenUpper && !a.State.PassgenLower && !a.State.PassgenNums && !a.State.PassgenSymbols {
@@ -145,7 +152,7 @@ func (a *App) showPassgenModal() {
 
 // showOverwriteModal shows the overwrite confirmation dialog.
 func (a *App) showOverwriteModal() {
-	a.overwriteModal = dialog.NewConfirm("Warning:", "Output already exists. Overwrite?", func(overwrite bool) {
+	a.overwriteModal = dialog.NewConfirm(tr("dialog.overwrite.title", "Warning:"), tr("dialog.overwrite.message", "Output already exists. Overwrite?"), func(overwrite bool) {
 		a.State.ShowOverwrite = false
 		if overwrite {
 			a.startWork()

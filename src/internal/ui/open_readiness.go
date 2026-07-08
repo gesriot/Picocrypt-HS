@@ -11,9 +11,6 @@ import (
 
 const (
 	openedPathReadyTimeout = 45 * time.Second
-
-	openedPathsPreparingStatus = "Preparing iCloud files"
-	openedPathsTimeoutStatus   = "Some iCloud files are not downloaded"
 )
 
 var (
@@ -23,6 +20,14 @@ var (
 	openedPathCloudPostApplyMergeDelay = 5 * time.Second
 	beforeOpenedPathReadyApply         = func() {}
 )
+
+func openedPathsPreparingStatus() string {
+	return tr("opened_paths.preparing", "Preparing iCloud files")
+}
+
+func openedPathsTimeoutStatus() string {
+	return tr("opened_paths.timeout", "Some iCloud files are not downloaded")
+}
 
 type openedPathReadinessState int
 
@@ -407,7 +412,7 @@ func applyOpenedPathPreparingStatus(a *App, generation uint64) {
 		if !a.openedPathReadinessUIGuard(generation) {
 			return
 		}
-		a.State.SetStatus(openedPathsPreparingStatus, util.YELLOW)
+		a.State.SetStatus(openedPathsPreparingStatus(), util.YELLOW)
 		a.refreshUI()
 	})
 }
@@ -562,7 +567,7 @@ func (a *App) applyOpenedPathReadinessError(generation uint64) {
 		}
 
 		a.finishOpenedPathReadiness(generation)
-		a.State.SetStatus(startupPathAccessStatus, util.RED)
+		a.State.SetStatus(startupPathAccessStatus(), util.RED)
 		a.refreshUI()
 	})
 }
@@ -574,7 +579,7 @@ func (a *App) applyOpenedPathReadinessTimeout(generation uint64) {
 		}
 
 		a.finishOpenedPathReadiness(generation)
-		a.State.SetStatus(openedPathsTimeoutStatus, util.YELLOW)
+		a.State.SetStatus(openedPathsTimeoutStatus(), util.YELLOW)
 		a.refreshUI()
 	})
 }

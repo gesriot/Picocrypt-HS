@@ -189,6 +189,8 @@ func NewApp(version string) (*App, error) {
 	if err := loadTranslations(); err != nil {
 		return nil, fmt.Errorf("load translations: %w", err)
 	}
+	state.InputLabel = dropPromptLabel()
+	state.StartLabel = tr("action.start", "Start")
 
 	return &App{
 		Version:  version,
@@ -378,7 +380,7 @@ func (a *App) buildUI() fyne.CanvasObject {
 	// Input label with Clear button
 	a.inputLabel = widget.NewLabel(a.State.InputLabel)
 	a.inputLabel.Wrapping = fyne.TextWrapWord
-	a.clearButton = widget.NewButton("Clear", func() {
+	a.clearButton = widget.NewButton(tr("action.clear", "Clear"), func() {
 		a.cancelOpenedPathReadiness()
 		a.resetUI()
 	})
@@ -417,7 +419,7 @@ func (a *App) buildUI() fyne.CanvasObject {
 	a.statusLabel = NewColoredLabel(a.State.MainStatus, a.State.MainStatusColor)
 
 	// Advanced section label (hidden when no mode selected)
-	a.advancedLabel = widget.NewLabel("Advanced:")
+	a.advancedLabel = widget.NewLabel(tr("advanced.label", "Advanced:"))
 	a.advancedLabel.TextStyle = fyne.TextStyle{Bold: true}
 	a.advancedLabel.Hide() // Initially hidden until files are dropped
 
@@ -507,7 +509,7 @@ func (a *App) buildCommentsSection() fyne.CanvasObject {
 	a.commentsLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	a.commentsEntry = widget.NewEntry()
-	a.commentsEntry.SetPlaceHolder("Comments (not encrypted)")
+	a.commentsEntry.SetPlaceHolder(tr("comments.placeholder", "Comments (not encrypted)"))
 	a.commentsEntry.OnChanged = func(text string) {
 		// In decrypt mode, comments are read-only - revert any changes
 		if a.State.Mode == "decrypt" {
@@ -532,14 +534,14 @@ func (a *App) buildOutputSection() fyne.CanvasObject {
 	outputEntry := NewDisabledEntry()
 	a.outputEntry = outputEntry
 
-	a.changeBtn = widget.NewButton("Change", func() {
+	a.changeBtn = widget.NewButton(tr("action.change", "Change"), func() {
 		a.changeOutputFile()
 	})
 
 	row := container.NewBorder(nil, nil, nil, a.changeBtn, outputEntry)
 
 	// Create bold label for better visual hierarchy
-	outputLabel := widget.NewLabel("Save output as:")
+	outputLabel := widget.NewLabel(tr("output.label", "Save output as:"))
 	outputLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	return container.NewVBox(
@@ -621,7 +623,7 @@ func (a *App) updateUIState() {
 	if a.startButton != nil {
 		label := snap.StartLabel
 		if snap.Recursively {
-			label = "Process"
+			label = tr("action.process", "Process")
 		}
 		a.startButton.SetText(label)
 
@@ -641,7 +643,7 @@ func (a *App) updateUIState() {
 				outputDisplay += ".*"
 			}
 			if snap.Recursively {
-				outputDisplay = "(multiple values)"
+				outputDisplay = tr("output.multiple_values", "(multiple values)")
 			}
 		}
 		a.outputEntry.SetText(outputDisplay)
@@ -678,7 +680,9 @@ func (a *App) updateUIState() {
 				if snap.AutoUnzip {
 					multiplier++
 				}
-				statusText = statusText + " (ensure >" + util.Sizeify(snap.RequiredFreeSpace*int64(multiplier)) + " free)"
+				statusText = tr("status.ready_free_space", "Ready (ensure >{{.Size}} free)", map[string]any{
+					"Size": util.Sizeify(snap.RequiredFreeSpace * int64(multiplier)),
+				})
 			}
 		}
 		a.statusLabel.SetText(statusText)
@@ -706,6 +710,8 @@ func (a *App) updateUIState() {
 // resetUI clears UI state but preserves progress flags.
 func (a *App) resetUI() {
 	a.State.ResetUI()
+	a.State.InputLabel = dropPromptLabel()
+	a.State.StartLabel = tr("action.start", "Start")
 	if a.passwordEntry != nil {
 		a.passwordEntry.SetText("")
 	}

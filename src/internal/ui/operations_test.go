@@ -141,7 +141,11 @@ func TestApplyRecursiveSelectionRestoresSavedSettings(t *testing.T) {
 	if a.State.Password != saved.Password || a.State.CPassword != saved.Password {
 		t.Fatalf("passwords not restored: %q / %q", a.State.Password, a.State.CPassword)
 	}
-	if got := a.State.PopupStatus; got != "Processing file 1/3..." {
+	wantStatus := tr("status.processing_file", "Processing file {{.Index}}/{{.Total}}...", map[string]any{
+		"Index": 1,
+		"Total": 3,
+	})
+	if got := a.State.PopupStatus; got != wantStatus {
 		t.Fatalf("PopupStatus = %q", got)
 	}
 	if !a.State.Keyfile || !a.State.KeyfileOrdered || !a.State.Paranoid || !a.State.ReedSolomon || !a.State.Deniability || !a.State.Split || !a.State.Delete {

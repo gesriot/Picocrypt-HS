@@ -41,11 +41,11 @@ func keyfileDisplayLabel(required bool, count int, applicable bool) string {
 
 // buildKeyfilesSection creates the keyfiles input section.
 func (a *App) buildKeyfilesSection() fyne.CanvasObject {
-	a.keyfileEditBtn = widget.NewButton("Edit", func() {
+	a.keyfileEditBtn = widget.NewButton(tr("action.edit", "Edit"), func() {
 		a.showKeyfileModal()
 	})
 
-	a.keyfileCreateBtn = widget.NewButton("Create", func() {
+	a.keyfileCreateBtn = widget.NewButton(tr("action.create", "Create"), func() {
 		a.createKeyfile()
 	})
 
@@ -56,7 +56,7 @@ func (a *App) buildKeyfilesSection() fyne.CanvasObject {
 	))
 
 	// Create bold label for better visual hierarchy
-	keyfilesLabel := widget.NewLabel("Keyfiles:")
+	keyfilesLabel := widget.NewLabel(tr("keyfiles.label", "Keyfiles:"))
 	keyfilesLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	// Layout: "Keyfiles:" Edit Create [label fills rest]
@@ -73,13 +73,13 @@ func (a *App) showKeyfileModal() {
 	// Create order checkbox/label based on mode
 	var orderWidget fyne.CanvasObject
 	if a.State.Mode != "decrypt" {
-		a.keyfileOrderCheck = widget.NewCheck("Require correct order", func(checked bool) {
+		a.keyfileOrderCheck = widget.NewCheck(tr("keyfiles.require_order", "Require correct order"), func(checked bool) {
 			a.State.KeyfileOrdered = checked
 		})
 		a.keyfileOrderCheck.SetChecked(a.State.KeyfileOrdered)
 		orderWidget = a.keyfileOrderCheck
 	} else if a.State.KeyfileOrdered {
-		orderWidget = widget.NewLabel("Correct ordering is required")
+		orderWidget = widget.NewLabel(tr("keyfiles.order_required", "Correct ordering is required"))
 	} else {
 		orderWidget = widget.NewLabel("") // Empty placeholder
 	}
@@ -92,14 +92,14 @@ func (a *App) showKeyfileModal() {
 	a.updateKeyfileList()
 
 	// Buttons
-	clearBtn := widget.NewButton("Clear", func() {
+	clearBtn := widget.NewButton(tr("action.clear", "Clear"), func() {
 		a.State.Keyfiles = nil
 		a.State.ModalID++
 		a.updateKeyfileList()
 		a.updateUIState()
 	})
 
-	doneBtn := widget.NewButton("Done", func() {
+	doneBtn := widget.NewButton(tr("action.done", "Done"), func() {
 		a.keyfileModal.Hide()
 		a.State.ShowKeyfile = false
 		a.updateUIState()
@@ -109,14 +109,14 @@ func (a *App) showKeyfileModal() {
 	buttonRow := container.NewGridWithColumns(2, clearBtn, doneBtn)
 
 	content := container.NewVBox(
-		widget.NewLabel("Drag and drop your keyfiles here"),
+		widget.NewLabel(tr("keyfiles.drop_hint", "Drag and drop your keyfiles here")),
 		orderWidget,
 		a.keyfileSeparator,
 		a.keyfileListContainer,
 		buttonRow,
 	)
 
-	a.keyfileModal = dialog.NewCustomWithoutButtons("Manage keyfiles:", content, a.Window)
+	a.keyfileModal = dialog.NewCustomWithoutButtons(tr("keyfiles.manage_title", "Manage keyfiles:"), content, a.Window)
 	a.State.ShowKeyfile = true
 	a.State.ModalID++
 	a.keyfileModal.Show()
@@ -159,14 +159,14 @@ func (a *App) createKeyfile() {
 
 		data := make([]byte, 32)
 		if n, err := rand.Read(data); err != nil || n != 32 {
-			a.State.SetStatus("Failed to generate keyfile", util.RED)
+			a.State.SetStatus(tr("keyfiles.generate_failed", "Failed to generate keyfile"), util.RED)
 			a.updateUIState()
 			return
 		}
 
 		n, err := writer.Write(data)
 		if err != nil || n != 32 {
-			a.State.SetStatus("Failed to write keyfile", util.RED)
+			a.State.SetStatus(tr("keyfiles.write_failed", "Failed to write keyfile"), util.RED)
 			a.updateUIState()
 			return
 		}

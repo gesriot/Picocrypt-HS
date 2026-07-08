@@ -140,14 +140,14 @@ func TestMultipleDropLabels(t *testing.T) {
 		folders  int
 		expected string
 	}{
-		{"OnlyFiles_2", 2, 0, "2 files"},
-		{"OnlyFiles_5", 5, 0, "5 files"},
-		{"OnlyFolders_2", 0, 2, "2 folders"},
-		{"OnlyFolders_5", 0, 5, "5 folders"},
-		{"1File1Folder", 1, 1, "1 file and 1 folder"},
-		{"1FileManyFolders", 1, 3, "1 file and 3 folders"},
-		{"ManyFiles1Folder", 3, 1, "3 files and 1 folder"},
-		{"ManyBoth", 3, 2, "3 files and 2 folders"},
+		{"OnlyFiles_2", 2, 0, trn("selection.files", "{{.Count}} files", 2, map[string]any{"Count": 2})},
+		{"OnlyFiles_5", 5, 0, trn("selection.files", "{{.Count}} files", 5, map[string]any{"Count": 5})},
+		{"OnlyFolders_2", 0, 2, trn("selection.folders", "{{.Count}} folders", 2, map[string]any{"Count": 2})},
+		{"OnlyFolders_5", 0, 5, trn("selection.folders", "{{.Count}} folders", 5, map[string]any{"Count": 5})},
+		{"1File1Folder", 1, 1, tr("selection.file_and_folder", "{{.Files}} file and {{.Folders}} folder", map[string]any{"Files": 1, "Folders": 1})},
+		{"1FileManyFolders", 1, 3, tr("selection.file_and_folders", "{{.Files}} file and {{.Folders}} folders", map[string]any{"Files": 1, "Folders": 3})},
+		{"ManyFiles1Folder", 3, 1, tr("selection.files_and_folder", "{{.Files}} files and {{.Folders}} folder", map[string]any{"Files": 3, "Folders": 1})},
+		{"ManyBoth", 3, 2, tr("selection.files_and_folders", "{{.Files}} files and {{.Folders}} folders", map[string]any{"Files": 3, "Folders": 2})},
 	}
 
 	for _, tc := range testCases {
@@ -438,8 +438,8 @@ func TestApplyStartupPathsReportsAccessError(t *testing.T) {
 		a.applyStartupPaths([]string{"blocked.txt"})
 	})
 
-	if a.State.MainStatus != startupPathAccessStatus {
-		t.Fatalf("MainStatus = %q; want %q", a.State.MainStatus, startupPathAccessStatus)
+	if a.State.MainStatus != startupPathAccessStatus() {
+		t.Fatalf("MainStatus = %q; want %q", a.State.MainStatus, startupPathAccessStatus())
 	}
 	if a.State.MainStatusColor != util.RED {
 		t.Fatalf("MainStatusColor = %#v; want %#v", a.State.MainStatusColor, util.RED)
@@ -478,8 +478,8 @@ func TestApplyStartupPathsPreservesPartialAccessWarning(t *testing.T) {
 	if state.InputFile != inputFile {
 		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
 	}
-	if state.MainStatus != startupPathPartialAccessStatus {
-		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathPartialAccessStatus)
+	if state.MainStatus != startupPathPartialAccessStatus() {
+		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathPartialAccessStatus())
 	}
 }
 
@@ -695,8 +695,8 @@ func TestScheduleStartupPathsPreservesPartialAccessWarningForArgv(t *testing.T) 
 	if state.InputFile != inputFile {
 		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
 	}
-	if state.MainStatus != startupPathPartialAccessStatus {
-		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathPartialAccessStatus)
+	if state.MainStatus != startupPathPartialAccessStatus() {
+		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathPartialAccessStatus())
 	}
 }
 
@@ -2059,8 +2059,9 @@ func TestKeyfileDropHandling(t *testing.T) {
 	if got[0] != key1 || got[1] != key2 {
 		t.Fatalf("Keyfiles = %#v; want [%q %q] in order", got, key1, key2)
 	}
-	if label != "Using 2 keyfiles" {
-		t.Fatalf("rendered keyfile label = %q; want %q", label, "Using 2 keyfiles")
+	wantLabel := trn("keyfiles.count", "Using {{.Count}} keyfiles", 2, map[string]any{"Count": 2})
+	if label != wantLabel {
+		t.Fatalf("rendered keyfile label = %q; want %q", label, wantLabel)
 	}
 }
 
@@ -2090,7 +2091,9 @@ func TestStatusFreeSpaceMultiplier(t *testing.T) {
 			a.updateUIState()
 		})
 
-		want := "Ready (ensure >" + util.Sizeify(base*1) + " free)"
+		want := tr("status.ready_free_space", "Ready (ensure >{{.Size}} free)", map[string]any{
+			"Size": util.Sizeify(base * 1),
+		})
 		if got := statusLabelText(t, a); got != want {
 			t.Fatalf("status = %q; want %q (1x multiplier)", got, want)
 		}
@@ -2113,7 +2116,9 @@ func TestStatusFreeSpaceMultiplier(t *testing.T) {
 			a.updateUIState()
 		})
 
-		want := "Ready (ensure >" + util.Sizeify(base*4) + " free)"
+		want := tr("status.ready_free_space", "Ready (ensure >{{.Size}} free)", map[string]any{
+			"Size": util.Sizeify(base * 4),
+		})
 		if got := statusLabelText(t, a); got != want {
 			t.Fatalf("status = %q; want %q (4x multiplier)", got, want)
 		}
@@ -2353,11 +2358,12 @@ func TestHandleDecryptDropNonCommentDecodeErrorIsHeaderDamage(t *testing.T) {
 		mainStatus = a.State.MainStatus
 	})
 
-	if comments == "Comments are corrupted" {
+	if comments == tr("comments.corrupted", "Comments are corrupted") {
 		t.Fatalf("Comments = %q; non-comment header corruption must not be labeled as comment damage", comments)
 	}
-	if mainStatus != "The volume header is damaged" {
-		t.Fatalf("MainStatus = %q; want %q", mainStatus, "The volume header is damaged")
+	wantStatus := tr("drop.header_damaged", "The volume header is damaged")
+	if mainStatus != wantStatus {
+		t.Fatalf("MainStatus = %q; want %q", mainStatus, wantStatus)
 	}
 }
 
@@ -2455,11 +2461,12 @@ func TestHandleDecryptDropMalformedCommentLen(t *testing.T) {
 			if mode != "decrypt" {
 				t.Fatalf("Mode = %q; want decrypt", mode)
 			}
-			if comments == "Comment length is corrupted" || comments == "Comments are corrupted" {
+			if comments == "Comment length is corrupted" || comments == tr("comments.corrupted", "Comments are corrupted") {
 				t.Fatalf("Comments = %q; malformed comment length is non-comment header damage", comments)
 			}
-			if mainStatus != "The volume header is damaged" {
-				t.Fatalf("MainStatus = %q; want %q", mainStatus, "The volume header is damaged")
+			wantStatus := tr("drop.header_damaged", "The volume header is damaged")
+			if mainStatus != wantStatus {
+				t.Fatalf("MainStatus = %q; want %q", mainStatus, wantStatus)
 			}
 		})
 	}

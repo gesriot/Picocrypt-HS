@@ -10,11 +10,11 @@ func TestKeyfileDisplayLabelUsesSemanticState(t *testing.T) {
 		applicable bool
 		want       string
 	}{
-		{name: "not applicable", applicable: false, want: "Not applicable"},
-		{name: "none selected", applicable: true, want: "None selected"},
-		{name: "required", required: true, applicable: true, want: "Keyfiles required"},
-		{name: "one selected", count: 1, applicable: true, want: "Using 1 keyfile"},
-		{name: "many selected", count: 3, applicable: true, want: "Using 3 keyfiles"},
+		{name: "not applicable", applicable: false, want: tr("keyfiles.not_applicable", "Not applicable")},
+		{name: "none selected", applicable: true, want: tr("keyfiles.none_selected", "None selected")},
+		{name: "required", required: true, applicable: true, want: tr("keyfiles.required", "Keyfiles required")},
+		{name: "one selected", count: 1, applicable: true, want: trn("keyfiles.count", "Using {{.Count}} keyfile", 1, map[string]any{"Count": 1})},
+		{name: "many selected", count: 3, applicable: true, want: trn("keyfiles.count", "Using {{.Count}} keyfiles", 3, map[string]any{"Count": 3})},
 	}
 
 	for _, tt := range tests {

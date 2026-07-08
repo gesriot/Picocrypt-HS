@@ -8,7 +8,6 @@ import (
 	"Picocrypt-NG/internal/util"
 	"Picocrypt-NG/internal/volume"
 	"context"
-	"fmt"
 	"os"
 	"strconv"
 
@@ -17,6 +16,40 @@ import (
 
 func showOverwriteModalForOutput(outputExists, recursively, chosenViaDialog bool) bool {
 	return outputExists && !recursively && !chosenViaDialog
+}
+
+func recursiveStatusCompleted(count int) string {
+	fallback := "Completed ({{.Count}} files)"
+	if count == 1 {
+		fallback = "Completed ({{.Count}} file)"
+	}
+	return trn("status.recursive_completed", fallback, count, map[string]any{
+		"Count": count,
+	})
+}
+
+func recursiveStatusFailedAll(count int) string {
+	fallback := "Failed (all {{.Count}} files)"
+	if count == 1 {
+		fallback = "Failed (all {{.Count}} file)"
+	}
+	return trn("status.recursive_failed_all", fallback, count, map[string]any{
+		"Count": count,
+	})
+}
+
+func recursiveStatusCompletedFailed(successCount, failedCount int) string {
+	return tr("status.recursive_completed_failed", "Completed ({{.OK}} ok, {{.Failed}} failed)", map[string]any{
+		"OK":     successCount,
+		"Failed": failedCount,
+	})
+}
+
+func recursiveProcessingStatus(index, total int) string {
+	return tr("status.processing_file", "Processing file {{.Index}}/{{.Total}}...", map[string]any{
+		"Index": index,
+		"Total": total,
+	})
 }
 
 // onClickStart handles the Start button click.
@@ -95,7 +128,7 @@ func (a *App) doWork() bool {
 // startRecursiveWork handles batch processing of multiple files individually.
 func (a *App) startRecursiveWork() {
 	if len(a.State.AllFiles) == 0 {
-		a.State.SetStatus("No files to process", util.YELLOW)
+		a.State.SetStatus(tr("status.no_files_to_process", "No files to process"), util.YELLOW)
 		a.State.SetWorking(false)
 		a.State.SetShowProgress(false)
 		fyne.Do(func() {
@@ -160,11 +193,11 @@ func (a *App) startRecursiveWork() {
 			a.State.SetWorking(false)
 			a.State.SetShowProgress(false)
 			if failedCount == 0 {
-				a.State.SetStatus(fmt.Sprintf("Completed (%d files)", successCount), util.GREEN)
+				a.State.SetStatus(recursiveStatusCompleted(successCount), util.GREEN)
 			} else if successCount == 0 {
-				a.State.SetStatus(fmt.Sprintf("Failed (all %d files)", failedCount), util.RED)
+				a.State.SetStatus(recursiveStatusFailedAll(failedCount), util.RED)
 			} else {
-				a.State.SetStatus(fmt.Sprintf("Completed (%d ok, %d failed)", successCount, failedCount), util.YELLOW)
+				a.State.SetStatus(recursiveStatusCompletedFailed(successCount, failedCount), util.YELLOW)
 			}
 			if a.progressModal != nil {
 				a.progressModal.Hide()
@@ -176,7 +209,7 @@ func (a *App) startRecursiveWork() {
 }
 
 func (a *App) applyRecursiveSelection(file string, saved app.RecursiveSnapshot, index, total int) {
-	status := fmt.Sprintf("Processing file %d/%d...", index, total)
+	status := recursiveProcessingStatus(index, total)
 
 	fyne.DoAndWait(func() {
 		a.onDrop([]string{file})
@@ -237,7 +270,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	if snap.SplitSize != "" {
 		n, err := strconv.Atoi(snap.SplitSize)
 		if err != nil || n <= 0 {
-			a.State.SetStatus("Invalid split size", util.RED)
+			a.State.SetStatus(tr("status.invalid_split_size", "Invalid split size"), util.RED)
 			return false
 		}
 		chunkSize = n
@@ -285,7 +318,9 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 	}
 
 	a.State.ResetUI()
-	a.State.SetStatus("Completed", util.GREEN)
+	a.State.InputLabel = dropPromptLabel()
+	a.State.StartLabel = tr("action.start", "Start")
+	a.State.SetStatus(tr("status.completed", "Completed"), util.GREEN)
 
 	// Clear UI widgets to match the reset state
 	fyne.Do(a.clearCredentialEntries)
@@ -309,7 +344,7 @@ func (a *App) doEncrypt(reporter *app.UIReporter) bool {
 			}
 		}
 		if len(deleteErrors) > 0 {
-			a.State.SetStatus("Completed (some files couldn't be deleted)", util.YELLOW)
+			a.State.SetStatus(tr("status.completed_some_delete_failed", "Completed (some files couldn't be deleted)"), util.YELLOW)
 		}
 	}
 
@@ -358,15 +393,17 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 	}
 
 	a.State.ResetUI()
+	a.State.InputLabel = dropPromptLabel()
+	a.State.StartLabel = tr("action.start", "Start")
 
 	// Clear UI widgets to match the reset state
 	fyne.Do(a.clearCredentialEntries)
 
 	if kept {
 		a.State.SetKept(true)
-		a.State.SetStatus("Integrity check failed; kept output is unverified and may be corrupted", util.YELLOW)
+		a.State.SetStatus(tr("status.kept_output_unverified", "Integrity check failed; kept output is unverified and may be corrupted"), util.YELLOW)
 	} else {
-		a.State.SetStatus("Completed", util.GREEN)
+		a.State.SetStatus(tr("status.completed", "Completed"), util.GREEN)
 	}
 
 	if shouldDelete && !kept {
@@ -387,7 +424,7 @@ func (a *App) doDecrypt(reporter *app.UIReporter) bool {
 			}
 		}
 		if deleteError {
-			a.State.SetStatus("Completed (volume couldn't be deleted)", util.YELLOW)
+			a.State.SetStatus(tr("status.completed_volume_delete_failed", "Completed (volume couldn't be deleted)"), util.YELLOW)
 		}
 	}
 

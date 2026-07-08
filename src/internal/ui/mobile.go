@@ -20,6 +20,8 @@ import (
 	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
 
+var errUnsafeMobileFilename = errors.New("unsafe file name")
+
 // isMobile returns true if running on a mobile device
 func isMobile() bool {
 	return fyne.CurrentDevice().IsMobile()
@@ -60,7 +62,7 @@ func (a *App) buildMobileUI() fyne.CanvasObject {
 		keyfilesSection,
 		widget.NewSeparator(),
 		commentsSection,
-		widget.NewLabel("Advanced:"),
+		widget.NewLabel(tr("advanced.label", "Advanced:")),
 		a.advancedContainer,
 		outputSection,
 		widget.NewSeparator(),
@@ -82,30 +84,30 @@ func (a *App) buildMobileFileSection() fyne.CanvasObject {
 	a.inputLabel.Wrapping = fyne.TextWrapWord
 
 	// Select Files button - opens file picker
-	selectFilesBtn := widget.NewButtonWithIcon("Select Files", theme.FolderOpenIcon(), func() {
+	selectFilesBtn := widget.NewButtonWithIcon(tr("mobile.select_files", "Select Files"), theme.FolderOpenIcon(), func() {
 		a.showMobileFilePicker()
 	})
 	selectFilesBtn.Importance = widget.HighImportance
 
 	// Select Folder button
-	selectFolderBtn := widget.NewButtonWithIcon("Select Folder", theme.FolderIcon(), func() {
+	selectFolderBtn := widget.NewButtonWithIcon(tr("mobile.select_folder", "Select Folder"), theme.FolderIcon(), func() {
 		a.showMobileFolderPicker()
 	})
 
 	// Clear button
-	a.clearButton = widget.NewButton("Clear", a.resetUI)
+	a.clearButton = widget.NewButton(tr("action.clear", "Clear"), a.resetUI)
 	a.clearButton.Importance = widget.MediumImportance
 
 	// Button row
 	buttonRow := container.NewGridWithColumns(3, selectFilesBtn, selectFolderBtn, a.clearButton)
 
 	// App Storage button for large files (no copying required)
-	appStorageBtn := widget.NewButton("App Storage (large files)", func() {
+	appStorageBtn := widget.NewButton(tr("mobile.app_storage.button", "App Storage (large files)"), func() {
 		a.showAppStorageDialog()
 	})
 
 	// Help text
-	helpText := widget.NewLabel("Tip: For large files, copy them to App Storage first")
+	helpText := widget.NewLabel(tr("mobile.app_storage.tip", "Tip: For large files, copy them to App Storage first"))
 	helpText.Wrapping = fyne.TextWrapWord
 	helpText.TextStyle = fyne.TextStyle{Italic: true}
 
@@ -134,7 +136,7 @@ func (a *App) showAppStorageDialog() {
 
 	// Ensure directory exists
 	if err := os.MkdirAll(appDir, 0o700); err != nil {
-		a.State.SetStatus("Failed to create app storage", util.RED)
+		a.State.SetStatus(tr("mobile.app_storage.create_failed", "Failed to create app storage"), util.RED)
 		a.refreshUI()
 		return
 	}
@@ -142,29 +144,31 @@ func (a *App) showAppStorageDialog() {
 	// List files in app storage
 	files, err := os.ReadDir(appDir)
 	if err != nil {
-		a.State.SetStatus("Failed to read app storage", util.RED)
+		a.State.SetStatus(tr("mobile.app_storage.read_failed", "Failed to read app storage"), util.RED)
 		a.refreshUI()
 		return
 	}
 
 	if len(files) == 0 {
 		// Show instructions
-		content := widget.NewLabel(
-			"App Storage is empty.\n\n" +
-				"To use large files without copying:\n" +
-				"1. Open a file manager app\n" +
-				"2. Copy files to:\n" +
-				"   " + appDir + "\n" +
-				"3. Come back and select them here")
+		content := widget.NewLabel(tr("mobile.app_storage.empty_instructions",
+			"App Storage is empty.\n\n"+
+				"To use large files without copying:\n"+
+				"1. Open a file manager app\n"+
+				"2. Copy files to:\n"+
+				"   {{.Path}}\n"+
+				"3. Come back and select them here", map[string]any{
+				"Path": appDir,
+			}))
 		content.Wrapping = fyne.TextWrapWord
 
-		copyPathBtn := widget.NewButton("Copy Path", func() {
+		copyPathBtn := widget.NewButton(tr("mobile.app_storage.copy_path", "Copy Path"), func() {
 			a.fyneApp.Clipboard().SetContent(appDir)
-			a.State.SetStatus("Path copied to clipboard", util.WHITE)
+			a.State.SetStatus(tr("mobile.app_storage.path_copied", "Path copied to clipboard"), util.WHITE)
 			a.refreshUI()
 		})
 
-		d := dialog.NewCustom("App Storage", "Close", container.NewVBox(content, copyPathBtn), a.Window)
+		d := dialog.NewCustom(tr("mobile.app_storage.title", "App Storage"), tr("action.close", "Close"), container.NewVBox(content, copyPathBtn), a.Window)
 		d.Show()
 		return
 	}
@@ -178,7 +182,7 @@ func (a *App) showAppStorageDialog() {
 	}
 
 	if len(items) == 0 {
-		a.State.SetStatus("No files in app storage", util.YELLOW)
+		a.State.SetStatus(tr("mobile.app_storage.no_files", "No files in app storage"), util.YELLOW)
 		a.refreshUI()
 		return
 	}
@@ -195,7 +199,7 @@ func (a *App) showAppStorageDialog() {
 		a.onDrop([]string{selectedPath})
 	}
 
-	d := dialog.NewCustom("Select from App Storage", "Cancel", list, a.Window)
+	d := dialog.NewCustom(tr("mobile.app_storage.select_title", "Select from App Storage"), tr("action.cancel", "Cancel"), list, a.Window)
 	d.Resize(fyne.NewSize(300, 400))
 	d.Show()
 }
@@ -214,7 +218,7 @@ func (a *App) showMobileFilePicker() {
 		if uri.Scheme() == "content" {
 			localPath, copyErr := a.copyURIToTemp(reader, uri.Name())
 			if copyErr != nil {
-				a.State.SetStatus("Failed to access file: "+copyErr.Error(), util.RED)
+				a.State.SetStatus(mobileFileAccessFailedStatus(copyErr), util.RED)
 				a.refreshUI()
 				return
 			}
@@ -239,28 +243,39 @@ func (a *App) showMobileFolderPicker() {
 func (a *App) showFolderNotSupportedDialog() {
 	appDir := a.getAppStorageDir()
 
-	content := widget.NewLabel(
-		"Folder selection is not fully supported on Android.\n\n" +
-			"For folders, please:\n" +
-			"1. Copy your folder to App Storage using a file manager\n" +
-			"2. Use 'App Storage (large files)' button to select it\n\n" +
-			"App Storage path:\n" + appDir)
+	content := widget.NewLabel(tr("mobile.folder_selection.unsupported",
+		"Folder selection is not fully supported on Android.\n\n"+
+			"For folders, please:\n"+
+			"1. Copy your folder to App Storage using a file manager\n"+
+			"2. Use 'App Storage (large files)' button to select it\n\n"+
+			"App Storage path:\n{{.Path}}", map[string]any{
+			"Path": appDir,
+		}))
 	content.Wrapping = fyne.TextWrapWord
 
-	copyPathBtn := widget.NewButton("Copy Path to Clipboard", func() {
+	copyPathBtn := widget.NewButton(tr("mobile.folder_selection.copy_path", "Copy Path to Clipboard"), func() {
 		a.fyneApp.Clipboard().SetContent(appDir)
-		a.State.SetStatus("Path copied to clipboard", util.WHITE)
+		a.State.SetStatus(tr("mobile.app_storage.path_copied", "Path copied to clipboard"), util.WHITE)
 		a.refreshUI()
 	})
 
-	openAppStorageBtn := widget.NewButton("Open App Storage", func() {
+	openAppStorageBtn := widget.NewButton(tr("mobile.folder_selection.open_app_storage", "Open App Storage"), func() {
 		a.showAppStorageDialog()
 	})
 
 	buttons := container.NewHBox(copyPathBtn, openAppStorageBtn)
 
-	d := dialog.NewCustom("Folder Selection", "Close", container.NewVBox(content, buttons), a.Window)
+	d := dialog.NewCustom(tr("mobile.folder_selection.title", "Folder Selection"), tr("action.close", "Close"), container.NewVBox(content, buttons), a.Window)
 	d.Show()
+}
+
+func mobileFileAccessFailedStatus(err error) string {
+	if errors.Is(err, errUnsafeMobileFilename) {
+		return tr("mobile.file_access_failed_unsafe_name", "Failed to access file: unsafe file name")
+	}
+	return tr("mobile.file_access_failed", "Failed to access file: {{.Error}}", map[string]any{
+		"Error": err.Error(),
+	})
 }
 
 // getMobileTempDir returns the temp directory for mobile file copies.
@@ -284,27 +299,27 @@ func (a *App) CleanupMobileTempFiles() {
 
 func validateMobileTempFilename(name string) error {
 	if name == "" {
-		return errors.New("unsafe file name")
+		return errUnsafeMobileFilename
 	}
 	if name == "." || name == ".." {
-		return errors.New("unsafe file name")
+		return errUnsafeMobileFilename
 	}
 	if strings.ContainsAny(name, `/\`) {
-		return errors.New("unsafe file name")
+		return errUnsafeMobileFilename
 	}
 	if filepath.IsAbs(name) {
-		return errors.New("unsafe file name")
+		return errUnsafeMobileFilename
 	}
 	if len(name) >= 2 && name[1] == ':' {
-		return errors.New("unsafe file name")
+		return errUnsafeMobileFilename
 	}
 	if filepath.Base(name) != name {
-		return errors.New("unsafe file name")
+		return errUnsafeMobileFilename
 	}
 
 	trimmed := strings.TrimRight(name, " .")
 	if trimmed == "" || trimmed != name || trimmed == "." || trimmed == ".." {
-		return errors.New("unsafe file name")
+		return errUnsafeMobileFilename
 	}
 
 	return nil
@@ -353,7 +368,7 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 		a.cPasswordEntry.SetHidden(hidden)
 	})
 
-	a.clearPwdBtn = widget.NewButton("Clear", func() {
+	a.clearPwdBtn = widget.NewButton(tr("action.clear", "Clear"), func() {
 		a.State.Password = ""
 		a.State.CPassword = ""
 		a.passwordEntry.SetText("")
@@ -363,11 +378,11 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.copyBtn = widget.NewButton("Copy", func() {
+	a.copyBtn = widget.NewButton(tr("action.copy", "Copy"), func() {
 		a.fyneApp.Clipboard().SetContent(a.State.Password)
 	})
 
-	a.pasteBtn = widget.NewButton("Paste", func() {
+	a.pasteBtn = widget.NewButton(tr("action.paste", "Paste"), func() {
 		text := a.fyneApp.Clipboard().Content()
 		a.State.Password = text
 		a.passwordEntry.SetText(text)
@@ -380,7 +395,7 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.createBtn = widget.NewButton("Create", func() {
+	a.createBtn = widget.NewButton(tr("action.create", "Create"), func() {
 		a.showPassgenModal()
 	})
 
@@ -390,7 +405,7 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 
 	// Password input
 	a.passwordEntry = NewPasswordEntry()
-	a.passwordEntry.SetPlaceHolder("Password")
+	a.passwordEntry.SetPlaceHolder(tr("password.placeholder", "Password"))
 	a.passwordEntry.OnChanged = func(text string) {
 		a.State.Password = text
 		a.updatePasswordStrength()
@@ -403,7 +418,7 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 
 	// Confirm password
 	a.cPasswordEntry = NewPasswordEntry()
-	a.cPasswordEntry.SetPlaceHolder("Confirm password")
+	a.cPasswordEntry.SetPlaceHolder(tr("password.confirm_placeholder", "Confirm password"))
 	a.cPasswordEntry.OnChanged = func(text string) {
 		a.State.CPassword = text
 		a.updateValidation()
@@ -414,22 +429,22 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 	confirmRow := container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
 
 	return container.NewVBox(
-		widget.NewLabel("Password:"),
+		widget.NewLabel(tr("password.label", "Password:")),
 		buttonRow1,
 		buttonRow2,
 		passwordRow,
-		widget.NewLabel("Confirm password:"),
+		widget.NewLabel(tr("password.confirm_label", "Confirm password:")),
 		confirmRow,
 	)
 }
 
 // buildMobileKeyfilesSection creates the keyfiles section for mobile
 func (a *App) buildMobileKeyfilesSection() fyne.CanvasObject {
-	a.keyfileEditBtn = widget.NewButton("Edit", func() {
+	a.keyfileEditBtn = widget.NewButton(tr("action.edit", "Edit"), func() {
 		a.showKeyfileModal()
 	})
 
-	a.keyfileCreateBtn = widget.NewButton("Create", func() {
+	a.keyfileCreateBtn = widget.NewButton(tr("action.create", "Create"), func() {
 		a.createKeyfile()
 	})
 
@@ -443,7 +458,7 @@ func (a *App) buildMobileKeyfilesSection() fyne.CanvasObject {
 	buttonRow := container.NewGridWithColumns(2, a.keyfileEditBtn, a.keyfileCreateBtn)
 
 	return container.NewVBox(
-		widget.NewLabel("Keyfiles:"),
+		widget.NewLabel(tr("keyfiles.label", "Keyfiles:")),
 		buttonRow,
 		a.keyfileLabel,
 	)
@@ -453,7 +468,7 @@ func (a *App) buildMobileKeyfilesSection() fyne.CanvasObject {
 func (a *App) buildMobileCommentsSection() fyne.CanvasObject {
 	a.commentsLabel = widget.NewLabel(commentsLabelText(a.State.Mode))
 	a.commentsEntry = widget.NewEntry()
-	a.commentsEntry.SetPlaceHolder("Comments (not encrypted)")
+	a.commentsEntry.SetPlaceHolder(tr("comments.placeholder", "Comments (not encrypted)"))
 	a.commentsEntry.MultiLine = true
 	a.commentsEntry.OnChanged = func(text string) {
 		if a.State.Mode == "decrypt" {
@@ -493,35 +508,35 @@ func (a *App) updateMobileAdvancedSection() {
 // buildMobileEncryptOptions creates encrypt options for mobile
 func (a *App) buildMobileEncryptOptions() {
 	// Checkboxes with more spacing
-	a.paranoidCheck = ttwidget.NewCheck("Paranoid mode", func(checked bool) {
+	a.paranoidCheck = ttwidget.NewCheck(tr("advanced.paranoid.label", "Paranoid mode"), func(checked bool) {
 		a.State.Paranoid = checked
 	})
 	a.paranoidCheck.SetChecked(a.State.Paranoid)
 
-	a.compressCheck = ttwidget.NewCheck("Compress files", func(checked bool) {
+	a.compressCheck = ttwidget.NewCheck(tr("advanced.compress.label", "Compress files"), func(checked bool) {
 		a.State.Compress = checked
 		// Auto-toggle .zip suffix in output filename
 		a.updateOutputFileForCompress(checked)
 	})
 	a.compressCheck.SetChecked(a.State.Compress)
 
-	a.reedSolomonCheck = ttwidget.NewCheck("Reed-Solomon", func(checked bool) {
+	a.reedSolomonCheck = ttwidget.NewCheck(tr("advanced.reed_solomon.label", "Reed-Solomon"), func(checked bool) {
 		a.State.ReedSolomon = checked
 	})
 	a.reedSolomonCheck.SetChecked(a.State.ReedSolomon)
 
-	a.deleteCheck = ttwidget.NewCheck("Delete files", func(checked bool) {
+	a.deleteCheck = ttwidget.NewCheck(tr("advanced.delete_files.label", "Delete files"), func(checked bool) {
 		a.State.Delete = checked
 	})
 	a.deleteCheck.SetChecked(a.State.Delete)
 
-	a.deniabilityCheck = ttwidget.NewCheck("Deniability", func(checked bool) {
+	a.deniabilityCheck = ttwidget.NewCheck(tr("advanced.deniability.label", "Deniability"), func(checked bool) {
 		a.State.Deniability = checked
 		a.updateUIState()
 	})
 	a.deniabilityCheck.SetChecked(a.State.Deniability)
 
-	a.recursivelyCheck = ttwidget.NewCheck("Recursively", func(checked bool) {
+	a.recursivelyCheck = ttwidget.NewCheck(tr("advanced.recursively.label", "Recursively"), func(checked bool) {
 		a.State.Recursively = checked
 		if checked {
 			a.State.Compress = false
@@ -539,14 +554,14 @@ func (a *App) buildMobileEncryptOptions() {
 	row3 := container.NewGridWithColumns(2, a.deniabilityCheck, a.recursivelyCheck)
 
 	// Split section
-	a.splitCheck = ttwidget.NewCheck("Split:", func(checked bool) {
+	a.splitCheck = ttwidget.NewCheck(tr("advanced.split.label", "Split:"), func(checked bool) {
 		a.State.Split = checked
 		a.updateUIState()
 	})
 	a.splitCheck.SetChecked(a.State.Split)
 
 	a.splitSizeEntry = widget.NewEntry()
-	a.splitSizeEntry.SetPlaceHolder("Size")
+	a.splitSizeEntry.SetPlaceHolder(tr("advanced.split.size_placeholder", "Size"))
 	a.splitSizeEntry.SetText(a.State.SplitSize)
 	a.splitSizeEntry.OnChanged = func(text string) {
 		a.State.SplitSize = text
@@ -578,17 +593,17 @@ func (a *App) buildMobileEncryptOptions() {
 
 // buildMobileDecryptOptions creates decrypt options for mobile
 func (a *App) buildMobileDecryptOptions() {
-	a.forceDecryptCheck = ttwidget.NewCheck("Force decrypt", func(checked bool) {
+	a.forceDecryptCheck = ttwidget.NewCheck(tr("advanced.force_decrypt.label", "Force decrypt"), func(checked bool) {
 		a.State.Keep = checked
 	})
 	a.forceDecryptCheck.SetChecked(a.State.Keep)
 
-	a.verifyFirstCheck = ttwidget.NewCheck("Verify first", func(checked bool) {
+	a.verifyFirstCheck = ttwidget.NewCheck(tr("advanced.verify_first.label", "Verify first"), func(checked bool) {
 		a.State.VerifyFirst = checked
 	})
 	a.verifyFirstCheck.SetChecked(a.State.VerifyFirst)
 
-	a.deleteCheck = ttwidget.NewCheck("Delete encrypted", func(checked bool) {
+	a.deleteCheck = ttwidget.NewCheck(tr("advanced.delete_encrypted.label", "Delete encrypted"), func(checked bool) {
 		a.State.Delete = checked
 	})
 	a.deleteCheck.SetChecked(a.State.Delete)
@@ -607,12 +622,12 @@ func (a *App) buildMobileOutputSection() fyne.CanvasObject {
 	outputEntry.Truncation = fyne.TextTruncateEllipsis
 	a.outputEntry = outputEntry
 
-	a.changeBtn = widget.NewButton("Change", func() {
+	a.changeBtn = widget.NewButton(tr("action.change", "Change"), func() {
 		a.changeOutputFile()
 	})
 
 	return container.NewVBox(
-		widget.NewLabel("Save output as:"),
+		widget.NewLabel(tr("output.label", "Save output as:")),
 		outputEntry,
 		a.changeBtn,
 	)
