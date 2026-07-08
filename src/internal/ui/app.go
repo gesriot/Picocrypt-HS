@@ -186,6 +186,9 @@ func NewApp(version string) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init app state: %w", err)
 	}
+	if err := loadTranslations(); err != nil {
+		return nil, fmt.Errorf("load translations: %w", err)
+	}
 
 	return &App{
 		Version:  version,

@@ -1,0 +1,16 @@
+{
+  "action.clear": "Clear",
+  "action.copy": "Copy",
+  "action.paste": "Paste",
+  "action.create": "Create",
+  "action.edit": "Edit",
+  "password.show": "Show",
+  "password.hide": "Hide",
+  "status.ready": "Ready",
+  "keyfiles.none_selected": "None selected",
+  "keyfiles.required": "Keyfiles required",
+  "keyfiles.count": {
+    "one": "Using {{.Count}} keyfile",
+    "other": "Using {{.Count}} keyfiles"
+  }
+}
