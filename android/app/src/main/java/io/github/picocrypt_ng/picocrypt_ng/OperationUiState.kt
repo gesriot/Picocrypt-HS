@@ -26,7 +26,7 @@ sealed interface OperationUiState {
  *  - done && error   -> Failed  (carries the full AppError so ProgressCard can gate the
  *                                force-decrypt (DataCorruption) and password-retry (PasswordAuth)
  *                                buttons via allowsForceDecrypt()/allowsPasswordRetry())
- *  - done && status=Cancelled
+ *  - done && status=OperationStatus.CANCELLED
  *                    -> Cancelled (terminal, but no successful output to save)
  *  - done && !error  -> Success (the "Completed" save dialog)
  */
@@ -34,6 +34,6 @@ fun OperationState?.toUiState(): OperationUiState = when {
     this == null -> OperationUiState.Idle
     !done -> OperationUiState.Running(type, progress, status, info)
     error != null -> OperationUiState.Failed(type, error)
-    status == "Cancelled" -> OperationUiState.Cancelled(type)
+    status == OperationStatus.CANCELLED -> OperationUiState.Cancelled(type)
     else -> OperationUiState.Success(type)
 }

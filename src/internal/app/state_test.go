@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -92,17 +93,14 @@ func TestNewState(t *testing.T) {
 	if state.InputLabel != "Drop files and folders into this window" {
 		t.Errorf("InputLabel = %q; want default", state.InputLabel)
 	}
-	if state.KeyfileLabel != "None selected" {
-		t.Errorf("KeyfileLabel = %q; want 'None selected'", state.KeyfileLabel)
-	}
-	if state.CommentsLabel != "Comments:" {
-		t.Errorf("CommentsLabel = %q; want 'Comments:'", state.CommentsLabel)
-	}
 	if state.StartLabel != "Start" {
 		t.Errorf("StartLabel = %q; want 'Start'", state.StartLabel)
 	}
 	if state.MainStatus != "Ready" {
 		t.Errorf("MainStatus = %q; want 'Ready'", state.MainStatus)
+	}
+	if state.MainStatusKind != MainStatusReady {
+		t.Errorf("MainStatusKind = %v; want MainStatusReady", state.MainStatusKind)
 	}
 	if state.MainStatusColor != util.WHITE {
 		t.Error("MainStatusColor should be WHITE")
@@ -110,8 +108,8 @@ func TestNewState(t *testing.T) {
 	if state.PasswordMode != PasswordModeHidden {
 		t.Error("PasswordMode should be Hidden")
 	}
-	if state.PasswordStateLabel != "Show" {
-		t.Errorf("PasswordStateLabel = %q; want 'Show'", state.PasswordStateLabel)
+	if state.CommentsPreviewState != CommentsPreviewNormal {
+		t.Errorf("CommentsPreviewState = %v; want CommentsPreviewNormal", state.CommentsPreviewState)
 	}
 	if state.PassgenLength != 32 {
 		t.Errorf("PassgenLength = %d; want 32", state.PassgenLength)
@@ -172,6 +170,12 @@ func TestStateReset(t *testing.T) {
 	// Check defaults are restored
 	if state.MainStatus != "Ready" {
 		t.Errorf("MainStatus = %q; want 'Ready'", state.MainStatus)
+	}
+	if state.MainStatusKind != MainStatusReady {
+		t.Errorf("MainStatusKind = %v; want MainStatusReady", state.MainStatusKind)
+	}
+	if state.CommentsPreviewState != CommentsPreviewNormal {
+		t.Errorf("CommentsPreviewState = %v; want CommentsPreviewNormal", state.CommentsPreviewState)
 	}
 }
 
@@ -374,17 +378,11 @@ func TestTogglePasswordVisibility(t *testing.T) {
 	if state.PasswordMode != PasswordModeHidden {
 		t.Error("Should start hidden")
 	}
-	if state.PasswordStateLabel != "Show" {
-		t.Error("Label should be 'Show'")
-	}
 
 	// Toggle to visible
 	state.TogglePasswordVisibility()
 	if state.PasswordMode != PasswordModeVisible {
 		t.Error("Should be visible after toggle")
-	}
-	if state.PasswordStateLabel != "Hide" {
-		t.Error("Label should be 'Hide'")
 	}
 
 	// Toggle back to hidden
@@ -392,8 +390,22 @@ func TestTogglePasswordVisibility(t *testing.T) {
 	if state.PasswordMode != PasswordModeHidden {
 		t.Error("Should be hidden after second toggle")
 	}
-	if state.PasswordStateLabel != "Show" {
-		t.Error("Label should be 'Show'")
+}
+
+func TestTogglePasswordVisibilityIgnoresLegacyDisplayLabel(t *testing.T) {
+	state := mustNewState(t)
+	state.PasswordMode = PasswordModeHidden
+
+	// A localized or stale display label must not control password visibility.
+	// Use reflection so the regression guard survives removal of the legacy field.
+	if label := reflect.ValueOf(state).Elem().FieldByName("PasswordStateLabel"); label.IsValid() && label.CanSet() {
+		label.SetString("localized-show")
+	}
+
+	state.TogglePasswordVisibility()
+
+	if state.PasswordMode != PasswordModeVisible {
+		t.Fatalf("PasswordMode = %v; want PasswordModeVisible when toggling from hidden regardless of display label", state.PasswordMode)
 	}
 }
 
@@ -410,36 +422,31 @@ func TestIsPasswordHidden(t *testing.T) {
 	}
 }
 
-func TestUpdateKeyfileLabel(t *testing.T) {
+func TestKeyfileSemanticState(t *testing.T) {
 	state := mustNewState(t)
 
-	// No keyfiles, not required
 	state.Keyfile = false
 	state.Keyfiles = nil
-	state.UpdateKeyfileLabel()
-	if state.KeyfileLabel != "None selected" {
-		t.Errorf("KeyfileLabel = %q; want 'None selected'", state.KeyfileLabel)
+	if state.Keyfile {
+		t.Fatal("Keyfile should be false before a required-keyfile header is seen")
+	}
+	if len(state.Keyfiles) != 0 {
+		t.Fatalf("Keyfiles = %v; want none", state.Keyfiles)
 	}
 
-	// No keyfiles, but required
 	state.Keyfile = true
-	state.UpdateKeyfileLabel()
-	if state.KeyfileLabel != "Keyfiles required" {
-		t.Errorf("KeyfileLabel = %q; want 'Keyfiles required'", state.KeyfileLabel)
+	if !state.Keyfile {
+		t.Fatal("Keyfile should hold the required-keyfile semantic flag")
 	}
 
-	// One keyfile
 	state.Keyfiles = []string{"key1.bin"}
-	state.UpdateKeyfileLabel()
-	if state.KeyfileLabel != "Using 1 keyfile" {
-		t.Errorf("KeyfileLabel = %q; want 'Using 1 keyfile'", state.KeyfileLabel)
+	if len(state.Keyfiles) != 1 {
+		t.Fatalf("Keyfiles = %v; want one selected keyfile", state.Keyfiles)
 	}
 
-	// Multiple keyfiles
 	state.Keyfiles = []string{"key1.bin", "key2.bin", "key3.bin"}
-	state.UpdateKeyfileLabel()
-	if state.KeyfileLabel != "Using multiple keyfiles" {
-		t.Errorf("KeyfileLabel = %q; want 'Using multiple keyfiles'", state.KeyfileLabel)
+	if len(state.Keyfiles) != 3 {
+		t.Fatalf("Keyfiles = %v; want three selected keyfiles", state.Keyfiles)
 	}
 }
 
@@ -466,10 +473,30 @@ func TestSetStatus(t *testing.T) {
 			if state.MainStatus != tt.text {
 				t.Errorf("MainStatus = %q; want %q", state.MainStatus, tt.text)
 			}
+			if state.MainStatusKind != MainStatusCustom {
+				t.Errorf("MainStatusKind = %v; want MainStatusCustom after SetStatus", state.MainStatusKind)
+			}
 			if state.MainStatusColor != tt.color {
 				t.Errorf("MainStatusColor = %v; want %v", state.MainStatusColor, tt.color)
 			}
 		})
+	}
+}
+
+func TestSetReadyStatusMarksReadySemanticKind(t *testing.T) {
+	state := mustNewState(t)
+	state.SetStatus("Working", util.RED)
+
+	state.SetReadyStatus()
+
+	if state.MainStatusKind != MainStatusReady {
+		t.Fatalf("MainStatusKind = %v; want MainStatusReady", state.MainStatusKind)
+	}
+	if state.MainStatus != "Ready" {
+		t.Fatalf("MainStatus = %q; want Ready display fallback", state.MainStatus)
+	}
+	if state.MainStatusColor != util.WHITE {
+		t.Fatalf("MainStatusColor = %v; want WHITE", state.MainStatusColor)
 	}
 }
 
@@ -489,6 +516,75 @@ func TestSetPopupStatus(t *testing.T) {
 	state.SetPopupStatus("B")
 	if state.PopupStatus != "B" {
 		t.Errorf("PopupStatus = %q after second write; want %q (the setter must overwrite, not set-once)", state.PopupStatus, "B")
+	}
+}
+
+func TestSemanticDisplayDefaultsAndReset(t *testing.T) {
+	state := mustNewState(t)
+
+	snap := state.UISnapshot()
+	if snap.InputSummary.Kind != InputSummaryDropPrompt {
+		t.Fatalf("InputSummary.Kind = %v; want InputSummaryDropPrompt", snap.InputSummary.Kind)
+	}
+	if snap.StartAction != StartActionStart {
+		t.Fatalf("StartAction = %v; want StartActionStart", snap.StartAction)
+	}
+	if snap.Status.Kind != StatusReady {
+		t.Fatalf("Status.Kind = %v; want StatusReady", snap.Status.Kind)
+	}
+
+	state.SetInputSelection(2, 1, 4096, true)
+	state.SetStartAction(StartActionEncrypt)
+	state.SetStatusMessage(StatusCompleted, util.GREEN, StatusArgs{})
+	state.ResetUI()
+
+	snap = state.UISnapshot()
+	if snap.InputSummary.Kind != InputSummaryDropPrompt {
+		t.Fatalf("InputSummary.Kind after ResetUI = %v; want InputSummaryDropPrompt", snap.InputSummary.Kind)
+	}
+	if snap.StartAction != StartActionStart {
+		t.Fatalf("StartAction after ResetUI = %v; want StartActionStart", snap.StartAction)
+	}
+	if snap.Status.Kind != StatusReady {
+		t.Fatalf("Status.Kind after ResetUI = %v; want StatusReady", snap.Status.Kind)
+	}
+}
+
+func TestSemanticDisplaySettersReachUISnapshot(t *testing.T) {
+	state := mustNewState(t)
+
+	state.SetInputSelection(3, 2, 12345, true)
+	state.SetStartAction(StartActionZipAndEncrypt)
+	state.SetStatusMessage(StatusProcessingFile, util.YELLOW, StatusArgs{Index: 2, Total: 5})
+	state.SetPopupStatusMessage(StatusRecursiveCompleted, StatusArgs{Count: 4})
+
+	snap := state.UISnapshot()
+	if snap.InputSummary != (InputSummary{Kind: InputSummarySelection, Files: 3, Folders: 2, SizeBytes: 12345, ShowSize: true}) {
+		t.Fatalf("InputSummary = %#v; want selection summary", snap.InputSummary)
+	}
+	if snap.StartAction != StartActionZipAndEncrypt {
+		t.Fatalf("StartAction = %v; want StartActionZipAndEncrypt", snap.StartAction)
+	}
+	if snap.Status.Kind != StatusProcessingFile || snap.Status.Args.Index != 2 || snap.Status.Args.Total != 5 {
+		t.Fatalf("Status = %#v; want processing file 2/5", snap.Status)
+	}
+	if snap.PopupStatus.Kind != StatusRecursiveCompleted || snap.PopupStatus.Args.Count != 4 {
+		t.Fatalf("PopupStatus = %#v; want recursive completed count 4", snap.PopupStatus)
+	}
+}
+
+func TestCustomStatusRemainsRawText(t *testing.T) {
+	state := mustNewState(t)
+
+	state.SetCustomStatus("volume error from lower layer", util.RED)
+	state.SetPopupStatusText("Encrypting...")
+
+	snap := state.UISnapshot()
+	if snap.Status.Kind != StatusCustom || snap.Status.Text != "volume error from lower layer" {
+		t.Fatalf("Status = %#v; want custom lower-layer text", snap.Status)
+	}
+	if snap.PopupStatus.Kind != StatusCustom || snap.PopupStatus.Text != "Encrypting..." {
+		t.Fatalf("PopupStatus = %#v; want custom reporter text", snap.PopupStatus)
 	}
 }
 
@@ -692,7 +788,6 @@ func TestStateConcurrency(t *testing.T) {
 			state.SetProgress(float32(i)/float32(iterations), "")
 			state.SetCanCancel(i%2 == 0)
 			state.TogglePasswordVisibility()
-			state.UpdateKeyfileLabel()
 		}(i)
 	}
 

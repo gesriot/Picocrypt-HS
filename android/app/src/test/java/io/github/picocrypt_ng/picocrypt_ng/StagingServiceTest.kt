@@ -1,5 +1,8 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
+import android.content.Context
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -26,6 +29,19 @@ class StagingServiceTest {
     @Test fun hasSpaceFor_refusesWhenTight() {
         assertEquals(false, StagingService.hasSpaceFor(total = 1000, usable = 3000))
         assertEquals(true, StagingService.hasSpaceFor(total = 1000, usable = 3L * 1000 + StagingService.SPACE_MARGIN_BYTES))
+    }
+    @Test fun insufficientStorageError_includesRequiredAndAvailableBytes() {
+        val required = StagingService.requiredBytes(1000)
+        val context = mockk<Context>()
+        every {
+            context.getString(R.string.error_insufficient_storage, required, 3000L)
+        } returns "Need $required bytes; available 3000 bytes."
+
+        val error = StagingService.insufficientStorageError(context, total = 1000, usable = 3000)
+
+        assertEquals(R.string.error_insufficient_storage, error.messageResId)
+        assertEquals(listOf(required, 3000L), error.messageArgs)
+        assertEquals("Need $required bytes; available 3000 bytes.", error.localizedMessage(context))
     }
 
     // sanitizeName: core security control for SAF path-traversal prevention

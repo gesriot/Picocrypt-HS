@@ -45,6 +45,106 @@ const (
 	PasswordModeVisible
 )
 
+// MainStatusKind identifies whether MainStatus is the UI-owned ready state or a
+// caller-provided status message. Render logic must not infer this from text.
+type MainStatusKind int
+
+const (
+	MainStatusCustom MainStatusKind = iota
+	MainStatusReady
+)
+
+type InputSummaryKind int
+
+const (
+	InputSummaryDropPrompt InputSummaryKind = iota
+	InputSummaryScanning
+	InputSummarySelection
+	InputSummaryDecryptVolume
+)
+
+type InputSummary struct {
+	Kind      InputSummaryKind
+	Files     int
+	Folders   int
+	SizeBytes int64
+	ShowSize  bool
+}
+
+type StartAction int
+
+const (
+	StartActionStart StartAction = iota
+	StartActionEncrypt
+	StartActionZipAndEncrypt
+	StartActionDecrypt
+)
+
+type StatusKind int
+
+const (
+	StatusCustom StatusKind = iota
+	StatusReady
+	StatusCancelledByUser
+	StatusCompleted
+	StatusNoFilesToProcess
+	StatusProcessingFile
+	StatusRecursiveCompleted
+	StatusRecursiveFailedAll
+	StatusRecursiveCompletedFailed
+	StatusInvalidSplitSize
+	StatusCompletedSomeDeleteFailed
+	StatusKeptOutputUnverified
+	StatusCompletedVolumeDeleteFailed
+	StatusStartupPathAccessFailed
+	StatusStartupPathPartialAccessFailed
+	StatusOpenedPathsPreparing
+	StatusOpenedPathsTimeout
+	StatusDropFailedWalk
+	StatusDropFailedStatItem
+	StatusDropFailedStatItems
+	StatusDropReadAccessDenied
+	StatusDropHeaderMayBeDeniable
+	StatusDropHeaderDamaged
+	StatusDropFailedSplitPath
+	StatusKeyfileReadAccessDenied
+	StatusKeyfileGenerateFailed
+	StatusKeyfileWriteFailed
+	StatusMobileAppStorageCreateFailed
+	StatusMobileAppStorageReadFailed
+	StatusMobileAppStoragePathCopied
+	StatusMobileAppStorageNoFiles
+	StatusMobileFileAccessFailed
+	StatusMobileFileAccessUnsafeName
+)
+
+type StatusArgs struct {
+	Count  int
+	OK     int
+	Failed int
+	Index  int
+	Total  int
+	Error  string
+}
+
+type StatusMessage struct {
+	Kind  StatusKind
+	Args  StatusArgs
+	Text  string
+	Color color.RGBA
+}
+
+// CommentsPreviewState identifies whether decrypt-preview comments are usable.
+// Comments remains the header comment payload only; it must not carry display
+// sentinels such as "Comments are corrupted".
+type CommentsPreviewState int
+
+const (
+	CommentsPreviewNormal CommentsPreviewState = iota
+	CommentsPreviewUnavailable
+	CommentsPreviewCorrupted
+)
+
 // State holds the application state that persists across operations.
 // This centralizes all the global variables from the original implementation.
 type State struct {
@@ -91,9 +191,8 @@ type State struct {
 	Password  string
 	CPassword string // Confirm password
 
-	PasswordStrength   int
-	PasswordMode       PasswordInputMode
-	PasswordStateLabel string
+	PasswordStrength int
+	PasswordMode     PasswordInputMode
 
 	// Password generator
 	PassgenLength  int32
@@ -106,13 +205,11 @@ type State struct {
 	// Keyfiles
 	Keyfiles       []string
 	KeyfileOrdered bool
-	KeyfileLabel   string
 	Keyfile        bool // Whether keyfiles are required (from header)
 
 	// Comments
-	Comments         string
-	CommentsLabel    string
-	CommentsDisabled bool
+	Comments             string
+	CommentsPreviewState CommentsPreviewState
 
 	// Encryption options
 	Paranoid    bool
@@ -139,8 +236,13 @@ type State struct {
 	Recombine   bool
 
 	// Status
+	InputSummary    InputSummary
+	StartAction     StartAction
+	Status          StatusMessage
+	Popup           StatusMessage
 	StartLabel      string
 	MainStatus      string
+	MainStatusKind  MainStatusKind
 	MainStatusColor color.RGBA
 	PopupStatus     string
 
@@ -179,14 +281,17 @@ func NewState() (*State, error) {
 
 	return &State{
 		// Defaults
-		InputLabel:         "Drop files and folders into this window",
-		KeyfileLabel:       "None selected",
-		CommentsLabel:      "Comments:",
-		StartLabel:         "Start",
-		MainStatus:         "Ready",
-		MainStatusColor:    util.WHITE,
-		PasswordMode:       PasswordModeHidden,
-		PasswordStateLabel: "Show",
+		InputLabel:           "Drop files and folders into this window",
+		InputSummary:         InputSummary{Kind: InputSummaryDropPrompt},
+		StartAction:          StartActionStart,
+		Status:               StatusMessage{Kind: StatusReady, Color: util.WHITE},
+		Popup:                StatusMessage{Kind: StatusCustom},
+		StartLabel:           "Start",
+		MainStatus:           "Ready",
+		MainStatusKind:       MainStatusReady,
+		MainStatusColor:      util.WHITE,
+		PasswordMode:         PasswordModeHidden,
+		CommentsPreviewState: CommentsPreviewNormal,
 		// Password generator defaults must match resetUILocked(): all character
 		// classes ON (so the generator works before any reset) and PassgenCopy
 		// OFF (do not auto-copy a generated password to the OS clipboard).
@@ -261,16 +366,13 @@ func (s *State) resetUILocked() {
 	s.CPassword = ""
 	s.PasswordStrength = 0
 	s.PasswordMode = PasswordModeHidden
-	s.PasswordStateLabel = "Show"
 
 	s.Keyfiles = nil
 	s.KeyfileOrdered = false
-	s.KeyfileLabel = "None selected"
 	s.Keyfile = false
 
 	s.Comments = ""
-	s.CommentsLabel = "Comments:"
-	s.CommentsDisabled = false
+	s.CommentsPreviewState = CommentsPreviewNormal
 
 	s.Paranoid = false
 	s.ReedSolomon = false
@@ -300,8 +402,13 @@ func (s *State) resetUILocked() {
 	s.Delete = false
 	s.Recombine = false
 
+	s.InputSummary = InputSummary{Kind: InputSummaryDropPrompt}
+	s.StartAction = StartActionStart
+	s.Status = StatusMessage{Kind: StatusReady, Color: util.WHITE}
+	s.Popup = StatusMessage{Kind: StatusCustom}
 	s.StartLabel = "Start"
 	s.MainStatus = "Ready"
+	s.MainStatusKind = MainStatusReady
 	s.MainStatusColor = util.WHITE
 	s.PopupStatus = ""
 
@@ -393,12 +500,10 @@ func (snap UISnapshot) CanStart() bool {
 func (s *State) TogglePasswordVisibility() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.PasswordStateLabel == "Show" {
+	if s.PasswordMode == PasswordModeHidden {
 		s.PasswordMode = PasswordModeVisible
-		s.PasswordStateLabel = "Hide"
 	} else {
 		s.PasswordMode = PasswordModeHidden
-		s.PasswordStateLabel = "Show"
 	}
 }
 
@@ -409,38 +514,90 @@ func (s *State) IsPasswordHidden() bool {
 	return s.PasswordMode == PasswordModeHidden
 }
 
-// UpdateKeyfileLabel updates the keyfile label based on current keyfiles.
-func (s *State) UpdateKeyfileLabel() {
+// SetStatus updates the main status display.
+func (s *State) SetStatus(text string, c color.RGBA) {
+	s.SetCustomStatus(text, c)
+}
+
+// SetReadyStatus restores the UI-owned ready status.
+func (s *State) SetReadyStatus() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count := len(s.Keyfiles)
-	switch count {
-	case 0:
-		if s.Keyfile {
-			s.KeyfileLabel = "Keyfiles required"
-		} else {
-			s.KeyfileLabel = "None selected"
-		}
-	case 1:
-		s.KeyfileLabel = "Using 1 keyfile"
-	default:
-		s.KeyfileLabel = "Using multiple keyfiles"
+	s.Status = StatusMessage{Kind: StatusReady, Color: util.WHITE}
+	s.MainStatus = "Ready"
+	s.MainStatusKind = MainStatusReady
+	s.MainStatusColor = util.WHITE
+}
+
+func (s *State) SetInputPrompt() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputSummary = InputSummary{Kind: InputSummaryDropPrompt}
+}
+
+func (s *State) SetInputScanning(sizeBytes int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputSummary = InputSummary{Kind: InputSummaryScanning, SizeBytes: sizeBytes}
+}
+
+func (s *State) SetInputSelection(files, folders int, sizeBytes int64, showSize bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputSummary = InputSummary{
+		Kind:      InputSummarySelection,
+		Files:     files,
+		Folders:   folders,
+		SizeBytes: sizeBytes,
+		ShowSize:  showSize,
 	}
 }
 
-// SetStatus updates the main status display.
-func (s *State) SetStatus(text string, c color.RGBA) {
+func (s *State) SetInputDecryptVolume() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.MainStatus = text
+	s.InputSummary = InputSummary{Kind: InputSummaryDecryptVolume}
+}
+
+func (s *State) SetStartAction(action StartAction) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.StartAction = action
+}
+
+func (s *State) SetStatusMessage(kind StatusKind, c color.RGBA, args StatusArgs) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Status = StatusMessage{Kind: kind, Args: args, Color: c}
+	s.MainStatusKind = MainStatusCustom
 	s.MainStatusColor = c
+}
+
+func (s *State) SetCustomStatus(text string, c color.RGBA) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Status = StatusMessage{Kind: StatusCustom, Text: text, Color: c}
+	s.MainStatus = text
+	s.MainStatusKind = MainStatusCustom
+	s.MainStatusColor = c
+}
+
+func (s *State) SetPopupStatusMessage(kind StatusKind, args StatusArgs) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Popup = StatusMessage{Kind: kind, Args: args}
+}
+
+func (s *State) SetPopupStatusText(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Popup = StatusMessage{Kind: StatusCustom, Text: text}
+	s.PopupStatus = text
 }
 
 // SetPopupStatus updates the popup status display.
 func (s *State) SetPopupStatus(text string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.PopupStatus = text
+	s.SetPopupStatusText(text)
 }
 
 // SetProgress updates the progress display.
@@ -516,39 +673,43 @@ type UISnapshot struct {
 	OnlyFolderCount int
 	KeyfileCount    int
 
-	Password          string
-	CPassword         string
-	Keyfile           bool
-	Deniability       bool
-	Comments          string
-	CommentsDisabled  bool
-	StartLabel        string
-	Recursively       bool
-	OutputFile        string
-	InputFile         string
-	Split             bool
-	MainStatus        string
-	MainStatusColor   color.RGBA
-	RequiredFreeSpace int64
-	ShowProgress      bool
-	Recombine         bool
-	AutoUnzip         bool
-	InputLabel        string
-	KeyfileLabel      string
-	CommentsLabel     string
+	Password             string
+	CPassword            string
+	PasswordMode         PasswordInputMode
+	Keyfile              bool
+	Deniability          bool
+	Comments             string
+	CommentsPreviewState CommentsPreviewState
+	StartLabel           string
+	Recursively          bool
+	OutputFile           string
+	InputFile            string
+	Split                bool
+	MainStatus           string
+	MainStatusKind       MainStatusKind
+	MainStatusColor      color.RGBA
+	RequiredFreeSpace    int64
+	ShowProgress         bool
+	Recombine            bool
+	AutoUnzip            bool
+	InputLabel           string
+	InputSummary         InputSummary
+	StartAction          StartAction
+	Status               StatusMessage
+	PopupStatus          StatusMessage
+	PopupStatusMessage   StatusMessage
 }
 
 // RecursiveSnapshot is a value-copy of the State fields the recursive (batch)
 // worker captures once and re-applies before each file. Like Snapshot/UISnapshot,
 // taking one copy under a single RLock keeps the recursive worker off unlocked
-// State access (APP-02). It carries the credential/option fields plus the
-// KeyfileLabel the recursive flow restores; no progress/widget fields belong here.
+// State access (APP-02). It carries credential/option fields only; no
+// progress/widget/display-label fields belong here.
 type RecursiveSnapshot struct {
 	Password       string
 	Keyfile        bool
 	Keyfiles       []string
 	KeyfileOrdered bool
-	KeyfileLabel   string
 	Comments       string
 	Paranoid       bool
 	ReedSolomon    bool
@@ -598,33 +759,38 @@ func (s *State) UISnapshot() UISnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return UISnapshot{
-		Mode:              s.Mode,
-		Scanning:          s.Scanning,
-		Working:           s.Working,
-		AllFileCount:      len(s.AllFiles),
-		OnlyFileCount:     len(s.OnlyFiles),
-		OnlyFolderCount:   len(s.OnlyFolders),
-		KeyfileCount:      len(s.Keyfiles),
-		Password:          s.Password,
-		CPassword:         s.CPassword,
-		Keyfile:           s.Keyfile,
-		Deniability:       s.Deniability,
-		Comments:          s.Comments,
-		CommentsDisabled:  s.CommentsDisabled,
-		StartLabel:        s.StartLabel,
-		Recursively:       s.Recursively,
-		OutputFile:        s.OutputFile,
-		InputFile:         s.InputFile,
-		Split:             s.Split,
-		MainStatus:        s.MainStatus,
-		MainStatusColor:   s.MainStatusColor,
-		RequiredFreeSpace: s.RequiredFreeSpace,
-		ShowProgress:      s.ShowProgress,
-		Recombine:         s.Recombine,
-		AutoUnzip:         s.AutoUnzip,
-		InputLabel:        s.InputLabel,
-		KeyfileLabel:      s.KeyfileLabel,
-		CommentsLabel:     s.CommentsLabel,
+		Mode:                 s.Mode,
+		Scanning:             s.Scanning,
+		Working:              s.Working,
+		AllFileCount:         len(s.AllFiles),
+		OnlyFileCount:        len(s.OnlyFiles),
+		OnlyFolderCount:      len(s.OnlyFolders),
+		KeyfileCount:         len(s.Keyfiles),
+		Password:             s.Password,
+		CPassword:            s.CPassword,
+		PasswordMode:         s.PasswordMode,
+		Keyfile:              s.Keyfile,
+		Deniability:          s.Deniability,
+		Comments:             s.Comments,
+		CommentsPreviewState: s.CommentsPreviewState,
+		StartLabel:           s.StartLabel,
+		Recursively:          s.Recursively,
+		OutputFile:           s.OutputFile,
+		InputFile:            s.InputFile,
+		Split:                s.Split,
+		MainStatus:           s.MainStatus,
+		MainStatusKind:       s.MainStatusKind,
+		MainStatusColor:      s.MainStatusColor,
+		RequiredFreeSpace:    s.RequiredFreeSpace,
+		ShowProgress:         s.ShowProgress,
+		Recombine:            s.Recombine,
+		AutoUnzip:            s.AutoUnzip,
+		InputLabel:           s.InputLabel,
+		InputSummary:         s.InputSummary,
+		StartAction:          s.StartAction,
+		Status:               s.Status,
+		PopupStatus:          s.Popup,
+		PopupStatusMessage:   s.Popup,
 	}
 }
 
@@ -639,7 +805,6 @@ func (s *State) RecursiveSnapshot() RecursiveSnapshot {
 		Keyfile:        s.Keyfile,
 		Keyfiles:       append([]string(nil), s.Keyfiles...),
 		KeyfileOrdered: s.KeyfileOrdered,
-		KeyfileLabel:   s.KeyfileLabel,
 		Comments:       s.Comments,
 		Paranoid:       s.Paranoid,
 		ReedSolomon:    s.ReedSolomon,
@@ -666,7 +831,6 @@ func (s *State) ApplyRecursiveSelection(rs RecursiveSnapshot) {
 	s.Keyfile = rs.Keyfile
 	s.Keyfiles = append([]string(nil), rs.Keyfiles...)
 	s.KeyfileOrdered = rs.KeyfileOrdered
-	s.KeyfileLabel = rs.KeyfileLabel
 	s.Comments = rs.Comments
 	s.Paranoid = rs.Paranoid
 	s.ReedSolomon = rs.ReedSolomon

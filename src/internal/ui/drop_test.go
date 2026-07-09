@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/header"
@@ -118,10 +119,10 @@ func TestOutputPathFromDecrypt(t *testing.T) {
 }
 
 // TestMultipleDropLabels drives the real handleMultipleDrop (via onDrop) with
-// actual files/folders on disk and asserts the InputLabel it produces. The label
-// grammar (singular/plural, "and") is production logic in drop.go; this test must
-// fail if that logic changes, so it never recomputes the expected string itself —
-// it builds the on-disk inputs and reads back State.InputLabel.
+// actual files/folders on disk and asserts the rendered input label it produces.
+// The label grammar (singular/plural, "and") is production logic in drop.go and
+// app.go; this test must fail if that logic changes, so it never recomputes the
+// expected string itself.
 func TestMultipleDropLabels(t *testing.T) {
 	if raceEnabled {
 		// Drives real onDrop with folders, whose background scan goroutine calls
@@ -139,14 +140,14 @@ func TestMultipleDropLabels(t *testing.T) {
 		folders  int
 		expected string
 	}{
-		{"OnlyFiles_2", 2, 0, "2 files"},
-		{"OnlyFiles_5", 5, 0, "5 files"},
-		{"OnlyFolders_2", 0, 2, "2 folders"},
-		{"OnlyFolders_5", 0, 5, "5 folders"},
-		{"1File1Folder", 1, 1, "1 file and 1 folder"},
-		{"1FileManyFolders", 1, 3, "1 file and 3 folders"},
-		{"ManyFiles1Folder", 3, 1, "3 files and 1 folder"},
-		{"ManyBoth", 3, 2, "3 files and 2 folders"},
+		{"OnlyFiles_2", 2, 0, trn("selection.files", "{{.Count}} files", 2, map[string]any{"Count": 2})},
+		{"OnlyFiles_5", 5, 0, trn("selection.files", "{{.Count}} files", 5, map[string]any{"Count": 5})},
+		{"OnlyFolders_2", 0, 2, trn("selection.folders", "{{.Count}} folders", 2, map[string]any{"Count": 2})},
+		{"OnlyFolders_5", 0, 5, trn("selection.folders", "{{.Count}} folders", 5, map[string]any{"Count": 5})},
+		{"1File1Folder", 1, 1, tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{"Files": "1 file", "Folders": "1 folder"})},
+		{"1FileManyFolders", 1, 3, tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{"Files": "1 file", "Folders": "3 folders"})},
+		{"ManyFiles1Folder", 3, 1, tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{"Files": "3 files", "Folders": "1 folder"})},
+		{"ManyBoth", 3, 2, tr("selection.mixed", "{{.Files}} and {{.Folders}}", map[string]any{"Files": "3 files", "Folders": "2 folders"})},
 	}
 
 	for _, tc := range testCases {
@@ -177,7 +178,8 @@ func TestMultipleDropLabels(t *testing.T) {
 
 			var label string
 			fyne.DoAndWait(func() {
-				label = a.State.InputLabel
+				snap := a.State.UISnapshot()
+				label = renderInputSummary(snap.InputSummary)
 			})
 			// handleMultipleDrop appends a " (size)" summary for the file count;
 			// the grammar prefix is what this test pins.
@@ -206,20 +208,20 @@ func TestApplyDropErrorPreservesStatusAfterReset(t *testing.T) {
 				State:             mustNewState(t),
 				advancedContainer: container.NewVBox(),
 			}
-			a.State.StartLabel = "Decrypt"
-			a.State.MainStatus = "Old status"
-			a.State.MainStatusColor = util.GREEN
+			a.State.SetStartAction(app.StartActionDecrypt)
+			a.State.SetStatus("Old status", util.GREEN)
 
 			a.applyDropError(tc.status, tc.closeKeyfileModal)
 
-			if a.State.StartLabel != "Start" {
-				t.Fatalf("expected resetUI() to run, StartLabel = %q", a.State.StartLabel)
+			snap := a.State.UISnapshot()
+			if snap.StartAction != app.StartActionStart {
+				t.Fatalf("expected resetUI() to run, StartAction = %v", snap.StartAction)
 			}
-			if a.State.MainStatus != tc.status {
-				t.Fatalf("MainStatus = %q, want %q", a.State.MainStatus, tc.status)
+			if snap.Status.Kind != app.StatusCustom || snap.Status.Text != tc.status {
+				t.Fatalf("Status = %#v, want custom %q", snap.Status, tc.status)
 			}
-			if a.State.MainStatusColor != util.RED {
-				t.Fatalf("MainStatusColor = %#v, want %#v", a.State.MainStatusColor, util.RED)
+			if snap.Status.Color != util.RED {
+				t.Fatalf("Status.Color = %#v, want %#v", snap.Status.Color, util.RED)
 			}
 		})
 	}
@@ -394,8 +396,9 @@ func TestApplyStartupPathsSkipsInvalidArgsWhenValidPathsRemain(t *testing.T) {
 	if state.InputFile != inputFile {
 		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
 	}
-	if state.MainStatus != "Ready" {
-		t.Fatalf("MainStatus = %q; want Ready", state.MainStatus)
+	snap := a.State.UISnapshot()
+	if snap.Status.Kind != app.StatusReady {
+		t.Fatalf("Status.Kind = %v; want StatusReady", snap.Status.Kind)
 	}
 }
 
@@ -438,11 +441,12 @@ func TestApplyStartupPathsReportsAccessError(t *testing.T) {
 		a.applyStartupPaths([]string{"blocked.txt"})
 	})
 
-	if a.State.MainStatus != startupPathAccessStatus {
-		t.Fatalf("MainStatus = %q; want %q", a.State.MainStatus, startupPathAccessStatus)
+	snap := a.State.UISnapshot()
+	if got := renderStatus(snap.Status, snap); got != startupPathAccessStatus() {
+		t.Fatalf("rendered status = %q; want %q", got, startupPathAccessStatus())
 	}
-	if a.State.MainStatusColor != util.RED {
-		t.Fatalf("MainStatusColor = %#v; want %#v", a.State.MainStatusColor, util.RED)
+	if snap.Status.Color != util.RED {
+		t.Fatalf("Status.Color = %#v; want %#v", snap.Status.Color, util.RED)
 	}
 }
 
@@ -478,8 +482,9 @@ func TestApplyStartupPathsPreservesPartialAccessWarning(t *testing.T) {
 	if state.InputFile != inputFile {
 		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
 	}
-	if state.MainStatus != startupPathPartialAccessStatus {
-		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathPartialAccessStatus)
+	snap := a.State.UISnapshot()
+	if got := renderStatus(snap.Status, snap); got != startupPathPartialAccessStatus() {
+		t.Fatalf("rendered status = %q; want %q", got, startupPathPartialAccessStatus())
 	}
 }
 
@@ -541,8 +546,10 @@ func TestAppendScannedFilesUpdatesState(t *testing.T) {
 	if a.State.RequiredFreeSpace != 35 {
 		t.Fatalf("RequiredFreeSpace = %d; want 35", a.State.RequiredFreeSpace)
 	}
-	if !strings.Contains(a.State.InputLabel, "35") && !strings.Contains(a.State.InputLabel, "B") {
-		t.Fatalf("InputLabel = %q; want size summary", a.State.InputLabel)
+	snap := a.State.UISnapshot()
+	label := renderInputSummary(snap.InputSummary)
+	if !strings.Contains(label, util.Sizeify(35)) {
+		t.Fatalf("rendered input label = %q; want size summary %q", label, util.Sizeify(35))
 	}
 }
 
@@ -695,8 +702,9 @@ func TestScheduleStartupPathsPreservesPartialAccessWarningForArgv(t *testing.T) 
 	if state.InputFile != inputFile {
 		t.Fatalf("InputFile = %q; want %q", state.InputFile, inputFile)
 	}
-	if state.MainStatus != startupPathPartialAccessStatus {
-		t.Fatalf("MainStatus = %q; want %q", state.MainStatus, startupPathPartialAccessStatus)
+	snap := a.State.UISnapshot()
+	if got := renderStatus(snap.Status, snap); got != startupPathPartialAccessStatus() {
+		t.Fatalf("rendered status = %q; want %q", got, startupPathPartialAccessStatus())
 	}
 }
 
@@ -1941,8 +1949,7 @@ func TestOpenedPathReadinessPendingStatusDoesNotOverwriteBusyStatus(t *testing.T
 	const busyStatus = "Encrypting active file"
 	fyne.DoAndWait(func() {
 		a.State.SetWorking(true)
-		a.State.MainStatus = busyStatus
-		a.State.MainStatusColor = util.WHITE
+		a.State.SetStatus(busyStatus, util.WHITE)
 		a.refreshUI()
 	})
 	defer func() {
@@ -2051,7 +2058,7 @@ func TestKeyfileDropHandling(t *testing.T) {
 	var label string
 	fyne.DoAndWait(func() {
 		got = append([]string(nil), a.State.Keyfiles...)
-		label = a.State.KeyfileLabel
+		label = a.keyfileLabel.Text
 	})
 
 	if len(got) != 2 {
@@ -2060,17 +2067,19 @@ func TestKeyfileDropHandling(t *testing.T) {
 	if got[0] != key1 || got[1] != key2 {
 		t.Fatalf("Keyfiles = %#v; want [%q %q] in order", got, key1, key2)
 	}
-	if label != "Using 2 keyfiles" {
-		t.Fatalf("KeyfileLabel = %q; want %q", label, "Using 2 keyfiles")
+	wantLabel := trn("keyfiles.count", "Using {{.Count}} keyfiles", 2, map[string]any{"Count": 2})
+	if label != wantLabel {
+		t.Fatalf("rendered keyfile label = %q; want %q", label, wantLabel)
 	}
 }
 
 // TestStatusFreeSpaceMultiplier drives the real updateUIState free-space
-// estimation: with MainStatus "Ready" and RequiredFreeSpace set, updateUIState
-// (app.go) rewrites the status label to "Ready (ensure >SIZE free)" where SIZE is
-// RequiredFreeSpace times a multiplier that grows with multi-file/deniability/
-// split/etc. The test sets only the inputs and reads the rendered statusLabel,
-// so it fails if the multiplier or formatting logic in updateUIState changes.
+// estimation: with a ready semantic status and RequiredFreeSpace set,
+// updateUIState (app.go) rewrites the status label to "Ready (ensure >SIZE
+// free)" where SIZE is RequiredFreeSpace times a multiplier that grows with
+// multi-file/deniability/split/etc. The test intentionally poisons Status.Text
+// in ready cases so it fails if updateUIState compares display text instead of
+// the semantic status kind.
 func TestStatusFreeSpaceMultiplier(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 
@@ -2084,12 +2093,14 @@ func TestStatusFreeSpaceMultiplier(t *testing.T) {
 			a.State.CPassword = "secret"
 			a.State.AllFiles = []string{"only.txt"}
 			a.State.OnlyFiles = []string{"only.txt"}
-			a.State.MainStatus = "Ready"
+			a.State.Status = app.StatusMessage{Kind: app.StatusReady, Text: "Localized ready", Color: util.WHITE}
 			a.State.RequiredFreeSpace = base
 			a.updateUIState()
 		})
 
-		want := "Ready (ensure >" + util.Sizeify(base*1) + " free)"
+		want := tr("status.ready_free_space", "Ready (ensure >{{.Size}} free)", map[string]any{
+			"Size": util.Sizeify(base * 1),
+		})
 		if got := statusLabelText(t, a); got != want {
 			t.Fatalf("status = %q; want %q (1x multiplier)", got, want)
 		}
@@ -2106,14 +2117,34 @@ func TestStatusFreeSpaceMultiplier(t *testing.T) {
 			a.State.OnlyFiles = []string{"a.txt", "b.txt"}
 			a.State.Deniability = true
 			a.State.Split = true
-			a.State.MainStatus = "Ready"
+			a.State.Status = app.StatusMessage{Kind: app.StatusReady, Text: "Localized ready", Color: util.WHITE}
 			a.State.RequiredFreeSpace = base
 			a.updateUIState()
 		})
 
-		want := "Ready (ensure >" + util.Sizeify(base*4) + " free)"
+		want := tr("status.ready_free_space", "Ready (ensure >{{.Size}} free)", map[string]any{
+			"Size": util.Sizeify(base * 4),
+		})
 		if got := statusLabelText(t, a); got != want {
 			t.Fatalf("status = %q; want %q (4x multiplier)", got, want)
+		}
+	})
+
+	t.Run("CustomReadyTextDoesNotTriggerFreeSpace", func(t *testing.T) {
+		a := createUIReadyDropTestApp(t, fyneApp)
+		fyne.DoAndWait(func() {
+			a.State.Mode = "encrypt"
+			a.State.Password = "secret"
+			a.State.CPassword = "secret"
+			a.State.AllFiles = []string{"only.txt"}
+			a.State.OnlyFiles = []string{"only.txt"}
+			a.State.SetCustomStatus("Ready", util.WHITE)
+			a.State.RequiredFreeSpace = base
+			a.updateUIState()
+		})
+
+		if got := statusLabelText(t, a); got != "Ready" {
+			t.Fatalf("status = %q; want custom Ready text without free-space suffix", got)
 		}
 	})
 }
@@ -2233,7 +2264,7 @@ func assertMainStatusStays(t *testing.T, a *App, want string, duration time.Dura
 	for time.Now().Before(deadline) {
 		state := snapshotDropState(t, a)
 		if state.MainStatus != want {
-			t.Fatalf("MainStatus = %q; want it to stay %q", state.MainStatus, want)
+			t.Fatalf("rendered status = %q; want it to stay %q", state.MainStatus, want)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -2254,9 +2285,10 @@ func snapshotDropState(t *testing.T, a *App) dropStateSnapshot {
 
 	var state dropStateSnapshot
 	fyne.DoAndWait(func() {
+		snap := a.State.UISnapshot()
 		state = dropStateSnapshot{
 			Mode:        a.State.Mode,
-			MainStatus:  a.State.MainStatus,
+			MainStatus:  renderStatus(snap.Status, snap),
 			InputFile:   a.State.InputFile,
 			OutputFile:  a.State.OutputFile,
 			OnlyFiles:   append([]string(nil), a.State.OnlyFiles...),
@@ -2328,15 +2360,55 @@ func TestHandleDecryptDropNonCommentDecodeErrorIsHeaderDamage(t *testing.T) {
 
 	var comments, mainStatus string
 	fyne.DoAndWait(func() {
+		snap := a.State.UISnapshot()
 		comments = a.State.Comments
-		mainStatus = a.State.MainStatus
+		mainStatus = renderStatus(snap.Status, snap)
 	})
 
-	if comments == "Comments are corrupted" {
+	if comments == tr("comments.corrupted", "Comments are corrupted") {
 		t.Fatalf("Comments = %q; non-comment header corruption must not be labeled as comment damage", comments)
 	}
-	if mainStatus != "The volume header is damaged" {
-		t.Fatalf("MainStatus = %q; want %q", mainStatus, "The volume header is damaged")
+	wantStatus := tr("drop.header_damaged", "The volume header is damaged")
+	if mainStatus != wantStatus {
+		t.Fatalf("MainStatus = %q; want %q", mainStatus, wantStatus)
+	}
+}
+
+func TestHandleDecryptDropCommentDecodeErrorUsesSemanticPreviewState(t *testing.T) {
+	rs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("NewRSCodecs failed: %v", err)
+	}
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	raw := craftFullHeaderBytes(t, rs, "visible")
+	commentOffset := header.VersionEncSize + header.CommentLenEncSize
+	copy(raw[commentOffset:commentOffset+3], []byte{0x00, 0x01, 0x02})
+
+	pcvPath := filepath.Join(t.TempDir(), "comment-corrupt.pcv")
+	if err := os.WriteFile(pcvPath, raw, 0o644); err != nil {
+		t.Fatalf("write crafted .pcv: %v", err)
+	}
+
+	fyne.DoAndWait(func() {
+		a.onDrop([]string{pcvPath})
+	})
+	waitForDropProcessing(t, a)
+
+	var comments string
+	var previewState app.CommentsPreviewState
+	fyne.DoAndWait(func() {
+		comments = a.State.Comments
+		previewState = a.State.CommentsPreviewState
+	})
+
+	if comments != "" {
+		t.Fatalf("Comments = %q; want empty payload when comment preview is corrupted", comments)
+	}
+	if previewState != app.CommentsPreviewCorrupted {
+		t.Fatalf("CommentsPreviewState = %v; want CommentsPreviewCorrupted", previewState)
 	}
 }
 
@@ -2388,19 +2460,21 @@ func TestHandleDecryptDropMalformedCommentLen(t *testing.T) {
 
 			var comments, mainStatus, mode string
 			fyne.DoAndWait(func() {
+				snap := a.State.UISnapshot()
 				comments = a.State.Comments
-				mainStatus = a.State.MainStatus
+				mainStatus = renderStatus(snap.Status, snap)
 				mode = a.State.Mode
 			})
 
 			if mode != "decrypt" {
 				t.Fatalf("Mode = %q; want decrypt", mode)
 			}
-			if comments == "Comment length is corrupted" || comments == "Comments are corrupted" {
+			if comments == "Comment length is corrupted" || comments == tr("comments.corrupted", "Comments are corrupted") {
 				t.Fatalf("Comments = %q; malformed comment length is non-comment header damage", comments)
 			}
-			if mainStatus != "The volume header is damaged" {
-				t.Fatalf("MainStatus = %q; want %q", mainStatus, "The volume header is damaged")
+			wantStatus := tr("drop.header_damaged", "The volume header is damaged")
+			if mainStatus != wantStatus {
+				t.Fatalf("MainStatus = %q; want %q", mainStatus, wantStatus)
 			}
 		})
 	}

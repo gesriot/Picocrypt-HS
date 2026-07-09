@@ -75,7 +75,7 @@ func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
 			configure: func(a *App) {
 				a.State.Mode = "encrypt"
 				a.State.OnlyFiles = []string{"input.txt"}
-				a.State.InputLabel = "input.txt"
+				a.State.SetInputSelection(1, 0, 0, false)
 				a.State.OutputFile = "input.txt.pcv"
 			},
 		},
@@ -84,7 +84,7 @@ func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
 			configure: func(a *App) {
 				a.State.Mode = "decrypt"
 				a.State.OnlyFiles = []string{"input.txt.pcv"}
-				a.State.InputLabel = "input.txt.pcv"
+				a.State.SetInputDecryptVolume()
 				a.State.OutputFile = "input.txt"
 			},
 		},
@@ -118,6 +118,80 @@ func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
 	}
 }
 
+func TestDesktopLanguageSelectorStaysInHeaderOutsideWorkflowControls(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
+	}
+
+	fyneApp := newTestFyneApp(t)
+	a, err := NewApp("v2.test")
+	if err != nil {
+		t.Fatalf("NewApp returned error: %v", err)
+	}
+	a.fyneApp = fyneApp
+
+	fyne.DoAndWait(func() {
+		a.Window = fyneApp.NewWindow("layout-test")
+		content := a.buildUI()
+		a.Window.SetContent(content)
+	})
+
+	if a.languageSelector == nil || a.languageSelector.button == nil {
+		t.Fatal("language selector was not built")
+	}
+	if a.mainContent == nil {
+		t.Fatal("mainContent was not built")
+	}
+	for _, obj := range a.mainContent.Objects {
+		if obj == a.languageSelector.button {
+			t.Fatal("language selector is inside main workflow content; want header utility control")
+		}
+	}
+}
+
+func TestMobileLanguageSelectorStaysInUtilityRowBeforeFileWorkflow(t *testing.T) {
+	if raceEnabled {
+		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
+	}
+
+	fyneApp := newTestFyneApp(t)
+	a, err := NewApp("v2.test")
+	if err != nil {
+		t.Fatalf("NewApp returned error: %v", err)
+	}
+	a.fyneApp = fyneApp
+
+	fyne.DoAndWait(func() {
+		a.Window = fyneApp.NewWindow("mobile-layout-test")
+		content := a.buildMobileUI()
+		a.Window.SetContent(content)
+	})
+
+	if a.languageSelector == nil || a.languageSelector.button == nil {
+		t.Fatal("language selector was not built")
+	}
+	if a.mainContent == nil {
+		t.Fatal("mainContent was not built")
+	}
+	if len(a.mainContent.Objects) < 2 {
+		t.Fatalf("mainContent has %d objects; want utility row followed by file workflow", len(a.mainContent.Objects))
+	}
+
+	utilityRow := a.mainContent.Objects[0]
+	fileWorkflow := a.mainContent.Objects[1]
+	if !canvasTreeContainsObject(utilityRow, a.languageSelector.button) {
+		t.Fatal("mobile utility row does not contain the language selector")
+	}
+	if canvasTreeContainsObject(fileWorkflow, a.languageSelector.button) {
+		t.Fatal("language selector is inside the mobile file workflow; want utility row before it")
+	}
+	for i, obj := range a.mainContent.Objects[1:] {
+		if canvasTreeContainsObject(obj, a.languageSelector.button) {
+			t.Fatalf("language selector is inside mobile workflow control %d; want only the utility row", i+1)
+		}
+	}
+}
+
 func TestDesktopUILayoutFitsWindowAfterModeChange(t *testing.T) {
 	if raceEnabled {
 		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
@@ -145,7 +219,7 @@ func TestDesktopUILayoutFitsWindowAfterModeChange(t *testing.T) {
 	fyne.DoAndWait(func() {
 		a.State.Mode = "encrypt"
 		a.State.OnlyFiles = []string{"input.txt"}
-		a.State.InputLabel = "input.txt"
+		a.State.SetInputSelection(1, 0, 0, false)
 		a.State.OutputFile = "input.txt.pcv"
 		a.updateAdvancedSection()
 		a.updateUIState()
@@ -168,7 +242,7 @@ func TestDesktopOutputDisplayLongNameDoesNotGrowWindow(t *testing.T) {
 	a.fyneApp = fyneApp
 	a.State.Mode = "encrypt"
 	a.State.OnlyFiles = []string{"input.txt"}
-	a.State.InputLabel = "input.txt"
+	a.State.SetInputSelection(1, 0, 0, false)
 	a.State.OutputFile = filepath.Join("/tmp", strings.Repeat("very-long-output-name-", 20)+".pcv")
 
 	var size fyne.Size

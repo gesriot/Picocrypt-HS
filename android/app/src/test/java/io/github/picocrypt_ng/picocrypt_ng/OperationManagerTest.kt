@@ -147,9 +147,7 @@ class OperationManagerTest {
         assertTrue("Should fail with no active operation", result.isFailure)
         result.onFailure { error ->
             assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
-            val errorMessage = error.message ?: ""
-            assertTrue("Error message should mention no active operation", 
-                errorMessage.contains("No active operation", ignoreCase = true))
+            assertEquals(R.string.error_no_active_operation, (error as AppError).messageResId)
         }
     }
     
@@ -362,19 +360,24 @@ class OperationManagerTest {
             password = "testpassword",
             confirmPassword = "testpassword"
         )
-        
-        // Create a mock operation state
         val operationState = TestDataBuilders.createOperationState(
             formData = formData
         )
-        
-        // We can't directly set the operation state, but we can test the password clearing
-        // by checking that clearPasswords works
-        val passwordBefore = formData.passwordInput.copyOf()
-        formData.clearPasswords()
-        
-        assertTrue("Password should be cleared", formData.passwordInput.all { it == '\u0000' })
-        assertTrue("Confirm password should be cleared", formData.confirmPasswordInput.all { it == '\u0000' })
+        assertTrue("password precondition should contain non-zero chars", formData.passwordInput.any { it != '\u0000' })
+        assertTrue("confirm precondition should contain non-zero chars", formData.confirmPasswordInput.any { it != '\u0000' })
+
+        val stateField = OperationManager::class.java.getDeclaredField("_currentOperation")
+        stateField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = stateField.get(OperationManager)
+            as kotlinx.coroutines.flow.MutableStateFlow<OperationState?>
+        flow.value = operationState
+
+        OperationManager.clearOperation(shouldCleanupFiles = false)
+
+        assertNull("Operation should be null after clearing", OperationManager.currentOperation.first())
+        assertTrue("Password should be cleared by OperationManager.clearOperation", formData.passwordInput.all { it == '\u0000' })
+        assertTrue("Confirm password should be cleared by OperationManager.clearOperation", formData.confirmPasswordInput.all { it == '\u0000' })
     }
     
     @Test
@@ -387,26 +390,40 @@ class OperationManagerTest {
         assertTrue("Should fail with no active operation", result.isFailure)
         result.onFailure { error ->
             assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
-            val errorMessage = error.message ?: ""
-            assertTrue("Error message should mention no active operation to retry",
-                errorMessage.contains("No active operation to retry", ignoreCase = true))
+            assertEquals(R.string.error_no_operation_to_retry, (error as AppError).messageResId)
         }
     }
     
     @Test
-    fun `retryOperation returns error when form data invalid`() = runTest {
-        // We can't easily set up an operation without GoBridge, but we can test
-        // that retryOperation validates form data
+    fun `retryOperation returns validation error when active operation has invalid form data`() = runTest {
         val invalidFormData = TestDataBuilders.createEncryptFormData(
             copiedFilePath = "" // Invalid - no file
         )
-        
-        // This will fail because there's no active operation, but we're testing
-        // the validation logic that happens after checking for active operation
-        val result = OperationManager.retryOperation(mockContext, invalidFormData)
-        
-        // Will fail either because no active operation or invalid form data
-        assertTrue("Should fail", result.isFailure)
+        val stateField = OperationManager::class.java.getDeclaredField("_currentOperation")
+        stateField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = stateField.get(OperationManager)
+            as kotlinx.coroutines.flow.MutableStateFlow<OperationState?>
+        flow.value = TestDataBuilders.createOperationState(
+            type = OperationType.ENCRYPT,
+            formData = TestDataBuilders.createEncryptFormData(),
+        )
+
+        mockkObject(GoBridge)
+        try {
+            val result = OperationManager.retryOperation(mockContext, invalidFormData)
+
+            assertTrue("Should fail with NoFileSelected", result.isFailure)
+            result.onFailure { error ->
+                assertTrue(
+                    "Error should be NoFileSelected",
+                    error is AppError.ValidationError.NoFileSelected,
+                )
+            }
+            verify(exactly = 0) { GoBridge.startOperation() }
+        } finally {
+            unmockkObject(GoBridge)
+        }
     }
     
     @Test
@@ -418,6 +435,7 @@ class OperationManagerTest {
         assertTrue("Should fail with no active operation", result.isFailure)
         result.onFailure { error ->
             assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
+            assertEquals(R.string.error_no_active_operation, (error as AppError).messageResId)
         }
     }
     
@@ -488,8 +506,8 @@ class OperationManagerTest {
     @Test
     fun `retryDecryptWithForce returns error when operation is not decrypt`() = runTest {
         // The guard at OperationManager.retryDecryptWithForce rejects a non-DECRYPT
-        // operation (operation.type != DECRYPT -> GenericOperation("Can only retry
-        // decryption operations")). It short-circuits BEFORE any decrypt-side GoBridge
+        // operation (operation.type != DECRYPT -> GenericOperation with
+        // error_decrypt_retry_only). It short-circuits BEFORE any decrypt-side GoBridge
         // call, so the Go AAR is not needed — establish an ENCRYPT op through the public
         // seam (GoBridge mocked) and assert the rejection. startEncrypt resolves an
         // output path under context.filesDir; back it with a real temp dir.
@@ -518,10 +536,7 @@ class OperationManagerTest {
                     "Error should be GenericOperation",
                     error is AppError.OperationError.GenericOperation
                 )
-                assertTrue(
-                    "Message should explain only decryption can be retried",
-                    (error.message ?: "").contains("Can only retry decryption", ignoreCase = true)
-                )
+                assertEquals(R.string.error_decrypt_retry_only, (error as AppError).messageResId)
             }
         } finally {
             unmockkObject(GoBridge)
@@ -814,4 +829,3 @@ class OperationManagerTest {
         }
     }
 }
-

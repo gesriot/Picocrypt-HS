@@ -23,6 +23,7 @@ import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
 import io.github.picocrypt_ng.picocrypt_ng.OperationViewModel
 import io.github.picocrypt_ng.picocrypt_ng.AppError
 import io.github.picocrypt_ng.picocrypt_ng.R
+import io.github.picocrypt_ng.picocrypt_ng.localizedMessage
 
 
 @Composable
@@ -78,7 +79,7 @@ fun WorkButton(
         AlertDialog(
             onDismissRequest = { showErrorDialog = null },
             title = { Text(stringResource(R.string.error)) },
-            text = { Text(error.userMessage) },
+            text = { Text(error.localizedMessage(context)) },
             confirmButton = {
                 TextButton(onClick = { showErrorDialog = null }) {
                     Text(stringResource(R.string.ok))

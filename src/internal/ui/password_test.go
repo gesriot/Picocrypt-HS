@@ -83,24 +83,27 @@ func TestPasswordStrengthScoring(t *testing.T) {
 }
 
 // TestPasswordVisibilityToggle drives the real show/hide button built in
-// buildPasswordSection. The "Show"/"Hide" strings are state-machine values, not
-// copy: the button text IS PasswordStateLabel, and tapping flips both the label
-// and the masking on BOTH entries. The test taps the rendered button and asserts
-// (a) the button's drawn .Text pivots Show→Hide→Show, (b) IsPasswordHidden
-// tracks it, and (c) passwordEntry/cPasswordEntry masking follows. It fails if
-// the toggle stops re-labelling the button or stops un/re-masking the entries.
+// buildPasswordSection. The button text is rendered from PasswordMode, and
+// tapping flips both the label and the masking on BOTH entries. The test taps
+// the rendered button and asserts (a) the button's drawn .Text pivots
+// Show→Hide→Show, (b) IsPasswordHidden tracks it, and (c)
+// passwordEntry/cPasswordEntry masking follows. It fails if the toggle stops
+// re-labelling the button or stops un/re-masking the entries.
 func TestPasswordVisibilityToggle(t *testing.T) {
 	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 
 	fyne.DoAndWait(func() {
+		wantShow := tr("password.show", "Show")
+		wantHide := tr("password.hide", "Hide")
+
 		// Initially hidden: button reads "Show", both entries masked.
 		if !a.State.IsPasswordHidden() {
 			t.Error("Password should be hidden initially")
 		}
-		if a.showHideBtn.Text != "Show" {
-			t.Errorf("button text should be 'Show', got %q", a.showHideBtn.Text)
+		if a.showHideBtn.Text != wantShow {
+			t.Errorf("button text should be %q, got %q", wantShow, a.showHideBtn.Text)
 		}
 		if !a.passwordEntry.IsHidden() || !a.cPasswordEntry.IsHidden() {
 			t.Error("both entries should be masked initially")
@@ -111,8 +114,8 @@ func TestPasswordVisibilityToggle(t *testing.T) {
 		if a.State.IsPasswordHidden() {
 			t.Error("Password should be visible after toggle")
 		}
-		if a.showHideBtn.Text != "Hide" {
-			t.Errorf("button text should be 'Hide' after toggle, got %q", a.showHideBtn.Text)
+		if a.showHideBtn.Text != wantHide {
+			t.Errorf("button text should be %q after toggle, got %q", wantHide, a.showHideBtn.Text)
 		}
 		if a.passwordEntry.IsHidden() || a.cPasswordEntry.IsHidden() {
 			t.Error("both entries should be unmasked while shown")
@@ -123,8 +126,8 @@ func TestPasswordVisibilityToggle(t *testing.T) {
 		if !a.State.IsPasswordHidden() {
 			t.Error("Password should be hidden after second toggle")
 		}
-		if a.showHideBtn.Text != "Show" {
-			t.Errorf("button text should be 'Show' after second toggle, got %q", a.showHideBtn.Text)
+		if a.showHideBtn.Text != wantShow {
+			t.Errorf("button text should be %q after second toggle, got %q", wantShow, a.showHideBtn.Text)
 		}
 		if !a.passwordEntry.IsHidden() || !a.cPasswordEntry.IsHidden() {
 			t.Error("both entries should be re-masked after hiding")

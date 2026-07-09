@@ -21,7 +21,6 @@ func TestRecursiveSnapshotCapturesFields(t *testing.T) {
 	s.Keyfile = true
 	s.Keyfiles = []string{"a", "b"}
 	s.KeyfileOrdered = true
-	s.KeyfileLabel = "Using multiple keyfiles"
 	s.Comments = "c"
 	s.Paranoid = true
 	s.ReedSolomon = true
@@ -34,8 +33,7 @@ func TestRecursiveSnapshotCapturesFields(t *testing.T) {
 	snap := s.RecursiveSnapshot()
 
 	if snap.Password != "pw" || !snap.Keyfile || !snap.KeyfileOrdered ||
-		snap.KeyfileLabel != "Using multiple keyfiles" || snap.Comments != "c" ||
-		!snap.Paranoid || !snap.ReedSolomon || !snap.Deniability || !snap.Split ||
+		snap.Comments != "c" || !snap.Paranoid || !snap.ReedSolomon || !snap.Deniability || !snap.Split ||
 		snap.SplitSize != "64" || snap.SplitSelected != 2 || !snap.Delete {
 		t.Fatalf("RecursiveSnapshot did not capture all fields: %+v", snap)
 	}
@@ -62,7 +60,6 @@ func TestApplyRecursiveSelectionRestoresFields(t *testing.T) {
 		Keyfile:        true,
 		Keyfiles:       []string{"a"},
 		KeyfileOrdered: true,
-		KeyfileLabel:   "Using 1 keyfile",
 		Comments:       "c",
 		Paranoid:       true,
 		ReedSolomon:    true,
@@ -77,8 +74,7 @@ func TestApplyRecursiveSelectionRestoresFields(t *testing.T) {
 	if s.Password != "pw" || s.CPassword != "pw" {
 		t.Fatalf("password/cpassword not restored: %q / %q", s.Password, s.CPassword)
 	}
-	if !s.Keyfile || !s.KeyfileOrdered || s.KeyfileLabel != "Using 1 keyfile" ||
-		s.Comments != "c" || !s.Paranoid || !s.ReedSolomon || !s.Deniability ||
+	if !s.Keyfile || !s.KeyfileOrdered || s.Comments != "c" || !s.Paranoid || !s.ReedSolomon || !s.Deniability ||
 		!s.Split || s.SplitSize != "64" || s.SplitSelected != 2 || !s.Delete {
 		t.Fatal("ApplyRecursiveSelection did not restore all fields")
 	}

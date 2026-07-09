@@ -74,7 +74,8 @@ func TestBuildDecryptOptionsWireCheckboxesToState(t *testing.T) {
 		assertCheckboxWiring(t, a.sameLevelCheck, "Same level", func() bool { return a.State.SameLevel })
 
 		// autoUnzip's OnChanged(false) also clears SameLevel, so assert it directly.
-		if a.autoUnzipCheck == nil || a.autoUnzipCheck.Text != "Auto unzip" {
+		wantAutoUnzip := tr("advanced.auto_unzip.label", "Auto unzip")
+		if a.autoUnzipCheck == nil || a.autoUnzipCheck.Text != wantAutoUnzip {
 			t.Fatalf("autoUnzipCheck missing or mislabeled: %+v", a.autoUnzipCheck)
 		}
 		a.autoUnzipCheck.OnChanged(true)
@@ -260,7 +261,9 @@ func TestEncryptAdvancedOptionsNeverSoftLock(t *testing.T) {
 // "dangerous" encrypt options (Deniability and Recursively). It is asserted
 // verbatim below because the exact safety wording is intentional copy; the rest
 // of the suite only checks that tooltips are present and otherwise distinct.
-const sharedSecurityWarning = "Warning: only use this if you know what it does!"
+func sharedSecurityWarning() string {
+	return tr("advanced.security_warning.tooltip", "Warning: only use this if you know what it does!")
+}
 
 // assertTooltipsPresentAndDistinct asserts every control carries a non-empty
 // tooltip (an empty tooltip is a missing-tooltip bug, issue #79) and that the
@@ -281,7 +284,7 @@ func assertTooltipsPresentAndDistinct(t *testing.T, controls []struct {
 			t.Errorf("%s has an empty tooltip", c.name)
 			continue
 		}
-		if got == sharedSecurityWarning {
+		if got == sharedSecurityWarning() {
 			continue // distinctness is not required for the shared warning
 		}
 		if prev, dup := seen[got]; dup {
@@ -315,11 +318,11 @@ func TestAdvancedOptionsSetTooltips(t *testing.T) {
 
 		// The two dangerous options deliberately share the exact safety wording;
 		// pin it verbatim so the warning copy can't be silently softened.
-		if got := a.deniabilityCheck.ToolTip(); got != sharedSecurityWarning {
-			t.Errorf("Deniability tooltip = %q, want %q", got, sharedSecurityWarning)
+		if got := a.deniabilityCheck.ToolTip(); got != sharedSecurityWarning() {
+			t.Errorf("Deniability tooltip = %q, want %q", got, sharedSecurityWarning())
 		}
-		if got := a.recursivelyCheck.ToolTip(); got != sharedSecurityWarning {
-			t.Errorf("Recursively tooltip = %q, want %q", got, sharedSecurityWarning)
+		if got := a.recursivelyCheck.ToolTip(); got != sharedSecurityWarning() {
+			t.Errorf("Recursively tooltip = %q, want %q", got, sharedSecurityWarning())
 		}
 	})
 
@@ -338,5 +341,12 @@ func TestAdvancedOptionsSetTooltips(t *testing.T) {
 			{"Auto unzip", a.autoUnzipCheck},
 			{"Same level", a.sameLevelCheck},
 		})
+
+		if got := a.autoUnzipCheck.ToolTip(); got != "Extract .zip upon decryption (may overwrite files)" {
+			t.Errorf("Auto unzip tooltip = %q; want rendered .zip extension", got)
+		}
+		if got := a.sameLevelCheck.ToolTip(); got != "Extract .zip contents to same folder as volume" {
+			t.Errorf("Same level tooltip = %q; want rendered .zip extension", got)
+		}
 	})
 }

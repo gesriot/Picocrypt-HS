@@ -35,6 +35,7 @@ import (
 	_ "embed"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,23 +97,27 @@ type App struct {
 	openReadinessAppliedAt     time.Time
 
 	// UI widgets that need to be updated
-	inputLabel        *widget.Label
-	clearButton       *widget.Button
-	aboutButton       *widget.Button
-	aboutVersionLabel *widget.Label
-	mainContent       *fyne.Container
-	passwordEntry     *PasswordEntry
-	cPasswordEntry    *PasswordEntry
-	strengthIndicator *PasswordStrengthIndicator
-	validIndicator    *ValidationIndicator
-	keyfileLabel      *widget.Label
-	commentsLabel     *widget.Label
-	commentsEntry     *widget.Entry
-	advancedLabel     *widget.Label
-	advancedContainer *fyne.Container
-	outputEntry       interface{ SetText(string) }
-	startButton       *widget.Button
-	statusLabel       *ColoredLabel
+	inputLabel         *widget.Label
+	clearButton        *widget.Button
+	aboutButton        *widget.Button
+	languageSelector   *languageSelector
+	aboutVersionLabel  *widget.Label
+	mainContent        *fyne.Container
+	passwordLabel      *widget.Label
+	passwordEntry      *PasswordEntry
+	cPasswordEntry     *PasswordEntry
+	strengthIndicator  *PasswordStrengthIndicator
+	validIndicator     *ValidationIndicator
+	keyfilesTitleLabel *widget.Label
+	keyfileLabel       *widget.Label
+	commentsLabel      *widget.Label
+	commentsEntry      *widget.Entry
+	advancedLabel      *widget.Label
+	advancedContainer  *fyne.Container
+	outputLabel        *widget.Label
+	outputEntry        interface{ SetText(string) }
+	startButton        *widget.Button
+	statusLabel        *ColoredLabel
 
 	// Confirm password section (hidden in decrypt mode)
 	confirmLabel *widget.Label
@@ -136,6 +141,12 @@ type App struct {
 
 	// Output section
 	changeBtn *widget.Button
+
+	// Mobile file-selection controls
+	mobileSelectFilesBtn  *widget.Button
+	mobileSelectFolderBtn *widget.Button
+	mobileAppStorageBtn   *widget.Button
+	mobileAppStorageHelp  *widget.Label
 
 	// Advanced options (encrypt mode)
 	paranoidCheck    *ttwidget.Check
@@ -186,6 +197,9 @@ func NewApp(version string) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init app state: %w", err)
 	}
+	if err := loadTranslations(); err != nil {
+		return nil, fmt.Errorf("load translations: %w", err)
+	}
 
 	return &App{
 		Version:  version,
@@ -198,10 +212,164 @@ func NewApp(version string) (*App, error) {
 	}, nil
 }
 
+func (a *App) loadPreferredLanguage(p fyne.Preferences) error {
+	code := LanguageCode(p.StringWithFallback(languagePreferenceKey, string(activeLanguage())))
+	if code == "" {
+		code = "en"
+	}
+	return setActiveLanguage(code)
+}
+
+func (a *App) SwitchLanguage(code LanguageCode) error {
+	if err := setActiveLanguage(code); err != nil {
+		return err
+	}
+	if a.fyneApp != nil {
+		a.fyneApp.Preferences().SetString(languagePreferenceKey, string(code))
+	}
+	a.refreshLocalizedText()
+	return nil
+}
+
+func (a *App) refreshLocalizedText() {
+	if a.languageSelector != nil {
+		a.languageSelector.refresh()
+	}
+	if a.clearButton != nil {
+		a.clearButton.SetText(tr("action.clear", "Clear"))
+	}
+	if a.State != nil && a.showHideBtn != nil {
+		a.showHideBtn.SetText(passwordVisibilityLabel(a.State.PasswordMode))
+	}
+	if a.clearPwdBtn != nil {
+		a.clearPwdBtn.SetText(tr("action.clear", "Clear"))
+	}
+	if a.copyBtn != nil {
+		a.copyBtn.SetText(tr("action.copy", "Copy"))
+	}
+	if a.pasteBtn != nil {
+		a.pasteBtn.SetText(tr("action.paste", "Paste"))
+	}
+	if a.createBtn != nil {
+		a.createBtn.SetText(tr("action.create", "Create"))
+	}
+	if a.keyfileEditBtn != nil {
+		a.keyfileEditBtn.SetText(tr("action.edit", "Edit"))
+	}
+	if a.keyfileCreateBtn != nil {
+		a.keyfileCreateBtn.SetText(tr("action.create", "Create"))
+	}
+	if a.changeBtn != nil {
+		a.changeBtn.SetText(tr("action.change", "Change"))
+	}
+	setLabelText(a.passwordLabel, tr("password.label", "Password:"))
+	setEntryPlaceholder(a.passwordEntry, tr("password.placeholder", "Password"))
+	setEntryPlaceholder(a.cPasswordEntry, tr("password.confirm_placeholder", "Confirm password"))
+	setLabelText(a.confirmLabel, tr("password.confirm_label", "Confirm password:"))
+	setLabelText(a.nonASCIIHint, tr("password.non_ascii_hint",
+		"Non-ASCII password: it is normalized so the volume decrypts on any "+
+			"platform, but make sure you can type the same characters on every "+
+			"device where you'll decrypt it."))
+	setLabelText(a.keyfilesTitleLabel, tr("keyfiles.label", "Keyfiles:"))
+	setLabelText(a.commentsLabel, tr("comments.label", "Comments:"))
+	setEntryPlaceholder(a.commentsEntry, tr("comments.placeholder", "Comments (not encrypted)"))
+	setLabelText(a.advancedLabel, tr("advanced.label", "Advanced:"))
+	setLabelText(a.outputLabel, tr("output.label", "Save output as:"))
+	setButtonText(a.mobileSelectFilesBtn, tr("mobile.select_files", "Select Files"))
+	setButtonText(a.mobileSelectFolderBtn, tr("mobile.select_folder", "Select Folder"))
+	setButtonText(a.mobileAppStorageBtn, tr("mobile.app_storage.button", "App Storage (large files)"))
+	setLabelText(a.mobileAppStorageHelp, tr("mobile.app_storage.tip", "Tip: For large files, copy them to App Storage first"))
+	a.refreshAdvancedLocalizedText()
+	if a.State != nil {
+		a.updateUIState()
+	}
+}
+
+type localizedPlaceholder interface {
+	SetPlaceHolder(string)
+}
+
+func setLabelText(label *widget.Label, text string) {
+	if label != nil {
+		label.SetText(text)
+	}
+}
+
+func setButtonText(button *widget.Button, text string) {
+	if button != nil {
+		button.SetText(text)
+	}
+}
+
+func setEntryPlaceholder(entry localizedPlaceholder, text string) {
+	if entry == nil {
+		return
+	}
+	if value := reflect.ValueOf(entry); value.Kind() == reflect.Pointer && value.IsNil() {
+		return
+	}
+	entry.SetPlaceHolder(text)
+}
+
+func setCheckText(check *ttwidget.Check, text string) {
+	if check != nil {
+		check.SetText(text)
+	}
+}
+
+func setCheckTooltip(check *ttwidget.Check, text string) {
+	if check != nil {
+		check.SetToolTip(text)
+	}
+}
+
+func (a *App) refreshAdvancedLocalizedText() {
+	setCheckText(a.paranoidCheck, tr("advanced.paranoid.label", "Paranoid mode"))
+	setCheckTooltip(a.paranoidCheck, tr("advanced.paranoid.tooltip", "Adds Serpent-CTR and stronger KDF/MAC settings for defense in depth"))
+	setCheckText(a.compressCheck, tr("advanced.compress.label", "Compress files"))
+	setCheckTooltip(a.compressCheck, tr("advanced.compress.tooltip", "Compress files with Deflate before encrypting"))
+	setCheckText(a.reedSolomonCheck, tr("advanced.reed_solomon.label", "Reed-Solomon"))
+	setCheckTooltip(a.reedSolomonCheck, tr("advanced.reed_solomon.tooltip", "Add redundancy to repair limited file corruption"))
+	if a.State != nil && a.State.Mode == "decrypt" {
+		setCheckText(a.deleteCheck, tr("advanced.delete_encrypted.label", "Delete encrypted"))
+	} else {
+		setCheckText(a.deleteCheck, tr("advanced.delete_files.label", "Delete files"))
+		setCheckTooltip(a.deleteCheck, tr("advanced.delete_files.tooltip", "Delete the input files after encryption"))
+	}
+	setCheckText(a.deniabilityCheck, tr("advanced.deniability.label", "Deniability"))
+	setCheckTooltip(a.deniabilityCheck, tr("advanced.security_warning.tooltip", "Warning: only use this if you know what it does!"))
+	setCheckText(a.recursivelyCheck, tr("advanced.recursively.label", "Recursively"))
+	setCheckTooltip(a.recursivelyCheck, tr("advanced.security_warning.tooltip", "Warning: only use this if you know what it does!"))
+	setCheckText(a.splitCheck, tr("advanced.split.label", "Split:"))
+	setCheckTooltip(a.splitCheck, tr("advanced.split.tooltip", "Split the output file into smaller chunks"))
+	setEntryPlaceholder(a.splitSizeEntry, tr("advanced.split.size_placeholder", "Size"))
+	if a.splitUnitSelect != nil {
+		a.splitUnitSelect.SetToolTip(tr("advanced.split.unit_tooltip", "Choose the chunk units"))
+	}
+	setCheckText(a.forceDecryptCheck, tr("advanced.force_decrypt.label", "Force decrypt"))
+	setCheckTooltip(a.forceDecryptCheck, tr("advanced.force_decrypt.tooltip", "Keep unverified output when integrity checks fail; output may be corrupted"))
+	setCheckText(a.verifyFirstCheck, tr("advanced.verify_first.label", "Verify first"))
+	setCheckTooltip(a.verifyFirstCheck, tr("advanced.verify_first.tooltip", "Verify integrity before decryption (slower but more secure)"))
+	setCheckText(a.deleteVolumeCheck, tr("advanced.delete_volume.label", "Delete volume"))
+	setCheckTooltip(a.deleteVolumeCheck, tr("advanced.delete_volume.tooltip", "Delete the volume after a successful decryption"))
+	setCheckText(a.autoUnzipCheck, tr("advanced.auto_unzip.label", "Auto unzip"))
+	setCheckTooltip(a.autoUnzipCheck, tr("advanced.auto_unzip.tooltip", "Extract {{.Extension}} upon decryption (may overwrite files)", map[string]any{
+		"Extension": ".zip",
+	}))
+	setCheckText(a.sameLevelCheck, tr("advanced.same_level.label", "Same level"))
+	setCheckTooltip(a.sameLevelCheck, tr("advanced.same_level.tooltip", "Extract {{.Extension}} contents to same folder as volume", map[string]any{
+		"Extension": ".zip",
+	}))
+}
+
 // Run starts the UI application and optionally loads files passed at startup.
 func (a *App) Run(startupPaths []string) {
 	// Create Fyne app with unique ID for preferences API support
 	a.fyneApp = fyneApp.NewWithID(runtimeAppID())
+	if err := a.loadPreferredLanguage(a.fyneApp.Preferences()); err != nil {
+		_ = setActiveLanguage("en")
+		a.fyneApp.Preferences().SetString(languagePreferenceKey, "en")
+	}
 
 	// Clean up any leftover temp files from previous sessions (mobile only)
 	// Must be called AFTER Fyne app is initialized (isMobile() requires it)
@@ -372,10 +540,12 @@ func (f *fixedWidthLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 
 // buildUI creates the main UI layout.
 func (a *App) buildUI() fyne.CanvasObject {
+	snap := a.State.UISnapshot()
+
 	// Input label with Clear button
-	a.inputLabel = widget.NewLabel(a.State.InputLabel)
+	a.inputLabel = widget.NewLabel(renderInputSummary(snap.InputSummary))
 	a.inputLabel.Wrapping = fyne.TextWrapWord
-	a.clearButton = widget.NewButton("Clear", func() {
+	a.clearButton = widget.NewButton(tr("action.clear", "Clear"), func() {
 		a.cancelOpenedPathReadiness()
 		a.resetUI()
 	})
@@ -389,7 +559,9 @@ func (a *App) buildUI() fyne.CanvasObject {
 	})
 	a.aboutButton.Importance = widget.LowImportance
 
-	headerRow := container.NewBorder(nil, nil, a.aboutButton, a.clearButton, a.inputLabel)
+	a.languageSelector = newLanguageSelector(a)
+	headerLeft := container.NewHBox(a.aboutButton, a.languageSelector.object())
+	headerRow := container.NewBorder(nil, nil, headerLeft, a.clearButton, a.inputLabel)
 
 	// Password section (from password_section.go)
 	passwordSection := a.buildPasswordSection()
@@ -408,13 +580,13 @@ func (a *App) buildUI() fyne.CanvasObject {
 	outputSection := a.buildOutputSection()
 
 	// Start button and status
-	a.startButton = widget.NewButton(a.State.StartLabel, a.onClickStart)
+	a.startButton = widget.NewButton(renderStartAction(snap.StartAction, snap.Recursively), a.onClickStart)
 	a.startButton.Importance = widget.HighImportance
 
-	a.statusLabel = NewColoredLabel(a.State.MainStatus, a.State.MainStatusColor)
+	a.statusLabel = NewColoredLabel(renderStatus(snap.Status, snap), snap.Status.Color)
 
 	// Advanced section label (hidden when no mode selected)
-	a.advancedLabel = widget.NewLabel("Advanced:")
+	a.advancedLabel = widget.NewLabel(tr("advanced.label", "Advanced:"))
 	a.advancedLabel.TextStyle = fyne.TextStyle{Bold: true}
 	a.advancedLabel.Hide() // Initially hidden until files are dropped
 
@@ -477,18 +649,171 @@ func (a *App) resizeDesktopWindowForContent(content fyne.CanvasObject, preferred
 	a.Window.Resize(size)
 }
 
+func commentsLabelText(mode string) string {
+	if mode == "decrypt" {
+		return tr("comments.read_only", "Comments (read-only):")
+	}
+	return tr("comments.label", "Comments:")
+}
+
+func commentsDisplayText(mode, comments string, state app.CommentsPreviewState) string {
+	if mode != "decrypt" {
+		return comments
+	}
+	switch state {
+	case app.CommentsPreviewCorrupted:
+		return tr("comments.corrupted", "Comments are corrupted")
+	case app.CommentsPreviewUnavailable:
+		return ""
+	default:
+		return comments
+	}
+}
+
+func renderInputSummary(input app.InputSummary) string {
+	switch input.Kind {
+	case app.InputSummaryScanning:
+		return selectionScanningLabel(input.SizeBytes)
+	case app.InputSummarySelection:
+		label := selectionSummary(input.Files, input.Folders)
+		if input.ShowSize {
+			return selectionWithSize(label, input.SizeBytes)
+		}
+		return label
+	case app.InputSummaryDecryptVolume:
+		return tr("selection.volume_for_decryption", "Volume for decryption")
+	default:
+		return dropPromptLabel()
+	}
+}
+
+func renderStartAction(action app.StartAction, recursively bool) string {
+	if recursively {
+		return tr("action.process", "Process")
+	}
+	switch action {
+	case app.StartActionEncrypt:
+		return tr("action.encrypt", "Encrypt")
+	case app.StartActionZipAndEncrypt:
+		return tr("action.zip_and_encrypt", "Zip and Encrypt")
+	case app.StartActionDecrypt:
+		return tr("action.decrypt", "Decrypt")
+	default:
+		return tr("action.start", "Start")
+	}
+}
+
+func renderStatus(msg app.StatusMessage, snap app.UISnapshot) string {
+	if msg.Kind == app.StatusCustom {
+		return msg.Text
+	}
+	switch msg.Kind {
+	case app.StatusCompleted:
+		return tr("status.completed", "Completed")
+	case app.StatusCancelledByUser:
+		return tr("status.cancelled_by_user", "Operation cancelled by user")
+	case app.StatusNoFilesToProcess:
+		return tr("status.no_files_to_process", "No files to process")
+	case app.StatusProcessingFile:
+		return tr("status.processing_file", "Processing file {{.Index}}/{{.Total}}...", map[string]any{
+			"Index": msg.Args.Index,
+			"Total": msg.Args.Total,
+		})
+	case app.StatusRecursiveCompleted:
+		return recursiveStatusCompleted(msg.Args.Count)
+	case app.StatusRecursiveFailedAll:
+		return recursiveStatusFailedAll(msg.Args.Count)
+	case app.StatusRecursiveCompletedFailed:
+		return recursiveStatusCompletedFailed(msg.Args.OK, msg.Args.Failed)
+	case app.StatusInvalidSplitSize:
+		return tr("status.invalid_split_size", "Invalid split size")
+	case app.StatusCompletedSomeDeleteFailed:
+		return tr("status.completed_some_delete_failed", "Completed (some files couldn't be deleted)")
+	case app.StatusKeptOutputUnverified:
+		return tr("status.kept_output_unverified", "Integrity check failed; kept output is unverified and may be corrupted")
+	case app.StatusCompletedVolumeDeleteFailed:
+		return tr("status.completed_volume_delete_failed", "Completed (volume couldn't be deleted)")
+	case app.StatusStartupPathAccessFailed:
+		return startupPathAccessStatus()
+	case app.StatusStartupPathPartialAccessFailed:
+		return startupPathPartialAccessStatus()
+	case app.StatusOpenedPathsPreparing:
+		return openedPathsPreparingStatus()
+	case app.StatusOpenedPathsTimeout:
+		return openedPathsTimeoutStatus()
+	case app.StatusDropFailedWalk:
+		return tr("drop.failed_walk", "Failed to walk through dropped items")
+	case app.StatusDropFailedStatItem:
+		return tr("drop.failed_stat_item", "Failed to stat dropped item")
+	case app.StatusDropFailedStatItems:
+		return tr("drop.failed_stat_items", "Failed to stat dropped items")
+	case app.StatusDropReadAccessDenied:
+		return tr("drop.read_access_denied", "Read access denied")
+	case app.StatusDropHeaderMayBeDeniable:
+		return tr("drop.header_may_be_deniable", "Cannot read header, volume may be deniable")
+	case app.StatusDropHeaderDamaged:
+		return tr("drop.header_damaged", "The volume header is damaged")
+	case app.StatusDropFailedSplitPath:
+		return tr("drop.failed_split_path", "Failed to derive split volume path")
+	case app.StatusKeyfileReadAccessDenied:
+		return tr("keyfiles.read_access_denied", "Keyfile read access denied")
+	case app.StatusKeyfileGenerateFailed:
+		return tr("keyfiles.generate_failed", "Failed to generate keyfile")
+	case app.StatusKeyfileWriteFailed:
+		return tr("keyfiles.write_failed", "Failed to write keyfile")
+	case app.StatusMobileAppStorageCreateFailed:
+		return tr("mobile.app_storage.create_failed", "Failed to create app storage")
+	case app.StatusMobileAppStorageReadFailed:
+		return tr("mobile.app_storage.read_failed", "Failed to read app storage")
+	case app.StatusMobileAppStoragePathCopied:
+		return tr("mobile.app_storage.path_copied", "Path copied to clipboard")
+	case app.StatusMobileAppStorageNoFiles:
+		return tr("mobile.app_storage.no_files", "No files in app storage")
+	case app.StatusMobileFileAccessFailed:
+		return tr("mobile.file_access_failed", "Failed to access file: {{.Error}}", map[string]any{"Error": msg.Args.Error})
+	case app.StatusMobileFileAccessUnsafeName:
+		return tr("mobile.file_access_failed_unsafe_name", "Failed to access file: unsafe file name")
+	default:
+		statusText := tr("status.ready", "Ready")
+		if snap.RequiredFreeSpace > 0 {
+			multiplier := 1
+			if snap.AllFileCount > 1 || snap.OnlyFolderCount > 0 {
+				multiplier++
+			}
+			if snap.Deniability {
+				multiplier++
+			}
+			if snap.Split {
+				multiplier++
+			}
+			if snap.Recombine {
+				multiplier++
+			}
+			if snap.AutoUnzip {
+				multiplier++
+			}
+			statusText = tr("status.ready_free_space", "Ready (ensure >{{.Size}} free)", map[string]any{
+				"Size": util.Sizeify(snap.RequiredFreeSpace * int64(multiplier)),
+			})
+		}
+		return statusText
+	}
+}
+
 // buildCommentsSection creates the comments input section.
 func (a *App) buildCommentsSection() fyne.CanvasObject {
-	a.commentsLabel = widget.NewLabel(a.State.CommentsLabel)
+	a.commentsLabel = widget.NewLabel(commentsLabelText(a.State.Mode))
 	a.commentsLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	a.commentsEntry = widget.NewEntry()
-	a.commentsEntry.SetPlaceHolder("Comments (not encrypted)")
+	a.commentsEntry.SetPlaceHolder(tr("comments.placeholder", "Comments (not encrypted)"))
 	a.commentsEntry.OnChanged = func(text string) {
 		// In decrypt mode, comments are read-only - revert any changes
 		if a.State.Mode == "decrypt" {
-			if text != a.State.Comments {
-				a.commentsEntry.SetText(a.State.Comments)
+			snap := a.State.UISnapshot()
+			displayText := commentsDisplayText(snap.Mode, snap.Comments, snap.CommentsPreviewState)
+			if text != displayText {
+				a.commentsEntry.SetText(displayText)
 			}
 			return
 		}
@@ -506,18 +831,18 @@ func (a *App) buildOutputSection() fyne.CanvasObject {
 	outputEntry := NewDisabledEntry()
 	a.outputEntry = outputEntry
 
-	a.changeBtn = widget.NewButton("Change", func() {
+	a.changeBtn = widget.NewButton(tr("action.change", "Change"), func() {
 		a.changeOutputFile()
 	})
 
 	row := container.NewBorder(nil, nil, nil, a.changeBtn, outputEntry)
 
 	// Create bold label for better visual hierarchy
-	outputLabel := widget.NewLabel("Save output as:")
-	outputLabel.TextStyle = fyne.TextStyle{Bold: true}
+	a.outputLabel = widget.NewLabel(tr("output.label", "Save output as:"))
+	a.outputLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	return container.NewVBox(
-		outputLabel,
+		a.outputLabel,
 		row,
 	)
 }
@@ -565,14 +890,20 @@ func (a *App) updateUIState() {
 			(snap.Password != snap.CPassword))) ||
 		snap.Deniability
 	commentsInnerDisabled := snap.Mode == "decrypt" &&
-		(snap.Comments == "" || snap.Comments == "Comments are corrupted")
+		snap.CommentsPreviewState != app.CommentsPreviewNormal
 
 	if a.commentsEntry != nil {
+		if snap.Mode == "decrypt" {
+			displayText := commentsDisplayText(snap.Mode, snap.Comments, snap.CommentsPreviewState)
+			if a.commentsEntry.Text != displayText {
+				a.commentsEntry.SetText(displayText)
+			}
+		}
 		// In decrypt mode with valid comments, keep entry enabled but read-only
 		// (OnChanged will prevent actual changes). This keeps text visible, not pale.
-		if snap.Mode == "decrypt" && snap.Comments != "" && snap.Comments != "Comments are corrupted" {
+		if snap.Mode == "decrypt" && snap.CommentsPreviewState == app.CommentsPreviewNormal && snap.Comments != "" {
 			a.commentsEntry.Enable() // Keep text visible (not pale)
-		} else if mainDisabled || commentsOuterDisabled || commentsInnerDisabled || snap.CommentsDisabled {
+		} else if mainDisabled || commentsOuterDisabled || commentsInnerDisabled {
 			a.commentsEntry.Disable()
 		} else {
 			a.commentsEntry.Enable()
@@ -587,12 +918,7 @@ func (a *App) updateUIState() {
 
 	// Start button - MUST be disabled when no credentials or passwords don't match
 	if a.startButton != nil {
-		label := snap.StartLabel
-		if snap.Recursively {
-			label = "Process"
-		}
-		a.startButton.SetText(label)
-
+		a.startButton.SetText(renderStartAction(snap.StartAction, snap.Recursively))
 		if mainDisabled || advancedAndStartDisabled {
 			a.startButton.Disable()
 		} else {
@@ -609,7 +935,7 @@ func (a *App) updateUIState() {
 				outputDisplay += ".*"
 			}
 			if snap.Recursively {
-				outputDisplay = "(multiple values)"
+				outputDisplay = tr("output.multiple_values", "(multiple values)")
 			}
 		}
 		a.outputEntry.SetText(outputDisplay)
@@ -626,41 +952,25 @@ func (a *App) updateUIState() {
 
 	// Update status
 	if a.statusLabel != nil {
-		statusText := snap.MainStatus
-		if snap.MainStatus == "Ready" && snap.RequiredFreeSpace > 0 {
-			multiplier := 1
-			if snap.AllFileCount > 1 || snap.OnlyFolderCount > 0 {
-				multiplier++
-			}
-			if snap.Deniability {
-				multiplier++
-			}
-			if snap.Split {
-				multiplier++
-			}
-			if snap.Recombine {
-				multiplier++
-			}
-			if snap.AutoUnzip {
-				multiplier++
-			}
-			statusText = "Ready (ensure >" + util.Sizeify(snap.RequiredFreeSpace*int64(multiplier)) + " free)"
-		}
-		a.statusLabel.SetText(statusText)
-		a.statusLabel.SetColor(snap.MainStatusColor)
+		a.statusLabel.SetText(renderStatus(snap.Status, snap))
+		a.statusLabel.SetColor(snap.Status.Color)
 	}
 
 	// Update labels
 	if a.inputLabel != nil {
-		a.inputLabel.SetText(snap.InputLabel)
+		a.inputLabel.SetText(renderInputSummary(snap.InputSummary))
 	}
 
 	if a.keyfileLabel != nil {
-		a.keyfileLabel.SetText(snap.KeyfileLabel)
+		a.keyfileLabel.SetText(keyfileDisplayLabel(
+			snap.Keyfile,
+			snap.KeyfileCount,
+			keyfileApplicable(snap.Mode, snap.Keyfile, snap.Deniability),
+		))
 	}
 
 	if a.commentsLabel != nil {
-		a.commentsLabel.SetText(snap.CommentsLabel)
+		a.commentsLabel.SetText(commentsLabelText(snap.Mode))
 	}
 }
 

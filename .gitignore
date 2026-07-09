@@ -40,6 +40,8 @@ src/wasm
 
 /docs/*
 !/docs/ONBOARDING.md
+!/docs/localization/
+!/docs/localization/TRANSLATION_GUIDE.md
 
 # Agent & AI tool artifacts
 .understand-anything

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Picocrypt-NG</string>
+    <string name="app_name" translatable="false">Picocrypt-NG</string>
     
     <!-- File Card -->
     <string name="choose_file">Choose a file</string>
@@ -8,6 +8,10 @@
     <string name="choose_single_file">Single file</string>
     <string name="choose_multiple_files">Multiple files</string>
     <string name="choose_folder">Folder</string>
+    <plurals name="selected_files_count">
+        <item quantity="one">%1$d file selected</item>
+        <item quantity="other">%1$d files selected</item>
+    </plurals>
     
     <!-- Password Card -->
     <string name="password">Password</string>
@@ -19,14 +23,20 @@
     
     <!-- Comments Card -->
     <string name="comments">Comments</string>
-    <string name="comments_not_readable">Comments not readable (deniability mode)</string>
+    <string name="comments_not_readable">Comments cannot be previewed in deniability mode</string>
     <string name="comments_disabled_deniability">Disabled in deniability mode</string>
     <string name="comments_plaintext_warning">Comments are plaintext metadata. Do not put secrets here.</string>
     
     <!-- Keyfile Card -->
     <string name="keyfiles">Keyfiles</string>
-    <string name="keyfiles_required">Keyfiles (%1$d) - Required</string>
-    <string name="keyfiles_count">Keyfiles (%1$d)</string>
+    <plurals name="keyfiles_count">
+        <item quantity="one">%1$d keyfile</item>
+        <item quantity="other">%1$d keyfiles</item>
+    </plurals>
+    <plurals name="keyfiles_required_count">
+        <item quantity="one">%1$d keyfile required</item>
+        <item quantity="other">%1$d keyfiles required</item>
+    </plurals>
     <string name="add">Add</string>
     <string name="new_keyfile">New</string>
     <string name="clear">Clear</string>
@@ -36,8 +46,8 @@
     <string name="error_creating_keyfile">Error Creating Keyfile</string>
     <string name="keyfile_write_failed">Failed to write keyfile to selected location</string>
     <string name="keyfile_create_failed">Failed to create keyfile: %1$s</string>
-    <string name="keyfiles_required_warning">⚠️ Keyfiles required for this file</string>
-    <string name="keyfile_order_matters">⚠️ Keyfile order matters</string>
+    <string name="keyfiles_required_warning">Keyfiles are required for this volume</string>
+    <string name="keyfile_order_matters">Use the keyfiles in the required order</string>
     
     <!-- Advanced Card -->
     <string name="advanced_settings">Advanced Settings (%1$d)</string>
@@ -65,7 +75,7 @@
     <string name="enabled">Enabled</string>
     <string name="disabled">Disabled</string>
     <string name="unknown">Unknown</string>
-    <string name="deniability_note">Note: This file uses deniability mode. Metadata cannot be read without the password. Some information above may be incomplete.</string>
+    <string name="deniability_note">This volume uses deniability mode. Header metadata cannot be previewed before decryption; some settings are unknown.</string>
     <string name="comments_section">Comments</string>
     <string name="no_comments">No comments</string>
     
@@ -79,7 +89,7 @@
     <string name="decrypting">Decrypting…</string>
     <string name="cancel">Cancel</string>
     <string name="data_corruption_detected">Data Corruption Detected</string>
-    <string name="force_decrypt_warning">The encrypted file appears to be corrupted. Force decrypt will attempt to recover as much data as possible, but the output may be partially or completely corrupted.</string>
+    <string name="force_decrypt_warning">The encrypted volume failed an integrity check. Force decrypt keeps unverified output, which may be partially or completely corrupted.</string>
     <string name="force_decrypt">Force Decrypt</string>
     <string name="authentication_error">Authentication Error</string>
     <string name="retry">Retry</string>
@@ -90,9 +100,10 @@
     <string name="operation_cancelled_message">No output was completed. Temporary files will be cleaned up.</string>
     <string name="encryption_complete">Encryption Complete</string>
     <string name="decryption_complete">Decryption Complete</string>
-    <string name="operation_completed_successfully">Operation completed successfully.</string>
+    <string name="operation_completed_successfully">Operation completed. Save the output to keep it.</string>
     <string name="error_saving_file">Error saving file: %1$s</string>
     <string name="save">Save</string>
+    <string name="discard_output">Discard output</string>
     
     <!-- Error Dialog -->
     <string name="ok">OK</string>
@@ -111,4 +122,36 @@
     <string name="fgs_encrypting">Encrypting</string>
     <string name="fgs_decrypting">Decrypting</string>
     <string name="fgs_working">Working…</string>
+
+    <!-- Operation status display text; OperationStatus.kt constants remain bridge strings. -->
+    <string name="status_starting">Starting…</string>
+    <string name="status_completed">Completed</string>
+    <string name="status_cancelled">Cancelled</string>
+    <string name="status_error">Error</string>
+
+    <!-- Stable error display boundary -->
+    <string name="error_auth_failed">Authentication failed. Check the password, keyfiles, and keyfile order.</string>
+    <string name="error_data_corrupted">Integrity check failed. The output is unverified and may be corrupted.</string>
+    <string name="error_file_not_found">File not found or inaccessible.</string>
+    <string name="error_unknown">Unknown error occurred.</string>
+    <string name="error_operation_start_failed">Operation failed to start.</string>
+    <string name="error_no_active_operation">No active operation.</string>
+    <string name="error_no_operation_to_retry">No active operation to retry.</string>
+    <string name="error_operation_data_unavailable">Operation data is not available for retry.</string>
+    <string name="error_decrypt_retry_only">Only decryption operations can be retried with force decrypt.</string>
+    <string name="error_no_file_selected">Please select a file.</string>
+    <string name="error_invalid_password">Please enter a password.</string>
+    <string name="error_passwords_mismatch">Passwords do not match.</string>
+    <string name="error_split_volume_not_supported">Split volumes are not supported on Android. Recombine the chunks on your computer first, then transfer the single %1$s file.</string>
+    <string name="error_copy_failed">Failed to copy file.</string>
+    <string name="error_save_failed">Failed to save file.</string>
+    <string name="error_delete_failed">Failed to delete file.</string>
+    <string name="error_insufficient_storage">Not enough free space to encrypt this selection. Need %1$d bytes; available %2$d bytes.</string>
+    <string name="error_could_not_open_folder">Could not open folder.</string>
+    <string name="error_selected_folder_empty">The selected folder is empty.</string>
+    <string name="error_read_folder_failed">Failed to read folder: %1$s</string>
+    <string name="error_could_not_open_selected_file">Could not open a selected file.</string>
+    <string name="error_no_files_selected">No files selected.</string>
+    <string name="error_copy_files_failed">Failed to copy files: %1$s</string>
+    <string name="error_detect_operation_type_failed">Failed to detect operation type.</string>
 </resources>
