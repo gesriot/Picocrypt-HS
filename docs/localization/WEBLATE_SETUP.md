@@ -93,10 +93,17 @@ Do not enable yet.
 Fyne Weblate setup is blocked until Picocrypt-NG proves exact round-trip for
 the Fyne JSON catalog shape in `src/internal/ui/translation/en.json`.
 
+The curated Russian Fyne catalog is a maintainer-reviewed in-repository
+translation exception. It is gated by
+`docs/localization/RUSSIAN_TRANSLATION_REVIEW.md` and structural catalog tests,
+not by Weblate. This exception does not prove that Weblate can safely edit Fyne
+JSON catalogs.
+
 The desktop language selector does not by itself enable a Fyne Weblate
-component. Non-English Fyne production catalogs remain blocked until a real
-Weblate JSON round-trip proves that Picocrypt-NG's flat keys, plural objects,
-UTF-8 content, and placeholder syntax survive export and import unchanged.
+component. Additional non-English Fyne production catalogs that are imported
+from Weblate remain blocked until a real Weblate JSON round-trip proves that
+Picocrypt-NG's flat keys, plural objects, UTF-8 content, and placeholder syntax
+survive export and import unchanged.
 
 Blocked configuration, for later validation only:
 

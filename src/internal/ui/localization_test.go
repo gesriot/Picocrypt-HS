@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,18 +37,7 @@ func TestLoadTranslations(t *testing.T) {
 }
 
 func TestLocalizationCatalogJSON(t *testing.T) {
-	data, err := translationFS.ReadFile("translation/en.json")
-	if err != nil {
-		t.Fatalf("read embedded en catalog: %v", err)
-	}
-	if !utf8.Valid(data) {
-		t.Fatal("translation/en.json is not valid UTF-8")
-	}
-
-	var catalog map[string]any
-	if err := json.Unmarshal(data, &catalog); err != nil {
-		t.Fatalf("parse translation/en.json: %v", err)
-	}
+	catalog := loadEmbeddedCatalog(t, "translation/en.json")
 	if len(catalog) == 0 {
 		t.Fatal("translation/en.json is empty")
 	}
@@ -89,7 +79,113 @@ func TestLocalizationCatalogEmbeddedByLoader(t *testing.T) {
 	}
 }
 
-func TestFyneProductionLocaleFilesRequireRoundTripProof(t *testing.T) {
+func TestRussianFyneCatalogMatchesEnglishKeysAndPlaceholders(t *testing.T) {
+	english := loadEmbeddedCatalog(t, "translation/en.json")
+	russian := loadEmbeddedCatalog(t, "translation/ru.json")
+
+	assertCatalogMatchesEnglish(t, "translation/ru.json", english, russian)
+}
+
+func TestRussianFyneCatalogUsesRussianPluralForms(t *testing.T) {
+	english := loadEmbeddedCatalog(t, "translation/en.json")
+	russian := loadEmbeddedCatalog(t, "translation/ru.json")
+
+	var failures []string
+	for key, englishValue := range english {
+		if !isPluralCatalogValue(englishValue) {
+			continue
+		}
+		translated, ok := russian[key].(map[string]any)
+		if !ok {
+			failures = append(failures, key+": missing Russian plural object")
+			continue
+		}
+		if got, want := sortedMapKeys(translated), []string{"few", "many", "one", "other"}; !sameStringSet(got, want) {
+			failures = append(failures, fmt.Sprintf("%s: plural forms = %v; want %v", key, got, want))
+		}
+	}
+	sort.Strings(failures)
+	if len(failures) > 0 {
+		t.Fatalf("Russian plural catalog must use one/few/many/other forms:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func TestRussianFyneCatalogPluralizesAtRuntime(t *testing.T) {
+	resetLocalizationForTest(t)
+	if err := loadTranslations(); err != nil {
+		t.Fatalf("loadTranslations returned error: %v", err)
+	}
+	if err := setActiveLanguage("ru"); err != nil {
+		t.Fatalf("setActiveLanguage(ru) returned error: %v", err)
+	}
+
+	if got := tr("status.ready", "fallback"); got != "Готов к работе" {
+		t.Fatalf("Russian status.ready = %q; want Готов к работе", got)
+	}
+
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{
+			name: "one file",
+			got:  trn("selection.files", "{{.Count}} files", 1, map[string]any{"Count": 1}),
+			want: "1 файл",
+		},
+		{
+			name: "few files",
+			got:  trn("selection.files", "{{.Count}} files", 2, map[string]any{"Count": 2}),
+			want: "2 файла",
+		},
+		{
+			name: "many files",
+			got:  trn("selection.files", "{{.Count}} files", 5, map[string]any{"Count": 5}),
+			want: "5 файлов",
+		},
+		{
+			name: "one after many files",
+			got:  trn("selection.files", "{{.Count}} files", 21, map[string]any{"Count": 21}),
+			want: "21 файл",
+		},
+		{
+			name: "few keyfiles",
+			got:  trn("keyfiles.count", "{{.Count}} keyfiles", 3, map[string]any{"Count": 3}),
+			want: "Используется 3 ключевых файла",
+		},
+		{
+			name: "many completed",
+			got:  trn("status.recursive_completed", "Completed ({{.Count}} files)", 11, map[string]any{"Count": 11}),
+			want: "Готово (11 файлов)",
+		},
+	}
+
+	for _, tc := range tests {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q; want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+func TestRussianFyneHighRiskWordingKeepsSecurityMeaning(t *testing.T) {
+	catalog := loadEmbeddedCatalog(t, "translation/ru.json")
+
+	assertCatalogStringContains(t, catalog, "advanced.force_decrypt.tooltip", "непровер", "повреж")
+	assertCatalogStringContains(t, catalog, "status.kept_output_unverified", "не провер", "повреж")
+	assertCatalogStringContains(t, catalog, "comments.placeholder", "не шифру")
+	assertCatalogStringContains(t, catalog, "drop.header_may_be_deniable", "может", "правдоподоб")
+	assertCatalogStringEquals(t, catalog, "advanced.delete_volume.label", "Удалить зашифрованный том")
+
+	deniabilityCopy := strings.ToLower(catalogString(t, catalog, "advanced.deniability.label") + "\n" +
+		catalogString(t, catalog, "drop.header_may_be_deniable"))
+	for _, forbidden := range []string{"аноним", "невидим", "скрытый режим"} {
+		if strings.Contains(deniabilityCopy, forbidden) {
+			t.Fatalf("Russian deniability copy must not contain %q:\n%s", forbidden, deniabilityCopy)
+		}
+	}
+}
+
+func TestFyneProductionLocaleFilesRequireReviewProof(t *testing.T) {
 	entries, err := os.ReadDir("translation")
 	if err != nil {
 		t.Fatalf("read translation dir: %v", err)
@@ -108,8 +204,15 @@ func TestFyneProductionLocaleFilesRequireRoundTripProof(t *testing.T) {
 		return
 	}
 
-	if _, err := os.Stat(fyneRoundTripProofPath(t)); err != nil {
-		t.Fatalf("production Fyne locale files %v require docs/localization/fyne-weblate-roundtrip.md proof: %v", productionLocales, err)
+	var missing []string
+	for _, locale := range productionLocales {
+		proofPath := productionLocaleProofPath(t, locale)
+		if _, err := os.Stat(proofPath); err != nil {
+			missing = append(missing, fmt.Sprintf("%s -> %s (%v)", locale, proofPath, err))
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("production Fyne locale files require review or round-trip proof:\n%s", strings.Join(missing, "\n"))
 	}
 }
 
@@ -127,6 +230,16 @@ func TestFyneRoundTripProofPathUsesRepositoryRoot(t *testing.T) {
 func fyneRoundTripProofPath(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(repoRoot(t), "docs", "localization", "fyne-weblate-roundtrip.md")
+}
+
+func productionLocaleProofPath(t *testing.T, filename string) string {
+	t.Helper()
+	switch filename {
+	case "ru.json":
+		return filepath.Join(repoRoot(t), "docs", "localization", "RUSSIAN_TRANSLATION_REVIEW.md")
+	default:
+		return fyneRoundTripProofPath(t)
+	}
 }
 
 func repoRoot(t *testing.T) string {
@@ -467,6 +580,144 @@ func validateCatalogValue(t *testing.T, key string, value any) {
 	if err := catalogValueValidationError(key, value); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func loadEmbeddedCatalog(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	data, err := translationFS.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read embedded catalog %s: %v", path, err)
+	}
+	if !utf8.Valid(data) {
+		t.Fatalf("%s is not valid UTF-8", path)
+	}
+
+	var catalog map[string]any
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	return catalog
+}
+
+func assertCatalogMatchesEnglish(t *testing.T, path string, english, translated map[string]any) {
+	t.Helper()
+
+	var failures []string
+	for key, englishValue := range english {
+		translatedValue, ok := translated[key]
+		if !ok {
+			failures = append(failures, key+": missing")
+			continue
+		}
+		if isPluralCatalogValue(englishValue) != isPluralCatalogValue(translatedValue) {
+			failures = append(failures, key+": plural/string shape differs")
+			continue
+		}
+		if err := catalogValueValidationError(key, translatedValue); err != nil {
+			failures = append(failures, key+": "+err.Error())
+		}
+		if got, want := templatePlaceholders(translatedValue), templatePlaceholders(englishValue); !sameStringSet(got, want) {
+			failures = append(failures, fmt.Sprintf("%s: placeholders = %v; want %v", key, got, want))
+		}
+	}
+	for key := range translated {
+		if _, ok := english[key]; !ok {
+			failures = append(failures, key+": extra")
+		}
+	}
+	sort.Strings(failures)
+	if len(failures) > 0 {
+		t.Fatalf("%s must match translation/en.json keys, shapes, and placeholders:\n%s", path, strings.Join(failures, "\n"))
+	}
+}
+
+func assertCatalogStringContains(t *testing.T, catalog map[string]any, key string, fragments ...string) {
+	t.Helper()
+
+	value := strings.ToLower(catalogString(t, catalog, key))
+	for _, fragment := range fragments {
+		if !strings.Contains(value, fragment) {
+			t.Fatalf("%s must contain %q: %q", key, fragment, value)
+		}
+	}
+}
+
+func assertCatalogStringEquals(t *testing.T, catalog map[string]any, key, want string) {
+	t.Helper()
+
+	if got := catalogString(t, catalog, key); got != want {
+		t.Fatalf("%s = %q; want %q", key, got, want)
+	}
+}
+
+func catalogString(t *testing.T, catalog map[string]any, key string) string {
+	t.Helper()
+
+	value, ok := catalog[key]
+	if !ok {
+		t.Fatalf("missing catalog key %s", key)
+	}
+	text, ok := value.(string)
+	if !ok {
+		t.Fatalf("catalog key %s is %T; want string", key, value)
+	}
+	return text
+}
+
+func isPluralCatalogValue(value any) bool {
+	_, ok := value.(map[string]any)
+	return ok
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+var templatePlaceholderPattern = regexp.MustCompile(`{{\s*\.([A-Za-z0-9_]+)\s*}}`)
+
+func templatePlaceholders(value any) []string {
+	seen := map[string]bool{}
+	collect := func(text string) {
+		for _, match := range templatePlaceholderPattern.FindAllStringSubmatch(text, -1) {
+			seen[match[1]] = true
+		}
+	}
+
+	switch v := value.(type) {
+	case string:
+		collect(v)
+	case map[string]any:
+		for _, raw := range v {
+			if text, ok := raw.(string); ok {
+				collect(text)
+			}
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for key := range seen {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func catalogValueValidationError(key string, value any) error {

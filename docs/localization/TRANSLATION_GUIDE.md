@@ -17,7 +17,7 @@ integrity, password, keyfile, corruption, and deletion concepts.
 
 | Surface | Current state | Translation path |
 |---|---|---|
-| Desktop Fyne UI | User-facing desktop UI strings are routed through `src/internal/ui/translation/en.json` via the project-local `go-i18n` runtime. | Keep using the project `tr`/`trn` wrappers and enable additional locale files only after a Fyne/Weblate JSON round-trip. |
+| Desktop Fyne UI | User-facing desktop UI strings are routed through `src/internal/ui/translation/en.json` via the project-local `go-i18n` runtime. | Keep using the project `tr`/`trn` wrappers. Russian is enabled as a curated in-repo translation with a review gate; future Weblate-imported Fyne locales still require a Fyne/Weblate JSON round-trip. |
 | Android app | Base English UI strings live in `android/app/src/main/res/values/strings.xml`; raw Go/runtime details are not translator source copy. | Continue with Android string resources and explicit display-boundary mappings. |
 | CLI | Cobra help, prompts, warnings, and errors are hard-coded Go strings. | Do not localize CLI output, command names, flags, or examples. Keep CLI English-only. |
 | Web/WASM | The Go WASM bridge exports functions and numeric error codes; it does not own the hosted web UI copy. | Localize the web frontend separately if/when that source is brought into scope. |
@@ -42,7 +42,7 @@ The source of truth is platform-native:
 | Surface | Source of truth | Rule |
 |---|---|---|
 | Android app | `android/app/src/main/res/values/strings.xml` | The base English file owns Android UI strings that are resource-backed. Hard-coded Kotlin user messages must be externalized or explicitly mapped before a locale can be released for Android. |
-| Desktop Fyne UI | `src/internal/ui/translation/en.json` | Keep the embedded catalog wired through `loadTranslations` and the project `tr`/`trn` wrappers. Do not add locale files without guard tests and a round-trip check. |
+| Desktop Fyne UI | `src/internal/ui/translation/en.json` | Keep the embedded catalog wired through `loadTranslations` and the project `tr`/`trn` wrappers. Do not add locale files without guard tests and either a language-specific review gate or a round-trip check. |
 | CLI | none | CLI is not localized. |
 | Web/WASM | external web frontend source, if brought into scope | Do not add web UI strings to the Go WASM bridge. |
 
@@ -94,8 +94,11 @@ Picocrypt-NG keeps Fyne/Weblate-shaped flat JSON catalogs under
 - The selected desktop UI language is stored in Fyne preferences under
   `ui.language`.
 - Only complete bundled Fyne catalogs appear in the selector. Target language
-  codes are `en`, `ru`, `de`, `fr`, `it`, and `es`, but non-English production
-  catalogs remain blocked until the Fyne/Weblate JSON round-trip proof exists.
+  codes are `en`, `ru`, `de`, `fr`, `it`, and `es`. Russian is the first
+  curated non-English catalog and is gated by
+  `docs/localization/RUSSIAN_TRANSLATION_REVIEW.md`; additional non-English
+  production catalogs remain blocked until their language-specific review gate
+  or the Fyne/Weblate JSON round-trip proof exists.
 - UI state must store semantic display state for labels and UI-owned statuses.
   Do not store translated strings as durable state when the text must relocalize
   after a runtime language switch.
@@ -117,6 +120,8 @@ Picocrypt-NG keeps Fyne/Weblate-shaped flat JSON catalogs under
 Before connecting Fyne JSON to Weblate, run a round-trip test on the exact Fyne
 JSON shape Picocrypt-NG uses. Generic Weblate JSON is useful for simple key/value
 files, but its plain JSON format does not carry all plural/context metadata.
+The curated Russian catalog is a native-review exception, not evidence that the
+Fyne Weblate component is ready.
 
 ### Android
 
