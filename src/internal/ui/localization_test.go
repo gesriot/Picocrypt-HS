@@ -269,6 +269,22 @@ func rawLabel() {
 	}
 }
 
+func TestDisplayStringGuardDetectsSetTextLiteral(t *testing.T) {
+	source := `package ui
+
+func rawSetText(label interface{ SetText(string) }) {
+	label.SetText("Raw visible text")
+}
+`
+	failures := collectRawDisplayStringFailuresFromSource(t, "raw.go", source)
+	if len(failures) != 1 {
+		t.Fatalf("failures = %#v; want one raw SetText literal failure", failures)
+	}
+	if !strings.Contains(failures[0], "Raw visible text") {
+		t.Fatalf("failure = %q; want literal text in failure", failures[0])
+	}
+}
+
 func TestDisplayStringGuardUnquotesInterpretedLiterals(t *testing.T) {
 	source := `package ui
 
@@ -429,16 +445,19 @@ func TestUIStateDoesNotStoreLocalizedDisplayStrings(t *testing.T) {
 	}
 }
 
-func TestLocalizationLoadedByNewAppBeforeReturn(t *testing.T) {
-	source := readPackageSource(t, "app.go")
-	stateIndex := strings.Index(source, "app.NewState()")
-	loadIndex := strings.Index(source, "loadTranslations()")
-	returnIndex := strings.Index(source, "return &App{")
-	if stateIndex < 0 || loadIndex < 0 || returnIndex < 0 {
-		t.Fatalf("app.go missing NewApp localization sequence: state=%d load=%d return=%d", stateIndex, loadIndex, returnIndex)
+func TestNewAppLoadsEmbeddedTranslationsBeforeReturning(t *testing.T) {
+	resetLocalizationForTest(t)
+
+	if got := tr("status.ready", "fallback"); got != "fallback" {
+		t.Fatalf("tr(status.ready) before NewApp = %q; want fallback before embedded translations are loaded", got)
 	}
-	if stateIndex >= loadIndex || loadIndex >= returnIndex {
-		t.Fatalf("loadTranslations order is wrong: state=%d load=%d return=%d", stateIndex, loadIndex, returnIndex)
+
+	if _, err := NewApp("v2.test"); err != nil {
+		t.Fatalf("NewApp returned error: %v", err)
+	}
+
+	if got := tr("status.ready", "fallback"); got != "Ready" {
+		t.Fatalf("tr(status.ready) after NewApp = %q; want embedded translation Ready", got)
 	}
 }
 
@@ -481,16 +500,6 @@ func catalogValueValidationError(key string, value any) error {
 		return fmt.Errorf("translation %q has unsupported value type %T", key, value)
 	}
 	return nil
-}
-
-func readPackageSource(t *testing.T, path string) string {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(data)
 }
 
 func collectRawDisplayStringFailuresFromFile(t *testing.T, file string) []string {
@@ -583,10 +592,13 @@ func displayArgumentIndexes(call *ast.CallExpr) []int {
 		return []int{0, 1, 2}
 	case "dialog.NewConfirm":
 		return []int{0, 1}
-	case "SetPlaceHolder", "SetStatus", "SetToolTip":
-		return []int{0}
 	default:
-		return nil
+		switch callSelectorName(call) {
+		case "SetPlaceHolder", "SetStatus", "SetText", "SetToolTip":
+			return []int{0}
+		default:
+			return nil
+		}
 	}
 }
 
@@ -598,6 +610,17 @@ func callName(call *ast.CallExpr) string {
 		if ident, ok := fun.X.(*ast.Ident); ok {
 			return ident.Name + "." + fun.Sel.Name
 		}
+		return fun.Sel.Name
+	default:
+		return ""
+	}
+}
+
+func callSelectorName(call *ast.CallExpr) string {
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
 		return fun.Sel.Name
 	default:
 		return ""

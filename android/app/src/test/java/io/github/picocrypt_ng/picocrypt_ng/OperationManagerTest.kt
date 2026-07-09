@@ -360,19 +360,24 @@ class OperationManagerTest {
             password = "testpassword",
             confirmPassword = "testpassword"
         )
-        
-        // Create a mock operation state
         val operationState = TestDataBuilders.createOperationState(
             formData = formData
         )
-        
-        // We can't directly set the operation state, but we can test the password clearing
-        // by checking that clearPasswords works
-        val passwordBefore = formData.passwordInput.copyOf()
-        formData.clearPasswords()
-        
-        assertTrue("Password should be cleared", formData.passwordInput.all { it == '\u0000' })
-        assertTrue("Confirm password should be cleared", formData.confirmPasswordInput.all { it == '\u0000' })
+        assertTrue("password precondition should contain non-zero chars", formData.passwordInput.any { it != '\u0000' })
+        assertTrue("confirm precondition should contain non-zero chars", formData.confirmPasswordInput.any { it != '\u0000' })
+
+        val stateField = OperationManager::class.java.getDeclaredField("_currentOperation")
+        stateField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val flow = stateField.get(OperationManager)
+            as kotlinx.coroutines.flow.MutableStateFlow<OperationState?>
+        flow.value = operationState
+
+        OperationManager.clearOperation(shouldCleanupFiles = false)
+
+        assertNull("Operation should be null after clearing", OperationManager.currentOperation.first())
+        assertTrue("Password should be cleared by OperationManager.clearOperation", formData.passwordInput.all { it == '\u0000' })
+        assertTrue("Confirm password should be cleared by OperationManager.clearOperation", formData.confirmPasswordInput.all { it == '\u0000' })
     }
     
     @Test
