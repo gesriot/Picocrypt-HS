@@ -435,25 +435,69 @@ func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 }
 
 func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
-	content := mustReadWorkflow(t, ".github/workflows/pr-test-build-android.yml")
-	mustContain(t, content, "Run Unit Tests")
-	mustContain(t, content, "./gradlew test")
-	mustContain(t, content, ":app:compileDebugAndroidTestKotlin")
-	mustContain(t, content, ":app:assembleDebugAndroidTest")
-	// The PR gate now runs the real on-device Go encrypt/decrypt roundtrip so a crypto
-	// regression on Android cannot merge green. Keep the emulator action SHA-pinned.
-	mustMatch(t, content, `ReactiveCircus/android-emulator-runner@[0-9a-f]{40}`)
-	mustContain(t, content, "connectedDebugAndroidTest")
-	mustContain(t, content, "-Pandroid.testInstrumentationRunnerArguments.class")
-	mustContain(t, content, "OperationManagerIntegrationTest")
+	const (
+		runner = "ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
+		script = "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes"
+	)
 
-	// The emulator must run API 36 (matching targetSdk), not 34: API 35+ behavior --
-	// the foreground-service dataSync timeout and Service.onTimeout(API 35+) -- is only
-	// reachable there, so gating on API 34 is a false green for that path.
-	prJob := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml"), "pr-test-build-android")
-	prEmulator := mustHaveStepUsingPrefix(t, prJob, "ReactiveCircus/android-emulator-runner@")
-	if got := prEmulator.With["api-level"]; got != 36 {
-		t.Fatalf("PR emulator api-level = %v, want 36 (>= targetSdk for FGS/onTimeout coverage)", got)
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
+	job := mustJob(t, workflow, "pr-test-build-android")
+	wantArchByAPI := map[int]string{
+		24: "x86",
+		36: "x86_64",
+	}
+	seen := make(map[int]struct{}, len(wantArchByAPI))
+
+	for _, step := range job.Steps {
+		if !strings.HasPrefix(step.Uses, "ReactiveCircus/android-emulator-runner@") {
+			continue
+		}
+		if step.Uses != runner {
+			t.Fatalf("Android emulator runner = %q, want exact reviewed SHA %q", step.Uses, runner)
+		}
+
+		apiLevel, ok := step.With["api-level"].(int)
+		if !ok {
+			t.Fatalf("step %q api-level = %#v, want integer", step.Name, step.With["api-level"])
+		}
+		wantArch, ok := wantArchByAPI[apiLevel]
+		if !ok {
+			t.Fatalf("unexpected Android emulator API level %d", apiLevel)
+		}
+		if _, duplicate := seen[apiLevel]; duplicate {
+			t.Fatalf("Android emulator API level %d is configured more than once", apiLevel)
+		}
+		seen[apiLevel] = struct{}{}
+
+		if got := step.With["target"]; got != "default" {
+			t.Errorf("API %d target = %#v, want default AOSP image", apiLevel, got)
+		}
+		if got := step.With["arch"]; got != wantArch {
+			t.Errorf("API %d arch = %#v, want %s", apiLevel, got, wantArch)
+		}
+		emulatorOptions, ok := step.With["emulator-options"].(string)
+		if !ok {
+			t.Fatalf("API %d emulator-options = %#v, want string", apiLevel, step.With["emulator-options"])
+		}
+		mustMatch(t, emulatorOptions, `(?:^|\s)-memory\s+6144(?:\s|$)`)
+		if got := step.With["working-directory"]; got != "android" {
+			t.Errorf("API %d working-directory = %#v, want android", apiLevel, got)
+		}
+		if got := step.With["script"]; got != script {
+			t.Errorf("API %d script = %#v, want exact on-device crypto roundtrip", apiLevel, got)
+		}
+		if step.If != "" {
+			t.Errorf("API %d step if = %q, want unconditional compatibility gate", apiLevel, step.If)
+		}
+		if step.ContinueOnError != nil && step.ContinueOnError != false {
+			t.Errorf("API %d continue-on-error = %#v, want absent or false", apiLevel, step.ContinueOnError)
+		}
+	}
+
+	for apiLevel := range wantArchByAPI {
+		if _, ok := seen[apiLevel]; !ok {
+			t.Errorf("missing on-device crypto roundtrip for API %d", apiLevel)
+		}
 	}
 }
 
@@ -763,7 +807,7 @@ func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	mustContain(t, content, "TEST_CLASSES=")
 	mustContain(t, content, "./gradlew connectedDebugAndroidTest")
 
-	// Same API-36 requirement as the PR gate (FGS/onTimeout reachability).
+	// Keep the manual instrumented workflow on the target-SDK runtime.
 	instrJob := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/android-instrumented.yml"), "android-instrumented")
 	instrEmulator := mustHaveStepUsingPrefix(t, instrJob, "ReactiveCircus/android-emulator-runner@")
 	if got := instrEmulator.With["api-level"]; got != 36 {

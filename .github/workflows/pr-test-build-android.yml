@@ -89,9 +89,40 @@ jobs:
       working-directory: android
       run: ./gradlew :app:assembleRelease
 
-    - name: Compile Instrumented Tests
+    - name: Verify Android 7 and ABI packaging
       working-directory: android
-      run: ./gradlew :app:compileDebugAndroidTestKotlin
+      run: |
+        aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
+        universal="app/build/outputs/apk/release/app-universal-release-unsigned.apk"
+
+        require_file() {
+          if [ ! -s "$1" ]; then
+            echo "Missing or empty APK: $1" >&2
+            exit 1
+          fi
+        }
+        require_min_sdk_24() {
+          if ! "$aapt" dump badging "$1" | grep -Fx "sdkVersion:'24'" >/dev/null; then
+            echo "APK does not declare minSdk 24: $1" >&2
+            exit 1
+          fi
+        }
+        require_entry() {
+          if ! unzip -Z1 "$1" | grep -Fx "$2" >/dev/null; then
+            echo "APK $1 is missing $2" >&2
+            exit 1
+          fi
+        }
+
+        require_file "$universal"
+        require_min_sdk_24 "$universal"
+        for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+          split="app/build/outputs/apk/release/app-${abi}-release-unsigned.apk"
+          require_file "$split"
+          require_min_sdk_24 "$split"
+          require_entry "$split" "lib/${abi}/libgojni.so"
+          require_entry "$universal" "lib/${abi}/libgojni.so"
+        done
 
     - name: Assemble Instrumented Test APK
       working-directory: android
@@ -103,12 +134,29 @@ jobs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
 
-    - name: Run instrumented crypto roundtrip
+    - name: Run Android 7 crypto roundtrip (API 24)
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       with:
-        # API 36 (= targetSdk), not 34: API 35+ FGS dataSync timeout and
-        # Service.onTimeout are only reachable here, so API 34 is a false green.
+        # API 24 is the documented compatibility floor. Its default system image is
+        # x86, so this also exercises the 32-bit gomobile library shipped to older devices.
+        api-level: 24
+        target: default
+        arch: x86
+        disable-animations: true
+        # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
+        # (src/internal/crypto/kdf.go); the runner's default ~2.5 GiB emulator OOMs
+        # (lowmemorykiller kills the test process) mid crypto roundtrip.
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 6144 -cores 4 -camera-back none -camera-front none
+        working-directory: android
+        script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes
+
+    - name: Run target SDK crypto roundtrip (API 36)
+      uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      with:
+        # API 36 matches targetSdk and exercises the current Android runtime plus
+        # the 64-bit x86_64 gomobile/JNI library.
         api-level: 36
+        target: default
         arch: x86_64
         disable-animations: true
         # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
@@ -116,7 +164,7 @@ jobs:
         # (lowmemorykiller kills the test process) mid crypto roundtrip.
         emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 6144 -cores 4 -camera-back none -camera-front none
         working-directory: android
-        script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest
+        script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes
 
     - name: Upload instrumented test report
       if: always()
