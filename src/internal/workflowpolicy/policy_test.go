@@ -445,9 +445,10 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 	wantByAPI := map[int]struct {
 		arch   string
 		memory string
+		target string
 	}{
-		24: {arch: "x86_64", memory: "4096"},
-		36: {arch: "x86_64", memory: "6144"},
+		24: {arch: "x86_64", memory: "4096", target: "google_apis"},
+		36: {arch: "x86_64", memory: "6144", target: "default"},
 	}
 	seen := make(map[int]struct{}, len(wantByAPI))
 
@@ -472,8 +473,8 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 		}
 		seen[apiLevel] = struct{}{}
 
-		if got := step.With["target"]; got != "default" {
-			t.Errorf("API %d target = %#v, want default AOSP image", apiLevel, got)
+		if got := step.With["target"]; got != want.target {
+			t.Errorf("API %d target = %#v, want %s", apiLevel, got, want.target)
 		}
 		if got := step.With["arch"]; got != want.arch {
 			t.Errorf("API %d arch = %#v, want %s", apiLevel, got, want.arch)

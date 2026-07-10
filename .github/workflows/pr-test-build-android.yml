@@ -138,10 +138,11 @@ jobs:
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       timeout-minutes: 15
       with:
-        # API 24 is the documented compatibility floor. Use its x86_64 image because
-        # the fixed 1 GiB Argon2 allocation cannot fit in the 32-bit Go address space.
+        # API 24 is the documented compatibility floor. Its newer official
+        # google_apis x86_64 image replaces the default image that stalls during boot;
+        # 32-bit Go cannot reserve the fixed 1 GiB Argon2 allocation.
         api-level: 24
-        target: default
+        target: google_apis
         arch: x86_64
         disable-animations: true
         # -memory 4096 is the next bounded configuration: it leaves headroom for the
