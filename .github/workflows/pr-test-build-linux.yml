@@ -71,12 +71,11 @@ jobs:
       run: |
         cd src
         if [ "${{ matrix.arch }}" = "amd64" ]; then
-          # -p 2 caps how many package test binaries run concurrently. Under -race
-          # (heavy memory instrumentation) the Argon2-memory-hard volume tests plus
-          # the Fyne ui tests otherwise peak past the runner's RAM, so the job is
-          # killed mid-run (SIGTERM, exit 143). Bounding concurrency holds peak
-          # memory under the ceiling; 15m is ample for the serialized run.
-          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -race -p 2 -timeout 15m ./...
+          # Under -race, concurrent Argon2 volume and Fyne package tests exceed the
+          # runner's RAM, so cap package binaries at two. CLI integration spawns a
+          # separate non-race product binary, so run it separately without -race.
+          CGO_ENABLED=1 go test -v -race -p 2 -timeout 15m ./...
+          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./internal/cli/...
         else
           PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./...
         fi

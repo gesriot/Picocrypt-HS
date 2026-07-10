@@ -322,6 +322,70 @@ func TestLinuxPRAggregateGateIgnoresCancelledDuplicate(t *testing.T) {
 	)
 }
 
+func TestLinuxWorkflowsBoundRaceParallelismAndSeparateCLIIntegration(t *testing.T) {
+	for _, path := range []string{
+		".github/workflows/build-linux.yml",
+		".github/workflows/pr-test-build-linux.yml",
+	} {
+		t.Run(path, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, path)
+			testStep := mustStepNamed(t, mustJob(t, workflow, "build"), "Run tests")
+
+			mustContainInOrder(t, testStep.Run,
+				"CGO_ENABLED=1 go test -v -race -p 2 -timeout 15m ./...",
+				"PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./internal/cli/...",
+			)
+			if got := strings.Count(testStep.Run, "go test -v -race"); got != 1 {
+				t.Fatalf("Linux Run tests race command count = %d, want exactly 1", got)
+			}
+			mustNotContain(t, testStep.Run, "PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -race")
+		})
+	}
+}
+
+func TestWindowsResourceEditingWaitsAndFailsLoud(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		job  string
+	}{
+		{path: ".github/workflows/build-windows.yml", job: "build"},
+		{path: ".github/workflows/pr-test-build-windows.yml", job: "pr-test-build-windows"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, tc.path)
+			resourceStep := mustStepNamed(t, mustJob(t, workflow, tc.job), "Add icon, manifest, and version info")
+
+			mustNotContain(t, resourceStep.Run, "Start-Sleep")
+			mustNotContain(t, resourceStep.Run, "Invoke-Expression")
+			if got := strings.Count(resourceStep.Run, "Start-Process"); got != 2 {
+				t.Fatalf("Resource Hacker step Start-Process count = %d, want installer and CLI invocations", got)
+			}
+			mustContainInOrder(t, resourceStep.Run,
+				"$installer = Start-Process",
+				`-FilePath "reshacker_setup/reshacker_setup.exe"`,
+				`-ArgumentList "/SILENT"`,
+				"-Wait -PassThru",
+				"if ($installer.ExitCode -ne 0)",
+				"function Invoke-ResourceHacker",
+				"$process = Start-Process",
+				"-FilePath $env:P",
+				`-ArgumentList ($Arguments + @("-log", "CONSOLE"))`,
+				"-Wait -PassThru",
+				"if ($process.ExitCode -ne 0)",
+				"Get-Item -LiteralPath $ExpectedOutput -ErrorAction Stop",
+				"if ($output.Length -eq 0)",
+			)
+			mustContainInOrder(t, resourceStep.Run,
+				`-ExpectedOutput "src/2.exe"`,
+				`-ExpectedOutput "src/3.exe"`,
+				`-ExpectedOutput "src/4.exe"`,
+				`-ExpectedOutput "resources.res"`,
+				`-ExpectedOutput "src/5.exe"`,
+			)
+		})
+	}
+}
+
 func TestLinuxDebPackagingDoesNotUseExternalScaffold(t *testing.T) {
 	for _, path := range []string{
 		".github/workflows/build-linux.yml",
