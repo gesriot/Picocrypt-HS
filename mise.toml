@@ -5,8 +5,8 @@ min_version = "2026.6.14"
 go = "1.26.5"
 java = "temurin-21"
 golangci-lint = "2.12.2"
-"go:golang.org/x/mobile/cmd/gobind" = "v0.0.0-20260209203831-923679eb55af"
-"go:golang.org/x/mobile/cmd/gomobile" = "v0.0.0-20260209203831-923679eb55af"
+"go:golang.org/x/mobile/cmd/gobind" = "v0.0.0-20260709172247-6129f5bee9d5"
+"go:golang.org/x/mobile/cmd/gomobile" = "v0.0.0-20260709172247-6129f5bee9d5"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.6.0"
 
 [env]
@@ -123,22 +123,7 @@ run = [
 [tasks."android:gomobile"]
 description = "Build the Android gomobile AAR"
 dir = "android"
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
-
-tmpdir="$(mktemp -d)"
-cp ../src/go.mod "$tmpdir/go.mod"
-cp ../src/go.sum "$tmpdir/go.sum"
-cleanup() {
-  cp "$tmpdir/go.mod" ../src/go.mod
-  cp "$tmpdir/go.sum" ../src/go.sum
-  rm -rf "$tmpdir"
-}
-trap cleanup EXIT
-
-./build-gomobile.sh
-'''
+run = "./build-gomobile.sh"
 
 [tasks."android:test"]
 description = "Run Android JVM tests after rebuilding the gomobile AAR"
