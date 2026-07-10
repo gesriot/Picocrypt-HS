@@ -443,7 +443,7 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
 	job := mustJob(t, workflow, "pr-test-build-android")
 	wantArchByAPI := map[int]string{
-		24: "x86",
+		24: "x86_64",
 		36: "x86_64",
 	}
 	seen := make(map[int]struct{}, len(wantArchByAPI))

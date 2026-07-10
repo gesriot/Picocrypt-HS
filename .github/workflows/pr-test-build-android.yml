@@ -137,11 +137,11 @@ jobs:
     - name: Run Android 7 crypto roundtrip (API 24)
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       with:
-        # API 24 is the documented compatibility floor. Its default system image is
-        # x86, so this also exercises the 32-bit gomobile library shipped to older devices.
+        # API 24 is the documented compatibility floor. Use its x86_64 image because
+        # the fixed 1 GiB Argon2 allocation cannot fit in the 32-bit Go address space.
         api-level: 24
         target: default
-        arch: x86
+        arch: x86_64
         disable-animations: true
         # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
         # (src/internal/crypto/kdf.go); the runner's default ~2.5 GiB emulator OOMs
