@@ -369,16 +369,16 @@ func (a *App) copyURIToTemp(reader io.Reader, filename string) (string, error) {
 // buildMobilePasswordSection creates the password section for mobile with larger buttons
 func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 	// Password buttons - 3 per row for better touch targets
-	a.showHideBtn = widget.NewButton(passwordVisibilityLabel(a.State.PasswordMode), func() {
+	a.showHideBtn = newToolbarButton(passwordVisibilityLabel(a.State.PasswordMode), passwordVisibilityIcon(a.State.PasswordMode), func() {
 		a.State.TogglePasswordVisibility()
 		snap := a.State.UISnapshot()
-		a.showHideBtn.SetText(passwordVisibilityLabel(snap.PasswordMode))
+		configureToolbarButton(a.showHideBtn, passwordVisibilityLabel(snap.PasswordMode), passwordVisibilityIcon(snap.PasswordMode))
 		hidden := snap.PasswordMode == app.PasswordModeHidden
 		a.passwordEntry.SetHidden(hidden)
 		a.cPasswordEntry.SetHidden(hidden)
 	})
 
-	a.clearPwdBtn = widget.NewButton(tr("action.clear", "Clear"), func() {
+	a.clearPwdBtn = newToolbarButton(tr("action.clear", "Clear"), theme.ContentClearIcon(), func() {
 		a.State.Password = ""
 		a.State.CPassword = ""
 		a.passwordEntry.SetText("")
@@ -388,11 +388,11 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.copyBtn = widget.NewButton(tr("action.copy", "Copy"), func() {
+	a.copyBtn = newToolbarButton(tr("action.copy", "Copy"), theme.ContentCopyIcon(), func() {
 		a.fyneApp.Clipboard().SetContent(a.State.Password)
 	})
 
-	a.pasteBtn = widget.NewButton(tr("action.paste", "Paste"), func() {
+	a.pasteBtn = newToolbarButton(tr("action.paste", "Paste"), theme.ContentPasteIcon(), func() {
 		text := a.fyneApp.Clipboard().Content()
 		a.State.Password = text
 		a.passwordEntry.SetText(text)
@@ -405,7 +405,7 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.createBtn = widget.NewButton(tr("action.create", "Create"), func() {
+	a.createBtn = newToolbarButton(tr("action.create", "Create"), theme.DocumentCreateIcon(), func() {
 		a.showPassgenModal()
 	})
 
@@ -424,7 +424,6 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 	}
 
 	a.strengthIndicator = NewPasswordStrengthIndicator()
-	passwordRow := container.NewBorder(nil, nil, nil, a.strengthIndicator, a.passwordEntry)
 
 	// Confirm password
 	a.cPasswordEntry = NewPasswordEntry()
@@ -436,28 +435,29 @@ func (a *App) buildMobilePasswordSection() fyne.CanvasObject {
 	}
 
 	a.validIndicator = NewValidationIndicator()
-	a.confirmRow = container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
 
 	a.passwordLabel = widget.NewLabel(tr("password.label", "Password:"))
 	a.confirmLabel = widget.NewLabel(tr("password.confirm_label", "Confirm password:"))
+	passwordTitle := container.NewHBox(a.passwordLabel, a.strengthIndicator)
+	confirmTitle := container.NewHBox(a.confirmLabel, a.validIndicator)
+	a.confirmRow = container.NewVBox(confirmTitle, a.cPasswordEntry)
 
 	return container.NewVBox(
-		a.passwordLabel,
+		passwordTitle,
 		buttonRow1,
 		buttonRow2,
-		passwordRow,
-		a.confirmLabel,
+		a.passwordEntry,
 		a.confirmRow,
 	)
 }
 
 // buildMobileKeyfilesSection creates the keyfiles section for mobile
 func (a *App) buildMobileKeyfilesSection() fyne.CanvasObject {
-	a.keyfileEditBtn = widget.NewButton(tr("action.edit", "Edit"), func() {
+	a.keyfileEditBtn = newToolbarButton(tr("action.edit", "Edit"), theme.FolderOpenIcon(), func() {
 		a.showKeyfileModal()
 	})
 
-	a.keyfileCreateBtn = widget.NewButton(tr("action.create", "Create"), func() {
+	a.keyfileCreateBtn = newToolbarButton(tr("action.create", "Create"), theme.DocumentCreateIcon(), func() {
 		a.createKeyfile()
 	})
 
@@ -482,7 +482,7 @@ func (a *App) buildMobileKeyfilesSection() fyne.CanvasObject {
 func (a *App) buildMobileCommentsSection() fyne.CanvasObject {
 	a.commentsLabel = widget.NewLabel(commentsLabelText(a.State.Mode))
 	a.commentsEntry = widget.NewEntry()
-	a.commentsEntry.SetPlaceHolder(tr("comments.placeholder", "Comments (not encrypted)"))
+	a.commentsEntry.SetPlaceHolder(tr("comments.placeholder", "Public note; not encrypted."))
 	a.commentsEntry.MultiLine = true
 	a.commentsEntry.OnChanged = func(text string) {
 		if a.State.Mode == "decrypt" {
@@ -586,9 +586,9 @@ func (a *App) buildMobileEncryptOptions() {
 		a.updateUIState()
 	}
 
-	a.splitUnitSelect = ttwidget.NewSelect(a.State.SplitUnits, func(selected string) {
+	a.splitUnitSelect = widget.NewSelect(localizedSplitUnits(a.State.SplitUnits), func(selected string) {
 		for i, unit := range a.State.SplitUnits {
-			if unit == selected {
+			if localizedSplitUnit(unit) == selected {
 				// #nosec G115 -- i is bounded by SplitUnits length (5 items: KiB, MiB, GiB, TiB, Total)
 				a.State.SplitSelected = int32(i)
 				break

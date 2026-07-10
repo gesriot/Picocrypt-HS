@@ -9,6 +9,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -19,19 +20,26 @@ func passwordVisibilityLabel(mode app.PasswordInputMode) string {
 	return tr("password.show", "Show")
 }
 
+func passwordVisibilityIcon(mode app.PasswordInputMode) fyne.Resource {
+	if mode == app.PasswordModeVisible {
+		return theme.VisibilityOffIcon()
+	}
+	return theme.VisibilityIcon()
+}
+
 // buildPasswordSection creates the password input section.
 func (a *App) buildPasswordSection() fyne.CanvasObject {
 	// Password buttons row
-	a.showHideBtn = widget.NewButton(passwordVisibilityLabel(a.State.PasswordMode), func() {
+	a.showHideBtn = newToolbarButton(passwordVisibilityLabel(a.State.PasswordMode), passwordVisibilityIcon(a.State.PasswordMode), func() {
 		a.State.TogglePasswordVisibility()
 		snap := a.State.UISnapshot()
-		a.showHideBtn.SetText(passwordVisibilityLabel(snap.PasswordMode))
+		configureToolbarButton(a.showHideBtn, passwordVisibilityLabel(snap.PasswordMode), passwordVisibilityIcon(snap.PasswordMode))
 		hidden := snap.PasswordMode == app.PasswordModeHidden
 		a.passwordEntry.SetHidden(hidden)
 		a.cPasswordEntry.SetHidden(hidden)
 	})
 
-	a.clearPwdBtn = widget.NewButton(tr("action.clear", "Clear"), func() {
+	a.clearPwdBtn = newToolbarButton(tr("action.clear", "Clear"), theme.ContentClearIcon(), func() {
 		a.State.Password = ""
 		a.State.CPassword = ""
 		a.passwordEntry.SetText("")
@@ -41,11 +49,11 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.copyBtn = widget.NewButton(tr("action.copy", "Copy"), func() {
+	a.copyBtn = newToolbarButton(tr("action.copy", "Copy"), theme.ContentCopyIcon(), func() {
 		a.fyneApp.Clipboard().SetContent(a.State.Password)
 	})
 
-	a.pasteBtn = widget.NewButton(tr("action.paste", "Paste"), func() {
+	a.pasteBtn = newToolbarButton(tr("action.paste", "Paste"), theme.ContentPasteIcon(), func() {
 		text := a.fyneApp.Clipboard().Content()
 		a.State.Password = text
 		a.passwordEntry.SetText(text)
@@ -58,11 +66,10 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 		a.updateUIState()
 	})
 
-	a.createBtn = widget.NewButton(tr("action.create", "Create"), func() {
+	a.createBtn = newToolbarButton(tr("action.create", "Create"), theme.DocumentCreateIcon(), func() {
 		a.showPassgenModal()
 	})
 
-	// Use adaptive grid that fills available space evenly
 	buttonRow := container.NewGridWithColumns(5,
 		a.showHideBtn, a.clearPwdBtn, a.copyBtn, a.pasteBtn, a.createBtn,
 	)
@@ -79,8 +86,6 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 
 	a.strengthIndicator = NewPasswordStrengthIndicator()
 
-	passwordRow := container.NewBorder(nil, nil, nil, a.strengthIndicator, a.passwordEntry)
-
 	// Confirm password
 	a.cPasswordEntry = NewPasswordEntry()
 	a.cPasswordEntry.SetPlaceHolder(tr("password.confirm_placeholder", "Confirm password"))
@@ -92,14 +97,16 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 
 	a.validIndicator = NewValidationIndicator()
 
-	a.confirmRow = container.NewBorder(nil, nil, nil, a.validIndicator, a.cPasswordEntry)
-
 	// Create bold labels for better visual hierarchy
 	a.passwordLabel = widget.NewLabel(tr("password.label", "Password:"))
 	a.passwordLabel.TextStyle = fyne.TextStyle{Bold: true}
+	passwordTitle := container.NewHBox(a.passwordLabel, a.strengthIndicator)
+	passwordHeader := container.NewBorder(nil, nil, passwordTitle, buttonRow, nil)
 
 	a.confirmLabel = widget.NewLabel(tr("password.confirm_label", "Confirm password:"))
 	a.confirmLabel.TextStyle = fyne.TextStyle{Bold: true}
+	confirmTitle := container.NewHBox(a.confirmLabel, a.validIndicator)
+	a.confirmRow = container.NewVBox(confirmTitle, a.cPasswordEntry)
 
 	// Subtle advisory shown only while encrypting with a non-ASCII password (#19).
 	a.nonASCIIHint = widget.NewLabel(tr("password.non_ascii_hint",
@@ -111,11 +118,9 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 	a.nonASCIIHint.Hide()
 
 	return container.NewVBox(
-		a.passwordLabel,
-		buttonRow,
-		passwordRow,
+		passwordHeader,
+		a.passwordEntry,
 		a.nonASCIIHint,
-		a.confirmLabel,
 		a.confirmRow,
 	)
 }
@@ -167,7 +172,7 @@ func (a *App) updatePasswordUIState(mainDisabled bool, snap app.UISnapshot) {
 	}
 
 	if a.showHideBtn != nil {
-		a.showHideBtn.SetText(passwordVisibilityLabel(snap.PasswordMode))
+		configureToolbarButton(a.showHideBtn, passwordVisibilityLabel(snap.PasswordMode), passwordVisibilityIcon(snap.PasswordMode))
 		if mainDisabled {
 			a.showHideBtn.Disable()
 		} else {

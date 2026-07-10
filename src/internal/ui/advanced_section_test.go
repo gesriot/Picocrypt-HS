@@ -5,6 +5,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/widget"
 
 	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
@@ -257,20 +258,10 @@ func TestEncryptAdvancedOptionsNeverSoftLock(t *testing.T) {
 	})
 }
 
-// sharedSecurityWarning is the deliberately-shared tooltip on the two
-// "dangerous" encrypt options (Deniability and Recursively). It is asserted
-// verbatim below because the exact safety wording is intentional copy; the rest
-// of the suite only checks that tooltips are present and otherwise distinct.
-func sharedSecurityWarning() string {
-	return tr("advanced.security_warning.tooltip", "Warning: only use this if you know what it does!")
-}
-
 // assertTooltipsPresentAndDistinct asserts every control carries a non-empty
 // tooltip (an empty tooltip is a missing-tooltip bug, issue #79) and that the
-// tooltips are distinct across the *non-warning* controls — duplicate copy on
-// two unrelated controls almost always means a copy/paste wiring mistake. The
-// deliberately-shared security warning is excluded from the distinctness set and
-// pinned verbatim by the callers instead.
+// tooltips are distinct across controls, since duplicate copy on two unrelated
+// controls almost always means a copy/paste wiring mistake.
 func assertTooltipsPresentAndDistinct(t *testing.T, controls []struct {
 	name string
 	tt   interface{ ToolTip() string }
@@ -283,9 +274,6 @@ func assertTooltipsPresentAndDistinct(t *testing.T, controls []struct {
 		if got == "" {
 			t.Errorf("%s has an empty tooltip", c.name)
 			continue
-		}
-		if got == sharedSecurityWarning() {
-			continue // distinctness is not required for the shared warning
 		}
 		if prev, dup := seen[got]; dup {
 			t.Errorf("%s and %s share tooltip %q; tooltips must be distinct", prev, c.name, got)
@@ -313,16 +301,16 @@ func TestAdvancedOptionsSetTooltips(t *testing.T) {
 			{"Deniability", a.deniabilityCheck},
 			{"Recursively", a.recursivelyCheck},
 			{"Split:", a.splitCheck},
-			{"split units", a.splitUnitSelect},
 		})
 
-		// The two dangerous options deliberately share the exact safety wording;
-		// pin it verbatim so the warning copy can't be silently softened.
-		if got := a.deniabilityCheck.ToolTip(); got != sharedSecurityWarning() {
-			t.Errorf("Deniability tooltip = %q, want %q", got, sharedSecurityWarning())
+		if got, want := a.deleteCheck.ToolTip(), tr("advanced.delete_files.tooltip", "Delete source files after encryption"); got != want {
+			t.Errorf("Delete files tooltip = %q, want %q", got, want)
 		}
-		if got := a.recursivelyCheck.ToolTip(); got != sharedSecurityWarning() {
-			t.Errorf("Recursively tooltip = %q, want %q", got, sharedSecurityWarning())
+		if got, want := a.deniabilityCheck.ToolTip(), tr("advanced.deniability.tooltip", "No readable Picocrypt header. Keep password/keyfiles."); got != want {
+			t.Errorf("Deniability tooltip = %q, want %q", got, want)
+		}
+		if got, want := a.recursivelyCheck.ToolTip(), tr("advanced.recursively.tooltip", "Process each file separately"); got != want {
+			t.Errorf("Recursively tooltip = %q, want %q", got, want)
 		}
 	})
 
@@ -342,11 +330,184 @@ func TestAdvancedOptionsSetTooltips(t *testing.T) {
 			{"Same level", a.sameLevelCheck},
 		})
 
-		if got := a.autoUnzipCheck.ToolTip(); got != "Extract .zip upon decryption (may overwrite files)" {
-			t.Errorf("Auto unzip tooltip = %q; want rendered .zip extension", got)
+		if got := a.autoUnzipCheck.ToolTip(); got != "Extract .zip; may overwrite files" {
+			t.Errorf("Auto unzip tooltip = %q; want rendered .zip overwrite warning", got)
 		}
-		if got := a.sameLevelCheck.ToolTip(); got != "Extract .zip contents to same folder as volume" {
-			t.Errorf("Same level tooltip = %q; want rendered .zip extension", got)
+		if got := a.sameLevelCheck.ToolTip(); got != "Extract .zip beside the volume" {
+			t.Errorf("Same level tooltip = %q; want rendered .zip extraction hint", got)
 		}
 	})
+}
+
+func TestAdvancedDisclosureCollapsedByDefault(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		a.State.Mode = "encrypt"
+		a.State.AllFiles = []string{"input.txt"}
+		a.State.OnlyFiles = []string{"input.txt"}
+		a.State.SetInputSelection(1, 0, 0, false)
+		a.State.Password = "secret"
+		a.State.CPassword = "secret"
+		a.State.OutputFile = "input.txt.pcv"
+		a.refreshAdvanced()
+	})
+
+	if a.advancedLabel != nil && a.advancedLabel.Visible() {
+		t.Fatal("desktop advanced label should be replaced by disclosure, not remain as a separate visible label")
+	}
+	if a.advancedToggleBtn == nil {
+		t.Fatal("advanced disclosure button was not built")
+	}
+	if a.advancedDetail == nil {
+		t.Fatal("advanced disclosure detail was not built")
+	}
+	if a.advancedOpen {
+		t.Fatal("advanced disclosure should be collapsed when all advanced options are at defaults")
+	}
+	if a.advancedToggleBtn.Text != tr("advanced.title", "Advanced") {
+		t.Fatalf("advanced disclosure title = %q; want localized advanced title", a.advancedToggleBtn.Text)
+	}
+	if !canvasTreeContainsObject(a.advancedDetail, a.paranoidCheck) {
+		t.Fatal("advanced disclosure detail does not contain real advanced controls")
+	}
+	if canvasTreeContainsLabelWithText(a.advancedDetail, tr("advanced.summary.defaults", "Optional settings. Defaults are recommended for most files.")) {
+		t.Fatal("advanced disclosure should not show generic defaults summary copy")
+	}
+}
+
+func TestAdvancedDisclosureOpensWhenAdvancedOptionEnabled(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		a.State.Mode = "encrypt"
+		a.State.AllFiles = []string{"input.txt"}
+		a.State.OnlyFiles = []string{"input.txt"}
+		a.State.SetInputSelection(1, 0, 0, false)
+		a.State.Password = "secret"
+		a.State.CPassword = "secret"
+		a.State.OutputFile = "input.txt.pcv"
+		a.State.Split = true
+		a.refreshAdvanced()
+	})
+
+	if a.advancedDetail == nil {
+		t.Fatal("advanced disclosure detail was not built")
+	}
+	if !a.advancedOpen {
+		t.Fatal("advanced disclosure should open when a non-default advanced option is enabled")
+	}
+}
+
+func TestAdvancedDisclosurePreservesSessionOpenStateOnRefresh(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		a.State.Mode = "encrypt"
+		a.State.AllFiles = []string{"input.txt"}
+		a.State.OnlyFiles = []string{"input.txt"}
+		a.State.SetInputSelection(1, 0, 0, false)
+		a.State.Password = "secret"
+		a.State.CPassword = "secret"
+		a.State.OutputFile = "input.txt.pcv"
+		a.refreshAdvanced()
+		a.advancedToggleBtn.OnTapped()
+		a.refreshAdvanced()
+	})
+
+	if a.advancedDetail == nil {
+		t.Fatal("advanced disclosure detail was not rebuilt")
+	}
+	if !a.advancedOpen {
+		t.Fatal("advanced disclosure manual open state was not preserved across refresh")
+	}
+}
+
+func TestAdvancedDisclosureKeepsOptionTooltipsLocalized(t *testing.T) {
+	resetLocalizationForTest(t)
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		if err := a.SwitchLanguage("ru"); err != nil {
+			t.Fatalf("SwitchLanguage(ru) returned error: %v", err)
+		}
+		a.State.Mode = "encrypt"
+		a.State.AllFiles = []string{"input.txt"}
+		a.State.OnlyFiles = []string{"input.txt"}
+		a.State.SetInputSelection(1, 0, 0, false)
+		a.State.Password = "secret"
+		a.State.CPassword = "secret"
+		a.State.OutputFile = "input.txt.pcv"
+		a.refreshAdvanced()
+	})
+
+	if a.advancedToggleBtn == nil {
+		t.Fatal("advanced disclosure button was not built")
+	}
+	if a.advancedToggleBtn.Text != tr("advanced.title", "Advanced") {
+		t.Fatalf("advanced disclosure title = %q; want localized title", a.advancedToggleBtn.Text)
+	}
+	if got := a.paranoidCheck.ToolTip(); got != tr("advanced.paranoid.tooltip", "Adds Serpent and stronger checks") {
+		t.Fatalf("paranoid tooltip = %q; want localized tooltip", got)
+	}
+	if canvasTreeContainsLabelWithText(a.advancedDetail, tr("advanced.summary.defaults", "Optional settings. Defaults are recommended for most files.")) {
+		t.Fatal("advanced disclosure should not show generic defaults summary copy")
+	}
+}
+
+func TestSplitUnitSelectLocalizesTotalWithoutChangingIndex(t *testing.T) {
+	resetLocalizationForTest(t)
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		if err := a.SwitchLanguage("ru"); err != nil {
+			t.Fatalf("SwitchLanguage(ru) returned error: %v", err)
+		}
+		a.State.Mode = "encrypt"
+		a.State.AllFiles = []string{"input.txt"}
+		a.State.OnlyFiles = []string{"input.txt"}
+		a.State.SetInputSelection(1, 0, 0, false)
+		a.State.Password = "secret"
+		a.State.CPassword = "secret"
+		a.State.OutputFile = "input.txt.pcv"
+		a.refreshAdvanced()
+	})
+
+	if a.splitUnitSelect == nil {
+		t.Fatal("split unit select was not built")
+	}
+	if got := a.splitUnitSelect.Options[4]; got != "Всего" {
+		t.Fatalf("localized split unit option = %q; want Всего", got)
+	}
+
+	fyne.DoAndWait(func() {
+		a.splitUnitSelect.OnChanged("Всего")
+	})
+	if a.State.SplitSelected != 4 {
+		t.Fatalf("SplitSelected = %d; want Total index 4", a.State.SplitSelected)
+	}
+}
+
+func canvasTreeContainsLabelWithText(root fyne.CanvasObject, want string) bool {
+	if root == nil {
+		return false
+	}
+	if label, ok := root.(*widget.Label); ok && label.Text == want {
+		return true
+	}
+	if container, ok := root.(*fyne.Container); ok {
+		for _, child := range container.Objects {
+			if canvasTreeContainsLabelWithText(child, want) {
+				return true
+			}
+		}
+	}
+	return false
 }
