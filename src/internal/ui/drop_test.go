@@ -584,10 +584,13 @@ func TestFolderWalkErrorClearsScanningState(t *testing.T) {
 	})
 
 	waitForDropProcessing(t, a)
-	fyne.DoAndWait(func() {})
 
 	if a.State.IsScanning() {
 		t.Fatal("Scanning should be false after folder walk error")
+	}
+	wantStatus := tr("drop.failed_walk", "Failed to walk through dropped items")
+	if got := statusLabelText(t, a); got != wantStatus {
+		t.Fatalf("status = %q; want %q after folder walk completes", got, wantStatus)
 	}
 }
 

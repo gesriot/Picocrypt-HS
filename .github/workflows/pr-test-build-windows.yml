@@ -65,18 +65,56 @@ jobs:
           throw "Checksum mismatch for reshacker_setup.zip: expected $expectedHash, got $actualHash"
         }
         Expand-Archive -DestinationPath reshacker_setup reshacker_setup.zip
-        reshacker_setup/reshacker_setup.exe /SILENT
-        Start-Sleep -Seconds 60
-        Invoke-Expression "& `"$Env:P`" -open src/1.exe -save src/2.exe -action addoverwrite -res images/key.ico -mask `"ICONGROUP,MAINICON,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/2.exe -save src/3.exe -action addoverwrite -res images/key.ico -mask `"ICONGROUP,A,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/3.exe -save src/4.exe -action addoverwrite -res dist/windows/manifest.xml -mask `"MANIFEST,1,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open dist/windows/versioninfo.rc -save resources.res -action compile"
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/4.exe -save src/5.exe -action addoverwrite -res resources.res"
-        Start-Sleep -Seconds 30
+        $installer = Start-Process `
+          -FilePath "reshacker_setup/reshacker_setup.exe" `
+          -ArgumentList "/SILENT" `
+          -Wait -PassThru
+        if ($installer.ExitCode -ne 0) {
+          throw "Resource Hacker installer failed with exit code $($installer.ExitCode)"
+        }
+        if (-not (Test-Path -LiteralPath $env:P -PathType Leaf)) {
+          throw "Resource Hacker executable was not installed at $env:P"
+        }
+
+        function Invoke-ResourceHacker {
+          param(
+            [Parameter(Mandatory)][string[]]$Arguments,
+            [Parameter(Mandatory)][string]$ExpectedOutput
+          )
+
+          $process = Start-Process `
+            -FilePath $env:P `
+            -ArgumentList ($Arguments + @("-log", "CONSOLE")) `
+            -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) {
+            throw "Resource Hacker failed with exit code $($process.ExitCode): $($Arguments -join ' ')"
+          }
+
+          $output = Get-Item -LiteralPath $ExpectedOutput -ErrorAction Stop
+          if ($output.Length -eq 0) {
+            throw "Resource Hacker produced an empty output: $ExpectedOutput"
+          }
+        }
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "src/1.exe", "-save", "src/2.exe", "-action", "addoverwrite", "-res", "images/key.ico", "-mask", "ICONGROUP,MAINICON,") `
+          -ExpectedOutput "src/2.exe"
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "src/2.exe", "-save", "src/3.exe", "-action", "addoverwrite", "-res", "images/key.ico", "-mask", "ICONGROUP,A,") `
+          -ExpectedOutput "src/3.exe"
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "src/3.exe", "-save", "src/4.exe", "-action", "addoverwrite", "-res", "dist/windows/manifest.xml", "-mask", "MANIFEST,1,") `
+          -ExpectedOutput "src/4.exe"
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "dist/windows/versioninfo.rc", "-save", "resources.res", "-action", "compile") `
+          -ExpectedOutput "resources.res"
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "src/4.exe", "-save", "src/5.exe", "-action", "addoverwrite", "-res", "resources.res") `
+          -ExpectedOutput "src/5.exe"
       env:
         P: "C:\\Program Files (x86)\\Resource Hacker\\ResourceHacker.exe"
 
