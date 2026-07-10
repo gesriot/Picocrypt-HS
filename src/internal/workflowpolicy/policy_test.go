@@ -434,7 +434,7 @@ func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	mustContain(t, smokeStep.Run, "snap run picocrypt-ng --version")
 }
 
-func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
+func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 	const (
 		runner = "ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
 		script = "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes"
@@ -442,11 +442,14 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
 	job := mustJob(t, workflow, "pr-test-build-android")
-	wantArchByAPI := map[int]string{
-		24: "x86_64",
-		36: "x86_64",
+	wantByAPI := map[int]struct {
+		arch   string
+		memory string
+	}{
+		24: {arch: "x86_64", memory: "4096"},
+		36: {arch: "x86_64", memory: "6144"},
 	}
-	seen := make(map[int]struct{}, len(wantArchByAPI))
+	seen := make(map[int]struct{}, len(wantByAPI))
 
 	for _, step := range job.Steps {
 		if !strings.HasPrefix(step.Uses, "ReactiveCircus/android-emulator-runner@") {
@@ -460,7 +463,7 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 		if !ok {
 			t.Fatalf("step %q api-level = %#v, want integer", step.Name, step.With["api-level"])
 		}
-		wantArch, ok := wantArchByAPI[apiLevel]
+		want, ok := wantByAPI[apiLevel]
 		if !ok {
 			t.Fatalf("unexpected Android emulator API level %d", apiLevel)
 		}
@@ -472,14 +475,17 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 		if got := step.With["target"]; got != "default" {
 			t.Errorf("API %d target = %#v, want default AOSP image", apiLevel, got)
 		}
-		if got := step.With["arch"]; got != wantArch {
-			t.Errorf("API %d arch = %#v, want %s", apiLevel, got, wantArch)
+		if got := step.With["arch"]; got != want.arch {
+			t.Errorf("API %d arch = %#v, want %s", apiLevel, got, want.arch)
 		}
 		emulatorOptions, ok := step.With["emulator-options"].(string)
 		if !ok {
 			t.Fatalf("API %d emulator-options = %#v, want string", apiLevel, step.With["emulator-options"])
 		}
-		mustMatch(t, emulatorOptions, `(?:^|\s)-memory\s+6144(?:\s|$)`)
+		mustMatch(t, emulatorOptions, `(?:^|\s)-memory\s+`+want.memory+`(?:\s|$)`)
+		if step.TimeoutMinutes != 15 {
+			t.Errorf("API %d timeout-minutes = %d, want 15", apiLevel, step.TimeoutMinutes)
+		}
 		if got := step.With["working-directory"]; got != "android" {
 			t.Errorf("API %d working-directory = %#v, want android", apiLevel, got)
 		}
@@ -494,7 +500,7 @@ func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
 		}
 	}
 
-	for apiLevel := range wantArchByAPI {
+	for apiLevel := range wantByAPI {
 		if _, ok := seen[apiLevel]; !ok {
 			t.Errorf("missing on-device crypto roundtrip for API %d", apiLevel)
 		}

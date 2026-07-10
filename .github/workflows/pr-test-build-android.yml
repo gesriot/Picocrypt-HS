@@ -136,6 +136,7 @@ jobs:
 
     - name: Run Android 7 crypto roundtrip (API 24)
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      timeout-minutes: 15
       with:
         # API 24 is the documented compatibility floor. Use its x86_64 image because
         # the fixed 1 GiB Argon2 allocation cannot fit in the 32-bit Go address space.
@@ -143,15 +144,17 @@ jobs:
         target: default
         arch: x86_64
         disable-animations: true
-        # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
-        # (src/internal/crypto/kdf.go); the runner's default ~2.5 GiB emulator OOMs
-        # (lowmemorykiller kills the test process) mid crypto roundtrip.
-        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 6144 -cores 4 -camera-back none -camera-front none
+        # -memory 4096 is the next bounded configuration: it leaves headroom for the
+        # fixed 1 GiB Argon2id allocation (src/internal/crypto/kdf.go). The previous
+        # 6 GiB API 24 AVD stalled during boot; the 32-bit image cannot reserve the
+        # KDF block.
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 4096 -cores 4 -camera-back none -camera-front none
         working-directory: android
         script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes
 
     - name: Run target SDK crypto roundtrip (API 36)
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      timeout-minutes: 15
       with:
         # API 36 matches targetSdk and exercises the current Android runtime plus
         # the 64-bit x86_64 gomobile/JNI library.
