@@ -153,10 +153,10 @@ func (a *App) applyStartupPaths(paths []string) {
 }
 
 func (a *App) applyFolderWalkError() {
-	a.State.SetScanning(false)
 	a.resetUI()
 	a.State.SetStatusMessage(app.StatusDropFailedWalk, util.RED, app.StatusArgs{})
 	a.refreshUI()
+	a.State.SetScanning(false)
 }
 
 func (a *App) appendScannedFiles(files []scannedFile) {
