@@ -193,6 +193,7 @@ jobs:
           app/build/outputs/apk/release \
           "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \
           "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \
+          io.github.picocrypt_ng.picocrypt_ng \
           signed
 
     - name: Prepare artifacts

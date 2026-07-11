@@ -2,15 +2,16 @@
 
 set -euo pipefail
 
-if [[ $# -ne 4 ]]; then
-    echo "Usage: $0 <apk-directory> <version-name> <base-version-code> <unsigned|signed>" >&2
+if [[ $# -ne 5 ]]; then
+    echo "Usage: $0 <apk-directory> <version-name> <base-version-code> <application-id> <unsigned|signed>" >&2
     exit 2
 fi
 
 apk_dir=$1
 expected_version_name=$2
 base_version_code=$3
-build_kind=$4
+expected_application_id=$4
+build_kind=$5
 
 if [[ ! -d "$apk_dir" ]]; then
     echo "APK directory does not exist: $apk_dir" >&2
@@ -18,6 +19,10 @@ if [[ ! -d "$apk_dir" ]]; then
 fi
 if [[ -z "$expected_version_name" ]]; then
     echo "Expected versionName must not be empty" >&2
+    exit 2
+fi
+if [[ -z "$expected_application_id" ]]; then
+    echo "Expected application ID must not be empty" >&2
     exit 2
 fi
 if [[ ! "$base_version_code" =~ ^[0-9]+$ ]]; then
@@ -46,7 +51,24 @@ if [[ ! -x "$AAPT" ]]; then
     echo "aapt is not executable: $AAPT" >&2
     exit 1
 fi
-
+if ! aapt_version="$("$AAPT" version 2>&1)"; then
+    echo "aapt health check failed: $AAPT" >&2
+    printf '%s\n' "$aapt_version" >&2
+    exit 1
+fi
+if [[ -z "${APKSIGNER:-}" ]]; then
+    : "${ANDROID_HOME:?Set APKSIGNER or ANDROID_HOME to locate apksigner}"
+    APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+fi
+if [[ ! -x "$APKSIGNER" ]]; then
+    echo "apksigner is not executable: $APKSIGNER" >&2
+    exit 1
+fi
+if ! apksigner_version="$("$APKSIGNER" version 2>&1)"; then
+    echo "apksigner health check failed: $APKSIGNER" >&2
+    printf '%s\n' "$apksigner_version" >&2
+    exit 1
+fi
 expected_files="$(printf '%s\n' \
     "app-arm64-v8a-release${filename_suffix}.apk" \
     "app-universal-release${filename_suffix}.apk" \
@@ -68,13 +90,37 @@ verify_apk() {
     local expected_version_code=$2
     local expected_abis=$3
     local apk="$apk_dir/$filename"
-    local badging package_line actual_version_code actual_version_name entries actual_abis
+    local badging package_line actual_application_id actual_version_code actual_version_name entries actual_abis signature_output
+
+    if signature_output="$("$APKSIGNER" verify "$apk" 2>&1)"; then
+        if [[ "$build_kind" == unsigned ]]; then
+            echo "$filename has a valid APK signature, want unsigned" >&2
+            exit 1
+        fi
+    elif [[ "$build_kind" == signed ]]; then
+        echo "$filename does not have a valid APK signature" >&2
+        printf '%s\n' "$signature_output" >&2
+        exit 1
+    elif [[ "$signature_output" != *"DOES NOT VERIFY"* ]]; then
+        echo "apksigner failed while checking $filename" >&2
+        printf '%s\n' "$signature_output" >&2
+        exit 1
+    fi
 
     badging="$("$AAPT" dump badging "$apk")"
     package_line=${badging%%$'\n'*}
+    actual_application_id="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$package_line")"
     actual_version_code="$(sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p" <<< "$package_line")"
     actual_version_name="$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" <<< "$package_line")"
 
+    if [[ ! "$actual_version_code" =~ ^[0-9]+$ ]]; then
+        echo "$filename versionCode metadata is not a decimal integer: '$actual_version_code'" >&2
+        exit 1
+    fi
+    if [[ "$actual_application_id" != "$expected_application_id" ]]; then
+        echo "$filename application ID = '$actual_application_id', want '$expected_application_id'" >&2
+        exit 1
+    fi
     if [[ "$actual_version_name" != "$expected_version_name" ]]; then
         echo "$filename versionName = '$actual_version_name', want '$expected_version_name'" >&2
         exit 1
@@ -119,4 +165,4 @@ verify_apk \
     "$((base_version_code * 10 + 4))" \
     "x86_64"
 
-echo "Verified exact $build_kind Android release APK contract for version $expected_version_name (base versionCode $base_version_code)."
+echo "Verified exact $build_kind Android release APK contract for $expected_application_id version $expected_version_name (base versionCode $base_version_code)."
