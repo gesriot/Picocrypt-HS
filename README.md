@@ -66,7 +66,7 @@ sudo apt install -y libc6 libgcc-s1 libgl1 libgtk-3-0 libstdc++6 libx11-6
 ```
 
 ## Android
-The Android build is now a native app built from the `android/` project in this repository rather than a `fyne-cross` package. Download the signed universal APK <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-android-universal.apk">here</a>, or choose a smaller per-ABI APK from the latest GitHub release. PR artifacts remain debug/testing-only.
+The native Android app requires Android 7.0 or newer on a 64-bit ARM (<code>arm64-v8a</code>) or x86-64 device. Download the signed universal 64-bit APK <a href="https://github.com/Picocrypt-NG/Picocrypt-NG/releases/latest/download/Picocrypt-NG-android-universal.apk">here</a>, or choose the smaller matching per-ABI APK from the latest GitHub release. Historical 32-bit APKs remain available with their original releases but are no longer supported. PR artifacts remain debug/testing-only.
 
 For local Android builds and architecture details, see <a href="android/README.md">android/README.md</a>.
 

@@ -2,6 +2,7 @@ package workflowpolicy
 
 import (
 	"encoding/xml"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -675,6 +676,37 @@ func TestAndroidBuildsOnly64BitNativeABIs(t *testing.T) {
 	mustContain(t, verify.Run, "for abi in armeabi-v7a x86; do")
 	mustContain(t, verify.Run, "require_absent_entry")
 	mustContain(t, verify.Run, "Unexpected 32-bit APK")
+}
+
+func TestReleaseBodyAdvertisesOnly64BitAndroid(t *testing.T) {
+	root := repoRoot(t)
+	command := exec.Command(
+		"bash",
+		filepath.Join(root, ".github/actions/release-body/gen-release-body.sh"),
+		"2.18",
+		filepath.Join(root, "Changelog.md"),
+		"-",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generate release body: %v\n%s", err, output)
+	}
+
+	body := string(output)
+	for _, removed := range []string{
+		"Picocrypt-NG-android-armeabi-v7a.apk",
+		"Picocrypt-NG-android-x86.apk",
+	} {
+		mustNotContain(t, body, removed)
+	}
+	for _, supported := range []string{
+		"Picocrypt-NG-android-arm64-v8a.apk",
+		"Picocrypt-NG-android-x86_64.apk",
+		"Picocrypt-NG-android-universal.apk",
+		"Android 7.0+ on 64-bit ARM or x86-64 devices",
+	} {
+		mustContain(t, body, supported)
+	}
 }
 
 func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {

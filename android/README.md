@@ -16,6 +16,7 @@ This directory contains the Android app that integrates with the Go encryption b
 2. **Android SDK**: Ensure Android SDK is installed and `ANDROID_HOME` is set.
    - Requires NDK 29.0+ (minimum API level 24, matching app's minSdk)
    - CI and recommended local builds use JDK 21
+   - Android app and gomobile outputs are 64-bit only: `arm64-v8a` and `x86_64`
 
 3. **Application ID**: The native Android app uses:
    ```text
@@ -125,7 +126,11 @@ UI (`ui/components/`):
   emits unsigned release APKs for F-Droid to sign. GitHub release CI sets
   `PICOCRYPT_REQUIRE_RELEASE_SIGNING=true` so official GitHub release builds still fail if signing
   secrets are missing.
-- Release builds produce **per-ABI APKs** (armeabi-v7a, arm64-v8a, x86, x86_64) plus a **universal**
-  fallback APK (AGP ABI splits). Each per-ABI APK gets a unique versionCode (`base*10 + {1..4}`; the
-  universal APK keeps `base`); fdroiddata must mirror this as `VercodeOperation: [10*%c+1 .. 10*%c+4]`
+- Release builds produce **64-bit per-ABI APKs** for `arm64-v8a` and `x86_64`
+  plus a **64-bit universal** fallback APK. Android 7.0/API 24 remains the OS
+  floor, but the device must support one of those 64-bit ABIs. Stable split
+  versionCode offsets remain `arm64-v8a=2` and `x86_64=4`; the universal APK
+  keeps `base`. The next fdroiddata release must mirror this as
+  `VercodeOperation: [10*%c+2, 10*%c+4]`. Published v2.18 metadata remains a
+  historical four-ABI release.
 - The release workflow publishes a signed release APK; PR workflow artifacts remain debug/testing-only

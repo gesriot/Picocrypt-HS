@@ -29,10 +29,11 @@ default (this repo is a monorepo — the Android app lives in `android/`, deskto
 `major*10000 + minor*100 + patch`. The current release is **2.18** → base
 versionCode `21800` (`VERSION` is `2.18`).
 
-The release ships **per-ABI APKs** (AGP ABI splits, see `app/build.gradle.kts`): each ABI
-gets a distinct versionCode `base*10 + offset` (armeabi-v7a=1, arm64-v8a=2, x86=3,
-x86_64=4); the universal APK keeps `base`. fdroiddata mirrors this with
-`VercodeOperation: [10*%c+1 .. 10*%c+4]`.
+Current source builds ship **64-bit per-ABI APKs** for `arm64-v8a` and `x86_64`
+plus a 64-bit universal APK. Their stable versionCode offsets remain
+`arm64-v8a=2` and `x86_64=4`; the universal APK keeps `base`. The next fdroiddata
+release entry must mirror this with `VercodeOperation: [10*%c+2, 10*%c+4]`.
+Published v2.18 metadata remains a historical four-ABI release.
 
 fastlane changelogs are keyed by versionCode, with `changelogs/default.txt` served as the
 fallback for any versionCode that has no specific file. This repo ships only `default.txt`
@@ -47,7 +48,7 @@ per-code files can be reintroduced later if a store that needs them is targeted 
 - [x] `images/phoneScreenshots/1.png`, `2.png` — main/encrypt screen (showing the Privacy &
       Security screenshot-protection toggle) + decrypt screen (both ≤ 2:1; `1.png` is
       1220×2420 ≈ 1.98:1, `2.png` ≈ 1.84:1)
-- [x] Per-ABI APK splits + per-ABI versionCodes (`app/build.gradle.kts`)
+- [x] 64-bit per-ABI APK splits + stable per-ABI versionCodes (`app/build.gradle.kts`)
 - [x] AI-assistance disclosure — addressed upstream on the GitHub/IzzyOnDroid thread
 - [ ] Review `title.txt` / `short_description.txt` / `full_description.txt` — drafts, tune
       wording before submitting
