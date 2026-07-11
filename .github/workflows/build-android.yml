@@ -188,6 +188,8 @@ jobs:
 
     - name: Verify exact release APK contract
       working-directory: android
+      env:
+        PICOCRYPT_ANDROID_SIGNING_CERT_SHA256_FILE: release-signing-cert-sha256.txt
       run: |
         ./verify-release-apks.sh \
           app/build/outputs/apk/release \

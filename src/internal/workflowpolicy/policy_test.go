@@ -715,7 +715,49 @@ func TestAndroidReleaseWorkflowsRunExactArtifactVerifier(t *testing.T) {
 			if step.ContinueOnError != nil && step.ContinueOnError != false {
 				t.Fatalf("verifier continue-on-error = %#v, want absent or false", step.ContinueOnError)
 			}
+			trustAnchor, hasTrustAnchor := step.Env["PICOCRYPT_ANDROID_SIGNING_CERT_SHA256_FILE"]
+			if tc.kind == "signed" {
+				if !hasTrustAnchor || trustAnchor != "release-signing-cert-sha256.txt" {
+					t.Fatalf("signed verifier trust anchor = %q, present %v; want release-signing-cert-sha256.txt", trustAnchor, hasTrustAnchor)
+				}
+			} else if hasTrustAnchor {
+				t.Fatalf("unsigned verifier unexpectedly sets signing trust anchor %q", trustAnchor)
+			}
 		})
+	}
+}
+
+func TestAndroidReleaseSigningTrustAnchorAndPublicationOrder(t *testing.T) {
+	const trustedDigest = "e2f2a971231aa0b86882c63b87b689c71632c6d55168b1ce856952d07f6172b7"
+	anchor := mustReadRepoFile(t, "android/release-signing-cert-sha256.txt")
+	if anchor != trustedDigest+"\n" {
+		t.Fatalf("Android release signing trust anchor = %q, want one exact lowercase SHA-256 digest", anchor)
+	}
+
+	job := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/build-android.yml"), "release")
+	orderedSteps := []string{
+		"Build Signed Release APK",
+		"Verify exact release APK contract",
+		"Prepare artifacts",
+		"Sign and attest artifacts",
+		"Release",
+	}
+	lastIndex := -1
+	for _, name := range orderedSteps {
+		index := -1
+		for candidateIndex, step := range job.Steps {
+			if step.Name == name {
+				index = candidateIndex
+				break
+			}
+		}
+		if index < 0 {
+			t.Fatalf("release job is missing step %q", name)
+		}
+		if index <= lastIndex {
+			t.Fatalf("release step %q is out of order; want %s", name, strings.Join(orderedSteps, " < "))
+		}
+		lastIndex = index
 	}
 }
 
@@ -734,8 +776,8 @@ func TestAndroidPRRunsReleaseArtifactVerifierMutationHarness(t *testing.T) {
 			t.Fatalf("expected PR Android job to contain step named %q", name)
 		}
 	}
-	if stepIndexes[mutationStepName] <= stepIndexes[buildStepName] || stepIndexes[mutationStepName] <= stepIndexes[verifierStepName] {
-		t.Fatalf("release verifier mutation harness must run after the real unsigned APK build and its positive contract check")
+	if stepIndexes[buildStepName] >= stepIndexes[verifierStepName] || stepIndexes[verifierStepName] >= stepIndexes[mutationStepName] {
+		t.Fatalf("PR Android artifact gates must run in order: real unsigned APK build < positive contract check < mutation harness")
 	}
 
 	step := mustStepNamed(t, job, mutationStepName)
