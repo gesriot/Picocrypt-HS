@@ -154,8 +154,8 @@ run = "./gradlew assembleRelease"
 description = "Run local non-emulator CI gates"
 run = [
   "mise run check",
-  "mise run android:test",
-  "mise run android:assemble-debug",
+  "mise run android:gomobile",
+  "cd android && ./gradlew test assembleDebug",
 ]
 
 [tasks.default]
