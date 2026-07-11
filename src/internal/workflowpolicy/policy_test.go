@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -678,7 +679,7 @@ func TestAndroidReleaseWorkflowsRunExactArtifactVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat Android release APK verifier: %v", err)
 	}
-	if info.Mode().Perm()&0o111 == 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("Android release APK verifier mode = %v, want executable", info.Mode().Perm())
 	}
 
