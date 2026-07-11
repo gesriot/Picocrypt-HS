@@ -30,6 +30,7 @@ type workflowStep struct {
 	Uses             string            `yaml:"uses"`
 	Run              string            `yaml:"run"`
 	If               string            `yaml:"if"`
+	TimeoutMinutes   int               `yaml:"timeout-minutes"`
 	WorkingDirectory string            `yaml:"working-directory"`
 	ContinueOnError  any               `yaml:"continue-on-error"`
 	With             map[string]any    `yaml:"with"`

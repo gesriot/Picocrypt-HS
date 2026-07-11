@@ -33,8 +33,8 @@ jobs:
 
     - name: Install gomobile
       run: |
-        go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260209203831-923679eb55af
-        go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260209203831-923679eb55af
+        go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260709172247-6129f5bee9d5
+        go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260709172247-6129f5bee9d5
         mkdir -p "$(go env GOPATH | cut -d: -f1)/pkg/gomobile"
 
     - name: Set up Android SDK
@@ -92,10 +92,6 @@ jobs:
       working-directory: android
       run: ./gradlew assembleDebug
 
-    - name: Compile Instrumented Tests
-      working-directory: android
-      run: ./gradlew :app:compileDebugAndroidTestKotlin
-
     - name: Assemble Instrumented Test APK
       working-directory: android
       run: ./gradlew :app:assembleDebugAndroidTest
@@ -109,7 +105,8 @@ jobs:
     - name: Run focused instrumented tests
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       with:
-        # API 36 (= targetSdk), not 34: needed for API 35+ FGS timeout / onTimeout.
+        # API 36 matches targetSdk and exercises current-runtime UI behavior plus
+        # the 64-bit x86_64 gomobile/JNI library in the extended crypto scope.
         api-level: 36
         arch: x86_64
         disable-animations: true

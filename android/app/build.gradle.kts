@@ -47,6 +47,9 @@ android {
         applicationId = "io.github.picocrypt_ng.picocrypt_ng"
         minSdk = 24
         targetSdk = 36
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
         versionCode = providers
             .gradleProperty("PICOCRYPT_VERSION_CODE")
             .map(String::toInt)
@@ -100,7 +103,7 @@ android {
             // partitions them at packaging time.
             isEnable = abiSplitsEnabled
             reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            include("arm64-v8a", "x86_64")
             isUniversalApk = true
         }
     }
@@ -127,14 +130,12 @@ kotlin {
     }
 }
 
-// Give each per-ABI APK a unique versionCode so the per-ABI and universal artifacts can
-// coexist in a store/repo. Ordering armeabi-v7a < arm64-v8a < x86 < x86_64 (F-Droid serves
-// the highest installable code); the universal APK keeps the base code as the fallback.
-// Mirror this exactly in fdroiddata's VercodeOperation: [10 * %c + 1 .. 10 * %c + 4].
+// Give each supported per-ABI APK a stable unique versionCode so it can coexist with
+// the universal APK. Preserve the established offsets for upgrade compatibility;
+// the universal APK keeps the base code as the fallback.
+// Mirror this in the next fdroiddata release as [10 * %c + 2, 10 * %c + 4].
 val abiVersionCodeOffsets = mapOf(
-    "armeabi-v7a" to 1,
     "arm64-v8a" to 2,
-    "x86" to 3,
     "x86_64" to 4,
 )
 

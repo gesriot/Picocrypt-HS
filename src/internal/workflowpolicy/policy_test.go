@@ -2,8 +2,11 @@ package workflowpolicy
 
 import (
 	"encoding/xml"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -434,26 +437,77 @@ func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	mustContain(t, smokeStep.Run, "snap run picocrypt-ng --version")
 }
 
-func TestAndroidPRWorkflowRunsCryptoRoundtripOnDevice(t *testing.T) {
-	content := mustReadWorkflow(t, ".github/workflows/pr-test-build-android.yml")
-	mustContain(t, content, "Run Unit Tests")
-	mustContain(t, content, "./gradlew test")
-	mustContain(t, content, ":app:compileDebugAndroidTestKotlin")
-	mustContain(t, content, ":app:assembleDebugAndroidTest")
-	// The PR gate now runs the real on-device Go encrypt/decrypt roundtrip so a crypto
-	// regression on Android cannot merge green. Keep the emulator action SHA-pinned.
-	mustMatch(t, content, `ReactiveCircus/android-emulator-runner@[0-9a-f]{40}`)
-	mustContain(t, content, "connectedDebugAndroidTest")
-	mustContain(t, content, "-Pandroid.testInstrumentationRunnerArguments.class")
-	mustContain(t, content, "OperationManagerIntegrationTest")
+func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
+	const (
+		runner = "ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
+		script = "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes"
+	)
 
-	// The emulator must run API 36 (matching targetSdk), not 34: API 35+ behavior --
-	// the foreground-service dataSync timeout and Service.onTimeout(API 35+) -- is only
-	// reachable there, so gating on API 34 is a false green for that path.
-	prJob := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml"), "pr-test-build-android")
-	prEmulator := mustHaveStepUsingPrefix(t, prJob, "ReactiveCircus/android-emulator-runner@")
-	if got := prEmulator.With["api-level"]; got != 36 {
-		t.Fatalf("PR emulator api-level = %v, want 36 (>= targetSdk for FGS/onTimeout coverage)", got)
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
+	job := mustJob(t, workflow, "pr-test-build-android")
+	wantByAPI := map[int]struct {
+		arch   string
+		memory string
+		target string
+	}{
+		24: {arch: "x86_64", memory: "3583", target: "google_apis"},
+		36: {arch: "x86_64", memory: "6144", target: "default"},
+	}
+	seen := make(map[int]struct{}, len(wantByAPI))
+
+	for _, step := range job.Steps {
+		if !strings.HasPrefix(step.Uses, "ReactiveCircus/android-emulator-runner@") {
+			continue
+		}
+		if step.Uses != runner {
+			t.Fatalf("Android emulator runner = %q, want exact reviewed SHA %q", step.Uses, runner)
+		}
+
+		apiLevel, ok := step.With["api-level"].(int)
+		if !ok {
+			t.Fatalf("step %q api-level = %#v, want integer", step.Name, step.With["api-level"])
+		}
+		want, ok := wantByAPI[apiLevel]
+		if !ok {
+			t.Fatalf("unexpected Android emulator API level %d", apiLevel)
+		}
+		if _, duplicate := seen[apiLevel]; duplicate {
+			t.Fatalf("Android emulator API level %d is configured more than once", apiLevel)
+		}
+		seen[apiLevel] = struct{}{}
+
+		if got := step.With["target"]; got != want.target {
+			t.Errorf("API %d target = %#v, want %s", apiLevel, got, want.target)
+		}
+		if got := step.With["arch"]; got != want.arch {
+			t.Errorf("API %d arch = %#v, want %s", apiLevel, got, want.arch)
+		}
+		emulatorOptions, ok := step.With["emulator-options"].(string)
+		if !ok {
+			t.Fatalf("API %d emulator-options = %#v, want string", apiLevel, step.With["emulator-options"])
+		}
+		mustMatch(t, emulatorOptions, `(?:^|\s)-memory\s+`+want.memory+`(?:\s|$)`)
+		if step.TimeoutMinutes != 15 {
+			t.Errorf("API %d timeout-minutes = %d, want 15", apiLevel, step.TimeoutMinutes)
+		}
+		if got := step.With["working-directory"]; got != "android" {
+			t.Errorf("API %d working-directory = %#v, want android", apiLevel, got)
+		}
+		if got := step.With["script"]; got != script {
+			t.Errorf("API %d script = %#v, want exact on-device crypto roundtrip", apiLevel, got)
+		}
+		if step.If != "" {
+			t.Errorf("API %d step if = %q, want unconditional compatibility gate", apiLevel, step.If)
+		}
+		if step.ContinueOnError != nil && step.ContinueOnError != false {
+			t.Errorf("API %d continue-on-error = %#v, want absent or false", apiLevel, step.ContinueOnError)
+		}
+	}
+
+	for apiLevel := range wantByAPI {
+		if _, ok := seen[apiLevel]; !ok {
+			t.Errorf("missing on-device crypto roundtrip for API %d", apiLevel)
+		}
 	}
 }
 
@@ -587,6 +641,196 @@ func TestAndroidApiFloorStaysAt24(t *testing.T) {
 
 	readme := mustReadRepoFile(t, "android/README.md")
 	mustContain(t, readme, "minimum API level 24")
+}
+
+func TestAndroidBuildsOnly64BitNativeABIs(t *testing.T) {
+	gomobile := mustReadRepoFile(t, "android/build-gomobile.sh")
+	mustContain(t, gomobile, "-target android/arm64,android/amd64")
+	mustContain(t, gomobile, "expected_abis=\"$(printf '%s\\n' arm64-v8a x86_64)\"")
+
+	gradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
+	mustContain(t, gradle, `abiFilters += listOf("arm64-v8a", "x86_64")`)
+	mustContain(t, gradle, `include("arm64-v8a", "x86_64")`)
+	mustContain(t, gradle, `"arm64-v8a" to 2`)
+	mustContain(t, gradle, `"x86_64" to 4`)
+	mustNotContain(t, gradle, `"armeabi-v7a" to 1`)
+	mustNotContain(t, gradle, `"x86" to 3`)
+
+	releaseWorkflow := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
+	prepare := mustStepNamed(t, mustJob(t, releaseWorkflow, "release"), "Prepare artifacts")
+	for _, artifact := range []string{
+		"Picocrypt-NG-android-arm64-v8a.apk",
+		"Picocrypt-NG-android-x86_64.apk",
+		"Picocrypt-NG-android-universal.apk",
+	} {
+		mustContain(t, prepare.Run, artifact)
+	}
+	for _, removed := range []string{
+		"Picocrypt-NG-android-armeabi-v7a.apk",
+		"Picocrypt-NG-android-x86.apk",
+	} {
+		mustNotContain(t, prepare.Run, removed)
+	}
+}
+
+func TestAndroidReleaseWorkflowsRunExactArtifactVerifier(t *testing.T) {
+	verifierPath := filepath.Join(repoRoot(t), "android", "verify-release-apks.sh")
+	info, err := os.Stat(verifierPath)
+	if err != nil {
+		t.Fatalf("stat Android release APK verifier: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("Android release APK verifier mode = %v, want executable", info.Mode().Perm())
+	}
+
+	for _, tc := range []struct {
+		name string
+		path string
+		job  string
+		kind string
+	}{
+		{name: "unsigned PR build", path: ".github/workflows/pr-test-build-android.yml", job: "pr-test-build-android", kind: "unsigned"},
+		{name: "signed release", path: ".github/workflows/build-android.yml", job: "release", kind: "signed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, tc.path)
+			step := mustStepNamed(t, mustJob(t, workflow, tc.job), "Verify exact release APK contract")
+			if step.WorkingDirectory != "android" {
+				t.Fatalf("verifier working-directory = %q, want android", step.WorkingDirectory)
+			}
+			wantRun := strings.Join([]string{
+				`./verify-release-apks.sh \`,
+				`  app/build/outputs/apk/release \`,
+				`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \`,
+				`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \`,
+				`  io.github.picocrypt_ng.picocrypt_ng \`,
+				`  ` + tc.kind,
+			}, "\n")
+			if got := strings.TrimSpace(step.Run); got != wantRun {
+				t.Fatalf("verifier run = %q, want %q", got, wantRun)
+			}
+			if step.If != "" {
+				t.Fatalf("verifier if = %q, want unconditional step", step.If)
+			}
+			if step.ContinueOnError != nil && step.ContinueOnError != false {
+				t.Fatalf("verifier continue-on-error = %#v, want absent or false", step.ContinueOnError)
+			}
+			trustAnchor, hasTrustAnchor := step.Env["PICOCRYPT_ANDROID_SIGNING_CERT_SHA256_FILE"]
+			if tc.kind == "signed" {
+				if !hasTrustAnchor || trustAnchor != "release-signing-cert-sha256.txt" {
+					t.Fatalf("signed verifier trust anchor = %q, present %v; want release-signing-cert-sha256.txt", trustAnchor, hasTrustAnchor)
+				}
+			} else if hasTrustAnchor {
+				t.Fatalf("unsigned verifier unexpectedly sets signing trust anchor %q", trustAnchor)
+			}
+		})
+	}
+}
+
+func TestAndroidReleaseSigningTrustAnchorAndPublicationOrder(t *testing.T) {
+	const trustedDigest = "e2f2a971231aa0b86882c63b87b689c71632c6d55168b1ce856952d07f6172b7"
+	anchor := mustReadRepoFile(t, "android/release-signing-cert-sha256.txt")
+	if anchor != trustedDigest+"\n" {
+		t.Fatalf("Android release signing trust anchor = %q, want one exact lowercase SHA-256 digest", anchor)
+	}
+
+	job := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/build-android.yml"), "release")
+	orderedSteps := []string{
+		"Build Signed Release APK",
+		"Verify exact release APK contract",
+		"Prepare artifacts",
+		"Sign and attest artifacts",
+		"Release",
+	}
+	lastIndex := -1
+	for _, name := range orderedSteps {
+		index := -1
+		for candidateIndex, step := range job.Steps {
+			if step.Name == name {
+				index = candidateIndex
+				break
+			}
+		}
+		if index < 0 {
+			t.Fatalf("release job is missing step %q", name)
+		}
+		if index <= lastIndex {
+			t.Fatalf("release step %q is out of order; want %s", name, strings.Join(orderedSteps, " < "))
+		}
+		lastIndex = index
+	}
+}
+
+func TestAndroidPRRunsReleaseArtifactVerifierMutationHarness(t *testing.T) {
+	job := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml"), "pr-test-build-android")
+	stepIndexes := make(map[string]int)
+	for index, step := range job.Steps {
+		stepIndexes[step.Name] = index
+	}
+
+	const buildStepName = "Build Release APK"
+	const verifierStepName = "Verify exact release APK contract"
+	const mutationStepName = "Exercise release APK verifier rejection paths"
+	for _, name := range []string{buildStepName, verifierStepName, mutationStepName} {
+		if _, ok := stepIndexes[name]; !ok {
+			t.Fatalf("expected PR Android job to contain step named %q", name)
+		}
+	}
+	if stepIndexes[buildStepName] >= stepIndexes[verifierStepName] || stepIndexes[verifierStepName] >= stepIndexes[mutationStepName] {
+		t.Fatalf("PR Android artifact gates must run in order: real unsigned APK build < positive contract check < mutation harness")
+	}
+
+	step := mustStepNamed(t, job, mutationStepName)
+	if step.WorkingDirectory != "android" {
+		t.Fatalf("mutation harness working-directory = %q, want android", step.WorkingDirectory)
+	}
+	wantRun := strings.Join([]string{
+		`bash ./test-release-apk-verifier.sh \`,
+		`  app/build/outputs/apk/release \`,
+		`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \`,
+		`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \`,
+		`  io.github.picocrypt_ng.picocrypt_ng`,
+	}, "\n")
+	if got := strings.TrimSpace(step.Run); got != wantRun {
+		t.Fatalf("mutation harness run = %q, want %q", got, wantRun)
+	}
+	if step.If != "" {
+		t.Fatalf("mutation harness if = %q, want unconditional step", step.If)
+	}
+	if step.ContinueOnError != nil && step.ContinueOnError != false {
+		t.Fatalf("mutation harness continue-on-error = %#v, want absent or false", step.ContinueOnError)
+	}
+}
+
+func TestReleaseBodyAdvertisesOnly64BitAndroid(t *testing.T) {
+	root := repoRoot(t)
+	command := exec.Command(
+		"bash",
+		filepath.Join(root, ".github/actions/release-body/gen-release-body.sh"),
+		"2.18",
+		filepath.Join(root, "Changelog.md"),
+		"-",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generate release body: %v\n%s", err, output)
+	}
+
+	body := string(output)
+	for _, removed := range []string{
+		"Picocrypt-NG-android-armeabi-v7a.apk",
+		"Picocrypt-NG-android-x86.apk",
+	} {
+		mustNotContain(t, body, removed)
+	}
+	for _, supported := range []string{
+		"Picocrypt-NG-android-arm64-v8a.apk",
+		"Picocrypt-NG-android-x86_64.apk",
+		"Picocrypt-NG-android-universal.apk",
+		"Android 7.0+ on 64-bit ARM or x86-64 devices",
+	} {
+		mustContain(t, body, supported)
+	}
 }
 
 func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
@@ -763,7 +1007,7 @@ func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	mustContain(t, content, "TEST_CLASSES=")
 	mustContain(t, content, "./gradlew connectedDebugAndroidTest")
 
-	// Same API-36 requirement as the PR gate (FGS/onTimeout reachability).
+	// Keep the manual instrumented workflow on the target-SDK runtime.
 	instrJob := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/android-instrumented.yml"), "android-instrumented")
 	instrEmulator := mustHaveStepUsingPrefix(t, instrJob, "ReactiveCircus/android-emulator-runner@")
 	if got := instrEmulator.With["api-level"]; got != 36 {

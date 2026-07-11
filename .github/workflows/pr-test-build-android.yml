@@ -26,8 +26,8 @@ jobs:
 
     - name: Install gomobile
       run: |
-        go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260209203831-923679eb55af
-        go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260209203831-923679eb55af
+        go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260709172247-6129f5bee9d5
+        go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260709172247-6129f5bee9d5
         mkdir -p "$(go env GOPATH | cut -d: -f1)/pkg/gomobile"
 
     - name: Set up Android SDK
@@ -89,9 +89,24 @@ jobs:
       working-directory: android
       run: ./gradlew :app:assembleRelease
 
-    - name: Compile Instrumented Tests
+    - name: Verify exact release APK contract
       working-directory: android
-      run: ./gradlew :app:compileDebugAndroidTestKotlin
+      run: |
+        ./verify-release-apks.sh \
+          app/build/outputs/apk/release \
+          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \
+          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \
+          io.github.picocrypt_ng.picocrypt_ng \
+          unsigned
+
+    - name: Exercise release APK verifier rejection paths
+      working-directory: android
+      run: |
+        bash ./test-release-apk-verifier.sh \
+          app/build/outputs/apk/release \
+          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \
+          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \
+          io.github.picocrypt_ng.picocrypt_ng
 
     - name: Assemble Instrumented Test APK
       working-directory: android
@@ -103,12 +118,32 @@ jobs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
 
-    - name: Run instrumented crypto roundtrip
+    - name: Run Android 7 crypto roundtrip (API 24)
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      timeout-minutes: 15
       with:
-        # API 36 (= targetSdk), not 34: API 35+ FGS dataSync timeout and
-        # Service.onTimeout are only reachable here, so API 34 is a false green.
+        # API 24 is the documented compatibility floor. x86_64 is one of the
+        # two supported release ABIs and is hardware-accelerated on this runner.
+        api-level: 24
+        target: google_apis
+        arch: x86_64
+        disable-animations: true
+        # -memory 3583 keeps all guest RAM below QEMU's 3.5 GiB split threshold;
+        # API 24 stalled when 4/6 GiB configurations mapped the excess above 4 GiB.
+        # This is the largest integer MiB value below the threshold and preserves
+        # maximum headroom for the fixed 1 GiB Argon2id allocation.
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 3583 -cores 4 -camera-back none -camera-front none
+        working-directory: android
+        script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes
+
+    - name: Run target SDK crypto roundtrip (API 36)
+      uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      timeout-minutes: 15
+      with:
+        # API 36 matches targetSdk and exercises the current Android runtime plus
+        # the 64-bit x86_64 gomobile/JNI library.
         api-level: 36
+        target: default
         arch: x86_64
         disable-animations: true
         # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
@@ -116,7 +151,7 @@ jobs:
         # (lowmemorykiller kills the test process) mid crypto roundtrip.
         emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 6144 -cores 4 -camera-back none -camera-front none
         working-directory: android
-        script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest
+        script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes
 
     - name: Upload instrumented test report
       if: always()

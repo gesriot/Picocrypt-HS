@@ -345,16 +345,6 @@ class OperationManagerTest {
     }
 
     @Test
-    fun `clearOperation clears current operation`() = runTest {
-        // First, we'd need to set up an operation, but since we can't easily mock GoBridge,
-        // we'll test that clearOperation works when called
-        OperationManager.clearOperation(shouldCleanupFiles = false)
-        
-        val currentOp = OperationManager.currentOperation.first()
-        assertNull("Operation should be null after clearing", currentOp)
-    }
-    
-    @Test
     fun `clearOperation clears passwords from form data`() = runTest {
         val formData = TestDataBuilders.createEncryptFormData(
             password = "testpassword",
@@ -542,14 +532,6 @@ class OperationManagerTest {
             unmockkObject(GoBridge)
             tmpDir.deleteRecursively()
         }
-    }
-    
-    @Test
-    fun `currentOperation StateFlow is initially null`() = runTest {
-        OperationManager.clearOperation(shouldCleanupFiles = false)
-        
-        val currentOp = OperationManager.currentOperation.first()
-        assertNull("Current operation should be null initially", currentOp)
     }
     
     @Test

@@ -92,15 +92,15 @@ echo "Go linker flags: $GOMOBILE_LDFLAGS"
 # Check if gomobile is installed
 if ! command -v gomobile &> /dev/null; then
     echo "Error: gomobile not found in PATH." >&2
-    echo "  Install it first with: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260209203831-923679eb55af" >&2
-    echo "  Install gobind too with: go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260209203831-923679eb55af" >&2
+    echo "  Install it first with: go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260709172247-6129f5bee9d5" >&2
+    echo "  Install gobind too with: go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260709172247-6129f5bee9d5" >&2
     echo "  Then create the gomobile toolchain dir with: mkdir -p \"\$(go env GOPATH | cut -d: -f1)/pkg/gomobile\"" >&2
     exit 1
 fi
 
 if ! command -v gobind &> /dev/null; then
     echo "Error: gobind not found in PATH." >&2
-    echo "  Install it with: go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260209203831-923679eb55af" >&2
+    echo "  Install it with: go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260709172247-6129f5bee9d5" >&2
     exit 1
 fi
 
@@ -119,9 +119,9 @@ cat > "$WRAPPER_DIR/go" <<EOF
 #!/bin/sh
 set -e
 if [ -n "\$GOFLAGS" ]; then
-    export GOFLAGS="\$GOFLAGS -mod=mod -trimpath"
+    export GOFLAGS="\$GOFLAGS -trimpath"
 else
-    export GOFLAGS="-mod=mod -trimpath"
+    export GOFLAGS="-trimpath"
 fi
 exec "$REAL_GO" "\$@"
 EOF
@@ -131,9 +131,9 @@ cat > "$WRAPPER_DIR/gobind" <<EOF
 #!/bin/sh
 set -e
 if [ -n "\$GOFLAGS" ]; then
-    export GOFLAGS="\$GOFLAGS -mod=mod -trimpath"
+    export GOFLAGS="\$GOFLAGS -trimpath"
 else
-    export GOFLAGS="-mod=mod -trimpath"
+    export GOFLAGS="-trimpath"
 fi
 exec "$REAL_GOBIND" "\$@"
 EOF
@@ -145,7 +145,22 @@ cd "$GO_SRC_DIR"
 
 # gomobile uses ANDROID_NDK_HOME environment variable (already set above)
 # Always use API level 24 (matches app's minSdk, required for NDK 29+)
-PATH="$WRAPPER_DIR:$PATH" gomobile bind -target android $USE_ANDROID_API -ldflags="$GOMOBILE_LDFLAGS" -o "$OUTPUT_DIR/picocrypt-mobile.aar" ./mobile
+PATH="$WRAPPER_DIR:$PATH" gomobile bind -target android/arm64,android/amd64 $USE_ANDROID_API -ldflags="$GOMOBILE_LDFLAGS" -o "$OUTPUT_DIR/picocrypt-mobile.aar" ./mobile
+
+expected_abis="$(printf '%s\n' arm64-v8a x86_64)"
+actual_abis="$(
+    unzip -Z1 "$OUTPUT_DIR/picocrypt-mobile.aar" \
+        | sed -n 's#^jni/\([^/]*\)/libgojni\.so$#\1#p' \
+        | LC_ALL=C sort
+)"
+if [ "$actual_abis" != "$expected_abis" ]; then
+    echo "Error: unexpected gomobile AAR ABIs" >&2
+    echo "Expected:" >&2
+    printf '%s\n' "$expected_abis" >&2
+    echo "Actual:" >&2
+    printf '%s\n' "$actual_abis" >&2
+    exit 1
+fi
 
 echo "✓ Build successful!"
 echo "  AAR location: $OUTPUT_DIR/picocrypt-mobile.aar"
