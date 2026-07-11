@@ -89,54 +89,14 @@ jobs:
       working-directory: android
       run: ./gradlew :app:assembleRelease
 
-    - name: Verify Android 7 and 64-bit ABI packaging
+    - name: Verify exact release APK contract
       working-directory: android
       run: |
-        aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
-        universal="app/build/outputs/apk/release/app-universal-release-unsigned.apk"
-
-        require_file() {
-          if [ ! -s "$1" ]; then
-            echo "Missing or empty APK: $1" >&2
-            exit 1
-          fi
-        }
-        require_min_sdk_24() {
-          if ! "$aapt" dump badging "$1" | grep -Fx "sdkVersion:'24'" >/dev/null; then
-            echo "APK does not declare minSdk 24: $1" >&2
-            exit 1
-          fi
-        }
-        require_entry() {
-          if ! unzip -Z1 "$1" | grep -Fx "$2" >/dev/null; then
-            echo "APK $1 is missing $2" >&2
-            exit 1
-          fi
-        }
-        require_absent_entry() {
-          if unzip -Z1 "$1" | grep -Fx "$2" >/dev/null; then
-            echo "APK $1 unexpectedly contains $2" >&2
-            exit 1
-          fi
-        }
-
-        require_file "$universal"
-        require_min_sdk_24 "$universal"
-        for abi in arm64-v8a x86_64; do
-          split="app/build/outputs/apk/release/app-${abi}-release-unsigned.apk"
-          require_file "$split"
-          require_min_sdk_24 "$split"
-          require_entry "$split" "lib/${abi}/libgojni.so"
-          require_entry "$universal" "lib/${abi}/libgojni.so"
-        done
-        for abi in armeabi-v7a x86; do
-          split="app/build/outputs/apk/release/app-${abi}-release-unsigned.apk"
-          if [ -e "$split" ]; then
-            echo "Unexpected 32-bit APK: $split" >&2
-            exit 1
-          fi
-          require_absent_entry "$universal" "lib/${abi}/libgojni.so"
-        done
+        ./verify-release-apks.sh \
+          app/build/outputs/apk/release \
+          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \
+          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \
+          unsigned
 
     - name: Assemble Instrumented Test APK
       working-directory: android

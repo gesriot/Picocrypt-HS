@@ -186,6 +186,15 @@ jobs:
         ./gradlew :app:assembleRelease \
           -PPICOCRYPT_REQUIRE_RELEASE_SIGNING=true
 
+    - name: Verify exact release APK contract
+      working-directory: android
+      run: |
+        ./verify-release-apks.sh \
+          app/build/outputs/apk/release \
+          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \
+          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \
+          signed
+
     - name: Prepare artifacts
       run: |
         mkdir -p out

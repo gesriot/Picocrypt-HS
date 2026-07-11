@@ -2,6 +2,7 @@ package workflowpolicy
 
 import (
 	"encoding/xml"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -670,12 +671,51 @@ func TestAndroidBuildsOnly64BitNativeABIs(t *testing.T) {
 		mustNotContain(t, prepare.Run, removed)
 	}
 
-	prWorkflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
-	verify := mustStepNamed(t, mustJob(t, prWorkflow, "pr-test-build-android"), "Verify Android 7 and 64-bit ABI packaging")
-	mustContain(t, verify.Run, "for abi in arm64-v8a x86_64; do")
-	mustContain(t, verify.Run, "for abi in armeabi-v7a x86; do")
-	mustContain(t, verify.Run, "require_absent_entry")
-	mustContain(t, verify.Run, "Unexpected 32-bit APK")
+}
+
+func TestAndroidReleaseWorkflowsRunExactArtifactVerifier(t *testing.T) {
+	verifierPath := filepath.Join(repoRoot(t), "android", "verify-release-apks.sh")
+	info, err := os.Stat(verifierPath)
+	if err != nil {
+		t.Fatalf("stat Android release APK verifier: %v", err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("Android release APK verifier mode = %v, want executable", info.Mode().Perm())
+	}
+
+	for _, tc := range []struct {
+		name string
+		path string
+		job  string
+		kind string
+	}{
+		{name: "unsigned PR build", path: ".github/workflows/pr-test-build-android.yml", job: "pr-test-build-android", kind: "unsigned"},
+		{name: "signed release", path: ".github/workflows/build-android.yml", job: "release", kind: "signed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, tc.path)
+			step := mustStepNamed(t, mustJob(t, workflow, tc.job), "Verify exact release APK contract")
+			if step.WorkingDirectory != "android" {
+				t.Fatalf("verifier working-directory = %q, want android", step.WorkingDirectory)
+			}
+			wantRun := strings.Join([]string{
+				`./verify-release-apks.sh \`,
+				`  app/build/outputs/apk/release \`,
+				`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \`,
+				`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \`,
+				`  ` + tc.kind,
+			}, "\n")
+			if got := strings.TrimSpace(step.Run); got != wantRun {
+				t.Fatalf("verifier run = %q, want %q", got, wantRun)
+			}
+			if step.If != "" {
+				t.Fatalf("verifier if = %q, want unconditional step", step.If)
+			}
+			if step.ContinueOnError != nil && step.ContinueOnError != false {
+				t.Fatalf("verifier continue-on-error = %#v, want absent or false", step.ContinueOnError)
+			}
+		})
+	}
 }
 
 func TestReleaseBodyAdvertisesOnly64BitAndroid(t *testing.T) {
