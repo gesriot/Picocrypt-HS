@@ -1,38 +1,16 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
 import org.junit.Assert.*
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.json.JSONException
 import org.json.JSONObject
 
 /**
- * Unit tests for GoBridge.
- *
- * Two kinds of tests live here:
- *  - Pure-logic tests (request-JSON building, response parsing, password zeroing, option
- *    defaults) run on the plain JVM and assert the REAL production code paths -- they fail
- *    if the production serialization/parsing changes.
- *  - Tests that need the gomobile native bridge (mobile.Mobile) cannot run on the JVM.
- *    They SKIP LOUDLY via assumeTrue(isGoMobileAvailable()) instead of silently passing
- *    (JUnit reports them as ignored, not green). Their real coverage is the on-device
- *    OperationManagerIntegrationTest crypto roundtrip.
+ * Pure-logic tests for GoBridge (request-JSON building, response parsing, password
+ * zeroing, and option defaults). They run on the plain JVM and assert the real
+ * production code paths, so they fail if the production serialization/parsing changes.
  */
 class GoBridgeTest {
-
-    /** True only when the gomobile AAR (mobile.Mobile) is loadable in this runtime. */
-    private fun isGoMobileAvailable(): Boolean {
-        return try {
-            Class.forName("mobile.Mobile")
-            true
-        } catch (e: ClassNotFoundException) {
-            false
-        } catch (e: UnsatisfiedLinkError) {
-            false
-        } catch (e: NoClassDefFoundError) {
-            false
-        }
-    }
 
     // --- Request JSON building: asserts the REAL production builders ------------------
     // These call GoBridge.build*RequestJson (the exact code startEncrypt/startDecrypt
@@ -279,24 +257,4 @@ class GoBridgeTest {
         assertEquals("code defaults to empty until an error is classified", "", progressState.code)
     }
 
-    // --- Bridge-only contracts: skip loudly on the JVM (covered on-device) ------------
-
-    @Test
-    fun `startOperation returns a non-empty operation ID`() {
-        assumeTrue("requires the gomobile AAR (mobile.Mobile)", isGoMobileAvailable())
-        val result = GoBridge.startOperation()
-        assertTrue("startOperation should succeed with the AAR present", result.isSuccess)
-        result.onSuccess { assertTrue("operation ID must not be empty", it.isNotEmpty()) }
-    }
-
-    @Test
-    fun `detectOperation wraps a binding failure as an AppError`() {
-        assumeTrue("requires the gomobile AAR (mobile.Mobile)", isGoMobileAvailable())
-        // Empty path -> Go reports an error -> bridge must wrap it as a typed AppError.
-        val result = GoBridge.detectOperation("")
-        result.onFailure {
-            assertTrue("must be a GenericOperation AppError", it is AppError.OperationError.GenericOperation)
-            assertEquals(R.string.error_detect_operation_type_failed, (it as AppError).messageResId)
-        }
-    }
 }

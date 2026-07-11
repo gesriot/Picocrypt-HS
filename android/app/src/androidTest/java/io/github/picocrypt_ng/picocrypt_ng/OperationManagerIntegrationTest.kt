@@ -97,6 +97,10 @@ class OperationManagerIntegrationTest {
             encryptFormData(copiedFilePath = plaintext.absolutePath)
         )
         assertTrue("encrypt should start: ${encStart.exceptionOrNull()}", encStart.isSuccess)
+        assertTrue(
+            "encrypt operation ID must not be empty",
+            encStart.getOrThrow().isNotEmpty()
+        )
         val encState = waitForOperationToFinish()
         assertNull("encrypt must not finish with an error", encState.error)
         val encryptedFile = File(encState.outputFile)
@@ -119,6 +123,10 @@ class OperationManagerIntegrationTest {
             decryptFormData(copiedFilePath = decryptInput.absolutePath)
         )
         assertTrue("decrypt should start: ${decStart.exceptionOrNull()}", decStart.isSuccess)
+        assertTrue(
+            "decrypt operation ID must not be empty",
+            decStart.getOrThrow().isNotEmpty()
+        )
         val decState = waitForOperationToFinish()
         assertNull("decrypt must not finish with an error", decState.error)
         val decryptedFile = File(decState.outputFile)
@@ -129,6 +137,25 @@ class OperationManagerIntegrationTest {
             "decrypted bytes must equal the original plaintext",
             original,
             decryptedFile.readBytes()
+        )
+
+        // The real gomobile binding must surface a missing input as the typed error the
+        // UI expects. Create and remove a unique file first so the path is known-missing.
+        val missingFile = File.createTempFile("detect-missing-", ".pcv", context.cacheDir)
+        assertTrue("missing-file fixture must be removable", missingFile.delete())
+        assertFalse("detectOperation input must not exist", missingFile.exists())
+
+        val detection = GoBridge.detectOperation(missingFile.absolutePath)
+        assertTrue("detectOperation must fail for a missing file", detection.isFailure)
+        val detectionError = detection.exceptionOrNull()
+        assertTrue(
+            "detectOperation failure must be a GenericOperation AppError",
+            detectionError is AppError.OperationError.GenericOperation
+        )
+        detectionError as AppError.OperationError.GenericOperation
+        assertEquals(
+            R.string.error_detect_operation_type_failed,
+            detectionError.messageResId
         )
     }
     
