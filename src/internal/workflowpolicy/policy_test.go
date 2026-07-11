@@ -670,7 +670,6 @@ func TestAndroidBuildsOnly64BitNativeABIs(t *testing.T) {
 	} {
 		mustNotContain(t, prepare.Run, removed)
 	}
-
 }
 
 func TestAndroidReleaseWorkflowsRunExactArtifactVerifier(t *testing.T) {
