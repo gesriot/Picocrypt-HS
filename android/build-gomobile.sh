@@ -145,7 +145,22 @@ cd "$GO_SRC_DIR"
 
 # gomobile uses ANDROID_NDK_HOME environment variable (already set above)
 # Always use API level 24 (matches app's minSdk, required for NDK 29+)
-PATH="$WRAPPER_DIR:$PATH" gomobile bind -target android $USE_ANDROID_API -ldflags="$GOMOBILE_LDFLAGS" -o "$OUTPUT_DIR/picocrypt-mobile.aar" ./mobile
+PATH="$WRAPPER_DIR:$PATH" gomobile bind -target android/arm64,android/amd64 $USE_ANDROID_API -ldflags="$GOMOBILE_LDFLAGS" -o "$OUTPUT_DIR/picocrypt-mobile.aar" ./mobile
+
+expected_abis="$(printf '%s\n' arm64-v8a x86_64)"
+actual_abis="$(
+    unzip -Z1 "$OUTPUT_DIR/picocrypt-mobile.aar" \
+        | sed -n 's#^jni/\([^/]*\)/libgojni\.so$#\1#p' \
+        | LC_ALL=C sort
+)"
+if [ "$actual_abis" != "$expected_abis" ]; then
+    echo "Error: unexpected gomobile AAR ABIs" >&2
+    echo "Expected:" >&2
+    printf '%s\n' "$expected_abis" >&2
+    echo "Actual:" >&2
+    printf '%s\n' "$actual_abis" >&2
+    exit 1
+fi
 
 echo "✓ Build successful!"
 echo "  AAR location: $OUTPUT_DIR/picocrypt-mobile.aar"

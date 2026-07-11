@@ -640,6 +640,43 @@ func TestAndroidApiFloorStaysAt24(t *testing.T) {
 	mustContain(t, readme, "minimum API level 24")
 }
 
+func TestAndroidBuildsOnly64BitNativeABIs(t *testing.T) {
+	gomobile := mustReadRepoFile(t, "android/build-gomobile.sh")
+	mustContain(t, gomobile, "-target android/arm64,android/amd64")
+	mustContain(t, gomobile, "expected_abis=\"$(printf '%s\\n' arm64-v8a x86_64)\"")
+
+	gradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
+	mustContain(t, gradle, `abiFilters += listOf("arm64-v8a", "x86_64")`)
+	mustContain(t, gradle, `include("arm64-v8a", "x86_64")`)
+	mustContain(t, gradle, `"arm64-v8a" to 2`)
+	mustContain(t, gradle, `"x86_64" to 4`)
+	mustNotContain(t, gradle, `"armeabi-v7a" to 1`)
+	mustNotContain(t, gradle, `"x86" to 3`)
+
+	releaseWorkflow := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
+	prepare := mustStepNamed(t, mustJob(t, releaseWorkflow, "release"), "Prepare artifacts")
+	for _, artifact := range []string{
+		"Picocrypt-NG-android-arm64-v8a.apk",
+		"Picocrypt-NG-android-x86_64.apk",
+		"Picocrypt-NG-android-universal.apk",
+	} {
+		mustContain(t, prepare.Run, artifact)
+	}
+	for _, removed := range []string{
+		"Picocrypt-NG-android-armeabi-v7a.apk",
+		"Picocrypt-NG-android-x86.apk",
+	} {
+		mustNotContain(t, prepare.Run, removed)
+	}
+
+	prWorkflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
+	verify := mustStepNamed(t, mustJob(t, prWorkflow, "pr-test-build-android"), "Verify Android 7 and 64-bit ABI packaging")
+	mustContain(t, verify.Run, "for abi in arm64-v8a x86_64; do")
+	mustContain(t, verify.Run, "for abi in armeabi-v7a x86; do")
+	mustContain(t, verify.Run, "require_absent_entry")
+	mustContain(t, verify.Run, "Unexpected 32-bit APK")
+}
+
 func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
 	const gradle931Sha256 = "b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06"
 

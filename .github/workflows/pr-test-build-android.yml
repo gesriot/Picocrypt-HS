@@ -89,7 +89,7 @@ jobs:
       working-directory: android
       run: ./gradlew :app:assembleRelease
 
-    - name: Verify Android 7 and ABI packaging
+    - name: Verify Android 7 and 64-bit ABI packaging
       working-directory: android
       run: |
         aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
@@ -113,15 +113,29 @@ jobs:
             exit 1
           fi
         }
+        require_absent_entry() {
+          if unzip -Z1 "$1" | grep -Fx "$2" >/dev/null; then
+            echo "APK $1 unexpectedly contains $2" >&2
+            exit 1
+          fi
+        }
 
         require_file "$universal"
         require_min_sdk_24 "$universal"
-        for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+        for abi in arm64-v8a x86_64; do
           split="app/build/outputs/apk/release/app-${abi}-release-unsigned.apk"
           require_file "$split"
           require_min_sdk_24 "$split"
           require_entry "$split" "lib/${abi}/libgojni.so"
           require_entry "$universal" "lib/${abi}/libgojni.so"
+        done
+        for abi in armeabi-v7a x86; do
+          split="app/build/outputs/apk/release/app-${abi}-release-unsigned.apk"
+          if [ -e "$split" ]; then
+            echo "Unexpected 32-bit APK: $split" >&2
+            exit 1
+          fi
+          require_absent_entry "$universal" "lib/${abi}/libgojni.so"
         done
 
     - name: Assemble Instrumented Test APK
@@ -138,9 +152,8 @@ jobs:
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       timeout-minutes: 15
       with:
-        # API 24 is the documented compatibility floor. Use the current official
-        # google_apis x86_64 image; 32-bit Go cannot reserve the fixed 1 GiB
-        # Argon2 allocation.
+        # API 24 is the documented compatibility floor. x86_64 is one of the
+        # two supported release ABIs and is hardware-accelerated on this runner.
         api-level: 24
         target: google_apis
         arch: x86_64
