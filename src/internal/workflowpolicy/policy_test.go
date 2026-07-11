@@ -447,7 +447,7 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 		memory string
 		target string
 	}{
-		24: {arch: "x86_64", memory: "4096", target: "google_apis"},
+		24: {arch: "x86_64", memory: "3583", target: "google_apis"},
 		36: {arch: "x86_64", memory: "6144", target: "default"},
 	}
 	seen := make(map[int]struct{}, len(wantByAPI))

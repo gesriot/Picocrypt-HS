@@ -138,18 +138,18 @@ jobs:
       uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       timeout-minutes: 15
       with:
-        # API 24 is the documented compatibility floor. Its newer official
-        # google_apis x86_64 image replaces the default image that stalls during boot;
-        # 32-bit Go cannot reserve the fixed 1 GiB Argon2 allocation.
+        # API 24 is the documented compatibility floor. Use the current official
+        # google_apis x86_64 image; 32-bit Go cannot reserve the fixed 1 GiB
+        # Argon2 allocation.
         api-level: 24
         target: google_apis
         arch: x86_64
         disable-animations: true
-        # -memory 4096 is the next bounded configuration: it leaves headroom for the
-        # fixed 1 GiB Argon2id allocation (src/internal/crypto/kdf.go). The previous
-        # 6 GiB API 24 AVD stalled during boot; the 32-bit image cannot reserve the
-        # KDF block.
-        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 4096 -cores 4 -camera-back none -camera-front none
+        # -memory 3583 keeps all guest RAM below QEMU's 3.5 GiB split threshold;
+        # API 24 stalled when 4/6 GiB configurations mapped the excess above 4 GiB.
+        # This is the largest integer MiB value below the threshold and preserves
+        # maximum headroom for the fixed 1 GiB Argon2id allocation.
+        emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 3583 -cores 4 -camera-back none -camera-front none
         working-directory: android
         script: ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes
 
