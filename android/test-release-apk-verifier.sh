@@ -71,25 +71,6 @@ replace_manifest_text() {
     (cd "$edit_dir" && zip -q "$apk" AndroidManifest.xml)
 }
 
-replace_manifest_version_code() {
-    local apk=$1
-    local old_code=$2
-    local new_code=$3
-    local edit_dir="$work_dir/manifest-version-code-edit"
-
-    rm -rf "$edit_dir"
-    mkdir -p "$edit_dir"
-    unzip -p "$apk" AndroidManifest.xml > "$edit_dir/AndroidManifest.xml"
-    OLD_CODE=$old_code NEW_CODE=$new_code perl -0777pi -e '
-        BEGIN {
-            $old = pack("V", $ENV{OLD_CODE});
-            $new = pack("V", $ENV{NEW_CODE});
-        }
-        s/\Q$old\E/$new/ or die "versionCode value not found\n";
-    ' "$edit_dir/AndroidManifest.xml"
-    (cd "$edit_dir" && zip -q "$apk" AndroidManifest.xml)
-}
-
 flip_apk_byte() {
     local apk=$1
     local offset=$2
@@ -263,13 +244,24 @@ expect_rejected \
     "versionName = '$wrong_version_name'" \
     "$verifier" "$wrong_version_dir" "$version_name" "$base_version_code" "$application_id" unsigned
 
-wrong_base_version_code=$((10#$base_version_code + 1))
 wrong_base_dir="$work_dir/wrong-base-version-code"
 copy_unsigned_set "$wrong_base_dir"
-replace_manifest_version_code \
-    "$wrong_base_dir/app-universal-release-unsigned.apk" \
-    "$base_version_code" \
-    "$wrong_base_version_code"
+wrong_base_version_code="$("$AAPT" dump badging "$wrong_base_dir/app-arm64-v8a-release-unsigned.apk" | sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p")"
+if [[ ! "$wrong_base_version_code" =~ ^[0-9]+$ ]]; then
+    echo "ARM64 APK versionCode is not a decimal integer: '$wrong_base_version_code'" >&2
+    exit 1
+fi
+if (( 10#$wrong_base_version_code == 10#$base_version_code )); then
+    echo "ARM64 APK versionCode must differ from the base versionCode" >&2
+    exit 1
+fi
+wrong_base_manifest_dir="$work_dir/wrong-base-version-code-manifest"
+mkdir -p "$wrong_base_manifest_dir"
+unzip -p \
+    "$wrong_base_dir/app-arm64-v8a-release-unsigned.apk" \
+    AndroidManifest.xml \
+    > "$wrong_base_manifest_dir/AndroidManifest.xml"
+(cd "$wrong_base_manifest_dir" && zip -q "$wrong_base_dir/app-universal-release-unsigned.apk" AndroidManifest.xml)
 mutated_base_version_code="$("$AAPT" dump badging "$wrong_base_dir/app-universal-release-unsigned.apk" | sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p")"
 if [[ "$mutated_base_version_code" != "$wrong_base_version_code" ]]; then
     echo "Failed to mutate APK base versionCode: got '$mutated_base_version_code', want '$wrong_base_version_code'" >&2

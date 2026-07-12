@@ -1,7 +1,9 @@
 package workflowpolicy
 
 import (
+	"crypto/sha256"
 	"encoding/xml"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -834,13 +836,24 @@ func TestReleaseBodyAdvertisesOnly64BitAndroid(t *testing.T) {
 }
 
 func TestAndroidGradleSupplyChainVerificationConfigured(t *testing.T) {
-	const gradle931Sha256 = "b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06"
+	const (
+		gradle961Sha256        = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+		gradleWrapperJarSha256 = "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7"
+	)
 
 	wrapper := mustReadRepoFile(t, "android/gradle/wrapper/gradle-wrapper.properties")
-	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.3.1-bin.zip")
-	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle931Sha256+`$`)
+	mustContain(t, wrapper, "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.6.1-bin.zip")
+	mustMatch(t, wrapper, `(?m)^distributionSha256Sum=`+gradle961Sha256+`$`)
 	mustMatch(t, wrapper, `(?m)^validateDistributionUrl=true$`)
 	mustMatch(t, wrapper, `(?m)^networkTimeout=60000$`)
+
+	wrapperJar, err := os.ReadFile(filepath.Join(repoRoot(t), "android/gradle/wrapper/gradle-wrapper.jar"))
+	if err != nil {
+		t.Fatalf("read Gradle wrapper JAR: %v", err)
+	}
+	if got := fmt.Sprintf("%x", sha256.Sum256(wrapperJar)); got != gradleWrapperJarSha256 {
+		t.Fatalf("Gradle wrapper JAR SHA-256 = %s, want official Gradle 9.6.1 checksum %s", got, gradleWrapperJarSha256)
+	}
 
 	metadata := mustReadRepoFile(t, "android/gradle/verification-metadata.xml")
 	mustContain(t, metadata, "<verification-metadata")
