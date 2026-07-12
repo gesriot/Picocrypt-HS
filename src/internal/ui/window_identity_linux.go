@@ -2,9 +2,10 @@
 
 package ui
 
-import "github.com/go-gl/glfw/v3.3/glfw"
+import "github.com/go-gl/glfw/v3.4/glfw"
 
 func prepareWindowIdentity() {
 	glfw.WindowHintString(glfw.X11ClassName, linuxX11WMClass)
 	glfw.WindowHintString(glfw.X11InstanceName, linuxX11WMClass)
+	glfw.WindowHintString(glfw.WaylandAppID, linuxAppID)
 }

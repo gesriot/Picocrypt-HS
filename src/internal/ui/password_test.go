@@ -188,10 +188,6 @@ func TestPasswordToolbarRelocalizesAfterSwitchLanguage(t *testing.T) {
 }
 
 func TestPasswordToolbarDoesNotIncreaseDesktopWidth(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	a := newDesktopEncryptLayoutApp(t, fyneApp)
 

@@ -296,14 +296,6 @@ func TestCanStartLogic(t *testing.T) {
 // fyne.io/fyne/v2/internal/cache races (Pitfall 4). It must be clean under
 // `go test -race ./internal/ui` — the APP-02 gate.
 func TestWorkerCallbackStateRace(t *testing.T) {
-	if raceEnabled {
-		// Belt-and-suspenders: this test never builds widgets, so it is safe
-		// under -race. The guard documents that any future variant which DOES
-		// touch Fyne widgets must skip here (mirrors drop_test.go's quarantine
-		// of the Fyne-cache-racy widget paths).
-		_ = raceEnabled
-	}
-
 	a := createTestApp(t)
 
 	const iterations = 200

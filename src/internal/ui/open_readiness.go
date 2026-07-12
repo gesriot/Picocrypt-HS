@@ -435,7 +435,16 @@ func (a *App) applyOpenedPaths(paths []string) {
 	}
 
 	ctx, generation := a.beginOpenedPathReadiness(normalized)
-	go a.waitForOpenedPathsAndApply(ctx, generation)
+	a.openReadinessMu.Lock()
+	if a.openReadinessStopped {
+		a.openReadinessMu.Unlock()
+		a.finishOpenedPathReadiness(generation)
+		return
+	}
+	a.openReadinessTasks.Go(func() {
+		a.waitForOpenedPathsAndApply(ctx, generation)
+	})
+	a.openReadinessMu.Unlock()
 }
 
 func (a *App) waitForOpenedPathsAndApply(ctx context.Context, generation uint64) {
