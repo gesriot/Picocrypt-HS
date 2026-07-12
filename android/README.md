@@ -6,7 +6,7 @@ This directory contains the Android app that integrates with the Go encryption b
 
 ### Prerequisites
 
-1. **Go Mobile**: Install Go mobile bindings
+1. **Go Mobile**: Use exactly Go 1.26.5 and install Go mobile bindings
    ```bash
    go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260709172247-6129f5bee9d5
    go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260709172247-6129f5bee9d5
@@ -14,7 +14,8 @@ This directory contains the Android app that integrates with the Go encryption b
    ```
 
 2. **Android SDK**: Ensure Android SDK is installed and `ANDROID_HOME` is set.
-   - Requires NDK 29.0+ (minimum API level 24, matching app's minSdk)
+   - Requires the stable NDK `29.0.14206865` pin from `ndk-version.txt` (minimum API level 24,
+     matching app's minSdk)
    - CI and recommended local builds use JDK 21
    - Android app and gomobile outputs are 64-bit only: `arm64-v8a` and `x86_64`
 
@@ -25,15 +26,22 @@ This directory contains the Android app that integrates with the Go encryption b
 
 ### Build Steps
 
-1. **Build Go Mobile Bindings** (required before building Android app):
+1. **Build Go Mobile Bindings** (required before building Android app). From the repository root,
+   the recommended command is:
    ```bash
-   ./build-gomobile.sh
+   mise run android:gomobile
    ```
-   This will generate `app/libs/picocrypt-mobile.aar` containing the Go mobile bindings.
+   To run the script directly instead:
+   ```bash
+   ./android/build-gomobile.sh
+   ```
+   The script requires exactly Go 1.26.5 and the exact NDK revision in `ndk-version.txt`. It verifies
+   that `gomobile` and `gobind` match the `golang.org/x/mobile` version in `src/go.mod` and were built
+   with Go 1.26.5 before generating `app/libs/picocrypt-mobile.aar`.
 
 2. **Build Android App**:
    ```bash
-   ./build-app
+   ./android/build-app
    ```
    Or use Android Studio/Gradle directly.
 
