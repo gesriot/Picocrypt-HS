@@ -9,6 +9,7 @@ GO_SRC_DIR="$SCRIPT_DIR/../src"
 OUTPUT_DIR="$SCRIPT_DIR/app/libs"
 GOMOBILE_LDFLAGS="${GOMOBILE_LDFLAGS:--s -w -buildid=}"
 NDK_VERSION_FILE="$SCRIPT_DIR/ndk-version.txt"
+REQUIRED_GO_VERSION="go1.26.5"
 
 # Set Android SDK/NDK paths
 export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
@@ -62,12 +63,17 @@ if ! command -v go > /dev/null 2>&1; then
     echo "Error: go not found in PATH." >&2
     exit 1
 fi
+ACTUAL_GO_VERSION="$(go env GOVERSION)"
+if [ "$ACTUAL_GO_VERSION" != "$REQUIRED_GO_VERSION" ]; then
+    echo "Error: active Go version mismatch." >&2
+    echo "  Expected: $REQUIRED_GO_VERSION" >&2
+    echo "  Actual: ${ACTUAL_GO_VERSION:-<missing>}" >&2
+    exit 1
+fi
 EXPECTED_MOBILE_VERSION="$(go -C "$GO_SRC_DIR" list -m -f '{{.Version}}' golang.org/x/mobile)"
-EXPECTED_GO_VERSION="$(go env GOVERSION)"
-if [ -z "$EXPECTED_MOBILE_VERSION" ] || [ -z "$EXPECTED_GO_VERSION" ]; then
-    echo "Error: could not determine the required Go mobile toolchain versions." >&2
+if [ -z "$EXPECTED_MOBILE_VERSION" ]; then
+    echo "Error: could not determine the required Go mobile toolchain version." >&2
     echo "  x/mobile: ${EXPECTED_MOBILE_VERSION:-<missing>}" >&2
-    echo "  Go: ${EXPECTED_GO_VERSION:-<missing>}" >&2
     exit 1
 fi
 
@@ -119,15 +125,15 @@ validate_mobile_tool() {
         echo "  Binary: $tool_path" >&2
         return 1
     fi
-    if [ "$actual_go_version" != "$EXPECTED_GO_VERSION" ]; then
+    if [ "$actual_go_version" != "$REQUIRED_GO_VERSION" ]; then
         echo "Error: $tool_name Go version mismatch." >&2
-        echo "  Expected: $EXPECTED_GO_VERSION" >&2
+        echo "  Expected: $REQUIRED_GO_VERSION" >&2
         echo "  Actual: ${actual_go_version:-<missing>}" >&2
         echo "  Binary: $tool_path" >&2
         return 1
     fi
 
-    echo "Validated $tool_name: $tool_path ($EXPECTED_MOBILE_VERSION, $EXPECTED_GO_VERSION)"
+    echo "Validated $tool_name: $tool_path ($EXPECTED_MOBILE_VERSION, $REQUIRED_GO_VERSION)"
 }
 
 validate_mobile_tool gomobile
