@@ -24,10 +24,6 @@ func (t fixedVariantTheme) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) 
 }
 
 func TestOutputDisplayFollowsThemeChanges(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	darkTheme := fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantDark}
 	lightTheme := fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight}
@@ -114,10 +110,6 @@ func TestOutputDisplaySplitSuffixIsCompact(t *testing.T) {
 }
 
 func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	cases := []struct {
 		name      string
 		configure func(*App)
@@ -183,10 +175,6 @@ func TestDesktopUILayoutFitsWindowAfterBuild(t *testing.T) {
 }
 
 func TestDesktopRussianUILayoutKeepsCompactWidth(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	resetLocalizationForTest(t)
 
 	cases := []struct {
@@ -258,10 +246,6 @@ func TestDesktopRussianUILayoutKeepsCompactWidth(t *testing.T) {
 }
 
 func TestDesktopUILayoutKeepsCompactWidthAfterLanguageSwitch(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	resetLocalizationForTest(t)
 
 	cases := []struct {
@@ -328,10 +312,6 @@ func TestDesktopUILayoutKeepsCompactWidthAfterLanguageSwitch(t *testing.T) {
 }
 
 func TestDesktopLanguageSelectorStaysInHeaderOutsideWorkflowControls(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	a, err := NewApp("v2.test")
 	if err != nil {
@@ -359,10 +339,6 @@ func TestDesktopLanguageSelectorStaysInHeaderOutsideWorkflowControls(t *testing.
 }
 
 func TestMobileLanguageSelectorStaysInUtilityRowBeforeFileWorkflow(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	a, err := NewApp("v2.test")
 	if err != nil {
@@ -402,10 +378,6 @@ func TestMobileLanguageSelectorStaysInUtilityRowBeforeFileWorkflow(t *testing.T)
 }
 
 func TestDesktopUILayoutFitsWindowAfterModeChange(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
 
@@ -437,10 +409,6 @@ func TestDesktopUILayoutFitsWindowAfterModeChange(t *testing.T) {
 }
 
 func TestOutputLongNameDoesNotWidenDesktopLayout(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
 
@@ -485,10 +453,6 @@ func TestDesktopOutputDisplayIsPassiveText(t *testing.T) {
 }
 
 func TestDesktopEncryptLayoutCollapsedAdvancedHeightBudgetEnglish(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
 
@@ -512,10 +476,6 @@ func TestDesktopEncryptLayoutCollapsedAdvancedHeightBudgetEnglish(t *testing.T) 
 }
 
 func TestDesktopEncryptLayoutCollapsedAdvancedHeightBudgetRussian(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	resetLocalizationForTest(t)
 
 	fyneApp := newTestFyneApp(t)
@@ -546,10 +506,6 @@ func TestDesktopEncryptLayoutCollapsedAdvancedHeightBudgetRussian(t *testing.T) 
 }
 
 func TestDesktopEncryptLayoutExpandedAdvancedStillFitsWidth(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
 
@@ -576,10 +532,6 @@ func TestDesktopEncryptLayoutExpandedAdvancedStillFitsWidth(t *testing.T) {
 }
 
 func TestDesktopAdvancedDisclosureShrinksWindowAfterClose(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
 
@@ -606,10 +558,6 @@ func TestDesktopAdvancedDisclosureShrinksWindowAfterClose(t *testing.T) {
 }
 
 func TestDesktopPasswordEntriesUseFullFormWidth(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
-
 	fyneApp := newTestFyneApp(t)
 	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
 

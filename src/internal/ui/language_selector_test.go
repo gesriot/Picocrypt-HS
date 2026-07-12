@@ -90,9 +90,6 @@ func TestLanguagePreferenceRoundTrip(t *testing.T) {
 }
 
 func TestLanguageSelectionRelocalizesBuiltDesktopControls(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
 	resetLocalizationForTest(t)
 	testFS := fstest.MapFS{
 		"translation/en.json": {Data: []byte(`{
@@ -208,9 +205,6 @@ func TestLanguageSelectionRelocalizesBuiltDesktopControls(t *testing.T) {
 }
 
 func TestLanguageSelectionRelocalizesBuiltMobileControls(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.4 internal cache races under -race; covered on non-race matrices")
-	}
 	resetLocalizationForTest(t)
 	testFS := fstest.MapFS{
 		"translation/en.json": {Data: []byte(`{

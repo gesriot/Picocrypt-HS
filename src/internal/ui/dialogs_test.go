@@ -11,9 +11,6 @@ import (
 // TestAboutModalShowsAppVersion pins the GUI's only version indicator: the
 // window title carries no version (#133), so the About dialog must show it.
 func TestAboutModalShowsAppVersion(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
 
@@ -35,9 +32,6 @@ func TestAboutModalShowsAppVersion(t *testing.T) {
 // TestBuildUICreatesAboutButton ensures the About entry point is present in
 // the header row without growing the fixed-size window.
 func TestBuildUICreatesAboutButton(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	fyneApp := newTestFyneApp(t)
 	a := createUIReadyDropTestApp(t, fyneApp)
 

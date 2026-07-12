@@ -483,6 +483,10 @@ func linuxRuntimeIdentitySourceID(t *testing.T) string {
 		}
 	}
 	source := uiSource.String()
+	const waylandHint = "glfw.WindowHintString(glfw.WaylandAppID, linuxAppID)"
+	if !strings.Contains(source, waylandHint) {
+		t.Fatalf("Linux window identity source missing %q", waylandHint)
+	}
 
 	patterns := []struct {
 		name string

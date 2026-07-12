@@ -124,14 +124,6 @@ func TestOutputPathFromDecrypt(t *testing.T) {
 // app.go; this test must fail if that logic changes, so it never recomputes the
 // expected string itself.
 func TestMultipleDropLabels(t *testing.T) {
-	if raceEnabled {
-		// Drives real onDrop with folders, whose background scan goroutine calls
-		// refreshAdvanced -> the split-unit Select refresh. That measures glyphs on
-		// the render goroutine concurrently with the go-text cmapCache first-write,
-		// tripping the upstream Fyne v2.7.x font-cache race this file quarantines
-		// (same reason as the scheduleStartupPaths tests). Runs on the arm64 matrix.
-		t.Skip("Fyne internal font-cache races under -race; covered on arm64 matrix")
-	}
 	fyneApp := newTestFyneApp(t)
 
 	testCases := []struct {
@@ -595,15 +587,6 @@ func TestFolderWalkErrorClearsScanningState(t *testing.T) {
 }
 
 func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
-	if raceEnabled {
-		// Skipped under -race: Fyne v2.7.3 internal/cache/base.go
-		// expiringCache.setAlive performs racy first-writes on combinatorial
-		// font/glyph cache keys when test.NewApp drives Button.SetText →
-		// Refresh → MeasureText. The race is benign (first writes converge),
-		// not in our code, and the test still runs on the no-race matrix
-		// (Linux arm64). Re-evaluate when Fyne ships a fix upstream.
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 
 	fyneApp := newTestFyneApp(t)
@@ -637,9 +620,6 @@ func TestScheduleStartupPathsDefersUntilLifecycleStart(t *testing.T) {
 }
 
 func TestScheduleStartupPathsSkipsMissingArgvWhenValidPathsRemain(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 
@@ -668,9 +648,6 @@ func TestScheduleStartupPathsSkipsMissingArgvWhenValidPathsRemain(t *testing.T) 
 }
 
 func TestScheduleStartupPathsPreservesPartialAccessWarningForArgv(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 
@@ -718,10 +695,6 @@ func TestScheduleStartupPathsPreservesPartialAccessWarningForArgv(t *testing.T) 
 // drainOpenedPaths(). Removing the wiring on empty input would silently lose
 // those events. (FA-MAC-03 / Plan 03-03)
 func TestScheduleStartupPathsAlwaysWiresStartHook(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
-
 	fyneApp := newTestFyneApp(t)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
@@ -752,9 +725,6 @@ func TestScheduleStartupPathsAlwaysWiresStartHook(t *testing.T) {
 // drainOpenedPaths ran exactly once inside the start hook, so any path arriving
 // afterward was silently lost — the app merely came to the foreground.
 func TestScheduleStartupPathsAppliesWarmOpenedPaths(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 
 	// Reset package-global bridge state: other tests fire the start hook and leave
@@ -801,9 +771,6 @@ func TestScheduleStartupPathsAppliesWarmOpenedPaths(t *testing.T) {
 }
 
 func TestSeparateWarmOpenedPathReplacesSelectionAfterFirstSessionApplied(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 	setOpenedPathsNotify(nil)
 	drainOpenedPaths()
@@ -843,9 +810,6 @@ func TestSeparateWarmOpenedPathReplacesSelectionAfterFirstSessionApplied(t *test
 }
 
 func TestScheduleStartupPathsCoalescesColdAndLateOpenedBatches(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	withOpenedPathsFlushDelay(t, 25*time.Millisecond)
 
 	setOpenedPathsNotify(nil)
@@ -888,9 +852,6 @@ func TestScheduleStartupPathsCoalescesColdAndLateOpenedBatches(t *testing.T) {
 }
 
 func TestOpenedPathsWaitForReadinessBeforeApply(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	withOpenedPathsFlushDelay(t, 10*time.Millisecond)
 	oldCheck := checkOpenedPathReadiness
@@ -931,9 +892,6 @@ func TestOpenedPathsWaitForReadinessBeforeApply(t *testing.T) {
 }
 
 func TestOpenedPathsMergeLateICloudFileDeliveriesDuringReadiness(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -982,9 +940,6 @@ func TestOpenedPathsMergeLateICloudFileDeliveriesDuringReadiness(t *testing.T) {
 }
 
 func TestOpenedPathsCollectsReadyUbiquitousFilesAcrossSlowCallbacks(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1036,9 +991,6 @@ func TestOpenedPathsCollectsReadyUbiquitousFilesAcrossSlowCallbacks(t *testing.T
 }
 
 func TestICloudFolderOpenDoesNotWaitForLateFileCollection(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1079,9 +1031,6 @@ func TestICloudFolderOpenDoesNotWaitForLateFileCollection(t *testing.T) {
 }
 
 func TestManualDropCancelsCloudOpenCollectionAndSuppressesLateFiles(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1139,9 +1088,6 @@ func TestManualDropCancelsCloudOpenCollectionAndSuppressesLateFiles(t *testing.T
 }
 
 func TestManualDropCancelsReadinessBeforeCloudMetadataAndSuppressesLateFiles(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1206,9 +1152,6 @@ func TestManualDropCancelsReadinessBeforeCloudMetadataAndSuppressesLateFiles(t *
 }
 
 func TestLateICloudFileDuringQueuedReadyApplyExtendsSameSelection(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1289,9 +1232,6 @@ func TestLateICloudFileDuringQueuedReadyApplyExtendsSameSelection(t *testing.T) 
 // arrives while the very first readiness check is still running must extend
 // the active session instead of replacing it.
 func TestOpenedPathsMergeSecondBatchDuringFirstReadinessCheck(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1358,9 +1298,6 @@ func TestOpenedPathsMergeSecondBatchDuringFirstReadinessCheck(t *testing.T) {
 // and Finder delivers another batch of the same gesture, the late batch must
 // extend the applied selection instead of replacing it.
 func TestLateICloudBatchAfterReadyApplyExtendsSameSelection(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1404,9 +1341,6 @@ func TestLateICloudBatchAfterReadyApplyExtendsSameSelection(t *testing.T) {
 // collection), so a file batch from the same gesture lands after apply and must
 // extend the folder selection instead of replacing it.
 func TestLateICloudFileBatchAfterFolderApplyExtendsSameSelection(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1472,9 +1406,6 @@ func TestLateICloudFileBatchAfterFolderApplyExtendsSameSelection(t *testing.T) {
 // a separate gesture and replaces the selection — matching the local-file
 // semantics in TestSeparateWarmOpenedPathReplacesSelectionAfterFirstSessionApplied.
 func TestSeparateICloudOpenAfterMergeWindowReplacesSelection(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1522,9 +1453,6 @@ func TestSeparateICloudOpenAfterMergeWindowReplacesSelection(t *testing.T) {
 // replaces an already-applied cloud open selection also suppresses late
 // batches of that gesture: they must not overwrite what the user just chose.
 func TestManualDropAfterCloudApplySuppressesLateBatch(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1578,9 +1506,6 @@ func TestManualDropAfterCloudApplySuppressesLateBatch(t *testing.T) {
 // recent cloud apply record), a readiness session must finish at the apply
 // gate instead of waiting out the scan and stomping the user's selection.
 func TestForeignScanFinishesOpenedPathReadinessSession(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1642,9 +1567,6 @@ func TestForeignScanFinishesOpenedPathReadinessSession(t *testing.T) {
 // record), the late-batch session must stay alive and apply the union once the
 // scan settles.
 func TestOpenedPathSessionSurvivesOwnGestureScan(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1697,9 +1619,6 @@ func TestOpenedPathSessionSurvivesOwnGestureScan(t *testing.T) {
 // must suppress stragglers for that window too — not only for the shorter
 // cancel-suppress delay.
 func TestManualDropAfterCloudApplySuppressesLateBatchUntilMergeWindowEnds(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1759,9 +1678,6 @@ func TestManualDropAfterCloudApplySuppressesLateBatchUntilMergeWindowEnds(t *tes
 // cancelOpenedPathReadiness armed for the rest of the merge window — otherwise
 // a second straggler arriving in the gap would stomp the manual selection.
 func TestStragglersCannotShortenManualDropSuppressionWindow(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	resetOpenedPathsForTest(t)
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
@@ -1824,9 +1740,6 @@ func TestStragglersCannotShortenManualDropSuppressionWindow(t *testing.T) {
 }
 
 func TestOpenedPathReadinessCancellationPreventsStaleApply(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
 	defer func() {
@@ -1870,9 +1783,6 @@ func TestOpenedPathReadinessCancellationPreventsStaleApply(t *testing.T) {
 }
 
 func TestInvalidStartCancelsOpenedPathReadiness(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
 	defer func() {
@@ -1921,9 +1831,6 @@ func TestInvalidStartCancelsOpenedPathReadiness(t *testing.T) {
 }
 
 func TestOpenedPathReadinessPendingStatusDoesNotOverwriteBusyStatus(t *testing.T) {
-	if raceEnabled {
-		t.Skip("Fyne v2.7.3 internal cache races under -race; covered on arm64 matrix")
-	}
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
 	defer func() {
@@ -2170,6 +2077,15 @@ func createUIReadyDropTestApp(t *testing.T, fyneApp fyne.App) *App {
 	}
 
 	a.fyneApp = fyneApp
+	t.Cleanup(func() {
+		setOpenedPathsNotify(nil)
+		drainOpenedPaths()
+		a.openReadinessMu.Lock()
+		a.openReadinessStopped = true
+		a.openReadinessMu.Unlock()
+		fyne.DoAndWait(a.cancelOpenedPathReadiness)
+		a.openReadinessTasks.Wait()
+	})
 	fyne.DoAndWait(func() {
 		a.Window = fyneApp.NewWindow("drop-test")
 		a.Window.SetContent(a.buildUI())
@@ -2484,6 +2400,7 @@ func TestHandleDecryptDropMalformedCommentLen(t *testing.T) {
 }
 
 type lifecycleCaptureApp struct {
+	fyne.App
 	driver  fyne.Driver
 	started func()
 	stopped func()
@@ -2492,7 +2409,7 @@ type lifecycleCaptureApp struct {
 }
 
 func newLifecycleCaptureApp(base fyne.App) *lifecycleCaptureApp {
-	return &lifecycleCaptureApp{driver: base.Driver()}
+	return &lifecycleCaptureApp{App: base, driver: base.Driver()}
 }
 
 func (a *lifecycleCaptureApp) NewWindow(title string) fyne.Window {

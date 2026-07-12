@@ -87,6 +87,8 @@ type App struct {
 	// paths that may point at iCloud placeholders. It is separate from the global
 	// AppleEvent buffer in macos_open.go.
 	openReadinessMu            sync.Mutex
+	openReadinessTasks         sync.WaitGroup
+	openReadinessStopped       bool
 	openReadinessGeneration    uint64
 	openReadinessCancel        context.CancelFunc
 	openReadinessPaths         []string
