@@ -1040,6 +1040,7 @@ func TestGoToolchainsStayOnApprovedVersions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("rel path for %s: %v", absPath, err)
 		}
+		relPath = filepath.ToSlash(relPath)
 		workflow := mustReadWorkflowDoc(t, relPath)
 		for jobName, job := range workflow.Jobs {
 			lane := workflowLane{path: relPath, job: jobName}
