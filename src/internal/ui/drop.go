@@ -287,6 +287,10 @@ func (a *App) runFolderScan(ctx context.Context, job folderScanJob, emit scanned
 
 // onDrop handles files and folders dropped onto the window.
 func (a *App) onDrop(names []string) {
+	if a.mobileImportActive {
+		return
+	}
+
 	// If keyfile modal is open, handle as keyfiles
 	if a.State.ShowKeyfile {
 		a.handleKeyfileDrop(names)

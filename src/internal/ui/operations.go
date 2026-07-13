@@ -213,6 +213,9 @@ func splitSizeReady(snap app.UISnapshot) bool {
 
 // onClickStart handles the Start button click.
 func (a *App) onClickStart() {
+	if a.mobileImportActive {
+		return
+	}
 	a.cancelOpenedPathReadiness()
 
 	if a.State.Mode == "" || a.startDisabled(a.State.UISnapshot()) {

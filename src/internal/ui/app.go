@@ -74,12 +74,14 @@ type App struct {
 	Version string
 	DPI     float32
 
-	workers              *workerLifecycle
-	workersDone          chan struct{}
-	shutdownAnimation    *fyne.Animation
-	shutdownOnce         sync.Once
-	tooltipDestroyed     bool
-	folderScanGeneration uint64
+	workers                *workerLifecycle
+	workersDone            chan struct{}
+	shutdownAnimation      *fyne.Animation
+	shutdownOnce           sync.Once
+	tooltipDestroyed       bool
+	folderScanGeneration   uint64
+	mobileImportActive     bool
+	mobileImportGeneration atomic.Uint64
 
 	// Application state
 	State *app.State
@@ -997,8 +999,19 @@ func (a *App) refreshAdvanced() {
 // This mirrors the exact logic from the original giu implementation.
 func (a *App) updateUIState() {
 	snap := a.State.UISnapshot()
-	configureDisabled := snap.Scanning || !hasSelectedInput(snap)
-	startDisabled := a.startDisabled(snap)
+	configureDisabled := a.mobileImportActive || snap.Scanning || !hasSelectedInput(snap)
+	startDisabled := a.mobileImportActive || a.startDisabled(snap)
+
+	for _, button := range []*widget.Button{a.mobileSelectFilesBtn, a.mobileSelectFolderBtn, a.mobileAppStorageBtn} {
+		if button == nil {
+			continue
+		}
+		if a.mobileImportActive {
+			button.Disable()
+		} else {
+			button.Enable()
+		}
+	}
 
 	// Clear button
 	if a.clearButton != nil {
