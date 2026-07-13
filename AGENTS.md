@@ -88,8 +88,8 @@ Always say "Picocrypt NG" or "Picocrypt-NG" when referring to this project.
 - `src/internal/wasm/`: browser bridge behavior and WASM feature limits.
 - `src/internal/fileops/`: zip, split, recombine, unpack, path handling.
 - `src/internal/encoding/`: Reed-Solomon and padding.
-- `src/internal/diskspace/`, `src/internal/distmeta/`, `src/internal/docs/`,
-  `src/internal/workflowpolicy/`: platform, release, embedded-doc, and CI policy support.
+- `src/internal/diskspace/`, `src/internal/distmeta/`,
+  `src/internal/workflowpolicy/`: platform, release, and CI policy support.
 - `android/`: native Android app using Kotlin/Compose + gomobile AAR.
 - `dist/`: tracked packaging metadata for Windows, macOS, Linux, Snap, Flatpak, MIME.
 - `.github/workflows/`: release and PR validation workflows.

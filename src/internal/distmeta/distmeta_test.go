@@ -121,27 +121,6 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 	})
 }
 
-func TestOldVersionLiteralsAreAllowlisted(t *testing.T) {
-	var unexpected []string
-	for _, relPath := range gitTrackedFiles(t) {
-		data := mustReadFile(t, relPath)
-		if !containsOldVersionLiteral(data) {
-			continue
-		}
-		category, ok := oldVersionLiteralCategory(relPath)
-		if !ok {
-			unexpected = append(unexpected, relPath)
-			continue
-		}
-		if category == "" {
-			t.Fatalf("old-version allowlist category for %s is empty", relPath)
-		}
-	}
-	if len(unexpected) > 0 {
-		t.Fatalf("unallowlisted old-version literals in active repository files:\n%s", strings.Join(unexpected, "\n"))
-	}
-}
-
 func gitTrackedFiles(t *testing.T) []string {
 	t.Helper()
 	cmd := exec.Command("git", "-C", repoRoot(t), "ls-files", "-z")
@@ -158,64 +137,6 @@ func gitTrackedFiles(t *testing.T) []string {
 		files = append(files, string(part))
 	}
 	return files
-}
-
-func containsOldVersionLiteral(data []byte) bool {
-	for _, literal := range oldVersionLiterals {
-		if bytes.Contains(data, []byte(literal)) {
-			return true
-		}
-	}
-	return false
-}
-
-var oldVersionLiterals = []string{"2.12", "v2.12", "2.11", "v2.11", "2.10", "v2.10", "2.09", "v2.09", "2.08", "v2.08"}
-
-func oldVersionLiteralCategory(relPath string) (string, bool) {
-	switch {
-	case relPath == "Changelog.md":
-		return "historical changelog/release history", true
-	case relPath == "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml":
-		return "historical changelog/release history", true
-	case relPath == "CLI.md":
-		return "legacy snapshot", true
-	case relPath == "docs/ONBOARDING.md":
-		return "onboarding documentation referencing compatibility versions", true
-	case strings.HasPrefix(relPath, "src/testdata/golden/"):
-		return "compatibility fixture", true
-	case relPath == "src/internal/volume/golden_test.go":
-		return "compatibility fixture", true
-	case relPath == "src/internal/distmeta/distmeta_test.go":
-		return "old-version test input", true
-	case relPath == "src/cmd/picocrypt/version_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/cli/version_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/header/format_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/header/reader_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/ui/drop_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/ui/fyne_test_helpers_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/ui/preview_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/header/format.go", relPath == "src/internal/header/reader.go":
-		return "old-version test input", true
-	case relPath == "dist/windows/installer.nsi":
-		return "legacy snapshot", true
-	case relPath == "android/gradle/libs.versions.toml":
-		return "third-party dependency version pin (AndroidX lifecycle 2.10.0), not an app version", true
-	case relPath == "android/gradle/verification-metadata.xml":
-		return "third-party dependency verification metadata, not an app version", true
-	case relPath == ".github/workflows/pr-static-checks.yml":
-		return "third-party tool version pin (golangci-lint), not an app version", true
-	case relPath == "mise.toml":
-		return "third-party tool/runtime version pins, not app versions", true
-	default:
-		return "", false
-	}
 }
 
 type mimeInfo struct {

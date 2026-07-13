@@ -22,7 +22,7 @@ Scope:
 | Encrypt | Зашифровать | Do not use "закодировать". |
 | Decrypt | Расшифровать | Do not use "открыть" or "разблокировать". |
 | Password | пароль | Keep separate from keyfile. |
-| Keyfile | ключевой файл | Do not shorten to "ключ" in UI copy. |
+| Keyfile | Fyne: ключ-файл; Android: ключевой файл | Never shorten either form to "ключ" in UI copy. |
 | Volume | том, зашифрованный том | Use the longer form when deletion or integrity risk is discussed. |
 | Deniability | правдоподобное отрицание | Do not translate as anonymity, invisibility, or hidden mode. |
 | Force decrypt | принудительная расшифровка | This is not repair or safe recovery. |

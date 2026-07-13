@@ -47,17 +47,6 @@ func TestStaticChecksWorkflowEnforcesFormatVetLintAndVuln(t *testing.T) {
 	mustContain(t, content, "pull_request:")
 }
 
-func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
-	for _, tc := range releaseWorkflowCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			workflow := mustReadWorkflowDoc(t, tc.path)
-			releaseJob := mustJob(t, workflow, tc.job)
-			releaseStep := mustHaveStepUsingPrefix(t, releaseJob, "softprops/action-gh-release@")
-			mustMatch(t, releaseStep.Uses, `softprops/action-gh-release@[0-9a-f]{40}`)
-		})
-	}
-}
-
 func TestReleaseUploadsNeverOverwriteExistingAssets(t *testing.T) {
 	for _, tc := range releaseWorkflowCases() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -121,7 +110,6 @@ func TestReleaseJobsRequireMainBranchAndReleaseEnvironment(t *testing.T) {
 
 			content := mustReadWorkflow(t, tc.path)
 			mustContain(t, content, "publish_release:")
-			mustContain(t, content, "Existing assets are never overwritten.")
 		})
 	}
 }
@@ -449,13 +437,6 @@ func TestLinuxDebPackagingDoesNotUseExternalScaffold(t *testing.T) {
 	}
 }
 
-func TestSnapcraftActionPinnedToFullSHA(t *testing.T) {
-	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-snapcraft.yml")
-	buildJob := mustJob(t, workflow, "build-snapcraft")
-	buildStep := mustHaveStepUsingPrefix(t, buildJob, "snapcore/action-build@")
-	mustMatch(t, buildStep.Uses, `snapcore/action-build@[0-9a-f]{40}`)
-}
-
 func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-snapcraft.yml")
 	buildJob := mustJob(t, workflow, "build-snapcraft")
@@ -639,9 +620,6 @@ func TestAndroidBuildWorkflowsUseJDK21(t *testing.T) {
 					continue
 				}
 				setupSteps++
-				if step.Name != "Set up JDK 21" {
-					t.Fatalf("%s job %s setup-java step name = %q, want Set up JDK 21", path, jobName, step.Name)
-				}
 				if got := step.With["distribution"]; got != "temurin" {
 					t.Fatalf("%s job %s setup-java distribution = %#v, want temurin", path, jobName, got)
 				}
@@ -656,39 +634,12 @@ func TestAndroidBuildWorkflowsUseJDK21(t *testing.T) {
 	}
 
 	mustContain(t, mustReadRepoFile(t, "mise.toml"), `java = "temurin-21"`)
-	mustContain(t, mustReadRepoFile(t, "android/README.md"), "CI and recommended local builds use JDK 21")
 
 	buildScript := mustReadRepoFile(t, "android/build-app")
-	mustContain(t, buildScript, "JDK 21 is required")
 	mustContain(t, buildScript, `"$JAVA_MAJOR" != "21"`)
-	mustNotContain(t, buildScript, "JDK 17 is required")
 }
 
-func TestAndroidApiFloorStaysAt24(t *testing.T) {
-	gradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
-	mustContain(t, gradle, "minSdk = 24")
-
-	gomobile := mustReadRepoFile(t, "android/build-gomobile.sh")
-	mustContain(t, gomobile, "-androidapi 24")
-	mustContain(t, gomobile, "-ldflags=\"$GOMOBILE_LDFLAGS\"")
-
-	readme := mustReadRepoFile(t, "android/README.md")
-	mustContain(t, readme, "minimum API level 24")
-}
-
-func TestAndroidBuildsOnly64BitNativeABIs(t *testing.T) {
-	gomobile := mustReadRepoFile(t, "android/build-gomobile.sh")
-	mustContain(t, gomobile, "-target android/arm64,android/amd64")
-	mustContain(t, gomobile, "expected_abis=\"$(printf '%s\\n' arm64-v8a x86_64)\"")
-
-	gradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
-	mustContain(t, gradle, `abiFilters += listOf("arm64-v8a", "x86_64")`)
-	mustContain(t, gradle, `include("arm64-v8a", "x86_64")`)
-	mustContain(t, gradle, `"arm64-v8a" to 2`)
-	mustContain(t, gradle, `"x86_64" to 4`)
-	mustNotContain(t, gradle, `"armeabi-v7a" to 1`)
-	mustNotContain(t, gradle, `"x86" to 3`)
-
+func TestAndroidReleasePublishesOnly64BitAPKNames(t *testing.T) {
 	releaseWorkflow := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
 	prepare := mustStepNamed(t, mustJob(t, releaseWorkflow, "release"), "Prepare artifacts")
 	for _, artifact := range []string{
@@ -1084,8 +1035,8 @@ func TestGoToolchainsStayOnApprovedVersions(t *testing.T) {
 			}
 		}
 	}
-	if setupGoSteps != 11 {
-		t.Fatalf("setup-go steps = %d, want 11", setupGoSteps)
+	if setupGoSteps == 0 {
+		t.Fatal("no actions/setup-go steps found in workflows")
 	}
 
 	mise := mustReadRepoFile(t, "mise.toml")

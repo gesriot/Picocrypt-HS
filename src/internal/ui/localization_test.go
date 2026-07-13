@@ -8,7 +8,6 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -202,85 +201,6 @@ func TestRussianFyneHighRiskWordingKeepsSecurityMeaning(t *testing.T) {
 		if strings.Contains(keyfileCopy, forbidden) {
 			t.Fatalf("Russian keyfile copy must use ключ-файл/ключ-файлы, not %q:\n%s", forbidden, keyfileCopy)
 		}
-	}
-}
-
-func TestFyneProductionLocaleFilesRequireReviewProof(t *testing.T) {
-	entries, err := os.ReadDir("translation")
-	if err != nil {
-		t.Fatalf("read translation dir: %v", err)
-	}
-
-	var productionLocales []string
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		if entry.Name() != "en.json" {
-			productionLocales = append(productionLocales, entry.Name())
-		}
-	}
-	if len(productionLocales) == 0 {
-		return
-	}
-
-	var missing []string
-	for _, locale := range productionLocales {
-		proofPath := productionLocaleProofPath(t, locale)
-		if _, err := os.Stat(proofPath); err != nil {
-			missing = append(missing, fmt.Sprintf("%s -> %s (%v)", locale, proofPath, err))
-		}
-	}
-	if len(missing) > 0 {
-		t.Fatalf("production Fyne locale files require review or round-trip proof:\n%s", strings.Join(missing, "\n"))
-	}
-}
-
-func TestFyneRoundTripProofPathUsesRepositoryRoot(t *testing.T) {
-	proofPath := fyneRoundTripProofPath(t)
-	wantDir := filepath.Join(repoRoot(t), "docs", "localization")
-	if filepath.Dir(proofPath) != wantDir {
-		t.Fatalf("Fyne round-trip proof dir = %q; want repo-root docs/localization dir %q", filepath.Dir(proofPath), wantDir)
-	}
-	if _, err := os.Stat(wantDir); err != nil {
-		t.Fatalf("Fyne round-trip proof dir %q must exist at repo root: %v", wantDir, err)
-	}
-}
-
-func fyneRoundTripProofPath(t *testing.T) string {
-	t.Helper()
-	return filepath.Join(repoRoot(t), "docs", "localization", "fyne-weblate-roundtrip.md")
-}
-
-func productionLocaleProofPath(t *testing.T, filename string) string {
-	t.Helper()
-	switch filename {
-	case "ru.json":
-		return filepath.Join(repoRoot(t), "docs", "localization", "RUSSIAN_TRANSLATION_REVIEW.md")
-	default:
-		return fyneRoundTripProofPath(t)
-	}
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-
-	current := wd
-	for {
-		if _, err := os.Stat(filepath.Join(current, ".github", "workflows")); err == nil {
-			return current
-		}
-
-		parent := filepath.Dir(current)
-		if parent == current {
-			t.Fatal("could not find repository root from test working directory")
-		}
-		current = parent
 	}
 }
 

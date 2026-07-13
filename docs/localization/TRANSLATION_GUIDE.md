@@ -220,8 +220,8 @@ Use these translations unless a maintainer deliberately changes the glossary.
 | Decryption | Расшифровка | Déchiffrement | Entschlüsselung | Descifrado | Decrittografia |
 | Password | Пароль | Mot de passe | Passwort | Contraseña | Password |
 | Confirm password | Повторите пароль | Confirmer le mot de passe | Passwort bestätigen | Confirmar contraseña | Conferma password |
-| Keyfile | Ключевой файл | Fichier-clé | Schlüsseldatei | Archivo de clave | File chiave |
-| Keyfile order matters | Порядок ключевых файлов важен | L'ordre des fichiers-clés est important | Die Reihenfolge der Schlüsseldateien ist wichtig | El orden de los archivos de clave importa | L'ordine dei file chiave è importante |
+| Keyfile | Fyne: Ключ-файл; Android: Ключевой файл | Fichier-clé | Schlüsseldatei | Archivo de clave | File chiave |
+| Keyfile order matters | Fyne: Порядок ключ-файлов важен; Android: Порядок ключевых файлов важен | L'ordre des fichiers-clés est important | Die Reihenfolge der Schlüsseldateien ist wichtig | El orden de los archivos de clave importa | L'ordine dei file chiave è importante |
 | Plaintext metadata | Открытые метаданные | Métadonnées en clair | Klartext-Metadaten | Metadatos en texto claro | Metadati in chiaro |
 | Comments are plaintext metadata | Комментарии хранятся как открытые метаданные | Les commentaires sont des métadonnées en clair | Kommentare sind unverschlüsselte Klartext-Metadaten | Los comentarios son metadatos en texto claro | I commenti sono metadati in chiaro |
 | Deniability | Правдоподобное отрицание | Déni plausible | Glaubhafte Abstreitbarkeit | Negación plausible | Negabilità plausibile |

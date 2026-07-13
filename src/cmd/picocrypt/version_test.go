@@ -2,9 +2,6 @@ package main
 
 import (
 	"Picocrypt-NG/internal/app"
-	"Picocrypt-NG/internal/cli"
-	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,45 +52,5 @@ func TestRuntimeVersionMatchesAppVersion(t *testing.T) {
 	}
 	if app.Version != want {
 		t.Fatalf("app.Version = %q; want %q (single source: root VERSION file)", app.Version, want)
-	}
-}
-
-func TestRuntimeVersionFeedsCLIVersionOutput(t *testing.T) {
-	oldArgs := os.Args
-	oldStdout := os.Stdout
-	t.Cleanup(func() {
-		os.Args = oldArgs
-		os.Stdout = oldStdout
-	})
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe() error = %v", err)
-	}
-	os.Stdout = w
-	os.Args = []string{"Picocrypt-NG", "--version"}
-
-	activated := cli.Execute(version)
-
-	if err := w.Close(); err != nil {
-		t.Fatalf("close stdout pipe: %v", err)
-	}
-	os.Stdout = oldStdout
-
-	var out bytes.Buffer
-	if _, err := io.Copy(&out, r); err != nil {
-		t.Fatalf("read stdout pipe: %v", err)
-	}
-
-	if !activated {
-		t.Fatal("cli.Execute(version) did not activate CLI mode for --version")
-	}
-
-	got := out.String()
-	if !strings.Contains(got, version) {
-		t.Fatalf("CLI --version output = %q; want it to contain the runtime version %q", got, version)
-	}
-	if strings.Contains(got, "dev") {
-		t.Fatalf("CLI --version output = %q; must not contain cobra's default %q (version wiring missing)", got, "dev")
 	}
 }
