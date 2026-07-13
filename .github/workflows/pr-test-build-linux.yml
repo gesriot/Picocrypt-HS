@@ -21,16 +21,16 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-24.04
-            upx_pkg: upx-5.1.0-amd64_linux
-            upx_sha256: 946b7269d0f7fcc1c5da0f771ea7fe9c0fed3534cf41d285980830019b4bc95e
+            upx_pkg: upx-5.2.0-amd64_linux
+            upx_sha256: 3db5d3294707439db97866feab8d75d800f028f48481a40547411824da4288a1
             gui_binary: Picocrypt-NG
             cli_binary: Picocrypt-NG-cli
             artifact_name: pr-test-build-linux-amd64-ONLY-FOR-TESTING
             build_deb: "true"
           - arch: arm64
             runner: ubuntu-24.04-arm
-            upx_pkg: upx-5.1.0-arm64_linux
-            upx_sha256: 222dde34dfa3244a31b06c97820ee651515270e524736f532ac8456783afe76e
+            upx_pkg: upx-5.2.0-arm64_linux
+            upx_sha256: 55d48a61e8ffd17152db871c855376cba7f08e830b37799d0947a16dff8ec36c
             gui_binary: Picocrypt-NG-arm64
             cli_binary: Picocrypt-NG-cli-arm64
             artifact_name: pr-test-build-linux-arm64-ONLY-FOR-TESTING
@@ -98,7 +98,7 @@ jobs:
 
     - name: Compress with upx
       run: |
-        wget -O upx.tar.xz https://github.com/upx/upx/releases/download/v5.1.0/${{ matrix.upx_pkg }}.tar.xz
+        wget -O upx.tar.xz https://github.com/upx/upx/releases/download/v5.2.0/${{ matrix.upx_pkg }}.tar.xz
         echo "${{ matrix.upx_sha256 }}  upx.tar.xz" | sha256sum --check --strict --status
         tar -xf upx.tar.xz
         ${{ matrix.upx_pkg }}/upx --lzma "src/${{ matrix.gui_binary }}"
