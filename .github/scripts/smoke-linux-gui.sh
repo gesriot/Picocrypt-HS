@@ -216,6 +216,16 @@ app_pid=""
 if [ "$reap_status" -ne 0 ]; then
   fail "the application exited with status $reap_status"
 fi
+if ! process_running "$xvfb_pid"; then
+  reap_child "$xvfb_pid"
+  xvfb_pid=""
+  fail "Xvfb exited as the application closed (status $reap_status)"
+fi
+if ! process_running "$openbox_pid"; then
+  reap_child "$openbox_pid"
+  openbox_pid=""
+  fail "Openbox exited as the application closed (status $reap_status)"
+fi
 
 if grep -Fq \
   -e 'panic:' \
