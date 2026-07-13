@@ -28,7 +28,7 @@ jobs:
       contents: read
     env:
       RESHACKER_SHA256: e5a5b6d6be38ae3eb20e72b09f257f284bab2deb5f37164e9f2faefd23f27cf4
-      UPX_SHA256: 41c7492edeed0f7e67d347ca9e8d2131e2af7ca7a7695f92283a8e655c251c13
+      UPX_SHA256: b471ebf1b7f20f4a89150264ed9a008a2a5bfd247f3c6d1184a75bb59ca08f5d
     steps:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -132,15 +132,15 @@ jobs:
     - name: Compress with upx
       shell: pwsh
       run: |
-        Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.1.0/upx-5.1.0-win64.zip
+        Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-win64.zip
         $expectedHash = $env:UPX_SHA256
         $actualHash = (Get-FileHash upx.zip -Algorithm SHA256).Hash.ToLower()
         if ($actualHash -ne $expectedHash) {
           throw "Checksum mismatch for upx.zip: expected $expectedHash, got $actualHash"
         }
         Expand-Archive -DestinationPath upx upx.zip
-        upx/upx-5.1.0-win64/upx.exe --lzma -o src/Picocrypt-NG.exe src/5.exe
-        upx/upx-5.1.0-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
+        upx/upx-5.2.0-win64/upx.exe --lzma -o src/Picocrypt-NG.exe src/5.exe
+        upx/upx-5.2.0-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
 
     # === Phase 4 (FA-WIN-04): build NSIS installer ===
     # NSIS is NOT pre-installed on windows-2025 [actions/runner-images#11754,
