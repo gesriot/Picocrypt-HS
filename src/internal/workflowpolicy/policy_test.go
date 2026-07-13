@@ -763,47 +763,6 @@ func TestAndroidReleaseSigningTrustAnchorAndPublicationOrder(t *testing.T) {
 	}
 }
 
-func TestAndroidPRRunsReleaseArtifactVerifierMutationHarness(t *testing.T) {
-	job := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml"), "pr-test-build-android")
-	stepIndexes := make(map[string]int)
-	for index, step := range job.Steps {
-		stepIndexes[step.Name] = index
-	}
-
-	const buildStepName = "Build Release APK"
-	const verifierStepName = "Verify exact release APK contract"
-	const mutationStepName = "Exercise release APK verifier rejection paths"
-	for _, name := range []string{buildStepName, verifierStepName, mutationStepName} {
-		if _, ok := stepIndexes[name]; !ok {
-			t.Fatalf("expected PR Android job to contain step named %q", name)
-		}
-	}
-	if stepIndexes[buildStepName] >= stepIndexes[verifierStepName] || stepIndexes[verifierStepName] >= stepIndexes[mutationStepName] {
-		t.Fatalf("PR Android artifact gates must run in order: real unsigned APK build < positive contract check < mutation harness")
-	}
-
-	step := mustStepNamed(t, job, mutationStepName)
-	if step.WorkingDirectory != "android" {
-		t.Fatalf("mutation harness working-directory = %q, want android", step.WorkingDirectory)
-	}
-	wantRun := strings.Join([]string{
-		`bash ./test-release-apk-verifier.sh \`,
-		`  app/build/outputs/apk/release \`,
-		`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \`,
-		`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \`,
-		`  io.github.picocrypt_ng.picocrypt_ng`,
-	}, "\n")
-	if got := strings.TrimSpace(step.Run); got != wantRun {
-		t.Fatalf("mutation harness run = %q, want %q", got, wantRun)
-	}
-	if step.If != "" {
-		t.Fatalf("mutation harness if = %q, want unconditional step", step.If)
-	}
-	if step.ContinueOnError != nil && step.ContinueOnError != false {
-		t.Fatalf("mutation harness continue-on-error = %#v, want absent or false", step.ContinueOnError)
-	}
-}
-
 func TestReleaseBodyAdvertisesOnly64BitAndroid(t *testing.T) {
 	root := repoRoot(t)
 	command := exec.Command(

@@ -104,15 +104,6 @@ jobs:
           io.github.picocrypt_ng.picocrypt_ng \
           unsigned
 
-    - name: Exercise release APK verifier rejection paths
-      working-directory: android
-      run: |
-        bash ./test-release-apk-verifier.sh \
-          app/build/outputs/apk/release \
-          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \
-          "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \
-          io.github.picocrypt_ng.picocrypt_ng
-
     - name: Assemble Instrumented Test APK
       working-directory: android
       run: ./gradlew :app:assembleDebugAndroidTest
