@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/util"
 	"context"
 	"image/color"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -260,5 +262,106 @@ func TestOrderlyShutdownCancelsAndJoinsFolderScan(t *testing.T) {
 		if got := snapshotDropState(t, a).AllFiles; !reflect.DeepEqual(got, []string{want}) {
 			t.Fatalf("normal scan files = %#v; want %#v", got, []string{want})
 		}
+	})
+}
+
+type closeInterceptCaptureWindow struct {
+	fyne.Window
+	closeIntercept func()
+}
+
+func (w *closeInterceptCaptureWindow) SetCloseIntercept(fn func()) {
+	w.closeIntercept = fn
+}
+
+func TestOrderlyShutdownCancelsAndJoinsOpenedPathReadiness(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		resetOpenedPathsForTest(t)
+		fyneApp := newTestFyneApp(t)
+		a := createUIReadyDropTestApp(t, fyneApp)
+		window := &closeInterceptCaptureWindow{Window: a.Window}
+		a.Window = window
+		a.Window.SetCloseIntercept(a.handleCloseRequest)
+
+		tempDir := t.TempDir()
+		baselinePath := filepath.Join(tempDir, "baseline.txt")
+		latePath := filepath.Join(tempDir, "late.txt")
+		for _, path := range []string{baselinePath, latePath} {
+			if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+				t.Fatalf("create test input %q: %v", path, err)
+			}
+		}
+
+		const baselineStatus = "selection before shutdown"
+		fyne.DoAndWait(func() {
+			a.onDrop([]string{baselinePath})
+			a.State.SetCustomStatus(baselineStatus, util.WHITE)
+			a.refreshUI()
+		})
+		baseline := snapshotDropState(t, a)
+
+		oldCheck := checkOpenedPathReadiness
+		t.Cleanup(func() {
+			checkOpenedPathReadiness = oldCheck
+		})
+		checkerEntered := make(chan context.Context, 1)
+		checkerCancelled := make(chan struct{})
+		releaseChecker := make(chan struct{})
+		var releaseOnce sync.Once
+		t.Cleanup(func() {
+			releaseOnce.Do(func() { close(releaseChecker) })
+		})
+		checkOpenedPathReadiness = func(ctx context.Context, paths []string) openedPathReadinessResult {
+			checkerEntered <- ctx
+			<-ctx.Done()
+			close(checkerCancelled)
+			<-releaseChecker
+			return openedPathReadinessResult{{Path: paths[0], State: openedPathReady}}
+		}
+
+		setOpenedPathsNotify(func() {})
+		fyne.DoAndWait(func() {
+			a.applyOpenedPaths([]string{latePath})
+		})
+		readinessCtx := <-checkerEntered
+
+		fyne.DoAndWait(window.closeIntercept)
+		workersDone := a.workersDone
+		synctest.Wait()
+
+		select {
+		case <-readinessCtx.Done():
+		default:
+			t.Fatal("readiness context was not cancelled by shutdown")
+		}
+		select {
+		case <-checkerCancelled:
+		default:
+			t.Fatal("readiness checker did not observe shutdown cancellation")
+		}
+		openedPathsMu.Lock()
+		notifyCleared := openedPathsNotify == nil
+		openedPathsMu.Unlock()
+		if !notifyCleared {
+			t.Fatal("opened-path notification source remained registered during shutdown")
+		}
+		select {
+		case <-workersDone:
+			t.Fatal("shutdown completed before the accepted readiness checker returned")
+		default:
+		}
+
+		releaseOnce.Do(func() { close(releaseChecker) })
+		synctest.Wait()
+		select {
+		case <-workersDone:
+		default:
+			t.Fatal("shutdown did not complete after the accepted readiness checker returned")
+		}
+
+		if got := snapshotDropState(t, a); !reflect.DeepEqual(got, baseline) {
+			t.Fatalf("late readiness result changed selection/status after shutdown: got %#v; want %#v", got, baseline)
+		}
+		fyne.DoAndWait(a.shutdownSentinelTick)
 	})
 }

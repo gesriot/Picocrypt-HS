@@ -94,8 +94,6 @@ type App struct {
 	// paths that may point at iCloud placeholders. It is separate from the global
 	// AppleEvent buffer in macos_open.go.
 	openReadinessMu            sync.Mutex
-	openReadinessTasks         sync.WaitGroup
-	openReadinessStopped       bool
 	openReadinessGeneration    uint64
 	openReadinessCancel        context.CancelFunc
 	openReadinessPaths         []string
@@ -427,16 +425,10 @@ func (a *App) Run(startupPaths []string) {
 		})
 	}
 
-	// Set close callback to prevent closing during operations
-	a.Window.SetCloseIntercept(func() {
-		snap := a.State.UISnapshot()
-		if !snap.Working && !snap.ShowProgress {
-			if !isMobile() {
-				fynetooltip.DestroyWindowToolTipLayer(a.Window.Canvas())
-			}
-			a.Window.Close()
-		}
-	})
+	// Refuse to close during cryptographic work. Otherwise keep the driver alive
+	// until every accepted application worker has stopped.
+	a.Window.SetCloseIntercept(a.handleCloseRequest)
+	a.fyneApp.Lifecycle().SetOnStopped(a.stopSourcesAndContexts)
 
 	// Build UI - use mobile layout on mobile devices
 	var content fyne.CanvasObject
@@ -473,13 +465,38 @@ func (a *App) Run(startupPaths []string) {
 	a.Window.SetContent(content)
 	a.resizeDesktopWindowForContent(content, preferredDesktopWindowHeight(a.State.Mode))
 	a.Window.ShowAndRun()
+
+	// A platform stop can bypass CloseIntercept, and Fyne may drop a queued
+	// OnStopped callback while draining. Repeat the non-visual teardown and join
+	// all accepted work before returning to main.
+	a.stopSourcesAndContexts()
+	waitOpenedPathsNotifyIdle()
+	a.workers.wait()
+	if a.workersDone != nil {
+		<-a.workersDone
+	}
+	stopOpenedPathsNotify()
+}
+
+func (a *App) handleCloseRequest() {
+	snap := a.State.UISnapshot()
+	if snap.Working || snap.ShowProgress {
+		return
+	}
+	a.beginOrderlyShutdown()
+}
+
+// stopSourcesAndContexts performs only non-visual, non-blocking teardown so it
+// is safe to call from Fyne's OnStopped lifecycle callback.
+func (a *App) stopSourcesAndContexts() {
+	a.workers.beginStop()
+	stopOpenedPathsNotify()
+	a.cancelOpenedPathReadiness()
 }
 
 func (a *App) beginOrderlyShutdown() {
 	a.shutdownOnce.Do(func() {
-		a.workers.beginStop()
-		stopOpenedPathsNotify()
-		a.cancelOpenedPathReadiness()
+		a.stopSourcesAndContexts()
 
 		workersDone := make(chan struct{})
 		a.workersDone = workersDone

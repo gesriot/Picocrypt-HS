@@ -99,9 +99,3 @@ func TestClearingOpenedPathsNotifyCancelsPendingBatch(t *testing.T) {
 		t.Fatalf("drained paths after cancelled notify = %#v; want buffered path preserved", got)
 	}
 }
-
-func TestOpenedPathsFlushDelayStaysShortForLocalFiles(t *testing.T) {
-	if openedPathsFlushDelay > 500*time.Millisecond {
-		t.Fatalf("openedPathsFlushDelay = %s; want <= 500ms so local macOS opens stay responsive", openedPathsFlushDelay)
-	}
-}

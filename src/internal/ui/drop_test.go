@@ -2100,11 +2100,10 @@ func createUIReadyDropTestApp(t *testing.T, fyneApp fyne.App) *App {
 	t.Cleanup(func() {
 		setOpenedPathsNotify(nil)
 		drainOpenedPaths()
-		a.openReadinessMu.Lock()
-		a.openReadinessStopped = true
-		a.openReadinessMu.Unlock()
-		fyne.DoAndWait(a.cancelOpenedPathReadiness)
-		a.openReadinessTasks.Wait()
+		a.workers.beginStop()
+		a.cancelOpenedPathReadiness()
+		a.workers.wait()
+		waitOpenedPathsNotifyIdle()
 	})
 	fyne.DoAndWait(func() {
 		a.Window = fyneApp.NewWindow("drop-test")
