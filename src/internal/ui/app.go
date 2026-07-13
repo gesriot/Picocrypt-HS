@@ -74,11 +74,12 @@ type App struct {
 	Version string
 	DPI     float32
 
-	workers           *workerLifecycle
-	workersDone       chan struct{}
-	shutdownAnimation *fyne.Animation
-	shutdownOnce      sync.Once
-	tooltipDestroyed  bool
+	workers              *workerLifecycle
+	workersDone          chan struct{}
+	shutdownAnimation    *fyne.Animation
+	shutdownOnce         sync.Once
+	tooltipDestroyed     bool
+	folderScanGeneration uint64
 
 	// Application state
 	State *app.State

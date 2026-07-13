@@ -6,6 +6,7 @@ import (
 	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/util"
 	"Picocrypt-NG/internal/volume"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -27,6 +28,17 @@ type scannedFile struct {
 	path string
 	size int64
 }
+
+type scannedFileBatch func(context.Context, []scannedFile) error
+
+type folderScanJob struct {
+	roots       []string
+	fileCount   int
+	folderCount int
+	generation  uint64
+}
+
+var errFolderScanSuperseded = errors.New("folder scan superseded")
 
 var startupPathStat = os.Stat
 
@@ -153,10 +165,10 @@ func (a *App) applyStartupPaths(paths []string) {
 }
 
 func (a *App) applyFolderWalkError() {
+	a.State.SetScanning(false)
 	a.resetUI()
 	a.State.SetStatusMessage(app.StatusDropFailedWalk, util.RED, app.StatusArgs{})
 	a.refreshUI()
-	a.State.SetScanning(false)
 }
 
 func (a *App) appendScannedFiles(files []scannedFile) {
@@ -173,7 +185,107 @@ func (a *App) appendScannedFiles(files []scannedFile) {
 	a.refreshUI()
 }
 
-// onDrop handles files and folders dropped onto the window (matches original exactly).
+func scanFolders(ctx context.Context, roots []string, emit scannedFileBatch) error {
+	pendingFiles := make([]scannedFile, 0, dropScanBatchSize)
+	lastFlush := time.Now()
+
+	flushPendingFiles := func() error {
+		if len(pendingFiles) == 0 {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		batch := append([]scannedFile(nil), pendingFiles...)
+		if err := emit(ctx, batch); err != nil {
+			return err
+		}
+		pendingFiles = pendingFiles[:0]
+		lastFlush = time.Now()
+		return nil
+	}
+
+	for _, root := range roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if walkErr != nil {
+				return walkErr
+			}
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+
+			pendingFiles = append(pendingFiles, scannedFile{path: path, size: info.Size()})
+			if len(pendingFiles) >= dropScanBatchSize || time.Since(lastFlush) >= dropScanFlushInterval {
+				return flushPendingFiles()
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return flushPendingFiles()
+}
+
+func (a *App) folderScanCanApply(ctx context.Context, generation uint64) bool {
+	return ctx.Err() == nil && !a.workers.isStopping() && a.folderScanGeneration == generation
+}
+
+func (a *App) scannedFileEmitter(generation uint64) scannedFileBatch {
+	return func(ctx context.Context, batch []scannedFile) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		applied := false
+		fyne.DoAndWait(func() {
+			if !a.folderScanCanApply(ctx, generation) {
+				return
+			}
+			a.appendScannedFiles(batch)
+			applied = true
+		})
+		if applied {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return errFolderScanSuperseded
+	}
+}
+
+func (a *App) runFolderScan(ctx context.Context, job folderScanJob, emit scannedFileBatch) {
+	err := scanFolders(ctx, job.roots, emit)
+	fyne.DoAndWait(func() {
+		if !a.folderScanCanApply(ctx, job.generation) {
+			return
+		}
+
+		switch {
+		case err == nil:
+			a.State.SetInputSelection(job.fileCount, job.folderCount, a.State.CompressTotal, true)
+			a.State.SetScanning(false)
+			a.refreshUI()
+			a.refreshAdvanced()
+		case errors.Is(err, context.Canceled), errors.Is(err, errFolderScanSuperseded):
+			return
+		default:
+			a.applyFolderWalkError()
+		}
+	})
+}
+
+// onDrop handles files and folders dropped onto the window.
 func (a *App) onDrop(names []string) {
 	// If keyfile modal is open, handle as keyfiles
 	if a.State.ShowKeyfile {
@@ -187,6 +299,19 @@ func (a *App) onDrop(names []string) {
 		return
 	}
 
+	reservation, ok := a.workers.reserve()
+	if !ok {
+		return
+	}
+	workerLaunched := false
+	defer func() {
+		if !workerLaunched {
+			reservation.release()
+		}
+	}()
+
+	a.folderScanGeneration++
+	generation := a.folderScanGeneration
 	a.State.SetScanning(true)
 	a.State.CompressDone = 0
 	a.State.CompressTotal = 0
@@ -201,9 +326,7 @@ func (a *App) onDrop(names []string) {
 		if err != nil {
 			a.State.SetStatusMessage(app.StatusDropFailedStatItem, util.RED, app.StatusArgs{})
 			a.State.SetScanning(false)
-			fyne.Do(func() {
-				a.refreshUI()
-			})
+			a.refreshUI()
 			return
 		}
 
@@ -228,10 +351,8 @@ func (a *App) onDrop(names []string) {
 				a.handleDecryptDrop(names[0], isSplit)
 				// For decrypt, no folder scanning needed
 				a.State.SetScanning(false)
-				fyne.Do(func() {
-					a.refreshUI()
-					a.refreshAdvanced()
-				})
+				a.refreshUI()
+				a.refreshAdvanced()
 				return
 			} else {
 				// Encrypting a single file
@@ -251,9 +372,8 @@ func (a *App) onDrop(names []string) {
 				a.State.CompressTotal += stat.Size()
 			}
 		}
-	} else {
-		// Multiple items dropped - always encrypt
-		a.handleMultipleDrop(names)
+	} else if !a.handleMultipleDrop(names) {
+		return
 	}
 
 	if len(a.State.OnlyFolders) == 0 {
@@ -264,57 +384,17 @@ func (a *App) onDrop(names []string) {
 		return
 	}
 
-	// Recursively add all files in 'onlyFolders' to 'allFiles' (matches original lines 1133-1173)
-	oldFileCount := len(a.State.OnlyFiles)
-	oldFolderCount := len(a.State.OnlyFolders)
-	go func() {
-		pendingFiles := make([]scannedFile, 0, dropScanBatchSize)
-		lastFlush := time.Now()
-
-		flushPendingFiles := func() {
-			if len(pendingFiles) == 0 {
-				return
-			}
-
-			batch := append([]scannedFile(nil), pendingFiles...)
-			pendingFiles = pendingFiles[:0]
-			fyne.DoAndWait(func() {
-				a.appendScannedFiles(batch)
-			})
-			lastFlush = time.Now()
-		}
-
-		for _, name := range a.State.OnlyFolders {
-			if filepath.Walk(name, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-				// If 'path' is a valid regular file, add to 'allFiles'
-				// Use info.Mode().IsRegular() to skip symlinks, devices, pipes, sockets
-				if info.Mode().IsRegular() {
-					pendingFiles = append(pendingFiles, scannedFile{path: path, size: info.Size()})
-					if len(pendingFiles) >= dropScanBatchSize || time.Since(lastFlush) >= dropScanFlushInterval {
-						flushPendingFiles()
-					}
-				}
-				return nil
-			}) != nil {
-				fyne.DoAndWait(func() {
-					a.applyFolderWalkError()
-				})
-				return
-			}
-		}
-
-		flushPendingFiles()
-
-		fyne.DoAndWait(func() {
-			a.State.SetInputSelection(oldFileCount, oldFolderCount, a.State.CompressTotal, true)
-			a.State.SetScanning(false)
-			a.refreshUI()
-			a.refreshAdvanced()
-		})
-	}()
+	job := folderScanJob{
+		roots:       append([]string(nil), a.State.OnlyFolders...),
+		fileCount:   len(a.State.OnlyFiles),
+		folderCount: len(a.State.OnlyFolders),
+		generation:  generation,
+	}
+	emit := a.scannedFileEmitter(generation)
+	workerLaunched = true
+	reservation.launch(func(ctx context.Context) {
+		a.runFolderScan(ctx, job, emit)
+	})
 }
 
 func (a *App) applyDropError(status string, closeKeyfileModal bool) {
@@ -384,9 +464,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 		fin, err = os.Open(name)
 	}
 	if err != nil {
-		fyne.Do(func() {
-			a.applyDropStatusMessage(app.StatusDropReadAccessDenied, false)
-		})
+		a.applyDropStatusMessage(app.StatusDropReadAccessDenied, false)
 		return
 	}
 	defer func() { _ = fin.Close() }()
@@ -432,12 +510,10 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 	}
 
 	// Update comments entry if it exists
-	fyne.Do(func() {
-		if a.commentsEntry != nil {
-			snap := a.State.UISnapshot()
-			a.commentsEntry.SetText(commentsDisplayText(snap.Mode, snap.Comments, snap.CommentsPreviewState))
-		}
-	})
+	if a.commentsEntry != nil {
+		snap := a.State.UISnapshot()
+		a.commentsEntry.SetText(commentsDisplayText(snap.Mode, snap.Comments, snap.CommentsPreviewState))
+	}
 
 	// Parse flags from the decoded header (only when ReadHeader produced one).
 	if res != nil {
@@ -459,8 +535,7 @@ func (a *App) handleDecryptDrop(name string, isSplit bool) {
 }
 
 // handleMultipleDrop handles multiple files/folders being dropped.
-// Matches original lines 1081-1131 exactly.
-func (a *App) handleMultipleDrop(names []string) {
+func (a *App) handleMultipleDrop(names []string) bool {
 	a.State.Mode = "encrypt"
 	a.State.SetStartAction(app.StartActionZipAndEncrypt)
 	files, folders := 0, 0
@@ -469,12 +544,11 @@ func (a *App) handleMultipleDrop(names []string) {
 	for _, name := range names {
 		stat, err := os.Stat(name)
 		if err != nil {
-			fyne.Do(func() {
-				a.resetUI()
-				a.State.SetStatusMessage(app.StatusDropFailedStatItems, util.RED, app.StatusArgs{})
-				a.refreshUI()
-			})
-			return
+			a.State.SetScanning(false)
+			a.resetUI()
+			a.State.SetStatusMessage(app.StatusDropFailedStatItems, util.RED, app.StatusArgs{})
+			a.refreshUI()
+			return false
 		}
 		if stat.IsDir() {
 			folders++
@@ -496,6 +570,7 @@ func (a *App) handleMultipleDrop(names []string) {
 	// Set the input and output paths (matches original lines 1127-1129)
 	a.State.InputFile = filepath.Join(filepath.Dir(names[0]), "encrypted-"+strconv.Itoa(int(time.Now().Unix()))) + ".zip"
 	a.State.OutputFile = a.State.InputFile + ".pcv"
+	return true
 }
 
 // handleKeyfileDrop processes dropped keyfiles when the modal is open.
@@ -513,9 +588,7 @@ func (a *App) handleKeyfileDrop(paths []string) bool {
 		stat, err := os.Stat(path)
 		if err != nil {
 			a.State.ShowKeyfile = false
-			fyne.Do(func() {
-				a.applyDropStatusMessage(app.StatusKeyfileReadAccessDenied, true)
-			})
+			a.applyDropStatusMessage(app.StatusKeyfileReadAccessDenied, true)
 			return true
 		}
 
@@ -526,9 +599,7 @@ func (a *App) handleKeyfileDrop(paths []string) bool {
 
 	// Update the keyfile list in the modal and increment modalId like original
 	a.State.ModalID++
-	fyne.Do(func() {
-		a.updateKeyfileList()
-		a.refreshUI()
-	})
+	a.updateKeyfileList()
+	a.refreshUI()
 	return true
 }

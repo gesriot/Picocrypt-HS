@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -514,75 +513,96 @@ func TestCollectStartupPathsSkipsMissingAndReportsAccessError(t *testing.T) {
 	}
 }
 
-func TestAppendScannedFilesUpdatesState(t *testing.T) {
-	fyneApp := newTestFyneApp(t)
-
-	a := createUIReadyDropTestApp(t, fyneApp)
-
-	files := []scannedFile{
-		{path: "/tmp/a.txt", size: 10},
-		{path: "/tmp/b.txt", size: 25},
+func TestScanFoldersPreservesWalkOrderAndSkipsNonRegularEntries(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "middle")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatalf("create nested directory: %v", err)
 	}
 
-	fyne.DoAndWait(func() {
-		a.appendScannedFiles(files)
+	want := []scannedFile{
+		{path: filepath.Join(root, "alpha.txt"), size: 1},
+		{path: filepath.Join(nested, "inside.txt"), size: 2},
+		{path: filepath.Join(root, "zulu.txt"), size: 3},
+	}
+	for _, file := range want {
+		if err := os.WriteFile(file.path, bytes.Repeat([]byte{'x'}, int(file.size)), 0o600); err != nil {
+			t.Fatalf("create %s: %v", file.path, err)
+		}
+	}
+
+	var got []scannedFile
+	err := scanFolders(context.Background(), []string{root}, func(_ context.Context, batch []scannedFile) error {
+		got = append(got, batch...)
+		return nil
 	})
+	if err != nil {
+		t.Fatalf("scanFolders: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scanned files = %#v; want filepath.Walk order %#v (directories excluded)", got, want)
+	}
+}
 
-	state := snapshotDropState(t, a)
-	if len(state.AllFiles) != 2 {
-		t.Fatalf("AllFiles = %#v; want 2 entries", state.AllFiles)
+func TestScanFoldersReturnsContextCancellationFromBatch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "payload.txt"), []byte("payload"), 0o600); err != nil {
+		t.Fatalf("create payload: %v", err)
 	}
-	if a.State.CompressTotal != 35 {
-		t.Fatalf("CompressTotal = %d; want 35", a.State.CompressTotal)
-	}
-	if a.State.RequiredFreeSpace != 35 {
-		t.Fatalf("RequiredFreeSpace = %d; want 35", a.State.RequiredFreeSpace)
-	}
-	snap := a.State.UISnapshot()
-	label := renderInputSummary(snap.InputSummary)
-	if !strings.Contains(label, util.Sizeify(35)) {
-		t.Fatalf("rendered input label = %q; want size summary %q", label, util.Sizeify(35))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	err := scanFolders(ctx, []string{root}, func(_ context.Context, _ []scannedFile) error {
+		cancel()
+		return ctx.Err()
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("scanFolders error = %v; want context cancellation, not a walk error", err)
 	}
 }
 
 func TestFolderWalkErrorClearsScanningState(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission-based walk failure setup is not reliable on Windows")
-	}
-
 	fyneApp := newTestFyneApp(t)
-
 	a := createUIReadyDropTestApp(t, fyneApp)
-	rootDir := t.TempDir()
-	blockedDir := filepath.Join(rootDir, "blocked")
-	if err := os.Mkdir(blockedDir, 0o700); err != nil {
-		t.Fatalf("create blocked dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(rootDir, "visible.txt"), []byte("ok"), 0o600); err != nil {
-		t.Fatalf("create visible file: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(blockedDir, "secret.txt"), []byte("secret"), 0o600); err != nil {
-		t.Fatalf("create blocked file: %v", err)
-	}
-	if err := os.Chmod(blockedDir, 0); err != nil {
-		t.Fatalf("chmod blocked dir: %v", err)
-	}
-	defer func() {
-		_ = os.Chmod(blockedDir, 0o700)
-	}()
+	missingRoot := filepath.Join(t.TempDir(), "removed-before-walk")
 
+	reservation, ok := a.workers.reserve()
+	if !ok {
+		t.Fatal("folder scan reservation was rejected")
+	}
+	var generation uint64
 	fyne.DoAndWait(func() {
-		a.onDrop([]string{rootDir})
+		a.folderScanGeneration++
+		generation = a.folderScanGeneration
+		a.State.SetScanning(true)
+		a.State.SetInputScanning(0)
+		a.refreshUI()
 	})
 
-	waitForDropProcessing(t, a)
+	job := folderScanJob{
+		roots:       []string{missingRoot},
+		folderCount: 1,
+		generation:  generation,
+	}
+	reservation.launch(func(ctx context.Context) {
+		a.runFolderScan(ctx, job, a.scannedFileEmitter(generation))
+	})
+	done := make(chan struct{})
+	go func() {
+		a.workers.wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for missing-root walk error")
+	}
 
 	if a.State.IsScanning() {
-		t.Fatal("Scanning should be false after folder walk error")
+		t.Fatal("Scanning remained true after folder walk error")
 	}
 	wantStatus := tr("drop.failed_walk", "Failed to walk through dropped items")
 	if got := statusLabelText(t, a); got != wantStatus {
-		t.Fatalf("status = %q; want %q after folder walk completes", got, wantStatus)
+		t.Fatalf("status = %q; want %q for deterministic missing-root walk error", got, wantStatus)
 	}
 }
 

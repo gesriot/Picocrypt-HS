@@ -2,6 +2,10 @@ package ui
 
 import (
 	"context"
+	"image/color"
+	"os"
+	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -136,4 +140,125 @@ func TestOrderlyShutdownWaitsForAcceptedOpenedPathCallback(t *testing.T) {
 	default:
 		t.Fatal("window remained open after all accepted callbacks and workers completed")
 	}
+}
+
+func TestOrderlyShutdownCancelsAndJoinsFolderScan(t *testing.T) {
+	t.Run("StoppingSuppressesAcceptedScanResults", func(t *testing.T) {
+		resetOpenedPathsForTest(t)
+		fyneApp := newTestFyneApp(t)
+		a := createUIReadyDropTestApp(t, fyneApp)
+
+		root := t.TempDir()
+		payload := filepath.Join(root, "payload.txt")
+		if err := os.WriteFile(payload, []byte("payload"), 0o600); err != nil {
+			t.Fatalf("create payload: %v", err)
+		}
+
+		reservation, ok := a.workers.reserve()
+		if !ok {
+			t.Fatal("folder scan reservation was rejected before shutdown")
+		}
+
+		const baselineStatus = "waiting for folder scan"
+		var generation uint64
+		var baselineInput string
+		var baselineSummaryKind int
+		fyne.DoAndWait(func() {
+			a.folderScanGeneration++
+			generation = a.folderScanGeneration
+			a.State.SetScanning(true)
+			a.State.SetInputScanning(0)
+			a.State.SetStatus(baselineStatus, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+			a.refreshUI()
+			baselineInput = a.inputLabel.Text
+			baselineSummaryKind = int(a.State.UISnapshot().InputSummary.Kind)
+		})
+
+		job := folderScanJob{
+			roots:       []string{root},
+			folderCount: 1,
+			generation:  generation,
+		}
+		realEmitter := a.scannedFileEmitter(generation)
+		entered := make(chan context.Context, 1)
+		release := make(chan struct{})
+		emit := func(ctx context.Context, batch []scannedFile) error {
+			entered <- ctx
+			<-release
+			return realEmitter(ctx, batch)
+		}
+		reservation.launch(func(ctx context.Context) {
+			a.runFolderScan(ctx, job, emit)
+		})
+
+		var scanCtx context.Context
+		select {
+		case scanCtx = <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for the real scanner batch callback")
+		}
+
+		fyne.DoAndWait(a.beginOrderlyShutdown)
+		workersDone := a.workersDone
+		select {
+		case <-scanCtx.Done():
+		case <-time.After(time.Second):
+			t.Fatal("folder scanner context was not cancelled by shutdown")
+		}
+		select {
+		case <-workersDone:
+			t.Fatal("shutdown completed before the accepted scanner callback returned")
+		default:
+		}
+
+		close(release)
+		select {
+		case <-workersDone:
+		case <-time.After(time.Second):
+			t.Fatal("shutdown did not complete after the accepted scanner returned")
+		}
+
+		var inputText string
+		var summaryKind int
+		var statusText string
+		fyne.DoAndWait(func() {
+			snap := a.State.UISnapshot()
+			inputText = a.inputLabel.Text
+			summaryKind = int(snap.InputSummary.Kind)
+			statusText = snap.Status.Text
+		})
+		state := snapshotDropState(t, a)
+		if len(state.AllFiles) != 0 {
+			t.Fatalf("files applied after shutdown = %#v; want none", state.AllFiles)
+		}
+		if inputText != baselineInput || summaryKind != baselineSummaryKind {
+			t.Fatalf("final selection/refresh applied after shutdown: input=%q kind=%d; want %q scanning", inputText, summaryKind, baselineInput)
+		}
+		if statusText != baselineStatus {
+			t.Fatalf("status after cancelled scan = %q; want unchanged %q", statusText, baselineStatus)
+		}
+
+		fyne.DoAndWait(a.shutdownSentinelTick)
+	})
+
+	t.Run("NormalCompletionClearsScanning", func(t *testing.T) {
+		fyneApp := newTestFyneApp(t)
+		a := createUIReadyDropTestApp(t, fyneApp)
+		root := t.TempDir()
+		want := filepath.Join(root, "payload.txt")
+		if err := os.WriteFile(want, []byte("payload"), 0o600); err != nil {
+			t.Fatalf("create payload: %v", err)
+		}
+
+		fyne.DoAndWait(func() {
+			a.onDrop([]string{root})
+		})
+		waitForDropProcessing(t, a)
+		if a.State.IsScanning() {
+			t.Fatal("Scanning remained true after a normal folder scan")
+		}
+		if got := snapshotDropState(t, a).AllFiles; !reflect.DeepEqual(got, []string{want}) {
+			t.Fatalf("normal scan files = %#v; want %#v", got, []string{want})
+		}
+	})
 }
