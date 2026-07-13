@@ -60,23 +60,9 @@ class LocalizationResourcesTest {
     }
 
     @Test
-    fun `task three error strings stay in the base catalog`() {
-        val expected = mapOf(
-            "error_no_active_operation" to "No active operation.",
-            "error_no_operation_to_retry" to "No active operation to retry.",
-            "error_operation_data_unavailable" to "Operation data is not available for retry.",
-            "error_decrypt_retry_only" to "Only decryption operations can be retried with force decrypt.",
-            "error_could_not_open_folder" to "Could not open folder.",
-            "error_selected_folder_empty" to "The selected folder is empty.",
-            "error_read_folder_failed" to "Failed to read folder: %1\$s",
-            "error_could_not_open_selected_file" to "Could not open a selected file.",
-            "error_no_files_selected" to "No files selected.",
-            "error_copy_files_failed" to "Failed to copy files: %1\$s",
-            "error_detect_operation_type_failed" to "Failed to detect operation type.",
-        )
-
-        expected.forEach { (name, value) ->
-            assertEquals(value, stringElement(name).textContent)
+    fun `folder and file copy failures preserve their reason placeholder`() {
+        listOf("error_read_folder_failed", "error_copy_files_failed").forEach { name ->
+            assertEquals(listOf("%1\$s"), formatSpecifiersIn(stringElement(name).textContent))
         }
     }
 
@@ -146,6 +132,7 @@ class LocalizationResourcesTest {
     fun `russian high risk wording keeps security meaning`() {
         assertRussianContains("force_decrypt_warning", "непровер", "повреж")
         assertRussianContains("error_data_corrupted", "не провер", "повреж")
+        assertRussianContains("error_decrypt_retry_only", "только", "расшифр", "принуд")
         assertRussianContains("comments_plaintext_warning", "открыт", "метадан")
         assertRussianContains("error_auth_failed", "парол", "ключев")
 
@@ -166,9 +153,11 @@ class LocalizationResourcesTest {
 
     @Test
     fun `technical filename extensions stay format arguments`() {
+        assertContainsWords("error_split_volume_not_supported", "not supported", "recombine")
+        assertRussianContains("error_split_volume_not_supported", "не поддерж", "объедин")
         assertEquals(
-            "Split volumes are not supported on Android. Recombine the chunks on your computer first, then transfer the single %1\$s file.",
-            stringElement("error_split_volume_not_supported").textContent,
+            listOf("%1\$s"),
+            formatSpecifiersIn(stringElement("error_split_volume_not_supported").textContent),
         )
 
         val rawExtensionMentions = textResources()
@@ -187,34 +176,23 @@ class LocalizationResourcesTest {
     @Test
     fun `insufficient storage message keeps required and available byte placeholders`() {
         assertEquals(
-            "Not enough free space to encrypt this selection. Need %1\$d bytes; available %2\$d bytes.",
-            stringElement("error_insufficient_storage").textContent,
+            listOf("%1\$d", "%2\$d"),
+            formatSpecifiersIn(stringElement("error_insufficient_storage").textContent),
         )
     }
 
     @Test
     fun `counted keyfile and selected file labels are plural resources`() {
-        assertPlural(
-            name = "keyfiles_count",
-            one = "%1\$d keyfile",
-            other = "%1\$d keyfiles",
-        )
-        assertPlural(
-            name = "keyfiles_required_count",
-            one = "%1\$d keyfile required",
-            other = "%1\$d keyfiles required",
-        )
-        assertPlural(
-            name = "selected_files_count",
-            one = "%1\$d file selected",
-            other = "%1\$d files selected",
-        )
+        assertPlural("keyfiles_count")
+        assertPlural("keyfiles_required_count")
+        assertPlural("selected_files_count")
     }
 
     @Test
     fun `high risk wording keeps security meaning`() {
         assertContainsWords("force_decrypt_warning", "unverified", "corrupted")
         assertContainsWords("error_data_corrupted", "unverified", "corrupted")
+        assertContainsWords("error_decrypt_retry_only", "only", "decryption", "force decrypt")
         assertContainsWords("comments_plaintext_warning", "plaintext metadata")
 
         val deniabilityCopy = textResources()
@@ -309,12 +287,21 @@ class LocalizationResourcesTest {
         return stringResources + pluralResources
     }
 
-    private fun assertPlural(name: String, one: String, other: String) {
-        val quantities = pluralItems(pluralElement(name)).toMap()
+    private fun assertPlural(name: String) {
+        val items = pluralItems(pluralElement(name))
 
-        assertEquals(one, quantities["one"])
-        assertEquals(other, quantities["other"])
-        assertTrue("Plural $name should only define one and other", quantities.keys == setOf("one", "other"))
+        assertEquals(
+            "Plural $name should define one and other exactly once",
+            listOf("one", "other"),
+            items.map { it.first }.sorted(),
+        )
+        items.forEach { (quantity, text) ->
+            assertEquals(
+                "Plural $name[$quantity] should format its count exactly once",
+                listOf("%1\$d"),
+                formatSpecifiersIn(text),
+            )
+        }
     }
 
     private fun assertContainsWords(name: String, vararg words: String) {

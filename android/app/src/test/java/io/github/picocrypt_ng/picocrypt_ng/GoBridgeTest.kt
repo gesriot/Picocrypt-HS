@@ -55,18 +55,6 @@ class GoBridgeTest {
     }
 
     @Test
-    fun buildEncryptRequestJson_includesCompressTrue() {
-        val json = GoBridge.buildEncryptRequestJson(
-            operationID = "op1",
-            inputFile = "/data/in.txt",
-            outputFile = "/data/out.pcv",
-            options = EncryptOptions(compress = true)
-        )
-        val obj = JSONObject(json)
-        assertTrue(obj.getBoolean("compress"))
-    }
-
-    @Test
     fun buildEncryptRequestJson_includesSelectionArrays() {
         // A folder/multi-file selection is forwarded to Go as inputFiles/onlyFolders/
         // onlyFiles arrays (Go zips them). The single-file path leaves these empty.

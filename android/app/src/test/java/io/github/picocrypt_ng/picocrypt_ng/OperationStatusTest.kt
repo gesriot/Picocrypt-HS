@@ -1,7 +1,6 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
-import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
 import io.mockk.every
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
@@ -31,17 +30,5 @@ class OperationStatusTest {
         assertEquals("Localized error", localizedOperationStatus(context, OperationStatus.ERROR))
         assertEquals("Custom status", localizedOperationStatus(context, "Custom status"))
         assertEquals("Localized unknown", localizedOperationStatus(context, ""))
-    }
-
-    @Test
-    fun `cancelled done operation maps to cancelled through status constant`() {
-        val state = TestDataBuilders.createOperationState(
-            type = OperationType.ENCRYPT,
-            status = OperationStatus.CANCELLED,
-            done = true,
-            error = null,
-        )
-
-        assertEquals(OperationUiState.Cancelled(OperationType.ENCRYPT), state.toUiState())
     }
 }

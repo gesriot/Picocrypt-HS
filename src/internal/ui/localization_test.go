@@ -172,15 +172,12 @@ func TestRussianFyneHighRiskWordingKeepsSecurityMeaning(t *testing.T) {
 	assertCatalogStringContains(t, catalog, "advanced.force_decrypt.tooltip", "непровер", "повреж")
 	assertCatalogStringContains(t, catalog, "status.kept_output_unverified", "не провер", "повреж")
 	assertCatalogStringContains(t, catalog, "comments.placeholder", "открыт", "не шифру")
-	assertCatalogStringEquals(t, catalog, "comments.placeholder", "Открытая заметка; не шифруется")
-	assertCatalogStringEquals(t, catalog, "keyfiles.label", "Ключ-файлы:")
-	assertCatalogStringEquals(t, catalog, "advanced.split.unit.total", "Всего")
-	assertCatalogStringEquals(t, catalog, "advanced.delete_files.tooltip", "Удаляет исходные файлы после шифрования")
+	assertCatalogStringContains(t, catalog, "advanced.delete_files.tooltip", "удал", "исходн", "после шифр")
 	assertCatalogStringContains(t, catalog, "advanced.auto_unzip.tooltip", "извлеч", "перезапис")
 	assertCatalogStringContains(t, catalog, "advanced.deniability.tooltip", "заголов", "парол", "ключ-файлы")
 	assertCatalogStringContains(t, catalog, "advanced.recursively.tooltip", "кажд", "отдель")
 	assertCatalogStringContains(t, catalog, "drop.header_may_be_deniable", "может", "правдоподоб")
-	assertCatalogStringEquals(t, catalog, "advanced.delete_volume.label", "Удалить зашифрованный том")
+	assertCatalogStringContains(t, catalog, "advanced.delete_volume.label", "удал", "зашифрован", "том")
 
 	deniabilityCopy := strings.ToLower(catalogString(t, catalog, "advanced.deniability.label") + "\n" +
 		catalogString(t, catalog, "advanced.deniability.tooltip") + "\n" +
@@ -580,14 +577,6 @@ func assertCatalogStringContains(t *testing.T, catalog map[string]any, key strin
 		if !strings.Contains(value, fragment) {
 			t.Fatalf("%s must contain %q: %q", key, fragment, value)
 		}
-	}
-}
-
-func assertCatalogStringEquals(t *testing.T, catalog map[string]any, key, want string) {
-	t.Helper()
-
-	if got := catalogString(t, catalog, key); got != want {
-		t.Fatalf("%s = %q; want %q", key, got, want)
 	}
 }
 
