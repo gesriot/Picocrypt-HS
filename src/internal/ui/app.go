@@ -424,12 +424,9 @@ func (a *App) Run(startupPaths []string) {
 		a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
 	}
 
-	// Set clipboard callback for state
-	// Must use fyne.Do() since this may be called from goroutines (e.g., GenPassword)
+	// Set clipboard callback for the UI-owned password generator.
 	a.State.SetClipboard = func(text string) {
-		fyne.Do(func() {
-			a.fyneApp.Clipboard().SetContent(text)
-		})
+		a.fyneApp.Clipboard().SetContent(text)
 	}
 
 	// Refuse to close during cryptographic work. Otherwise keep the driver alive
@@ -576,9 +573,7 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 			flushOpenedPaths()
 		}
 		if len(startupPaths) > 0 {
-			fyne.Do(func() {
-				a.applyStartupPaths(startupPaths)
-			})
+			a.applyStartupPaths(startupPaths)
 		}
 	})
 }
