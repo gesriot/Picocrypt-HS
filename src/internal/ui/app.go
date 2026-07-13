@@ -74,6 +74,12 @@ type App struct {
 	Version string
 	DPI     float32
 
+	workers           *workerLifecycle
+	workersDone       chan struct{}
+	shutdownAnimation *fyne.Animation
+	shutdownOnce      sync.Once
+	tooltipDestroyed  bool
+
 	// Application state
 	State *app.State
 
@@ -214,6 +220,7 @@ func NewApp(version string) (*App, error) {
 		State:    state,
 		rsCodecs: state.RSCodecs,
 		DPI:      1.0,
+		workers:  newWorkerLifecycle(),
 		// Initialize data bindings
 		boundProgress: binding.NewFloat(),
 		boundStatus:   binding.NewString(),
@@ -374,6 +381,8 @@ func (a *App) refreshAdvancedLocalizedText() {
 
 // Run starts the UI application and optionally loads files passed at startup.
 func (a *App) Run(startupPaths []string) {
+	prepareOpenedPathsNotify()
+
 	// Create Fyne app with unique ID for preferences API support
 	a.fyneApp = fyneApp.NewWithID(runtimeAppID())
 	if err := a.loadPreferredLanguage(a.fyneApp.Preferences()); err != nil {
@@ -465,12 +474,63 @@ func (a *App) Run(startupPaths []string) {
 	a.Window.ShowAndRun()
 }
 
+func (a *App) beginOrderlyShutdown() {
+	a.shutdownOnce.Do(func() {
+		a.workers.beginStop()
+		stopOpenedPathsNotify()
+		a.cancelOpenedPathReadiness()
+
+		workersDone := make(chan struct{})
+		a.workersDone = workersDone
+		a.shutdownAnimation = fyne.NewAnimation(100*time.Millisecond, func(float32) {
+			a.shutdownSentinelTick()
+		})
+		a.shutdownAnimation.RepeatCount = fyne.AnimationRepeatForever
+
+		go func() {
+			waitOpenedPathsNotifyIdle()
+			a.workers.wait()
+			close(workersDone)
+		}()
+
+		a.shutdownAnimation.Start()
+	})
+}
+
+func (a *App) shutdownSentinelTick() {
+	if a.workersDone == nil {
+		return
+	}
+	select {
+	case <-a.workersDone:
+	default:
+		return
+	}
+	a.workersDone = nil
+
+	if a.shutdownAnimation != nil {
+		a.shutdownAnimation.Stop()
+		a.shutdownAnimation = nil
+	}
+	if !isMobile() && !a.tooltipDestroyed {
+		fynetooltip.DestroyWindowToolTipLayer(a.Window.Canvas())
+		a.tooltipDestroyed = true
+	}
+	a.Window.Close()
+}
+
 func (a *App) scheduleStartupPaths(startupPaths []string) {
 	// applyOpened drains paths buffered by the macOS open-file bridge and feeds
 	// them through the normal drop handler. It is the notify handler for cold and
 	// warm openURLs events after the bridge debounce window goes idle.
 	applyOpened := func() {
+		if a.workers.isStopping() {
+			return
+		}
 		fyne.Do(func() {
+			if a.workers.isStopping() {
+				return
+			}
 			opened := drainOpenedPaths()
 			if len(opened) == 0 {
 				return

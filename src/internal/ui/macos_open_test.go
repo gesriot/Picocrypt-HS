@@ -9,9 +9,11 @@ import (
 
 func resetOpenedPathsForTest(t *testing.T) {
 	t.Helper()
+	prepareOpenedPathsNotify()
 	setOpenedPathsNotify(nil)
 	drainOpenedPaths()
 	t.Cleanup(func() {
+		prepareOpenedPathsNotify()
 		setOpenedPathsNotify(nil)
 		drainOpenedPaths()
 	})

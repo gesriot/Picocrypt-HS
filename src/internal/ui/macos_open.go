@@ -34,6 +34,9 @@ var (
 	openedPathsFlushTimer *time.Timer
 	openedPathsFlushDelay = 200 * time.Millisecond
 	openedPathsGeneration uint64
+	openedPathsStopping   bool
+	openedPathsInFlight   int
+	openedPathsIdle       = sync.NewCond(&openedPathsMu)
 )
 
 // appendOpenedPath buffers a path opened via the OS (AppleEvents on darwin). It
@@ -58,7 +61,7 @@ func appendOpenedPath(path string) {
 // until startup registers the handler and arms the debounce timer.
 func flushOpenedPaths() {
 	openedPathsMu.Lock()
-	if openedPathsNotify == nil {
+	if openedPathsStopping || openedPathsNotify == nil {
 		openedPathsMu.Unlock()
 		return
 	}
@@ -75,16 +78,24 @@ func flushOpenedPaths() {
 
 func notifyOpenedPaths(generation uint64) {
 	openedPathsMu.Lock()
-	if generation != openedPathsGeneration {
+	if openedPathsStopping || generation != openedPathsGeneration || openedPathsNotify == nil {
 		openedPathsMu.Unlock()
 		return
 	}
+	openedPathsInFlight++
 	notify := openedPathsNotify
 	openedPathsFlushTimer = nil
 	openedPathsMu.Unlock()
-	if notify != nil {
-		notify()
-	}
+
+	defer func() {
+		openedPathsMu.Lock()
+		openedPathsInFlight--
+		if openedPathsInFlight == 0 {
+			openedPathsIdle.Broadcast()
+		}
+		openedPathsMu.Unlock()
+	}()
+	notify()
 }
 
 func hasOpenedPaths() bool {
@@ -98,6 +109,10 @@ func hasOpenedPaths() bool {
 // paths were buffered before registration.
 func setOpenedPathsNotify(fn func()) {
 	openedPathsMu.Lock()
+	if fn != nil && openedPathsStopping {
+		openedPathsMu.Unlock()
+		return
+	}
 	if fn == nil && openedPathsFlushTimer != nil {
 		openedPathsFlushTimer.Stop()
 		openedPathsFlushTimer = nil
@@ -106,6 +121,40 @@ func setOpenedPathsNotify(fn func()) {
 		openedPathsGeneration++
 	}
 	openedPathsNotify = fn
+	openedPathsMu.Unlock()
+}
+
+// prepareOpenedPathsNotify starts a new application notification session. It
+// is called before the app registers any lifecycle callbacks.
+func prepareOpenedPathsNotify() {
+	openedPathsMu.Lock()
+	if openedPathsFlushTimer != nil {
+		openedPathsFlushTimer.Stop()
+		openedPathsFlushTimer = nil
+	}
+	openedPathsGeneration++
+	openedPathsNotify = nil
+	openedPathsStopping = false
+	openedPathsMu.Unlock()
+}
+
+func stopOpenedPathsNotify() {
+	openedPathsMu.Lock()
+	openedPathsStopping = true
+	if openedPathsFlushTimer != nil {
+		openedPathsFlushTimer.Stop()
+		openedPathsFlushTimer = nil
+	}
+	openedPathsGeneration++
+	openedPathsNotify = nil
+	openedPathsMu.Unlock()
+}
+
+func waitOpenedPathsNotifyIdle() {
+	openedPathsMu.Lock()
+	for openedPathsInFlight > 0 {
+		openedPathsIdle.Wait()
+	}
 	openedPathsMu.Unlock()
 }
 
