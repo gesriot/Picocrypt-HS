@@ -1011,12 +1011,30 @@ func TestWindowsLegacyWorkflowsCacheLegacyGo(t *testing.T) {
 }
 
 func TestGoToolchainsStayOnApprovedVersions(t *testing.T) {
+	type workflowLane struct {
+		path string
+		job  string
+	}
+	requiredLanes := []workflowLane{
+		{path: ".github/workflows/android-instrumented.yml", job: "android-instrumented"},
+		{path: ".github/workflows/build-android.yml", job: "build"},
+		{path: ".github/workflows/build-appimage.yml", job: "build"},
+		{path: ".github/workflows/build-linux.yml", job: "build"},
+		{path: ".github/workflows/build-macos.yml", job: "build"},
+		{path: ".github/workflows/build-windows.yml", job: "build"},
+		{path: ".github/workflows/pr-static-checks.yml", job: "static-checks"},
+		{path: ".github/workflows/pr-test-build-android.yml", job: "pr-test-build-android"},
+		{path: ".github/workflows/pr-test-build-linux.yml", job: "build"},
+		{path: ".github/workflows/pr-test-build-macos.yml", job: "pr-test-build-macos"},
+		{path: ".github/workflows/pr-test-build-windows.yml", job: "pr-test-build-windows"},
+	}
+
 	workflowFiles, err := filepath.Glob(filepath.Join(repoRoot(t), ".github", "workflows", "*.yml"))
 	if err != nil {
 		t.Fatalf("glob workflows: %v", err)
 	}
 
-	setupGoSteps := 0
+	setupGoSteps := make(map[workflowLane]int, len(requiredLanes))
 	for _, absPath := range workflowFiles {
 		relPath, err := filepath.Rel(repoRoot(t), absPath)
 		if err != nil {
@@ -1024,19 +1042,22 @@ func TestGoToolchainsStayOnApprovedVersions(t *testing.T) {
 		}
 		workflow := mustReadWorkflowDoc(t, relPath)
 		for jobName, job := range workflow.Jobs {
+			lane := workflowLane{path: relPath, job: jobName}
 			for _, step := range job.Steps {
 				if !strings.HasPrefix(step.Uses, "actions/setup-go@") {
 					continue
 				}
-				setupGoSteps++
+				setupGoSteps[lane]++
 				if got := step.With["go-version"]; got != "1.26.5" {
 					t.Fatalf("%s job %s go-version = %#v, want 1.26.5", relPath, jobName, got)
 				}
 			}
 		}
 	}
-	if setupGoSteps == 0 {
-		t.Fatal("no actions/setup-go steps found in workflows")
+	for _, lane := range requiredLanes {
+		if got := setupGoSteps[lane]; got != 1 {
+			t.Fatalf("%s job %s setup-go steps = %d, want exactly 1", lane.path, lane.job, got)
+		}
 	}
 
 	mise := mustReadRepoFile(t, "mise.toml")

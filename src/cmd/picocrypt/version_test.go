@@ -11,7 +11,8 @@ import (
 // repoRoot walks up from the test working directory to the repository root,
 // identified as the directory holding both the VERSION file and
 // .github/workflows. Duplicating this helper per package matches the codebase
-// convention (see internal/app/state_test.go, internal/distmeta/distmeta_test.go).
+// convention (see internal/distmeta/distmeta_test.go and
+// internal/workflowpolicy/helpers_test.go).
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
