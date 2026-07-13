@@ -1045,9 +1045,11 @@ func (a *App) updateUIState() {
 		}
 		// In decrypt mode with valid comments, keep entry enabled but read-only
 		// (OnChanged will prevent actual changes). This keeps text visible, not pale.
-		if snap.Mode == "decrypt" && snap.CommentsPreviewState == app.CommentsPreviewNormal && snap.Comments != "" {
+		if configureDisabled {
+			a.commentsEntry.Disable()
+		} else if snap.Mode == "decrypt" && snap.CommentsPreviewState == app.CommentsPreviewNormal && snap.Comments != "" {
 			a.commentsEntry.Enable() // Keep text visible (not pale)
-		} else if configureDisabled || commentsOuterDisabled || commentsInnerDisabled {
+		} else if commentsOuterDisabled || commentsInnerDisabled {
 			a.commentsEntry.Disable()
 		} else {
 			a.commentsEntry.Enable()
