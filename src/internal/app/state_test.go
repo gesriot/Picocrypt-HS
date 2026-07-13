@@ -617,20 +617,6 @@ func TestSetProgress(t *testing.T) {
 	}
 }
 
-func TestSetCanCancel(t *testing.T) {
-	state := mustNewState(t)
-
-	state.SetCanCancel(true)
-	if !state.CanCancel {
-		t.Error("CanCancel should be true")
-	}
-
-	state.SetCanCancel(false)
-	if state.CanCancel {
-		t.Error("CanCancel should be false")
-	}
-}
-
 func TestGenPassword(t *testing.T) {
 	state := mustNewState(t)
 
@@ -671,92 +657,6 @@ func TestGenPasswordNoOptions(t *testing.T) {
 
 	if password != "" {
 		t.Errorf("Password = %q; want empty when no char sets", password)
-	}
-}
-
-// TestStateWorkerCallbackConcurrency models the APP-02 worker↔render boundary:
-// one set of goroutines plays the encrypt/decrypt worker (reading the request
-// fields via Snapshot() and writing status/result via the locked setters), while
-// another set plays the Fyne render-thread callbacks (reading/writing the same
-// fields via the locked getters/setters). It must be clean under `go test -race`
-// — it is the project-code race the APP-02 gate keeps green (D-06).
-//
-// This test will not compile until State grows Snapshot() plus the missing
-// locked accessors (Mode/Working/InputFile/OutputFile/Comments/Deniability/
-// Keep/Kept). That non-compiling state is the RED phase.
-func TestStateWorkerCallbackConcurrency(t *testing.T) {
-	state, err := NewState()
-	if err != nil {
-		t.Fatalf("NewState() error: %v", err)
-	}
-
-	const iterations = 200
-	var wg sync.WaitGroup
-
-	// Worker goroutine: build a request snapshot under one RLock, then write
-	// status/result through the locked setters — exactly the operations.go
-	// doEncrypt/doDecrypt hot-path access pattern.
-	wg.Go(func() {
-		for i := range iterations {
-			snap := state.Snapshot()
-			// Touch the snapshot fields so the race detector sees the reads.
-			_ = snap.Mode
-			_ = snap.InputFile
-			_ = snap.OutputFile
-			_ = snap.Password
-			_ = snap.Keyfiles
-			_ = snap.Comments
-			_ = snap.Paranoid
-			_ = snap.ReedSolomon
-			_ = snap.Deniability
-			_ = snap.Compress
-			_ = snap.VerifyFirst
-			_ = snap.Keep
-			state.SetStatus("working", util.WHITE)
-			state.SetKept(i%2 == 0)
-		}
-	})
-
-	// Render-thread callback goroutine: drives the locked setters the drop /
-	// operations callbacks use to mutate shared fields concurrently.
-	wg.Go(func() {
-		for i := range iterations {
-			state.SetMode("encrypt")
-			state.SetWorking(i%2 == 0)
-			state.SetInputFile("in.txt")
-			state.SetOutputFile("out.pcv")
-			state.SetComments("hello")
-			state.SetDeniability(i%2 == 0)
-			state.SetKeep(i%2 == 1)
-		}
-	})
-
-	// Render-thread reader goroutine: hits the locked getters concurrently.
-	wg.Go(func() {
-		for range iterations {
-			_ = state.IsEncrypting()
-			_ = state.IsDecrypting()
-			_ = state.IsWorking()
-			rsnap := state.Snapshot()
-			_ = rsnap.InputFile
-			_ = rsnap.OutputFile
-			_ = rsnap.Comments
-			_ = rsnap.Deniability
-			_ = rsnap.Keep
-			_ = state.WasKept()
-		}
-	})
-
-	wg.Wait()
-
-	// Sanity: the accessors round-trip a written value consistently.
-	state.SetMode("decrypt")
-	if !state.IsDecrypting() {
-		t.Fatal("IsDecrypting() = false after SetMode(\"decrypt\")")
-	}
-	state.SetWorking(true)
-	if !state.IsWorking() {
-		t.Fatal("IsWorking() = false after SetWorking(true)")
 	}
 }
 

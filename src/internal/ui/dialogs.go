@@ -2,8 +2,7 @@
 package ui
 
 import (
-	"Picocrypt-NG/internal/app"
-	"Picocrypt-NG/internal/util"
+	"Picocrypt-NG/internal/log"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -18,10 +17,14 @@ import (
 )
 
 // showProgressModal shows the progress dialog.
-func (a *App) showProgressModal() {
+func (a *App) showProgressModal(session *operationSession) {
 	// Reset bindings for new operation
-	_ = a.boundProgress.Set(0)
-	_ = a.boundStatus.Set("")
+	if err := a.boundProgress.Set(0); err != nil {
+		log.Error("reset operation progress binding", log.Err(err))
+	}
+	if err := a.boundStatus.Set(""); err != nil {
+		log.Error("reset operation status binding", log.Err(err))
+	}
 
 	// Create bound widgets - they auto-update when bindings change
 	a.progressBar = widget.NewProgressBarWithData(a.boundProgress)
@@ -33,13 +36,7 @@ func (a *App) showProgressModal() {
 	a.progressStatus = widget.NewLabelWithData(a.boundStatus)
 
 	a.cancelButton = widget.NewButton(tr("action.cancel", "Cancel"), func() {
-		a.State.SetWorking(false)
-		a.State.SetCanCancel(false)
-		a.cancelled.Store(true)
-		a.State.SetStatusMessage(app.StatusCancelledByUser, util.WHITE, app.StatusArgs{})
-		if a.cancelButton != nil {
-			a.cancelButton.Disable()
-		}
+		a.cancelOperation(session)
 	})
 
 	progressContent := container.NewVBox(

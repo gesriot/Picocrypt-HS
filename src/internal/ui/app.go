@@ -87,8 +87,11 @@ type App struct {
 	// Reed-Solomon codecs
 	rsCodecs *encoding.RSCodecs
 
-	// Cancellation flag (atomic for thread safety across goroutines)
-	cancelled atomic.Bool
+	operationMu            sync.Mutex
+	operationSession       *operationSession
+	operationGeneration    atomic.Uint64
+	operationExecutor      operationExecutor
+	operationSourceRemover operationSourceRemover
 
 	// macOS opened-path readiness session. It is used for Finder/Dock-opened
 	// paths that may point at iCloud placeholders. It is separate from the global
@@ -215,11 +218,13 @@ func NewApp(version string) (*App, error) {
 	}
 
 	return &App{
-		Version:  version,
-		State:    state,
-		rsCodecs: state.RSCodecs,
-		DPI:      1.0,
-		workers:  newWorkerLifecycle(),
+		Version:                version,
+		State:                  state,
+		rsCodecs:               state.RSCodecs,
+		DPI:                    1.0,
+		workers:                newWorkerLifecycle(),
+		operationExecutor:      executeVolumeOperation,
+		operationSourceRemover: removeOperationSource,
 		// Initialize data bindings
 		boundProgress: binding.NewFloat(),
 		boundStatus:   binding.NewString(),
@@ -492,6 +497,7 @@ func (a *App) stopSourcesAndContexts() {
 	a.workers.beginStop()
 	stopOpenedPathsNotify()
 	a.cancelOpenedPathReadiness()
+	a.stopCurrentOperation()
 }
 
 func (a *App) beginOrderlyShutdown() {

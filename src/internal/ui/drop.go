@@ -299,9 +299,16 @@ func (a *App) onDrop(names []string) {
 		return
 	}
 
+	a.applyDropSelection(names)
+}
+
+// applyDropSelection applies one already-accepted UI selection. It is UI-only.
+// Recursive processing uses it inside its DoAndWait transaction so it bypasses
+// only onDrop's user-input busy guard and never re-enters the public handler.
+func (a *App) applyDropSelection(names []string) bool {
 	reservation, ok := a.workers.reserve()
 	if !ok {
-		return
+		return false
 	}
 	workerLaunched := false
 	defer func() {
@@ -327,7 +334,7 @@ func (a *App) onDrop(names []string) {
 			a.State.SetStatusMessage(app.StatusDropFailedStatItem, util.RED, app.StatusArgs{})
 			a.State.SetScanning(false)
 			a.refreshUI()
-			return
+			return false
 		}
 
 		// A folder was dropped
@@ -353,7 +360,7 @@ func (a *App) onDrop(names []string) {
 				a.State.SetScanning(false)
 				a.refreshUI()
 				a.refreshAdvanced()
-				return
+				return true
 			} else {
 				// Encrypting a single file
 				a.State.Mode = "encrypt"
@@ -373,7 +380,7 @@ func (a *App) onDrop(names []string) {
 			}
 		}
 	} else if !a.handleMultipleDrop(names) {
-		return
+		return false
 	}
 
 	if len(a.State.OnlyFolders) == 0 {
@@ -381,7 +388,7 @@ func (a *App) onDrop(names []string) {
 		a.State.SetScanning(false)
 		a.refreshUI()
 		a.refreshAdvanced()
-		return
+		return true
 	}
 
 	job := folderScanJob{
@@ -395,6 +402,7 @@ func (a *App) onDrop(names []string) {
 	reservation.launch(func(ctx context.Context) {
 		a.runFolderScan(ctx, job, emit)
 	})
+	return true
 }
 
 func (a *App) applyDropError(status string, closeKeyfileModal bool) {
