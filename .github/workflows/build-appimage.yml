@@ -56,7 +56,7 @@ jobs:
         # linuxdeploy/appimagetool "continuous" builds; if upstream republishes them this
         # check fails and the pin must be refreshed -- intentional, not silent drift.
         wget -O linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-        echo "514d4ffe2a2f757369b41863a4f63fbbb222c429652803ebc081cb16ba21ac25  linuxdeploy" | sha256sum --check --strict --status
+        echo "e87ee0815d109282fdda73e34c2361d64d02b0ffaea3674b18f1fd1f6a687dcf  linuxdeploy" | sha256sum --check --strict --status
         wget -O appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
         echo "a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0  appimagetool" | sha256sum --check --strict --status
         chmod +x linuxdeploy appimagetool
