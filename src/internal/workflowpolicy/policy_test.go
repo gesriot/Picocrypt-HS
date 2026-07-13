@@ -28,17 +28,20 @@ func TestStaticChecksWorkflowEnforcesFormatVetLintAndVuln(t *testing.T) {
 	mustContain(t, gofmtStep.Run, "gofmt -l")
 
 	vetStep := mustStepNamed(t, job, "Vet")
-	mustContain(t, vetStep.Run, "go vet ./...")
+	mustContain(t, vetStep.Run, "go vet")
+	mustContain(t, vetStep.Run, "./...")
 
 	lintStep := mustStepNamed(t, job, "Lint (golangci-lint)")
-	mustContain(t, lintStep.Run, "run ./...")
+	mustContain(t, lintStep.Run, "golangci-lint run")
+	mustContain(t, lintStep.Run, "./...")
 	// golangci-lint must be pinned to an explicit version (the v2 config is
 	// version-sensitive); @latest would make CI non-reproducible.
 	mustMatch(t, lintStep.Run, `golangci-lint/v2/cmd/golangci-lint@v[0-9]+\.[0-9]+\.[0-9]+`)
 	mustNotContain(t, lintStep.Run, "golangci-lint/v2/cmd/golangci-lint@latest")
 
 	vulnStep := mustStepNamed(t, job, "Vulnerability scan (govulncheck)")
-	mustContain(t, vulnStep.Run, "govulncheck ./...")
+	mustContain(t, vulnStep.Run, "govulncheck")
+	mustContain(t, vulnStep.Run, "./...")
 
 	content := mustReadWorkflow(t, path)
 	mustContain(t, content, "pull_request:")
@@ -336,14 +339,42 @@ func TestLinuxWorkflowsBoundRaceParallelismAndSeparateCLIIntegration(t *testing.
 			workflow := mustReadWorkflowDoc(t, path)
 			testStep := mustStepNamed(t, mustJob(t, workflow, "build"), "Run tests")
 
-			mustContainInOrder(t, testStep.Run,
-				"CGO_ENABLED=1 go test -v -race -p 2 -timeout 15m ./...",
-				"PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./internal/cli/...",
-			)
-			if got := strings.Count(testStep.Run, "go test -v -race"); got != 1 {
-				t.Fatalf("Linux Run tests race command count = %d, want exactly 1", got)
+			raceLineIndex := -1
+			integrationLineIndex := -1
+			raceLineCount := 0
+			integrationLineCount := 0
+			for lineIndex, line := range strings.Split(testStep.Run, "\n") {
+				if strings.Contains(line, "go test") && strings.Contains(line, "-race") {
+					raceLineCount++
+					raceLineIndex = lineIndex
+					for _, required := range []string{"-p 2", "-timeout 15m", "./..."} {
+						if !strings.Contains(line, required) {
+							t.Fatalf("Linux race test line %q is missing %q", strings.TrimSpace(line), required)
+						}
+					}
+				}
+				if strings.Contains(line, "PICOCRYPT_RUN_CLI_INTEGRATION=1") &&
+					strings.Contains(line, "go test") &&
+					strings.Contains(line, "./internal/cli/...") {
+					integrationLineCount++
+					integrationLineIndex = lineIndex
+					if !strings.Contains(line, "-timeout 15m") {
+						t.Fatalf("Linux CLI integration line %q is missing %q", strings.TrimSpace(line), "-timeout 15m")
+					}
+					if strings.Contains(line, "-race") {
+						t.Fatalf("Linux CLI integration line must not use -race: %q", strings.TrimSpace(line))
+					}
+				}
 			}
-			mustNotContain(t, testStep.Run, "PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -race")
+			if raceLineCount != 1 {
+				t.Fatalf("Linux Run tests race line count = %d, want exactly 1", raceLineCount)
+			}
+			if integrationLineCount != 1 {
+				t.Fatalf("Linux Run tests CLI integration line count = %d, want exactly 1", integrationLineCount)
+			}
+			if integrationLineIndex <= raceLineIndex {
+				t.Fatal("Linux CLI integration line must follow the race test line")
+			}
 		})
 	}
 }

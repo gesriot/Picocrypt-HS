@@ -26,10 +26,10 @@ git clone https://github.com/Picocrypt-NG/Picocrypt-NG.git
 cd Picocrypt-NG/src
 
 # Linux/macOS
-CGO_ENABLED=1 go build -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+CGO_ENABLED=1 go build -tags migrated_fynedo -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
 
 # Windows
-CGO_ENABLED=1 go build -ldflags="-s -w -H=windowsgui -extldflags=-static" -o Picocrypt-NG.exe ./cmd/picocrypt
+CGO_ENABLED=1 go build -tags migrated_fynedo -ldflags="-s -w -H=windowsgui -extldflags=-static" -o Picocrypt-NG.exe ./cmd/picocrypt
 ```
 
 ## Run
@@ -50,7 +50,7 @@ The browser WASM build supports in-memory single-file encryption and decryption 
 
 ```bash
 # Fast default local suite
-go test ./...
+go test -tags migrated_fynedo ./...
 
 # Golden compatibility checks with production KDF
 go test -run 'TestGoldenDecryption|TestGoldenCompressedDecryption|TestGoldenWrongPassword|TestGoldenV1WrongPassword' ./internal/volume

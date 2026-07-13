@@ -39,6 +39,7 @@ parts:
     override-build: |
       test "$(go env GOVERSION)" = "go1.26.5"
       test "$(go env GOROOT)" = "$CRAFT_STAGE/go"
+      export GOFLAGS="-tags=migrated_fynedo"
       craftctl default
       install -d "$CRAFT_PART_INSTALL/bin"
       if [ -x "$CRAFT_PART_INSTALL/bin/picocrypt" ]; then

@@ -82,10 +82,10 @@ jobs:
           # Under -race, concurrent Argon2 volume and Fyne package tests exceed the
           # runner's RAM, so cap package binaries at two. CLI integration spawns a
           # separate non-race product binary, so run it separately without -race.
-          CGO_ENABLED=1 go test -v -race -p 2 -timeout 15m ./...
+          CGO_ENABLED=1 go test -v -tags migrated_fynedo -race -p 2 -timeout 15m ./...
           PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./internal/cli/...
         else
-          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./...
+          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -tags migrated_fynedo -timeout 15m ./...
         fi
 
     - name: Build GUI
@@ -94,7 +94,7 @@ jobs:
         if [ "${{ matrix.arch }}" = "amd64" ]; then
           export GOAMD64=v1
         fi
-        GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -v -ldflags="-s -w" -o "${{ matrix.gui_binary }}" ./cmd/picocrypt
+        GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -v -tags migrated_fynedo -ldflags="-s -w" -o "${{ matrix.gui_binary }}" ./cmd/picocrypt
 
     - name: Build CLI-only (no graphics dependencies)
       run: |
