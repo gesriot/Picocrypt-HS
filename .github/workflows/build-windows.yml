@@ -156,7 +156,7 @@ jobs:
     - name: Install NSIS
       shell: pwsh
       run: |
-        choco install -y --no-progress nsis
+        choco install -y --no-progress nsis --version=3.12.0
         & "C:\Program Files (x86)\NSIS\makensis.exe" -VERSION
 
     - name: Build NSIS installer
