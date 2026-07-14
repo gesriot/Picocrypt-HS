@@ -78,7 +78,10 @@ if [[ ! -x "$APKSIGNER" ]]; then
     echo "apksigner is not executable: $APKSIGNER" >&2
     exit 1
 fi
-if ! apksigner_version="$("$APKSIGNER" version 2>&1)" || [[ -z "$apksigner_version" ]]; then
+# Keep apksigner's diagnostics exact without filtering stderr when Java warns
+# about the Conscrypt native library used by Android Build Tools 36.
+apksigner_command=("$APKSIGNER" -J-enable-native-access=ALL-UNNAMED)
+if ! apksigner_version="$("${apksigner_command[@]}" version 2>&1)" || [[ -z "$apksigner_version" ]]; then
     echo "apksigner health check failed: $APKSIGNER" >&2
     printf '%s\n' "$apksigner_version" >&2
     exit 1
@@ -121,7 +124,7 @@ verify_apk() {
     local apk="$apk_dir/$filename"
     local badging package_line actual_application_id actual_version_code actual_version_name entries actual_abis signature_output signer_count signer_digest abi jni_file elf_header actual_machine expected_machine expected_machine_code
 
-    if signature_output="$("$APKSIGNER" verify --Werr --verbose --print-certs "$apk" 2>&1)"; then
+    if signature_output="$("${apksigner_command[@]}" verify --Werr --verbose --print-certs "$apk" 2>&1)"; then
         if [[ "$build_kind" == unsigned ]]; then
             echo "$filename has a valid APK signature, want unsigned" >&2
             exit 1
