@@ -14,9 +14,9 @@ import (
 // and never touches os.Stdin. It is otherwise only covered by the default-skipped
 // os/exec integration suite, so it is asserted here in-process.
 //
-// (Replaces the former TestCLIIntegrationEnabled, which only re-derived the
-// test-only env gate cliIntegrationEnabled() and exercised zero production code.
-// That helper stays in stream_integration_test.go for requireCLIIntegration.)
+// (Replaces the former TestCLIIntegrationEnabled, which only re-derived a
+// test-only env gate and exercised zero production code. The real-binary suite
+// is now owned by the central TestCLIIntegration parent.)
 func TestStdinOverwriteGuard(t *testing.T) {
 	t.Run("encrypt stdin refuses pre-existing output without -y", func(t *testing.T) {
 		resetEncryptFlagsForDirTest()

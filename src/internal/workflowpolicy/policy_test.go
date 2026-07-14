@@ -318,7 +318,7 @@ func TestLinuxPRAggregateGateIgnoresCancelledDuplicate(t *testing.T) {
 	)
 }
 
-func TestLinuxWorkflowsBoundRaceParallelismAndSeparateCLIIntegration(t *testing.T) {
+func TestLinuxWorkflowsBoundRaceParallelismAndSelectOnlyCLIIntegration(t *testing.T) {
 	for _, path := range []string{
 		".github/workflows/build-linux.yml",
 		".github/workflows/pr-test-build-linux.yml",
@@ -346,8 +346,10 @@ func TestLinuxWorkflowsBoundRaceParallelismAndSeparateCLIIntegration(t *testing.
 					strings.Contains(line, "./internal/cli/...") {
 					integrationLineCount++
 					integrationLineIndex = lineIndex
-					if !strings.Contains(line, "-timeout 15m") {
-						t.Fatalf("Linux CLI integration line %q is missing %q", strings.TrimSpace(line), "-timeout 15m")
+					for _, required := range []string{"-timeout 15m", "-run '^TestCLIIntegration$'", "./internal/cli/..."} {
+						if !strings.Contains(line, required) {
+							t.Fatalf("Linux CLI integration line %q is missing %q", strings.TrimSpace(line), required)
+						}
 					}
 					if strings.Contains(line, "-race") {
 						t.Fatalf("Linux CLI integration line must not use -race: %q", strings.TrimSpace(line))

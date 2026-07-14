@@ -13,18 +13,16 @@ import (
 // Integration tests for stdin/stdout functionality.
 // These tests build and run the actual CLI binary to verify end-to-end behavior.
 
-func cliIntegrationEnabled() bool {
-	return os.Getenv("PICOCRYPT_RUN_CLI_INTEGRATION") == "1"
-}
-
-func requireCLIIntegration(t *testing.T) {
-	t.Helper()
+func TestCLIIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
-	if !cliIntegrationEnabled() {
+	if os.Getenv("PICOCRYPT_RUN_CLI_INTEGRATION") != "1" {
 		t.Skip("set PICOCRYPT_RUN_CLI_INTEGRATION=1 to run CLI integration tests")
 	}
+
+	t.Run("stdin_stdout", testStdinStdoutIntegration)
+	t.Run("error_cases", testStdinStdoutErrorCases)
 }
 
 // stdinFile materializes data as a real *os.File for use as a subprocess's stdin.
@@ -50,9 +48,7 @@ func stdinFile(t *testing.T, data []byte) *os.File {
 	return f
 }
 
-func TestStdinStdoutIntegration(t *testing.T) {
-	requireCLIIntegration(t)
-
+func testStdinStdoutIntegration(t *testing.T) {
 	// Build CLI binary
 	tmpDir := t.TempDir()
 	binaryName := "picocrypt-test"
@@ -478,9 +474,7 @@ func TestStdinStdoutIntegration(t *testing.T) {
 	})
 }
 
-func TestStdinStdoutErrorCases(t *testing.T) {
-	requireCLIIntegration(t)
-
+func testStdinStdoutErrorCases(t *testing.T) {
 	// Build CLI binary
 	tmpDir := t.TempDir()
 	binaryName := "picocrypt-test"
