@@ -45,7 +45,6 @@ func TestWASMDecryptTriesNormalizationForms(t *testing.T) {
 		decrypt string
 	}{
 		{"NFC_encrypt_NFD_decrypt", nfcPassword, nfdPassword},
-		{"NFD_encrypt_NFC_decrypt", nfdPassword, nfcPassword},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

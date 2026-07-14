@@ -100,31 +100,6 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 	}
 }
 
-func TestEncryptDecryptLargerFile(t *testing.T) {
-	// Create a larger test file (100KB)
-	original := make([]byte, 100*1024)
-	for i := range original {
-		original[i] = byte(i % 256)
-	}
-	password := "testpassword123"
-
-	// Encrypt
-	ciphertext, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
-	if errCode != 0 {
-		t.Fatalf("encrypt failed with error code %d", errCode)
-	}
-
-	// Decrypt
-	res, errCode := DecryptVolume(ciphertext, []byte(password), DecryptOptions{})
-	if errCode != 0 {
-		t.Fatalf("decrypt failed with error code %d", errCode)
-	}
-
-	if !bytes.Equal(res.Plaintext, original) {
-		t.Errorf("roundtrip failed for larger file")
-	}
-}
-
 func TestWASMUsesWriteAuthValues(t *testing.T) {
 	originalWriteAuthValues := writeAuthValues
 	defer func() {

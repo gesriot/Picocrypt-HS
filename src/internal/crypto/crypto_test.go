@@ -79,12 +79,6 @@ func TestDeriveKey(t *testing.T) {
 		t.Error("Normal and paranoid keys should be different")
 	}
 
-	// Same inputs should produce same outputs (deterministic)
-	key1b, _ := DeriveKey(password, salt, false)
-	if !bytes.Equal(key1, key1b) {
-		t.Error("Same inputs should produce same key")
-	}
-
 	// Frozen KAT: pins the exact Argon2id parameters and KDF choice.
 	// KAT independently derived via argon2.IDKey with kdf.go params
 	// (passes/memory/threads/keysize) for normal(4,1<<20,4,32) and

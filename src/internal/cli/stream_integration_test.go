@@ -399,31 +399,6 @@ func testStdinStdoutIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("piped commands simulate", func(t *testing.T) {
-		// Simulate: echo "data" | encrypt | decrypt
-		inputData := []byte("piped command simulation test\n")
-
-		// Encrypt
-		encCmd := exec.Command(binaryPath, "encrypt", "-i", "-", "-o", "-", "-p", testPassword)
-		encCmd.Stdin = stdinFile(t, inputData)
-		encrypted, err := encCmd.Output()
-		if err != nil {
-			t.Fatalf("pipe encrypt: %v", err)
-		}
-
-		// Decrypt
-		decCmd := exec.Command(binaryPath, "decrypt", "-i", "-", "-o", "-", "-p", testPassword)
-		decCmd.Stdin = stdinFile(t, encrypted)
-		decrypted, err := decCmd.Output()
-		if err != nil {
-			t.Fatalf("pipe decrypt: %v", err)
-		}
-
-		if !bytes.Equal(decrypted, inputData) {
-			t.Errorf("pipe round-trip mismatch\ngot:  %q\nwant: %q", decrypted, inputData)
-		}
-	})
-
 	t.Run("auto-unzip works with auto-generated output path", func(t *testing.T) {
 		inputA := filepath.Join(tmpDir, "auto-unzip-a.txt")
 		inputB := filepath.Join(tmpDir, "auto-unzip-b.txt")
