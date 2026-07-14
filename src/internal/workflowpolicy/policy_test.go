@@ -427,8 +427,8 @@ func TestWindowsReleaseAuthenticodeSigningPrecedesPackagingAndSigstore(t *testin
 	}
 
 	uploadSigned := mustStepNamed(t, signJob, "Upload signed Windows artifacts")
-	if got := uploadSigned.With["name"]; got != "${{ inputs.signpath_test && 'signed-windows-TEST-DO-NOT-PUBLISH' || inputs.signpath_release_dry_run && 'signed-windows-RELEASE-SIGNING-DRY-RUN-DO-NOT-PUBLISH' || 'signed-windows' }}" {
-		t.Fatalf("signed Windows artifact name = %#v, want visibly distinct test and release dry-run artifacts", got)
+	if got := uploadSigned.With["name"]; got != "${{ inputs.signpath_test && 'signed-windows-TEST-DO-NOT-PUBLISH' || 'signed-windows' }}" {
+		t.Fatalf("signed Windows artifact name = %#v, want visibly distinct self-signed test output", got)
 	}
 	if got := uploadSigned.With["retention-days"]; got != 1 {
 		t.Fatalf("signed Windows artifact retention = %#v, want 1 day", got)
@@ -525,8 +525,8 @@ func TestWindowsLegacyReleaseUsesSignPathBeforeSigstore(t *testing.T) {
 		t.Fatalf("legacy verification continue-on-error = %#v, want blocking", got)
 	}
 	uploadSigned := mustStepNamed(t, signJob, "Upload signed Windows legacy artifact")
-	if got := uploadSigned.With["name"]; got != "${{ inputs.signpath_test && 'signed-windows-legacy-TEST-DO-NOT-PUBLISH' || inputs.signpath_release_dry_run && 'signed-windows-legacy-RELEASE-SIGNING-DRY-RUN-DO-NOT-PUBLISH' || 'signed-windows-legacy' }}" {
-		t.Fatalf("signed legacy artifact name = %#v, want visibly distinct test and release dry-run artifacts", got)
+	if got := uploadSigned.With["name"]; got != "${{ inputs.signpath_test && 'signed-windows-legacy-TEST-DO-NOT-PUBLISH' || 'signed-windows-legacy' }}" {
+		t.Fatalf("signed legacy artifact name = %#v, want visibly distinct self-signed test output", got)
 	}
 	if got := uploadSigned.With["retention-days"]; got != 1 {
 		t.Fatalf("signed legacy artifact retention = %#v, want 1 day", got)
@@ -546,12 +546,15 @@ func TestWindowsLegacyReleaseUsesSignPathBeforeSigstore(t *testing.T) {
 }
 
 func TestWindowsSignPathReleaseDryRunUsesProductionVerificationWithoutPublishing(t *testing.T) {
-	for _, path := range []string{
-		".github/workflows/build-windows.yml",
-		".github/workflows/build-windows-legacy.yml",
+	for _, tc := range []struct {
+		path             string
+		signedUploadStep string
+	}{
+		{path: ".github/workflows/build-windows.yml", signedUploadStep: "Upload signed Windows artifacts"},
+		{path: ".github/workflows/build-windows-legacy.yml", signedUploadStep: "Upload signed Windows legacy artifact"},
 	} {
-		t.Run(path, func(t *testing.T) {
-			workflow := mustReadWorkflowDoc(t, path)
+		t.Run(tc.path, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, tc.path)
 			input, ok := workflow.On.WorkflowDispatch.Inputs["signpath_release_dry_run"]
 			if !ok {
 				t.Fatal("workflow_dispatch must expose signpath_release_dry_run so the production certificate path can be tested without publishing")
@@ -559,7 +562,7 @@ func TestWindowsSignPathReleaseDryRunUsesProductionVerificationWithoutPublishing
 			if input.Required || input.Default != false || input.Type != "boolean" {
 				t.Fatalf("signpath_release_dry_run = %#v, want optional boolean defaulting to false", input)
 			}
-			mustContain(t, input.Description, "Never publishes a GitHub release")
+			mustContain(t, input.Description, "without uploading signed output or publishing a GitHub release")
 
 			signJob := mustJob(t, workflow, "sign")
 			mustContain(t, signJob.If, "inputs.signpath_release_dry_run")
@@ -568,6 +571,10 @@ func TestWindowsSignPathReleaseDryRunUsesProductionVerificationWithoutPublishing
 			}
 			if got := signJob.Env["SIGNPATH_TEST"]; got != "${{ inputs.signpath_test && 'true' || 'false' }}" {
 				t.Fatalf("release dry-run verification mode = %q, want production verification whenever signpath_test is false", got)
+			}
+			uploadSigned := mustStepNamed(t, signJob, tc.signedUploadStep)
+			if uploadSigned.If != "${{ !inputs.signpath_release_dry_run }}" {
+				t.Fatalf("release dry-run signed artifact upload if = %q, want production-signed dry-run output to remain inside the job", uploadSigned.If)
 			}
 
 			releaseJob := mustJob(t, workflow, "release")
