@@ -33,7 +33,7 @@ func wrapDeniability(inner, password []byte) ([]byte, int) {
 	}
 
 	kdfInput := pwnorm.EncodeForKDF(password)
-	key, err := crypto.DeriveKey(kdfInput, salt, false)
+	key, err := deriveWASMKey(kdfInput, salt, false)
 	zeroWASMSensitiveBuffer(wasmZeroingDeniabilityKDFInput, kdfInput)
 	if err != nil {
 		return nil, ErrRandomFailure
@@ -155,7 +155,7 @@ func headerFlagsBytesPlausible(b []byte) bool {
 // and every candidate buffer are zeroed. Returns ErrWrongPassword if none match.
 func selectDeniabilityKey(password, salt, nonce, probe []byte, rs *encoding.RSCodecs) ([]byte, int) {
 	for _, cand := range pwnorm.Candidates(password) {
-		key, err := crypto.DeriveKey(cand, salt, false)
+		key, err := deriveWASMKey(cand, salt, false)
 		zeroWASMSensitiveBuffer(wasmZeroingDeniabilityKDFInput, cand)
 		if err != nil {
 			continue // degenerate all-zero key (effectively never); treat as non-match

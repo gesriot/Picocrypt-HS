@@ -15,6 +15,8 @@ import (
 // stripped by the REAL desktop deniability code, with the recovered inner .pcv
 // decrypting back in WASM. This pins the outer-layer byte format against desktop.
 func TestDeniabilityWrapDesktopUnwrap(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	original := []byte("P4: WASM-wrapped deniable volume, stripped by desktop.")
 	password := []byte("p4-wrap-interop")
 
@@ -78,6 +80,8 @@ func TestDeniabilityRoundtrip(t *testing.T) {
 
 // Desktop-wrapped deniable volume must open in WASM (reverse cross-compat).
 func TestDeniabilityDesktopWrapWASMUnwrap(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	original := []byte("P4: desktop-wrapped deniable volume opens in WASM.")
 	pw := []byte("p4-desktop-wrap")
 

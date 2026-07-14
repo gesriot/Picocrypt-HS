@@ -39,6 +39,8 @@ func desktopDecrypt(t *testing.T, volumeData []byte, password string) []byte {
 }
 
 func TestWASMReedSolomonEncryptDesktopDecrypt(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	const miB = 1 << 20
 	password := "rs-encrypt-interop"
 	sizes := []int{1, 200, miB - 129, miB - 128, miB - 1, miB, miB + 17, 2*miB - 1}
@@ -151,6 +153,8 @@ func TestWASMReedSolomonUncorrectableFailsClosed(t *testing.T) {
 }
 
 func TestWASMReedSolomonDesktopEncryptWASMDecrypt(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	password := "desktop-rs-to-wasm"
 	plaintext := []byte("Desktop-encrypted RS volume must decrypt in WASM unchanged.")
 	tmp := t.TempDir()

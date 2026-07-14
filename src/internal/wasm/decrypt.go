@@ -117,7 +117,7 @@ func DecryptVolume(volumeData, password []byte, opts DecryptOptions) (DecryptRes
 	var key []byte
 	var subkeyReader *crypto.SubkeyReader
 	for _, cand := range pwnorm.Candidates(password) {
-		k, err := crypto.DeriveKey(cand, hdr.Salt, hdr.Flags.Paranoid)
+		k, err := deriveWASMKey(cand, hdr.Salt, hdr.Flags.Paranoid)
 		zeroWASMSensitiveBuffer(wasmZeroingDecryptPasswordBytes, cand)
 		if err != nil {
 			return DecryptResult{}, ErrCorruptedHeader
