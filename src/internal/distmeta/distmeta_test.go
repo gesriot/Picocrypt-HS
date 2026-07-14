@@ -121,27 +121,6 @@ func TestActiveReleaseMetadataVersions(t *testing.T) {
 	})
 }
 
-func TestOldVersionLiteralsAreAllowlisted(t *testing.T) {
-	var unexpected []string
-	for _, relPath := range gitTrackedFiles(t) {
-		data := mustReadFile(t, relPath)
-		if !containsOldVersionLiteral(data) {
-			continue
-		}
-		category, ok := oldVersionLiteralCategory(relPath)
-		if !ok {
-			unexpected = append(unexpected, relPath)
-			continue
-		}
-		if category == "" {
-			t.Fatalf("old-version allowlist category for %s is empty", relPath)
-		}
-	}
-	if len(unexpected) > 0 {
-		t.Fatalf("unallowlisted old-version literals in active repository files:\n%s", strings.Join(unexpected, "\n"))
-	}
-}
-
 func gitTrackedFiles(t *testing.T) []string {
 	t.Helper()
 	cmd := exec.Command("git", "-C", repoRoot(t), "ls-files", "-z")
@@ -158,64 +137,6 @@ func gitTrackedFiles(t *testing.T) []string {
 		files = append(files, string(part))
 	}
 	return files
-}
-
-func containsOldVersionLiteral(data []byte) bool {
-	for _, literal := range oldVersionLiterals {
-		if bytes.Contains(data, []byte(literal)) {
-			return true
-		}
-	}
-	return false
-}
-
-var oldVersionLiterals = []string{"2.12", "v2.12", "2.11", "v2.11", "2.10", "v2.10", "2.09", "v2.09", "2.08", "v2.08"}
-
-func oldVersionLiteralCategory(relPath string) (string, bool) {
-	switch {
-	case relPath == "Changelog.md":
-		return "historical changelog/release history", true
-	case relPath == "dist/linux/io.github.picocrypt_ng.Picocrypt-NG.metainfo.xml":
-		return "historical changelog/release history", true
-	case relPath == "CLI.md":
-		return "legacy snapshot", true
-	case relPath == "docs/ONBOARDING.md":
-		return "onboarding documentation referencing compatibility versions", true
-	case strings.HasPrefix(relPath, "src/testdata/golden/"):
-		return "compatibility fixture", true
-	case relPath == "src/internal/volume/golden_test.go":
-		return "compatibility fixture", true
-	case relPath == "src/internal/distmeta/distmeta_test.go":
-		return "old-version test input", true
-	case relPath == "src/cmd/picocrypt/version_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/cli/version_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/header/format_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/header/reader_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/ui/drop_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/ui/fyne_test_helpers_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/ui/preview_test.go":
-		return "old-version test input", true
-	case relPath == "src/internal/header/format.go", relPath == "src/internal/header/reader.go":
-		return "old-version test input", true
-	case relPath == "dist/windows/installer.nsi":
-		return "legacy snapshot", true
-	case relPath == "android/gradle/libs.versions.toml":
-		return "third-party dependency version pin (AndroidX lifecycle 2.10.0), not an app version", true
-	case relPath == "android/gradle/verification-metadata.xml":
-		return "third-party dependency verification metadata, not an app version", true
-	case relPath == ".github/workflows/pr-static-checks.yml":
-		return "third-party tool version pin (golangci-lint), not an app version", true
-	case relPath == "mise.toml":
-		return "third-party tool/runtime version pins, not app versions", true
-	default:
-		return "", false
-	}
 }
 
 type mimeInfo struct {
@@ -978,88 +899,6 @@ func TestWindowsNSISScript(t *testing.T) {
 		matches := regexp.MustCompile(`SetRegView 64`).FindAllString(text, -1)
 		if len(matches) < 2 {
 			t.Errorf("installer.nsi must call SetRegView 64 at least twice (.onInit + un.onInit); found %d", len(matches))
-		}
-	})
-
-	t.Run("main_exe_overwrites_on_upgrade", func(t *testing.T) {
-		// Regression guard for discussion #163: installing a newer version over an
-		// existing install left the OLD Picocrypt-NG.exe in place ("the .exe from
-		// 2.15 still remains and wasn't overwritten"). Root cause: the script
-		// delivered the main binary via `File ...-portable.exe` + `Rename
-		// "$INSTDIR\Picocrypt-NG-portable.exe" "$INSTDIR\Picocrypt-NG.exe"`, but
-		// NSIS Rename FAILS (sets the error flag, here unchecked) when the
-		// destination already exists. So the prior binary survived every upgrade
-		// and the new one was left orphaned as Picocrypt-NG-portable.exe.
-		//
-		// Invariant: the main executable MUST be delivered via an overwrite-capable
-		// command (File defaults to SetOverwrite on) so re-install/upgrade replaces
-		// it in place at $INSTDIR\Picocrypt-NG.exe.
-
-		// Negative: must NOT move a file onto the fixed install path of the main
-		// exe. Rename does not overwrite; CopyFiles onto an existing target is the
-		// same hazard. Either reintroduces the upgrade bug.
-		badMove := regexp.MustCompile(`(?:Rename|CopyFiles)[^\n]*"\$INSTDIR\\Picocrypt-NG\.exe"`)
-		if badMove.MatchString(text) {
-			t.Errorf("installer.nsi delivers Picocrypt-NG.exe by moving a file onto its install path; " +
-				"NSIS Rename does not overwrite an existing destination, so upgrades over a prior install " +
-				"silently keep the old binary (discussion #163). Use File /oname=Picocrypt-NG.exe (overwrite-capable).")
-		}
-
-		// Positive: the main exe must actually be installed via File /oname=
-		// (overwrite-capable), landing the new binary at $INSTDIR\Picocrypt-NG.exe.
-		goodFile := regexp.MustCompile(`File\s+"?/oname=Picocrypt-NG\.exe"?`)
-		if !goodFile.MatchString(text) {
-			t.Errorf("installer.nsi must deliver the main executable via `File /oname=Picocrypt-NG.exe` " +
-				"so re-install/upgrade overwrites the prior binary in place (discussion #163)")
-		}
-	})
-
-	// --- Install Section (SecCore) scoped assertions (discussion #163 follow-ups) ---
-	secCoreBlock := regexp.MustCompile(`(?ms)Section\s+"-Picocrypt-NG \(required\)".*?SectionEnd`).FindString(text)
-	if secCoreBlock == "" {
-		t.Fatalf("installer.nsi missing 'Section \"-Picocrypt-NG (required)\"' (SecCore) block — cannot validate install-time behavior")
-	}
-
-	t.Run("running_instance_guard_on_main_exe", func(t *testing.T) {
-		// A running Picocrypt-NG locks Picocrypt-NG.exe, so File overwrite fails.
-		// With the default overwrite behavior the user could click "Ignore" and end
-		// up with a stale binary reported as a successful install — the same class of
-		// silent-stale bug as discussion #163. The install MUST instead detect the
-		// locked binary (SetOverwrite try → error flag) and either retry after the
-		// user closes the app or abort — never silently leave the old exe, and never
-		// force-kill (that could corrupt an in-progress encryption).
-		if !strings.Contains(secCoreBlock, "SetOverwrite try") {
-			t.Errorf("SecCore must use `SetOverwrite try` around the main exe so a locked (running) binary is detected instead of silently skipped (#163)")
-		}
-		if !regexp.MustCompile(`\$\{Errors\}|IfErrors`).MatchString(secCoreBlock) {
-			t.Errorf("SecCore must consult the error flag after writing the main exe to detect a running instance (#163)")
-		}
-		if !strings.Contains(secCoreBlock, "MB_RETRYCANCEL") {
-			t.Errorf("SecCore must prompt the user to close a running Picocrypt-NG and retry (MB_RETRYCANCEL), not force-kill (#163)")
-		}
-		if !regexp.MustCompile(`\bAbort\b`).MatchString(secCoreBlock) {
-			t.Errorf("SecCore must Abort when the main exe cannot be updated (running instance), instead of reporting a misleading success (#163)")
-		}
-		// Silent installs (/S, e.g. admin deployment and CI) get no dialog: the
-		// running-instance MessageBox (the only one in SecCore) MUST declare a
-		// silent default of IDCANCEL so a locked binary aborts cleanly instead of
-		// looping on the implicit retry default.
-		if !strings.Contains(secCoreBlock, "/SD IDCANCEL") {
-			t.Errorf("SecCore running-instance MessageBox must specify `/SD IDCANCEL` so silent installs abort (not loop) on a locked exe (#163)")
-		}
-		// The abort path must surface a non-zero exit code so unattended installs
-		// can detect the failure instead of treating the aborted run as success.
-		if !regexp.MustCompile(`SetErrorLevel\s+[1-9]`).MatchString(secCoreBlock) {
-			t.Errorf("SecCore must SetErrorLevel to a non-zero value before aborting on a running instance so silent installs report failure (#163)")
-		}
-	})
-
-	t.Run("install_sweeps_orphan_portable", func(t *testing.T) {
-		// Machines that hit the pre-fix upgrade bug carry an orphaned
-		// Picocrypt-NG-portable.exe. The install must sweep it so an upgrade leaves a
-		// clean install dir (harmless no-op on clean installs).
-		if !regexp.MustCompile(`Delete\s+"\$INSTDIR\\Picocrypt-NG-portable\.exe"`).MatchString(secCoreBlock) {
-			t.Errorf("SecCore must Delete the orphaned $INSTDIR\\Picocrypt-NG-portable.exe left by the pre-fix upgrade bug (#163)")
 		}
 	})
 

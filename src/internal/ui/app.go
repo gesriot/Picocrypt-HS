@@ -74,21 +74,31 @@ type App struct {
 	Version string
 	DPI     float32
 
+	workers                *workerLifecycle
+	workersDone            chan struct{}
+	shutdownAnimation      *fyne.Animation
+	shutdownOnce           sync.Once
+	tooltipDestroyed       bool
+	folderScanGeneration   uint64
+	mobileImportActive     bool
+	mobileImportGeneration atomic.Uint64
+
 	// Application state
 	State *app.State
 
 	// Reed-Solomon codecs
 	rsCodecs *encoding.RSCodecs
 
-	// Cancellation flag (atomic for thread safety across goroutines)
-	cancelled atomic.Bool
+	operationMu            sync.Mutex
+	operationSession       *operationSession
+	operationGeneration    atomic.Uint64
+	operationExecutor      operationExecutor
+	operationSourceRemover operationSourceRemover
 
 	// macOS opened-path readiness session. It is used for Finder/Dock-opened
 	// paths that may point at iCloud placeholders. It is separate from the global
 	// AppleEvent buffer in macos_open.go.
 	openReadinessMu            sync.Mutex
-	openReadinessTasks         sync.WaitGroup
-	openReadinessStopped       bool
 	openReadinessGeneration    uint64
 	openReadinessCancel        context.CancelFunc
 	openReadinessPaths         []string
@@ -210,10 +220,13 @@ func NewApp(version string) (*App, error) {
 	}
 
 	return &App{
-		Version:  version,
-		State:    state,
-		rsCodecs: state.RSCodecs,
-		DPI:      1.0,
+		Version:                version,
+		State:                  state,
+		rsCodecs:               state.RSCodecs,
+		DPI:                    1.0,
+		workers:                newWorkerLifecycle(),
+		operationExecutor:      executeVolumeOperation,
+		operationSourceRemover: removeOperationSource,
 		// Initialize data bindings
 		boundProgress: binding.NewFloat(),
 		boundStatus:   binding.NewString(),
@@ -374,6 +387,8 @@ func (a *App) refreshAdvancedLocalizedText() {
 
 // Run starts the UI application and optionally loads files passed at startup.
 func (a *App) Run(startupPaths []string) {
+	prepareOpenedPathsNotify()
+
 	// Create Fyne app with unique ID for preferences API support
 	a.fyneApp = fyneApp.NewWithID(runtimeAppID())
 	if err := a.loadPreferredLanguage(a.fyneApp.Preferences()); err != nil {
@@ -409,24 +424,15 @@ func (a *App) Run(startupPaths []string) {
 		a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
 	}
 
-	// Set clipboard callback for state
-	// Must use fyne.Do() since this may be called from goroutines (e.g., GenPassword)
+	// Set clipboard callback for the UI-owned password generator.
 	a.State.SetClipboard = func(text string) {
-		fyne.Do(func() {
-			a.fyneApp.Clipboard().SetContent(text)
-		})
+		a.fyneApp.Clipboard().SetContent(text)
 	}
 
-	// Set close callback to prevent closing during operations
-	a.Window.SetCloseIntercept(func() {
-		snap := a.State.UISnapshot()
-		if !snap.Working && !snap.ShowProgress {
-			if !isMobile() {
-				fynetooltip.DestroyWindowToolTipLayer(a.Window.Canvas())
-			}
-			a.Window.Close()
-		}
-	})
+	// Refuse to close during cryptographic work. Otherwise keep the driver alive
+	// until every accepted application worker has stopped.
+	a.Window.SetCloseIntercept(a.handleCloseRequest)
+	a.fyneApp.Lifecycle().SetOnStopped(a.stopSourcesAndContexts)
 
 	// Build UI - use mobile layout on mobile devices
 	var content fyne.CanvasObject
@@ -463,6 +469,77 @@ func (a *App) Run(startupPaths []string) {
 	a.Window.SetContent(content)
 	a.resizeDesktopWindowForContent(content, preferredDesktopWindowHeight(a.State.Mode))
 	a.Window.ShowAndRun()
+
+	// A platform stop can bypass CloseIntercept, and Fyne may drop a queued
+	// OnStopped callback while draining. Repeat the non-visual teardown and join
+	// all accepted work before returning to main.
+	a.stopSourcesAndContexts()
+	waitOpenedPathsNotifyIdle()
+	a.workers.wait()
+	if a.workersDone != nil {
+		<-a.workersDone
+	}
+	stopOpenedPathsNotify()
+}
+
+func (a *App) handleCloseRequest() {
+	snap := a.State.UISnapshot()
+	if snap.Working || snap.ShowProgress {
+		return
+	}
+	a.beginOrderlyShutdown()
+}
+
+// stopSourcesAndContexts performs only non-visual, non-blocking teardown so it
+// is safe to call from Fyne's OnStopped lifecycle callback.
+func (a *App) stopSourcesAndContexts() {
+	a.workers.beginStop()
+	stopOpenedPathsNotify()
+	a.cancelOpenedPathReadiness()
+	a.stopCurrentOperation()
+}
+
+func (a *App) beginOrderlyShutdown() {
+	a.shutdownOnce.Do(func() {
+		a.stopSourcesAndContexts()
+
+		workersDone := make(chan struct{})
+		a.workersDone = workersDone
+		a.shutdownAnimation = fyne.NewAnimation(100*time.Millisecond, func(float32) {
+			a.shutdownSentinelTick()
+		})
+		a.shutdownAnimation.RepeatCount = fyne.AnimationRepeatForever
+
+		go func() {
+			waitOpenedPathsNotifyIdle()
+			a.workers.wait()
+			close(workersDone)
+		}()
+
+		a.shutdownAnimation.Start()
+	})
+}
+
+func (a *App) shutdownSentinelTick() {
+	if a.workersDone == nil {
+		return
+	}
+	select {
+	case <-a.workersDone:
+	default:
+		return
+	}
+	a.workersDone = nil
+
+	if a.shutdownAnimation != nil {
+		a.shutdownAnimation.Stop()
+		a.shutdownAnimation = nil
+	}
+	if !isMobile() && !a.tooltipDestroyed {
+		fynetooltip.DestroyWindowToolTipLayer(a.Window.Canvas())
+		a.tooltipDestroyed = true
+	}
+	a.Window.Close()
 }
 
 func (a *App) scheduleStartupPaths(startupPaths []string) {
@@ -470,7 +547,13 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 	// them through the normal drop handler. It is the notify handler for cold and
 	// warm openURLs events after the bridge debounce window goes idle.
 	applyOpened := func() {
+		if a.workers.isStopping() {
+			return
+		}
 		fyne.Do(func() {
+			if a.workers.isStopping() {
+				return
+			}
 			opened := drainOpenedPaths()
 			if len(opened) == 0 {
 				return
@@ -490,9 +573,7 @@ func (a *App) scheduleStartupPaths(startupPaths []string) {
 			flushOpenedPaths()
 		}
 		if len(startupPaths) > 0 {
-			fyne.Do(func() {
-				a.applyStartupPaths(startupPaths)
-			})
+			a.applyStartupPaths(startupPaths)
 		}
 	})
 }
@@ -913,8 +994,19 @@ func (a *App) refreshAdvanced() {
 // This mirrors the exact logic from the original giu implementation.
 func (a *App) updateUIState() {
 	snap := a.State.UISnapshot()
-	configureDisabled := snap.Scanning || !hasSelectedInput(snap)
-	startDisabled := a.startDisabled(snap)
+	configureDisabled := a.mobileImportActive || snap.Scanning || !hasSelectedInput(snap)
+	startDisabled := a.mobileImportActive || a.startDisabled(snap)
+
+	for _, button := range []*widget.Button{a.mobileSelectFilesBtn, a.mobileSelectFolderBtn, a.mobileAppStorageBtn} {
+		if button == nil {
+			continue
+		}
+		if a.mobileImportActive {
+			button.Disable()
+		} else {
+			button.Enable()
+		}
+	}
 
 	// Clear button
 	if a.clearButton != nil {
@@ -948,9 +1040,11 @@ func (a *App) updateUIState() {
 		}
 		// In decrypt mode with valid comments, keep entry enabled but read-only
 		// (OnChanged will prevent actual changes). This keeps text visible, not pale.
-		if snap.Mode == "decrypt" && snap.CommentsPreviewState == app.CommentsPreviewNormal && snap.Comments != "" {
+		if configureDisabled {
+			a.commentsEntry.Disable()
+		} else if snap.Mode == "decrypt" && snap.CommentsPreviewState == app.CommentsPreviewNormal && snap.Comments != "" {
 			a.commentsEntry.Enable() // Keep text visible (not pale)
-		} else if configureDisabled || commentsOuterDisabled || commentsInnerDisabled {
+		} else if commentsOuterDisabled || commentsInnerDisabled {
 			a.commentsEntry.Disable()
 		} else {
 			a.commentsEntry.Enable()

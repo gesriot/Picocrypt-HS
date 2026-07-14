@@ -55,9 +55,7 @@ func showFatalErrorDialog(err error) {
 	// os.Exit(1) runs (the error dialog sits on top of this window).
 	win.SetCloseIntercept(func() { a.Quit() })
 	a.Lifecycle().SetOnStarted(func() {
-		fyne.Do(func() {
-			newFatalErrorDialog(err, win, a.Quit).Show()
-		})
+		newFatalErrorDialog(err, win, a.Quit).Show()
 	})
 	win.ShowAndRun()
 }

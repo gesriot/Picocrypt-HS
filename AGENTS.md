@@ -88,8 +88,8 @@ Always say "Picocrypt NG" or "Picocrypt-NG" when referring to this project.
 - `src/internal/wasm/`: browser bridge behavior and WASM feature limits.
 - `src/internal/fileops/`: zip, split, recombine, unpack, path handling.
 - `src/internal/encoding/`: Reed-Solomon and padding.
-- `src/internal/diskspace/`, `src/internal/distmeta/`, `src/internal/docs/`,
-  `src/internal/workflowpolicy/`: platform, release, embedded-doc, and CI policy support.
+- `src/internal/diskspace/`, `src/internal/distmeta/`,
+  `src/internal/workflowpolicy/`: platform, release, and CI policy support.
 - `android/`: native Android app using Kotlin/Compose + gomobile AAR.
 - `dist/`: tracked packaging metadata for Windows, macOS, Linux, Snap, Flatpak, MIME.
 - `.github/workflows/`: release and PR validation workflows.
@@ -125,12 +125,12 @@ Never rely on AI confidence for a cryptographic decision.
 
 ## Common Commands
 Run commands from `src/` unless noted.
-- Fast Go suite: `go test ./...`
+- Fast Go suite: `go test -tags migrated_fynedo ./...`
 - Golden compatibility: `go test -run 'TestGoldenDecryption|TestGoldenCompressedDecryption|TestGoldenWrongPassword|TestGoldenV1WrongPassword' ./internal/volume`
 - CLI package: `go test ./internal/cli`
 - Opt-in CLI integration: `PICOCRYPT_RUN_CLI_INTEGRATION=1 go test ./internal/cli`
-- Race-sensitive Go work: `go test -race ./...`
-- Desktop build: `CGO_ENABLED=1 go build -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt`
+- Race-sensitive Go work: `go test -tags migrated_fynedo -race ./...`
+- Desktop build: `CGO_ENABLED=1 go build -tags migrated_fynedo -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt`
 - CLI-only build: `CGO_ENABLED=1 go build -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt`
 - Android gomobile AAR from `android/`: `./build-gomobile.sh`
 - Android app from `android/`: `./build-app`

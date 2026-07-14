@@ -59,47 +59,50 @@ func useFastTestKDF() func() {
 	return useTestKDF(fastTestVolumeKey, fastTestDeniabilityKey)
 }
 
+var (
+	productionTestVolumeKey      func(password, salt []byte, paranoid bool) ([]byte, error)
+	productionTestDeniabilityKey func(password, salt []byte) []byte
+)
+
 func useProductionTestKDF() func() {
-	return useTestKDF(crypto.DeriveKey, productionDeniabilityKey)
+	return useTestKDF(productionTestVolumeKey, productionTestDeniabilityKey)
 }
 
 func TestMain(m *testing.M) {
+	productionTestVolumeKey = deriveVolumeKey
+	productionTestDeniabilityKey = deriveDeniabilityKey
 	restore := useFastTestKDF()
 	code := m.Run()
 	restore()
 	os.Exit(code)
 }
 
-func TestFastKDFHookCanBeEnabledAndRestored(t *testing.T) {
-	restoreProduction := useProductionTestKDF()
-	password := []byte("test-password")
-	salt := bytes.Repeat([]byte{0x24}, 16)
+func TestKDFHooksCanBeEnabledAndRestored(t *testing.T) {
+	outerRestore := useTestKDF(
+		func([]byte, []byte, bool) ([]byte, error) { return []byte{0x11}, nil },
+		func([]byte, []byte) []byte { return []byte{0x12} },
+	)
+	defer outerRestore()
 
-	before, err := deriveVolumeKey(password, salt, false)
-	if err != nil {
-		restoreProduction()
-		t.Fatalf("production deriveVolumeKey returned error: %v", err)
+	innerRestore := useTestKDF(
+		func([]byte, []byte, bool) ([]byte, error) { return []byte{0x21}, nil },
+		func([]byte, []byte) []byte { return []byte{0x22} },
+	)
+
+	volumeKey, err := deriveVolumeKey(nil, nil, false)
+	if err != nil || !bytes.Equal(volumeKey, []byte{0x21}) {
+		t.Fatalf("inner volume KDF = %x, %v; want 21, nil", volumeKey, err)
+	}
+	if got := deriveDeniabilityKey(nil, nil); !bytes.Equal(got, []byte{0x22}) {
+		t.Fatalf("inner deniability KDF = %x; want 22", got)
 	}
 
-	restoreFast := useFastTestKDF()
-	fast, err := deriveVolumeKey(password, salt, false)
-	restoreFast()
-	if err != nil {
-		restoreProduction()
-		t.Fatalf("fast deriveVolumeKey returned error: %v", err)
+	innerRestore()
+	volumeKey, err = deriveVolumeKey(nil, nil, false)
+	if err != nil || !bytes.Equal(volumeKey, []byte{0x11}) {
+		t.Fatalf("restored volume KDF = %x, %v; want 11, nil", volumeKey, err)
 	}
-
-	after, err := deriveVolumeKey(password, salt, false)
-	restoreProduction()
-	if err != nil {
-		t.Fatalf("restored deriveVolumeKey returned error: %v", err)
-	}
-
-	if bytes.Equal(before, fast) {
-		t.Fatal("fast KDF should not match production KDF for the same input")
-	}
-
-	if !bytes.Equal(before, after) {
-		t.Fatal("restoring production KDF did not restore the original behavior")
+	if got := deriveDeniabilityKey(nil, nil); !bytes.Equal(got, []byte{0x12}) {
+		t.Fatalf("restored deniability KDF = %x; want 12", got)
 	}
 }

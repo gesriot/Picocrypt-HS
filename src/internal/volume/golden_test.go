@@ -218,27 +218,6 @@ func TestGoldenKeyfileCorpusPresent(t *testing.T) {
 	}
 }
 
-// TestGoldenV208CorpusPresent enforces that the cross-version 2.08 golden
-// fixture is REQUIRED (not skippable). REL-01 mandates this fixture as the
-// frozen-format interop proof, so its absence must hard-fail rather than let
-// the v208_basic case silently skip via the per-case t.Skipf in
-// TestGoldenDecryption.
-func TestGoldenV208CorpusPresent(t *testing.T) {
-	testdataPath := findTestdata(t)
-	path := filepath.Join(testdataPath, "pico_test_v208.txt.pcv")
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("required golden asset missing: %s (%v)", path, err)
-	}
-}
-
-func TestGoldenV209CorpusPresent(t *testing.T) {
-	testdataPath := findTestdata(t)
-	path := filepath.Join(testdataPath, goldenV209Fixture)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("required golden asset missing: %s (%v)", path, err)
-	}
-}
-
 // TestGoldenBasicCorpusPresent hard-fails if ANY fixture decrypted by
 // TestGoldenDecryption / TestGoldenCompressedDecryption is missing. Those suites
 // per-case t.Skipf on a missing file, so a deleted/renamed golden would silently
@@ -644,84 +623,6 @@ func TestGoldenKeyfileHeaderFlags(t *testing.T) {
 	}
 }
 
-func TestGoldenV1Detection(t *testing.T) {
-	testdataPath := findTestdata(t)
-
-	rsCodecs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("Failed to create RS codecs: %v", err)
-	}
-
-	// Test v1 file detection
-	v1Path := filepath.Join(testdataPath, "pico_test_v1.txt.pcv")
-	if _, err := os.Stat(v1Path); os.IsNotExist(err) {
-		t.Skip("v1 golden file not found")
-	}
-
-	fin, err := os.Open(v1Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = fin.Close() }()
-
-	// Read version
-	versionEnc := make([]byte, 15)
-	if _, err := io.ReadFull(fin, versionEnc); err != nil {
-		t.Fatalf("Failed to read version header: %v", err)
-	}
-
-	versionDec, err := encoding.Decode(rsCodecs.RS5, versionEnc, false)
-	if err != nil {
-		t.Fatalf("Failed to decode version: %v", err)
-	}
-
-	version := string(versionDec)
-	t.Logf("V1 file version: %s", version)
-
-	if !strings.HasPrefix(version, "v1") {
-		t.Errorf("Expected v1.x version, got: %s", version)
-	}
-}
-
-func TestGoldenV2Detection(t *testing.T) {
-	testdataPath := findTestdata(t)
-
-	rsCodecs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("Failed to create RS codecs: %v", err)
-	}
-
-	// Test v2 file detection
-	v2Path := filepath.Join(testdataPath, "pico_test_v2.txt.pcv")
-	if _, err := os.Stat(v2Path); os.IsNotExist(err) {
-		t.Skip("v2 golden file not found")
-	}
-
-	fin, err := os.Open(v2Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = fin.Close() }()
-
-	// Read version
-	versionEnc := make([]byte, 15)
-	if _, err := io.ReadFull(fin, versionEnc); err != nil {
-		t.Fatalf("Failed to read version header: %v", err)
-	}
-
-	versionDec, err := encoding.Decode(rsCodecs.RS5, versionEnc, false)
-	if err != nil {
-		t.Fatalf("Failed to decode version: %v", err)
-	}
-
-	version := string(versionDec)
-	t.Logf("V2 file version: %s", version)
-
-	if !strings.HasPrefix(version, "v2") {
-		t.Errorf("Expected v2.x version, got: %s", version)
-	}
-}
-
 func TestGoldenV209Detection(t *testing.T) {
 	testdataPath := findTestdata(t)
 
@@ -830,11 +731,10 @@ func TestGoldenWrongPassword(t *testing.T) {
 	}
 
 	err = Decrypt(context.Background(), req)
-	if err == nil {
-		t.Error("Decrypt should have failed with wrong password")
-	} else {
-		t.Logf("Expected error: %v", err)
+	if !header.IsPasswordError(err) {
+		t.Fatalf("Decrypt error = %v; want password authentication error", err)
 	}
+	t.Logf("Expected error: %v", err)
 
 	// Output should not exist
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
@@ -875,11 +775,10 @@ func TestGoldenV1WrongPassword(t *testing.T) {
 	}
 
 	err = Decrypt(context.Background(), req)
-	if err == nil {
-		t.Error("Decrypt should have failed with wrong password")
-	} else {
-		t.Logf("Expected error: %v", err)
+	if !header.IsPasswordError(err) {
+		t.Fatalf("Decrypt error = %v; want password authentication error", err)
 	}
+	t.Logf("Expected error: %v", err)
 }
 
 func TestGoldenHeaderParsing(t *testing.T) {

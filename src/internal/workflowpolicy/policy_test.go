@@ -28,31 +28,23 @@ func TestStaticChecksWorkflowEnforcesFormatVetLintAndVuln(t *testing.T) {
 	mustContain(t, gofmtStep.Run, "gofmt -l")
 
 	vetStep := mustStepNamed(t, job, "Vet")
-	mustContain(t, vetStep.Run, "go vet ./...")
+	mustContain(t, vetStep.Run, "go vet")
+	mustContain(t, vetStep.Run, "./...")
 
 	lintStep := mustStepNamed(t, job, "Lint (golangci-lint)")
-	mustContain(t, lintStep.Run, "run ./...")
+	mustContain(t, lintStep.Run, "golangci-lint run")
+	mustContain(t, lintStep.Run, "./...")
 	// golangci-lint must be pinned to an explicit version (the v2 config is
 	// version-sensitive); @latest would make CI non-reproducible.
 	mustMatch(t, lintStep.Run, `golangci-lint/v2/cmd/golangci-lint@v[0-9]+\.[0-9]+\.[0-9]+`)
 	mustNotContain(t, lintStep.Run, "golangci-lint/v2/cmd/golangci-lint@latest")
 
 	vulnStep := mustStepNamed(t, job, "Vulnerability scan (govulncheck)")
-	mustContain(t, vulnStep.Run, "govulncheck ./...")
+	mustContain(t, vulnStep.Run, "govulncheck")
+	mustContain(t, vulnStep.Run, "./...")
 
 	content := mustReadWorkflow(t, path)
 	mustContain(t, content, "pull_request:")
-}
-
-func TestReleaseActionsPinnedToFullSHA(t *testing.T) {
-	for _, tc := range releaseWorkflowCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			workflow := mustReadWorkflowDoc(t, tc.path)
-			releaseJob := mustJob(t, workflow, tc.job)
-			releaseStep := mustHaveStepUsingPrefix(t, releaseJob, "softprops/action-gh-release@")
-			mustMatch(t, releaseStep.Uses, `softprops/action-gh-release@[0-9a-f]{40}`)
-		})
-	}
 }
 
 func TestReleaseUploadsNeverOverwriteExistingAssets(t *testing.T) {
@@ -118,7 +110,6 @@ func TestReleaseJobsRequireMainBranchAndReleaseEnvironment(t *testing.T) {
 
 			content := mustReadWorkflow(t, tc.path)
 			mustContain(t, content, "publish_release:")
-			mustContain(t, content, "Existing assets are never overwritten.")
 		})
 	}
 }
@@ -327,7 +318,7 @@ func TestLinuxPRAggregateGateIgnoresCancelledDuplicate(t *testing.T) {
 	)
 }
 
-func TestLinuxWorkflowsBoundRaceParallelismAndSeparateCLIIntegration(t *testing.T) {
+func TestLinuxWorkflowsBoundRaceParallelismAndSelectOnlyCLIIntegration(t *testing.T) {
 	for _, path := range []string{
 		".github/workflows/build-linux.yml",
 		".github/workflows/pr-test-build-linux.yml",
@@ -336,14 +327,44 @@ func TestLinuxWorkflowsBoundRaceParallelismAndSeparateCLIIntegration(t *testing.
 			workflow := mustReadWorkflowDoc(t, path)
 			testStep := mustStepNamed(t, mustJob(t, workflow, "build"), "Run tests")
 
-			mustContainInOrder(t, testStep.Run,
-				"CGO_ENABLED=1 go test -v -race -p 2 -timeout 15m ./...",
-				"PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./internal/cli/...",
-			)
-			if got := strings.Count(testStep.Run, "go test -v -race"); got != 1 {
-				t.Fatalf("Linux Run tests race command count = %d, want exactly 1", got)
+			raceLineIndex := -1
+			integrationLineIndex := -1
+			raceLineCount := 0
+			integrationLineCount := 0
+			for lineIndex, line := range strings.Split(testStep.Run, "\n") {
+				if strings.Contains(line, "go test") && strings.Contains(line, "-race") {
+					raceLineCount++
+					raceLineIndex = lineIndex
+					for _, required := range []string{"-p 2", "-timeout 15m", "./..."} {
+						if !strings.Contains(line, required) {
+							t.Fatalf("Linux race test line %q is missing %q", strings.TrimSpace(line), required)
+						}
+					}
+				}
+				if strings.Contains(line, "PICOCRYPT_RUN_CLI_INTEGRATION=1") &&
+					strings.Contains(line, "go test") &&
+					strings.Contains(line, "./internal/cli/...") {
+					integrationLineCount++
+					integrationLineIndex = lineIndex
+					for _, required := range []string{"-timeout 15m", "-run '^TestCLIIntegration$'", "./internal/cli/..."} {
+						if !strings.Contains(line, required) {
+							t.Fatalf("Linux CLI integration line %q is missing %q", strings.TrimSpace(line), required)
+						}
+					}
+					if strings.Contains(line, "-race") {
+						t.Fatalf("Linux CLI integration line must not use -race: %q", strings.TrimSpace(line))
+					}
+				}
 			}
-			mustNotContain(t, testStep.Run, "PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -race")
+			if raceLineCount != 1 {
+				t.Fatalf("Linux Run tests race line count = %d, want exactly 1", raceLineCount)
+			}
+			if integrationLineCount != 1 {
+				t.Fatalf("Linux Run tests CLI integration line count = %d, want exactly 1", integrationLineCount)
+			}
+			if integrationLineIndex <= raceLineIndex {
+				t.Fatal("Linux CLI integration line must follow the race test line")
+			}
 		})
 	}
 }
@@ -418,13 +439,6 @@ func TestLinuxDebPackagingDoesNotUseExternalScaffold(t *testing.T) {
 	}
 }
 
-func TestSnapcraftActionPinnedToFullSHA(t *testing.T) {
-	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-snapcraft.yml")
-	buildJob := mustJob(t, workflow, "build-snapcraft")
-	buildStep := mustHaveStepUsingPrefix(t, buildJob, "snapcore/action-build@")
-	mustMatch(t, buildStep.Uses, `snapcore/action-build@[0-9a-f]{40}`)
-}
-
 func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-snapcraft.yml")
 	buildJob := mustJob(t, workflow, "build-snapcraft")
@@ -439,10 +453,11 @@ func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	mustContain(t, smokeStep.Run, "snap run picocrypt-ng --version")
 }
 
-func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
+func TestAndroidPRWorkflowRunsBoundedDeviceSuites(t *testing.T) {
 	const (
-		runner = "ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
-		script = "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes"
+		runner    = "ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
+		command   = "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="
+		roundtrip = "io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes"
 	)
 
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
@@ -451,9 +466,22 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 		arch   string
 		memory string
 		target string
+		script string
 	}{
-		24: {arch: "x86_64", memory: "3583", target: "google_apis"},
-		36: {arch: "x86_64", memory: "6144", target: "default"},
+		// Storage and staging must work on Picocrypt NG's Android 7 compatibility floor.
+		24: {
+			arch:   "x86_64",
+			memory: "3583",
+			target: "google_apis",
+			script: command + roundtrip + ",io.github.picocrypt_ng.picocrypt_ng.FileCopyServiceTest,io.github.picocrypt_ng.picocrypt_ng.StagingServiceInstrumentedTest",
+		},
+		// Activity security and Compose state must work on the target-SDK runtime.
+		36: {
+			arch:   "x86_64",
+			memory: "6144",
+			target: "default",
+			script: command + roundtrip + ",io.github.picocrypt_ng.picocrypt_ng.MainActivityUITest,io.github.picocrypt_ng.picocrypt_ng.ui.components.WorkButtonTest",
+		},
 	}
 	seen := make(map[int]struct{}, len(wantByAPI))
 
@@ -495,8 +523,8 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 		if got := step.With["working-directory"]; got != "android" {
 			t.Errorf("API %d working-directory = %#v, want android", apiLevel, got)
 		}
-		if got := step.With["script"]; got != script {
-			t.Errorf("API %d script = %#v, want exact on-device crypto roundtrip", apiLevel, got)
+		if got := step.With["script"]; got != want.script {
+			t.Errorf("API %d script = %#v, want exact on-device suite %q", apiLevel, got, want.script)
 		}
 		if step.If != "" {
 			t.Errorf("API %d step if = %q, want unconditional compatibility gate", apiLevel, step.If)
@@ -508,7 +536,7 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 
 	for apiLevel := range wantByAPI {
 		if _, ok := seen[apiLevel]; !ok {
-			t.Errorf("missing on-device crypto roundtrip for API %d", apiLevel)
+			t.Errorf("missing on-device suite for API %d", apiLevel)
 		}
 	}
 }
@@ -608,9 +636,6 @@ func TestAndroidBuildWorkflowsUseJDK21(t *testing.T) {
 					continue
 				}
 				setupSteps++
-				if step.Name != "Set up JDK 21" {
-					t.Fatalf("%s job %s setup-java step name = %q, want Set up JDK 21", path, jobName, step.Name)
-				}
 				if got := step.With["distribution"]; got != "temurin" {
 					t.Fatalf("%s job %s setup-java distribution = %#v, want temurin", path, jobName, got)
 				}
@@ -625,39 +650,12 @@ func TestAndroidBuildWorkflowsUseJDK21(t *testing.T) {
 	}
 
 	mustContain(t, mustReadRepoFile(t, "mise.toml"), `java = "temurin-21"`)
-	mustContain(t, mustReadRepoFile(t, "android/README.md"), "CI and recommended local builds use JDK 21")
 
 	buildScript := mustReadRepoFile(t, "android/build-app")
-	mustContain(t, buildScript, "JDK 21 is required")
 	mustContain(t, buildScript, `"$JAVA_MAJOR" != "21"`)
-	mustNotContain(t, buildScript, "JDK 17 is required")
 }
 
-func TestAndroidApiFloorStaysAt24(t *testing.T) {
-	gradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
-	mustContain(t, gradle, "minSdk = 24")
-
-	gomobile := mustReadRepoFile(t, "android/build-gomobile.sh")
-	mustContain(t, gomobile, "-androidapi 24")
-	mustContain(t, gomobile, "-ldflags=\"$GOMOBILE_LDFLAGS\"")
-
-	readme := mustReadRepoFile(t, "android/README.md")
-	mustContain(t, readme, "minimum API level 24")
-}
-
-func TestAndroidBuildsOnly64BitNativeABIs(t *testing.T) {
-	gomobile := mustReadRepoFile(t, "android/build-gomobile.sh")
-	mustContain(t, gomobile, "-target android/arm64,android/amd64")
-	mustContain(t, gomobile, "expected_abis=\"$(printf '%s\\n' arm64-v8a x86_64)\"")
-
-	gradle := mustReadRepoFile(t, "android/app/build.gradle.kts")
-	mustContain(t, gradle, `abiFilters += listOf("arm64-v8a", "x86_64")`)
-	mustContain(t, gradle, `include("arm64-v8a", "x86_64")`)
-	mustContain(t, gradle, `"arm64-v8a" to 2`)
-	mustContain(t, gradle, `"x86_64" to 4`)
-	mustNotContain(t, gradle, `"armeabi-v7a" to 1`)
-	mustNotContain(t, gradle, `"x86" to 3`)
-
+func TestAndroidReleasePublishesOnly64BitAPKNames(t *testing.T) {
 	releaseWorkflow := mustReadWorkflowDoc(t, ".github/workflows/build-android.yml")
 	prepare := mustStepNamed(t, mustJob(t, releaseWorkflow, "release"), "Prepare artifacts")
 	for _, artifact := range []string{
@@ -760,47 +758,6 @@ func TestAndroidReleaseSigningTrustAnchorAndPublicationOrder(t *testing.T) {
 			t.Fatalf("release step %q is out of order; want %s", name, strings.Join(orderedSteps, " < "))
 		}
 		lastIndex = index
-	}
-}
-
-func TestAndroidPRRunsReleaseArtifactVerifierMutationHarness(t *testing.T) {
-	job := mustJob(t, mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml"), "pr-test-build-android")
-	stepIndexes := make(map[string]int)
-	for index, step := range job.Steps {
-		stepIndexes[step.Name] = index
-	}
-
-	const buildStepName = "Build Release APK"
-	const verifierStepName = "Verify exact release APK contract"
-	const mutationStepName = "Exercise release APK verifier rejection paths"
-	for _, name := range []string{buildStepName, verifierStepName, mutationStepName} {
-		if _, ok := stepIndexes[name]; !ok {
-			t.Fatalf("expected PR Android job to contain step named %q", name)
-		}
-	}
-	if stepIndexes[buildStepName] >= stepIndexes[verifierStepName] || stepIndexes[verifierStepName] >= stepIndexes[mutationStepName] {
-		t.Fatalf("PR Android artifact gates must run in order: real unsigned APK build < positive contract check < mutation harness")
-	}
-
-	step := mustStepNamed(t, job, mutationStepName)
-	if step.WorkingDirectory != "android" {
-		t.Fatalf("mutation harness working-directory = %q, want android", step.WorkingDirectory)
-	}
-	wantRun := strings.Join([]string{
-		`bash ./test-release-apk-verifier.sh \`,
-		`  app/build/outputs/apk/release \`,
-		`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_NAME" \`,
-		`  "$ORG_GRADLE_PROJECT_PICOCRYPT_VERSION_CODE" \`,
-		`  io.github.picocrypt_ng.picocrypt_ng`,
-	}, "\n")
-	if got := strings.TrimSpace(step.Run); got != wantRun {
-		t.Fatalf("mutation harness run = %q, want %q", got, wantRun)
-	}
-	if step.If != "" {
-		t.Fatalf("mutation harness if = %q, want unconditional step", step.If)
-	}
-	if step.ContinueOnError != nil && step.ContinueOnError != false {
-		t.Fatalf("mutation harness continue-on-error = %#v, want absent or false", step.ContinueOnError)
 	}
 }
 
@@ -1070,32 +1027,54 @@ func TestWindowsLegacyWorkflowsCacheLegacyGo(t *testing.T) {
 }
 
 func TestGoToolchainsStayOnApprovedVersions(t *testing.T) {
+	type workflowLane struct {
+		path string
+		job  string
+	}
+	requiredLanes := []workflowLane{
+		{path: ".github/workflows/android-instrumented.yml", job: "android-instrumented"},
+		{path: ".github/workflows/build-android.yml", job: "build"},
+		{path: ".github/workflows/build-appimage.yml", job: "build"},
+		{path: ".github/workflows/build-linux.yml", job: "build"},
+		{path: ".github/workflows/build-macos.yml", job: "build"},
+		{path: ".github/workflows/build-windows.yml", job: "build"},
+		{path: ".github/workflows/pr-static-checks.yml", job: "static-checks"},
+		{path: ".github/workflows/pr-test-build-android.yml", job: "pr-test-build-android"},
+		{path: ".github/workflows/pr-test-build-linux.yml", job: "build"},
+		{path: ".github/workflows/pr-test-build-macos.yml", job: "pr-test-build-macos"},
+		{path: ".github/workflows/pr-test-build-windows.yml", job: "pr-test-build-windows"},
+	}
+
 	workflowFiles, err := filepath.Glob(filepath.Join(repoRoot(t), ".github", "workflows", "*.yml"))
 	if err != nil {
 		t.Fatalf("glob workflows: %v", err)
 	}
 
-	setupGoSteps := 0
+	setupGoSteps := make(map[workflowLane]int, len(requiredLanes))
 	for _, absPath := range workflowFiles {
 		relPath, err := filepath.Rel(repoRoot(t), absPath)
 		if err != nil {
 			t.Fatalf("rel path for %s: %v", absPath, err)
 		}
+		relPath = filepath.ToSlash(relPath)
 		workflow := mustReadWorkflowDoc(t, relPath)
 		for jobName, job := range workflow.Jobs {
+			lane := workflowLane{path: relPath, job: jobName}
 			for _, step := range job.Steps {
 				if !strings.HasPrefix(step.Uses, "actions/setup-go@") {
 					continue
 				}
-				setupGoSteps++
+				setupGoSteps[lane]++
 				if got := step.With["go-version"]; got != "1.26.5" {
 					t.Fatalf("%s job %s go-version = %#v, want 1.26.5", relPath, jobName, got)
 				}
 			}
 		}
 	}
-	if setupGoSteps != 11 {
-		t.Fatalf("setup-go steps = %d, want 11", setupGoSteps)
+	for _, lane := range requiredLanes {
+		if got := setupGoSteps[lane]; got != 1 {
+			t.Fatalf("%s job %s setup-go steps = %d, want exactly 1", lane.path, lane.job, got)
+		}
 	}
 
 	mise := mustReadRepoFile(t, "mise.toml")

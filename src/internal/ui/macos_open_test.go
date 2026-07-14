@@ -9,9 +9,11 @@ import (
 
 func resetOpenedPathsForTest(t *testing.T) {
 	t.Helper()
+	prepareOpenedPathsNotify()
 	setOpenedPathsNotify(nil)
 	drainOpenedPaths()
 	t.Cleanup(func() {
+		prepareOpenedPathsNotify()
 		setOpenedPathsNotify(nil)
 		drainOpenedPaths()
 	})
@@ -95,11 +97,5 @@ func TestClearingOpenedPathsNotifyCancelsPendingBatch(t *testing.T) {
 	}
 	if got := drainOpenedPaths(); !reflect.DeepEqual(got, []string{"/tmp/a.txt"}) {
 		t.Fatalf("drained paths after cancelled notify = %#v; want buffered path preserved", got)
-	}
-}
-
-func TestOpenedPathsFlushDelayStaysShortForLocalFiles(t *testing.T) {
-	if openedPathsFlushDelay > 500*time.Millisecond {
-		t.Fatalf("openedPathsFlushDelay = %s; want <= 500ms so local macOS opens stay responsive", openedPathsFlushDelay)
 	}
 }

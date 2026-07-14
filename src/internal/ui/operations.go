@@ -4,15 +4,162 @@ package ui
 import (
 	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/log"
 	"Picocrypt-NG/internal/util"
 	"Picocrypt-NG/internal/volume"
 	"context"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"fyne.io/fyne/v2"
+)
+
+type operationInput struct {
+	mode string
+
+	inputFile   string
+	inputFiles  []string
+	onlyFiles   []string
+	onlyFolders []string
+	outputFile  string
+
+	password       []byte
+	keyfiles       []string
+	keyfileOrdered bool
+	comments       string
+
+	paranoid    bool
+	reedSolomon bool
+	deniability bool
+	compress    bool
+
+	split     bool
+	chunkSize int
+	chunkUnit fileops.SplitUnit
+
+	forceDecrypt bool
+	verifyFirst  bool
+	autoUnzip    bool
+	sameLevel    bool
+	recombine    bool
+	delete       bool
+
+	rsCodecs *encoding.RSCodecs
+}
+
+type operationResult struct {
+	err          error
+	cancelled    bool
+	completed    bool
+	kept         bool
+	deleteFailed bool
+	succeeded    int
+	failed       int
+}
+
+type operationExecutor func(
+	context.Context,
+	operationInput,
+	volume.ProgressReporter,
+) operationResult
+
+type operationSourceRemover func(context.Context, string, bool) error
+
+func removeOperationSource(ctx context.Context, path string, recursive bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if recursive {
+		return os.RemoveAll(path)
+	}
+	return os.Remove(path)
+}
+
+type operationReporterGate struct {
+	mu         sync.Mutex
+	open       bool
+	ctx        context.Context
+	generation uint64
+	current    func() uint64
+	stopping   func() bool
+}
+
+func newOperationReporterGate(
+	ctx context.Context,
+	generation uint64,
+	current func() uint64,
+	stopping func() bool,
+) *operationReporterGate {
+	return &operationReporterGate{
+		open:       true,
+		ctx:        ctx,
+		generation: generation,
+		current:    current,
+		stopping:   stopping,
+	}
+}
+
+func (g *operationReporterGate) validLocked() bool {
+	return g.open && g.ctx.Err() == nil && !g.stopping() && g.current() == g.generation
+}
+
+func (g *operationReporterGate) accept(fn func()) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.validLocked() {
+		return false
+	}
+	fn()
+	return true
+}
+
+func (g *operationReporterGate) canApply() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.validLocked()
+}
+
+func (g *operationReporterGate) cancel(cancel context.CancelFunc) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.open {
+		return false
+	}
+	g.open = false
+	cancel()
+	return true
+}
+
+// finish closes callback acceptance and reports whether cancellation won the
+// terminal race. The context is cancelled before releasing the gate lock so a
+// concurrent cancel callback cannot be accepted after completion wins.
+func (g *operationReporterGate) finish(cancel context.CancelFunc) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	cancelled := g.ctx.Err() != nil
+	g.open = false
+	cancel()
+	return cancelled
+}
+
+type operationSession struct {
+	ctx        context.Context
+	cancel     context.CancelFunc
+	generation uint64
+	gate       *operationReporterGate
+}
+
+type recursiveSelectionOutcome int
+
+const (
+	recursiveSelectionUnapplied recursiveSelectionOutcome = iota
+	recursiveSelectionFailed
+	recursiveSelectionApplied
 )
 
 func showOverwriteModalForOutput(outputExists, recursively, chosenViaDialog bool) bool {
@@ -53,6 +200,10 @@ func recursiveProcessingStatus(index, total int) string {
 	})
 }
 
+func cancelledOperationStatus() string {
+	return tr("status.cancelled_by_user", "Operation cancelled by user")
+}
+
 func splitSizeReady(snap app.UISnapshot) bool {
 	if !snap.Split {
 		return true
@@ -63,18 +214,15 @@ func splitSizeReady(snap app.UISnapshot) bool {
 
 // onClickStart handles the Start button click.
 func (a *App) onClickStart() {
+	if a.mobileImportActive {
+		return
+	}
 	a.cancelOpenedPathReadiness()
 
-	// Validate
-	if a.State.Mode == "" {
+	if a.State.Mode == "" || a.startDisabled(a.State.UISnapshot()) {
 		return
 	}
 
-	if a.startDisabled(a.State.UISnapshot()) {
-		return
-	}
-
-	// Check if output exists (skip check for recursive mode - each file has different output)
 	_, outputExists := os.Stat(a.State.OutputFile)
 	if showOverwriteModalForOutput(outputExists == nil, a.State.Recursively, a.State.OutputChosenViaSaveDialog) {
 		a.showOverwriteModal()
@@ -84,154 +232,524 @@ func (a *App) onClickStart() {
 	a.startWork()
 }
 
-// startWork begins the encryption/decryption operation.
+func parseSplitSize(value string) (int, error) {
+	chunkSize := 1
+	if value == "" {
+		return chunkSize, nil
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return 0, errors.New("invalid split size")
+	}
+	return n, nil
+}
+
+func (a *App) captureOperationInput(snap app.Snapshot) (operationInput, error) {
+	chunkSize := 1
+	if snap.Mode == "encrypt" {
+		var err error
+		chunkSize, err = parseSplitSize(snap.SplitSize)
+		if err != nil {
+			return operationInput{}, err
+		}
+	}
+
+	return operationInput{
+		mode:           snap.Mode,
+		inputFile:      snap.InputFile,
+		inputFiles:     append([]string(nil), snap.InputFiles...),
+		onlyFiles:      append([]string(nil), snap.OnlyFiles...),
+		onlyFolders:    append([]string(nil), snap.OnlyFolders...),
+		outputFile:     snap.OutputFile,
+		password:       []byte(snap.Password),
+		keyfiles:       append([]string(nil), snap.Keyfiles...),
+		keyfileOrdered: snap.KeyfileOrdered,
+		comments:       snap.Comments,
+		paranoid:       snap.Paranoid,
+		reedSolomon:    snap.ReedSolomon,
+		deniability:    snap.Deniability,
+		compress:       snap.Compress,
+		split:          snap.Split,
+		chunkSize:      chunkSize,
+		chunkUnit:      splitUnitFromIndex(snap.SplitSelected),
+		forceDecrypt:   snap.Keep,
+		verifyFirst:    snap.VerifyFirst,
+		autoUnzip:      snap.AutoUnzip,
+		sameLevel:      snap.SameLevel,
+		recombine:      snap.Recombine,
+		delete:         snap.Delete,
+		rsCodecs:       a.rsCodecs,
+	}, nil
+}
+
+func (a *App) newOperationSession() *operationSession {
+	ctx, cancel := context.WithCancel(a.workers.ctx)
+	generation := a.operationGeneration.Add(1)
+	session := &operationSession{
+		ctx:        ctx,
+		cancel:     cancel,
+		generation: generation,
+	}
+	session.gate = newOperationReporterGate(
+		ctx,
+		generation,
+		a.operationGeneration.Load,
+		a.workers.isStopping,
+	)
+	return session
+}
+
+func (a *App) setOperationSession(session *operationSession) {
+	a.operationMu.Lock()
+	a.operationSession = session
+	a.operationMu.Unlock()
+}
+
+func (a *App) isCurrentOperation(session *operationSession) bool {
+	a.operationMu.Lock()
+	defer a.operationMu.Unlock()
+	return a.operationSession == session && a.operationGeneration.Load() == session.generation
+}
+
+func (a *App) clearOperationSession(session *operationSession) {
+	a.operationMu.Lock()
+	if a.operationSession == session {
+		a.operationSession = nil
+	}
+	a.operationMu.Unlock()
+}
+
+func (a *App) stopCurrentOperation() {
+	a.operationMu.Lock()
+	session := a.operationSession
+	a.operationMu.Unlock()
+	if session == nil {
+		return
+	}
+	session.gate.cancel(session.cancel)
+}
+
+func (a *App) operationCanApply(session *operationSession) bool {
+	return !a.workers.isStopping() && session.ctx.Err() == nil && a.isCurrentOperation(session)
+}
+
+// startWork begins the encryption/decryption operation. It is called only from
+// Fyne callbacks and captures every worker input before launching the worker.
 func (a *App) startWork() {
+	snap := a.State.Snapshot()
+	uiSnap := a.State.UISnapshot()
+	mobile := isMobile()
+
+	if uiSnap.Recursively && snap.Mode == "encrypt" {
+		if _, err := parseSplitSize(snap.SplitSize); err != nil {
+			a.State.SetStatusMessage(app.StatusInvalidSplitSize, util.RED, app.StatusArgs{})
+			a.updateUIState()
+			return
+		}
+	}
+
+	var input operationInput
+	var err error
+	if !uiSnap.Recursively {
+		input, err = a.captureOperationInput(snap)
+		if err != nil {
+			a.State.SetStatusMessage(app.StatusInvalidSplitSize, util.RED, app.StatusArgs{})
+			a.updateUIState()
+			return
+		}
+	} else if len(snap.InputFiles) == 0 {
+		a.State.SetStatusMessage(app.StatusNoFilesToProcess, util.YELLOW, app.StatusArgs{})
+		a.State.SetWorking(false)
+		a.State.SetShowProgress(false)
+		a.updateUIState()
+		return
+	}
+
+	reservation, ok := a.workers.reserve()
+	if !ok {
+		crypto.SecureZero(input.password)
+		return
+	}
+	launched := false
+	defer func() {
+		if !launched {
+			reservation.release()
+		}
+	}()
+
+	session := a.newOperationSession()
+	if a.workers.isStopping() || session.ctx.Err() != nil {
+		session.gate.cancel(session.cancel)
+		crypto.SecureZero(input.password)
+		return
+	}
+	a.setOperationSession(session)
 	a.State.OutputChosenViaSaveDialog = false
+	a.State.SetWorking(true)
 	a.State.SetShowProgress(true)
 	a.State.FastDecode = true
 	a.State.SetCanCancel(true)
 	a.State.ModalID++
-	a.cancelled.Store(false)
+	a.showProgressModal(session)
 
-	a.showProgressModal()
+	executor := a.operationExecutor
+	if executor == nil {
+		executor = executeVolumeOperation
+	}
+	reporter := a.CreateReporter(session)
 
-	if !a.State.Recursively {
-		// Normal mode: process single file/folder(s)
-		go func() {
-			a.doWork()
-			// Clean up mobile temp files after operation completes
-			if isMobile() {
+	launched = true
+	if uiSnap.Recursively {
+		files := append([]string(nil), snap.InputFiles...)
+		saved := a.State.RecursiveSnapshot()
+		reservation.launch(func(context.Context) {
+			lastInput, result := a.runRecursiveOperation(session, executor, reporter, files, saved)
+			if mobile {
 				a.CleanupMobileTempFiles()
 			}
-			fyne.Do(func() {
-				a.State.SetWorking(false)
-				a.State.SetShowProgress(false)
-				if a.progressModal != nil {
-					a.progressModal.Hide()
-				}
-				// Rebuild advanced section (clears options, resizes window for empty mode)
-				a.updateAdvancedSection()
-				a.updateUIState()
-			})
-		}()
-	} else {
-		// Recursive mode: process each file individually
-		a.startRecursiveWork()
-	}
-}
-
-// doWork performs the encryption or decryption operation.
-// Returns true if the operation completed successfully.
-func (a *App) doWork() bool {
-	fyne.DoAndWait(func() {
-		a.State.SetWorking(true)
-	})
-	reporter := a.CreateReporter()
-
-	if a.State.IsEncrypting() {
-		return a.doEncrypt(reporter)
-	}
-	return a.doDecrypt(reporter)
-}
-
-// startRecursiveWork handles batch processing of multiple files individually.
-func (a *App) startRecursiveWork() {
-	if len(a.State.AllFiles) == 0 {
-		a.State.SetStatusMessage(app.StatusNoFilesToProcess, util.YELLOW, app.StatusArgs{})
-		a.State.SetWorking(false)
-		a.State.SetShowProgress(false)
-		fyne.Do(func() {
-			if a.progressModal != nil {
-				a.progressModal.Hide()
-			}
-			a.updateUIState()
+			a.finishOperationWorker(session, lastInput, result, true)
 		})
 		return
 	}
 
-	// Capture all settings under one RLock before they get cleared by
-	// onDrop/resetUI, then re-apply them per file via the locked accessor (APP-02).
-	saved := a.State.RecursiveSnapshot()
-
-	files := make([]string, len(a.State.AllFiles))
-	copy(files, a.State.AllFiles)
-
-	go func() {
-		var failedCount int
-		var successCount int
-
-		for i, file := range files {
-			a.applyRecursiveSelection(file, saved, i+1, len(files))
-
-			if a.doWork() {
-				successCount++
-			} else {
-				failedCount++
-			}
-
-			// Reset Working flag so next iteration's onDrop() isn't blocked
-			// (onDrop has a guard to prevent race conditions during scanning/working)
-			fyne.DoAndWait(func() {
-				a.State.SetWorking(false)
-			})
-
-			if a.cancelled.Load() {
-				// Clean up mobile temp files after cancellation
-				if isMobile() {
-					a.CleanupMobileTempFiles()
-				}
-				fyne.DoAndWait(func() {
-					a.State.SetWorking(false)
-					a.State.SetShowProgress(false)
-					if a.progressModal != nil {
-						a.progressModal.Hide()
-					}
-					a.updateAdvancedSection()
-					a.updateUIState()
-				})
-				return
-			}
-		}
-
-		// Clean up mobile temp files after recursive operation completes
-		if isMobile() {
+	reservation.launch(func(context.Context) {
+		result := a.runCapturedOperation(session.ctx, executor, reporter, input)
+		if mobile {
 			a.CleanupMobileTempFiles()
 		}
-
-		fyne.DoAndWait(func() {
-			a.State.SetWorking(false)
-			a.State.SetShowProgress(false)
-			if failedCount == 0 {
-				a.State.SetStatusMessage(app.StatusRecursiveCompleted, util.GREEN, app.StatusArgs{Count: successCount})
-			} else if successCount == 0 {
-				a.State.SetStatusMessage(app.StatusRecursiveFailedAll, util.RED, app.StatusArgs{Count: failedCount})
-			} else {
-				a.State.SetStatusMessage(app.StatusRecursiveCompletedFailed, util.YELLOW, app.StatusArgs{OK: successCount, Failed: failedCount})
-			}
-			if a.progressModal != nil {
-				a.progressModal.Hide()
-			}
-			a.updateAdvancedSection()
-			a.updateUIState()
-		})
-	}()
-}
-
-func (a *App) applyRecursiveSelection(file string, saved app.RecursiveSnapshot, index, total int) {
-	status := recursiveProcessingStatus(index, total)
-
-	fyne.DoAndWait(func() {
-		a.onDrop([]string{file})
-		a.State.ApplyRecursiveSelection(saved)
-		a.State.SetPopupStatusText(status)
-		_ = a.boundStatus.Set(status)
+		a.finishOperationWorker(session, input, result, false)
 	})
 }
 
-// clearCredentialEntries resets the password, confirm-password, and comments entry
-// widgets to match a cleared State, then refreshes the strength meter and
-// validation. It touches Fyne widgets, so a worker goroutine must invoke it on the
-// UI goroutine (wrap in fyne.Do).
+func (a *App) runCapturedOperation(
+	ctx context.Context,
+	executor operationExecutor,
+	reporter volume.ProgressReporter,
+	input operationInput,
+) operationResult {
+	defer crypto.SecureZero(input.password)
+
+	result := executor(ctx, input, reporter)
+	if ctx.Err() != nil {
+		result.cancelled = true
+	}
+	result = a.cleanupOperationSources(ctx, input, result)
+	if ctx.Err() != nil {
+		result.cancelled = true
+	}
+	if result.cancelled {
+		return result
+	}
+	if result.completed && result.err == nil {
+		result.succeeded = 1
+	} else {
+		result.failed = 1
+	}
+	return result
+}
+
+func executeVolumeOperation(
+	ctx context.Context,
+	input operationInput,
+	reporter volume.ProgressReporter,
+) operationResult {
+	if input.mode == "encrypt" {
+		req := &volume.EncryptRequest{
+			InputFile:      input.inputFile,
+			InputFiles:     input.inputFiles,
+			OnlyFolders:    input.onlyFolders,
+			OnlyFiles:      input.onlyFiles,
+			OutputFile:     input.outputFile,
+			Password:       input.password,
+			Keyfiles:       input.keyfiles,
+			KeyfileOrdered: input.keyfileOrdered,
+			Comments:       input.comments,
+			Paranoid:       input.paranoid,
+			ReedSolomon:    input.reedSolomon,
+			Deniability:    input.deniability,
+			Compress:       input.compress,
+			Split:          input.split,
+			ChunkSize:      input.chunkSize,
+			ChunkUnit:      input.chunkUnit,
+			Reporter:       reporter,
+			RSCodecs:       input.rsCodecs,
+		}
+		err := volume.Encrypt(ctx, req)
+		return operationResult{err: err, completed: err == nil, cancelled: errors.Is(err, context.Canceled)}
+	}
+
+	kept := false
+	req := &volume.DecryptRequest{
+		InputFile:    input.inputFile,
+		OutputFile:   input.outputFile,
+		Password:     input.password,
+		Keyfiles:     input.keyfiles,
+		ForceDecrypt: input.forceDecrypt,
+		VerifyFirst:  input.verifyFirst,
+		AutoUnzip:    input.autoUnzip,
+		SameLevel:    input.sameLevel,
+		Recombine:    input.recombine,
+		Deniability:  input.deniability,
+		Reporter:     reporter,
+		RSCodecs:     input.rsCodecs,
+		Kept:         &kept,
+	}
+	err := volume.Decrypt(ctx, req)
+	return operationResult{err: err, completed: err == nil, kept: kept, cancelled: errors.Is(err, context.Canceled)}
+}
+
+func (a *App) cleanupOperationSources(ctx context.Context, input operationInput, result operationResult) operationResult {
+	if result.err != nil || !result.completed || result.cancelled || !input.delete || (input.mode == "decrypt" && result.kept) {
+		return result
+	}
+	remove := func(path string, all bool) bool {
+		remover := a.operationSourceRemover
+		if remover == nil {
+			remover = removeOperationSource
+		}
+		err := remover(ctx, path, all)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			result.cancelled = true
+			return false
+		}
+		if err != nil {
+			result.deleteFailed = true
+		}
+		return true
+	}
+
+	if input.mode == "encrypt" {
+		if len(input.inputFiles) > 0 {
+			for _, path := range input.inputFiles {
+				if !remove(path, false) {
+					return result
+				}
+			}
+			for _, path := range input.onlyFolders {
+				if !remove(path, true) {
+					return result
+				}
+			}
+			return result
+		}
+		remove(input.inputFile, false)
+		return result
+	}
+
+	if input.recombine {
+		for i := 0; ; i++ {
+			chunkPath := input.inputFile + "." + strconv.Itoa(i)
+			if _, err := os.Stat(chunkPath); os.IsNotExist(err) {
+				break
+			}
+			if !remove(chunkPath, false) {
+				return result
+			}
+		}
+		return result
+	}
+	remove(input.inputFile, false)
+	return result
+}
+
+func (a *App) runRecursiveOperation(
+	session *operationSession,
+	executor operationExecutor,
+	reporter volume.ProgressReporter,
+	files []string,
+	saved app.RecursiveSnapshot,
+) (operationInput, operationResult) {
+	var aggregate operationResult
+	var lastInput operationInput
+
+	for i, file := range files {
+		input, selection := a.captureRecursiveOperationInput(session, file, saved, i+1, len(files))
+		if selection == recursiveSelectionFailed {
+			aggregate.err = errors.New("recursive selection failed")
+			aggregate.completed = false
+			aggregate.failed++
+			continue
+		}
+		if selection != recursiveSelectionApplied || session.ctx.Err() != nil || a.operationGeneration.Load() != session.generation {
+			crypto.SecureZero(input.password)
+			aggregate.cancelled = session.ctx.Err() != nil
+			return lastInput, aggregate
+		}
+
+		result := a.runCapturedOperation(session.ctx, executor, reporter, input)
+		lastInput = input
+		aggregate.err = result.err
+		aggregate.cancelled = result.cancelled
+		aggregate.completed = result.completed
+		aggregate.kept = result.kept
+		aggregate.deleteFailed = result.deleteFailed
+		if result.completed && result.err == nil && !result.cancelled {
+			aggregate.succeeded++
+		} else if !result.cancelled {
+			aggregate.failed++
+		}
+		if result.cancelled {
+			return lastInput, aggregate
+		}
+	}
+
+	return lastInput, aggregate
+}
+
+func (a *App) captureRecursiveOperationInput(
+	session *operationSession,
+	file string,
+	saved app.RecursiveSnapshot,
+	index, total int,
+) (operationInput, recursiveSelectionOutcome) {
+	var input operationInput
+	applied := false
+	selectionFailed := false
+	fyne.DoAndWait(func() {
+		if !a.operationCanApply(session) {
+			return
+		}
+		if !a.applyDropSelection([]string{file}) {
+			selectionFailed = true
+			return
+		}
+		a.State.ApplyRecursiveSelection(saved)
+		status := recursiveProcessingStatus(index, total)
+		a.State.SetPopupStatusText(status)
+		if err := a.boundStatus.Set(status); err != nil {
+			log.Error("set recursive operation status binding", log.Err(err))
+		}
+		captured, err := a.captureOperationInput(a.State.Snapshot())
+		if err != nil {
+			a.State.SetStatusMessage(app.StatusInvalidSplitSize, util.RED, app.StatusArgs{})
+			selectionFailed = true
+			return
+		}
+		input = captured
+		applied = true
+	})
+
+	if !applied || session.ctx.Err() != nil || a.operationGeneration.Load() != session.generation {
+		crypto.SecureZero(input.password)
+		if selectionFailed && session.ctx.Err() == nil && a.operationGeneration.Load() == session.generation {
+			return operationInput{}, recursiveSelectionFailed
+		}
+		return operationInput{}, recursiveSelectionUnapplied
+	}
+	return input, recursiveSelectionApplied
+}
+
+func (a *App) finishOperationWorker(
+	session *operationSession,
+	lastInput operationInput,
+	result operationResult,
+	recursive bool,
+) {
+	if session.gate.finish(session.cancel) {
+		result.cancelled = true
+	}
+	if a.workers.isStopping() || a.operationGeneration.Load() != session.generation {
+		a.clearOperationSession(session)
+		return
+	}
+	fyne.Do(func() {
+		if a.workers.isStopping() || a.operationGeneration.Load() != session.generation {
+			a.clearOperationSession(session)
+			return
+		}
+		a.finalizeOperation(session, lastInput, result, recursive)
+	})
+}
+
+func (a *App) applyCompletedOperation(input operationInput, result operationResult) {
+	a.State.ResetUI()
+	a.State.SetInputPrompt()
+	a.State.SetStartAction(app.StartActionStart)
+	if result.kept {
+		a.State.SetKept(true)
+		a.State.SetStatusMessage(app.StatusKeptOutputUnverified, util.YELLOW, app.StatusArgs{})
+		return
+	}
+	if result.deleteFailed {
+		if input.mode == "encrypt" {
+			a.State.SetStatusMessage(app.StatusCompletedSomeDeleteFailed, util.YELLOW, app.StatusArgs{})
+		} else {
+			a.State.SetStatusMessage(app.StatusCompletedVolumeDeleteFailed, util.YELLOW, app.StatusArgs{})
+		}
+		return
+	}
+	a.State.SetStatusMessage(app.StatusCompleted, util.GREEN, app.StatusArgs{})
+}
+
+func (a *App) finalizeOperation(
+	session *operationSession,
+	lastInput operationInput,
+	result operationResult,
+	recursive bool,
+) {
+	if a.workers.isStopping() || !a.isCurrentOperation(session) {
+		return
+	}
+	a.clearOperationSession(session)
+
+	clearCredentials := false
+	switch {
+	case result.cancelled:
+		a.State.SetStatusMessage(app.StatusCancelledByUser, util.WHITE, app.StatusArgs{})
+	case recursive:
+		if result.completed && result.err == nil {
+			a.applyCompletedOperation(lastInput, result)
+			clearCredentials = true
+		}
+		switch {
+		case result.failed == 0:
+			a.State.SetStatusMessage(app.StatusRecursiveCompleted, util.GREEN, app.StatusArgs{Count: result.succeeded})
+		case result.succeeded == 0:
+			a.State.SetStatusMessage(app.StatusRecursiveFailedAll, util.RED, app.StatusArgs{Count: result.failed})
+		default:
+			a.State.SetStatusMessage(app.StatusRecursiveCompletedFailed, util.YELLOW, app.StatusArgs{OK: result.succeeded, Failed: result.failed})
+		}
+	case result.err != nil:
+		a.State.SetStatus(result.err.Error(), util.RED)
+	case result.completed:
+		a.applyCompletedOperation(lastInput, result)
+		clearCredentials = true
+	}
+
+	a.State.SetCanCancel(false)
+	a.State.SetWorking(false)
+	a.State.SetShowProgress(false)
+	if a.progressModal != nil {
+		a.progressModal.Hide()
+	}
+	if clearCredentials {
+		a.clearCredentialEntries()
+	}
+	a.updateAdvancedSection()
+	a.updateUIState()
+}
+
+func (a *App) cancelOperation(session *operationSession) {
+	if session == nil || !a.isCurrentOperation(session) {
+		return
+	}
+	if !session.gate.cancel(session.cancel) {
+		return
+	}
+	a.State.SetCanCancel(false)
+	a.State.SetStatusMessage(app.StatusCancelledByUser, util.WHITE, app.StatusArgs{})
+	if err := a.boundStatus.Set(cancelledOperationStatus()); err != nil {
+		log.Error("set cancelled operation status binding", log.Err(err))
+	}
+	if a.cancelButton != nil {
+		a.cancelButton.Disable()
+	}
+	// Working remains true until the tracked worker exits and the single
+	// finalizer has hidden the modal and applied the result.
+}
+
+// clearCredentialEntries resets the password, confirm-password, and comments
+// widgets to match a cleared State. It is UI-only.
 func (a *App) clearCredentialEntries() {
 	if a.passwordEntry != nil {
 		a.passwordEntry.SetText("")
@@ -246,10 +764,6 @@ func (a *App) clearCredentialEntries() {
 	a.updateValidation()
 }
 
-// splitUnitFromIndex maps a GUI split-unit dropdown index (State.SplitSelected,
-// aligned with State.SplitUnits) to the fileops.SplitUnit the encrypt request
-// uses. An unknown index falls back to SplitUnitKiB (the prior switch's
-// zero-value default), keeping behavior byte-identical to the inlined switch.
 func splitUnitFromIndex(index int32) fileops.SplitUnit {
 	switch index {
 	case 0:
@@ -267,213 +781,45 @@ func splitUnitFromIndex(index int32) fileops.SplitUnit {
 	}
 }
 
-// doEncrypt performs encryption using the volume package.
-func (a *App) doEncrypt(reporter *app.UIReporter) bool {
-	// APP-02: read every request-building field once, consistently, under a
-	// single RLock instead of ~15 bare cross-goroutine field reads.
-	snap := a.State.Snapshot()
-
-	chunkUnit := splitUnitFromIndex(snap.SplitSelected)
-
-	chunkSize := 1
-	if snap.SplitSize != "" {
-		n, err := strconv.Atoi(snap.SplitSize)
-		if err != nil || n <= 0 {
-			a.State.SetStatusMessage(app.StatusInvalidSplitSize, util.RED, app.StatusArgs{})
-			return false
-		}
-		chunkSize = n
-	}
-
-	shouldDelete := snap.Delete
-
-	// GUI residual: snap.Password is an un-zeroable Go string (Fyne widget.Entry).
-	// Convert it to an owned []byte for the request and zero that copy after the
-	// operation; the source string still lingers until GC (SEC-05, accepted).
-	pw := []byte(snap.Password)
-	defer crypto.SecureZero(pw)
-
-	req := &volume.EncryptRequest{
-		InputFile:      snap.InputFile,
-		InputFiles:     snap.InputFiles,
-		OnlyFolders:    snap.OnlyFolders,
-		OnlyFiles:      snap.OnlyFiles,
-		OutputFile:     snap.OutputFile,
-		Password:       pw,
-		Keyfiles:       snap.Keyfiles,
-		KeyfileOrdered: snap.KeyfileOrdered,
-		Comments:       snap.Comments,
-		Paranoid:       snap.Paranoid,
-		ReedSolomon:    snap.ReedSolomon,
-		Deniability:    snap.Deniability,
-		Compress:       snap.Compress,
-		Split:          snap.Split,
-		ChunkSize:      chunkSize,
-		ChunkUnit:      chunkUnit,
-		Reporter:       reporter,
-		RSCodecs:       a.rsCodecs,
-	}
-
-	filesToDelete := append([]string(nil), snap.InputFiles...)
-	foldersToDelete := append([]string(nil), snap.OnlyFolders...)
-	inputFileToDelete := snap.InputFile
-
-	err := volume.Encrypt(context.Background(), req)
-	if err != nil {
-		if !a.cancelled.Load() {
-			a.State.SetStatus(err.Error(), util.RED)
-		}
-		return false
-	}
-
-	a.State.ResetUI()
-	a.State.SetInputPrompt()
-	a.State.SetStartAction(app.StartActionStart)
-	a.State.SetStatusMessage(app.StatusCompleted, util.GREEN, app.StatusArgs{})
-
-	// Clear UI widgets to match the reset state
-	fyne.Do(a.clearCredentialEntries)
-
-	if shouldDelete {
-		var deleteErrors []string
-		if len(filesToDelete) > 0 {
-			for _, f := range filesToDelete {
-				if err := os.Remove(f); err != nil {
-					deleteErrors = append(deleteErrors, f)
-				}
-			}
-			for _, f := range foldersToDelete {
-				if err := os.RemoveAll(f); err != nil {
-					deleteErrors = append(deleteErrors, f)
-				}
-			}
-		} else {
-			if err := os.Remove(inputFileToDelete); err != nil {
-				deleteErrors = append(deleteErrors, inputFileToDelete)
-			}
-		}
-		if len(deleteErrors) > 0 {
-			a.State.SetStatusMessage(app.StatusCompletedSomeDeleteFailed, util.YELLOW, app.StatusArgs{})
-		}
-	}
-
-	return true
-}
-
-// doDecrypt performs decryption using the volume package.
-func (a *App) doDecrypt(reporter *app.UIReporter) bool {
-	kept := false
-
-	// APP-02: snapshot the request-building fields once under one RLock.
-	snap := a.State.Snapshot()
-
-	shouldDelete := snap.Delete
-	recombine := snap.Recombine
-	inputFile := snap.InputFile
-
-	// GUI residual: snap.Password is an un-zeroable Go string (Fyne widget.Entry).
-	// Convert it to an owned []byte for the request and zero that copy after the
-	// operation; the source string still lingers until GC (SEC-05, accepted).
-	pw := []byte(snap.Password)
-	defer crypto.SecureZero(pw)
-
-	req := &volume.DecryptRequest{
-		InputFile:    snap.InputFile,
-		OutputFile:   snap.OutputFile,
-		Password:     pw,
-		Keyfiles:     snap.Keyfiles,
-		ForceDecrypt: snap.Keep,
-		VerifyFirst:  snap.VerifyFirst,
-		AutoUnzip:    snap.AutoUnzip,
-		SameLevel:    snap.SameLevel,
-		Recombine:    snap.Recombine,
-		Deniability:  snap.Deniability,
-		Reporter:     reporter,
-		RSCodecs:     a.rsCodecs,
-		Kept:         &kept,
-	}
-
-	err := volume.Decrypt(context.Background(), req)
-	if err != nil {
-		if !a.cancelled.Load() {
-			a.State.SetStatus(err.Error(), util.RED)
-		}
-		return false
-	}
-
-	a.State.ResetUI()
-	a.State.SetInputPrompt()
-	a.State.SetStartAction(app.StartActionStart)
-
-	// Clear UI widgets to match the reset state
-	fyne.Do(a.clearCredentialEntries)
-
-	if kept {
-		a.State.SetKept(true)
-		a.State.SetStatusMessage(app.StatusKeptOutputUnverified, util.YELLOW, app.StatusArgs{})
-	} else {
-		a.State.SetStatusMessage(app.StatusCompleted, util.GREEN, app.StatusArgs{})
-	}
-
-	if shouldDelete && !kept {
-		var deleteError bool
-		if recombine {
-			for i := 0; ; i++ {
-				chunkPath := inputFile + "." + strconv.Itoa(i)
-				if _, err := os.Stat(chunkPath); os.IsNotExist(err) {
-					break
-				}
-				if err := os.Remove(chunkPath); err != nil {
-					deleteError = true
-				}
-			}
-		} else {
-			if err := os.Remove(inputFile); err != nil {
-				deleteError = true
-			}
-		}
-		if deleteError {
-			a.State.SetStatusMessage(app.StatusCompletedVolumeDeleteFailed, util.YELLOW, app.StatusArgs{})
-		}
-	}
-
-	return true
-}
-
-// CreateReporter creates a UIReporter for progress updates.
-func (a *App) CreateReporter() *app.UIReporter {
+// CreateReporter creates the complete volume-to-UI adapter for one operation
+// session. All callbacks cross the session gate before changing state or UI.
+func (a *App) CreateReporter(session *operationSession) *app.UIReporter {
 	return app.NewUIReporter(
 		func(text string) {
-			fyne.Do(func() {
+			session.gate.accept(func() {
 				a.State.SetPopupStatusText(text)
-			})
-			_ = a.boundStatus.Set(text)
-		},
-		func(fraction float32, info string) {
-			fyne.Do(func() {
-				a.State.SetProgress(fraction, info)
-			})
-			_ = a.boundProgress.Set(float64(fraction))
-		},
-		func(can bool) {
-			fyne.Do(func() {
-				a.State.SetCanCancel(can)
-				if a.cancelButton != nil {
-					if can {
-						a.cancelButton.Enable()
-					} else {
-						a.cancelButton.Disable()
-					}
+				if err := a.boundStatus.Set(text); err != nil {
+					log.Error("set operation status binding", log.Err(err))
 				}
 			})
 		},
-		func() {
+		func(fraction float32, info string) {
+			session.gate.accept(func() {
+				a.State.SetProgress(fraction, info)
+				if err := a.boundProgress.Set(float64(fraction)); err != nil {
+					log.Error("set operation progress binding", log.Err(err))
+				}
+			})
+		},
+		func(can bool) {
+			if !session.gate.accept(func() {
+				a.State.SetCanCancel(can)
+			}) {
+				return
+			}
 			fyne.Do(func() {
-				a.updateUIState()
+				if !session.gate.canApply() || a.cancelButton == nil {
+					return
+				}
+				if can {
+					a.cancelButton.Enable()
+				} else {
+					a.cancelButton.Disable()
+				}
 			})
 		},
 		func() bool {
-			return a.cancelled.Load()
+			return session.ctx.Err() != nil
 		},
 	)
 }

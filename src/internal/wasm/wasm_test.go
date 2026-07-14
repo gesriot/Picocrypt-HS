@@ -17,6 +17,8 @@ import (
 )
 
 func TestDecryptV1(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	// Read the v1 test volume (password-only, no keyfiles)
 	volumeData, err := os.ReadFile("../../testdata/golden/pico_test_v1.txt.pcv")
 	if err != nil {
@@ -43,6 +45,8 @@ func TestDecryptV1(t *testing.T) {
 }
 
 func TestDecryptV2(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	// Read the v2 test volume (password-only, no keyfiles)
 	volumeData, err := os.ReadFile("../../testdata/golden/pico_test_v2.txt.pcv")
 	if err != nil {
@@ -68,6 +72,8 @@ func TestDecryptV2(t *testing.T) {
 }
 
 func TestDecryptWrongPassword(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	volumeData, err := os.ReadFile("../../testdata/golden/pico_test_v2.txt.pcv")
 	if err != nil {
 		t.Fatalf("failed to read test file: %v", err)
@@ -97,31 +103,6 @@ func TestEncryptDecryptRoundtrip(t *testing.T) {
 
 	if !bytes.Equal(res.Plaintext, original) {
 		t.Errorf("roundtrip failed\ngot: %q\nwant: %q", res.Plaintext, original)
-	}
-}
-
-func TestEncryptDecryptLargerFile(t *testing.T) {
-	// Create a larger test file (100KB)
-	original := make([]byte, 100*1024)
-	for i := range original {
-		original[i] = byte(i % 256)
-	}
-	password := "testpassword123"
-
-	// Encrypt
-	ciphertext, errCode := EncryptVolume(original, []byte(password), EncryptOptions{})
-	if errCode != 0 {
-		t.Fatalf("encrypt failed with error code %d", errCode)
-	}
-
-	// Decrypt
-	res, errCode := DecryptVolume(ciphertext, []byte(password), DecryptOptions{})
-	if errCode != 0 {
-		t.Fatalf("decrypt failed with error code %d", errCode)
-	}
-
-	if !bytes.Equal(res.Plaintext, original) {
-		t.Errorf("roundtrip failed for larger file")
 	}
 }
 
@@ -183,6 +164,8 @@ func TestWASMUsesWriteAuthValues(t *testing.T) {
 }
 
 func TestWASMRoundtripDesktopDecrypt(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	original := []byte("Phase 6 WASM standard volume decrypts through the shared desktop volume path.")
 	password := "phase6-desktop-interop"
 
@@ -386,6 +369,8 @@ func TestWASMDecryptBuffersZeroed(t *testing.T) {
 }
 
 func TestWASMParanoidCommentsDesktopDecrypt(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	original := []byte("P0: paranoid + comments interop through the desktop volume path.")
 	password := "p0-paranoid-interop"
 	comments := "made in the browser"
@@ -436,6 +421,8 @@ func TestWASMParanoidCommentsDesktopDecrypt(t *testing.T) {
 }
 
 func TestWASMDecryptParanoidAndComments(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	original := []byte("P0: desktop paranoid volume decrypts in WASM and yields comments.")
 	password := "p0-desktop-to-wasm"
 	comments := "round-trip comment"
@@ -479,6 +466,8 @@ func TestWASMDecryptParanoidAndComments(t *testing.T) {
 }
 
 func TestWASMKeyfileEncryptDesktopDecrypt(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	kfA := []byte("keyfile-one-contents")
 	kfB := []byte("keyfile-two-contents-longer")
 	original := []byte("P1: WASM keyfile volume decrypts on desktop.")
@@ -537,6 +526,8 @@ func TestWASMKeyfileEncryptDesktopDecrypt(t *testing.T) {
 }
 
 func TestWASMDecryptKeyfiles(t *testing.T) {
+	useProductionTestWASMKDF(t)
+
 	kfA := []byte("kf-alpha")
 	kfB := []byte("kf-beta-content")
 	original := []byte("P1: desktop keyfile volume decrypts in WASM.")

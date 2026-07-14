@@ -5,11 +5,14 @@ import (
 	"Picocrypt-NG/internal/app"
 	"Picocrypt-NG/internal/fileops"
 	"Picocrypt-NG/internal/util"
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -214,26 +217,95 @@ func (a *App) showAppStorageDialog() {
 
 // showMobileFilePicker opens the native file picker for mobile
 func (a *App) showMobileFilePicker() {
-	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-		if err != nil || reader == nil {
+	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, pickerErr error) {
+		if reader == nil {
 			return
 		}
-		defer func() { _ = reader.Close() }()
+		if pickerErr != nil {
+			_ = reader.Close()
+			return
+		}
 
-		// On Android, content:// URIs don't work with os.Stat()
-		// We need to copy the file to a local temp directory
 		uri := reader.URI()
-		if uri.Scheme() == "content" {
-			localPath, copyErr := a.copyURIToTemp(reader, uri.Name())
-			if copyErr != nil {
-				a.State.SetStatusMessage(mobileFileAccessStatusKind(copyErr), util.RED, mobileFileAccessStatusArgs(copyErr))
-				a.refreshUI()
+		scheme := uri.Scheme()
+		name := uri.Name()
+		path := uri.Path()
+
+		switch scheme {
+		case "content":
+			tempDir := a.getMobileTempDir()
+			if a.mobileImportActive || a.State.IsWorking() || a.State.IsScanning() || a.workers.isStopping() {
+				_ = reader.Close()
 				return
 			}
-			a.onDrop([]string{localPath})
-		} else {
-			// For file:// URIs, use the path directly
-			a.onDrop([]string{uri.Path()})
+
+			reservation, ok := a.workers.reserve()
+			if !ok {
+				_ = reader.Close()
+				return
+			}
+
+			generation := a.mobileImportGeneration.Add(1)
+			a.mobileImportActive = true
+			a.updateUIState()
+			reservation.launch(func(ctx context.Context) {
+				localPath, copyErr := copyURIToTemp(ctx, tempDir, reader, name)
+				removeOrphan := func() {
+					if copyErr == nil && localPath != "" {
+						_ = os.Remove(localPath)
+					}
+				}
+
+				if a.workers.isStopping() || a.mobileImportGeneration.Load() != generation {
+					removeOrphan()
+					return
+				}
+
+				// Keep the reservation tracked until the queued finalizer takes
+				// ownership or shutdown leaves orphan cleanup with this worker.
+				var handoffClaimed atomic.Bool
+				handoffResult := make(chan bool, 1)
+				fyne.Do(func() {
+					handedOff := false
+					defer func() { handoffResult <- handedOff }()
+					if !handoffClaimed.CompareAndSwap(false, true) {
+						return
+					}
+					if a.workers.isStopping() || a.mobileImportGeneration.Load() != generation {
+						return
+					}
+
+					a.mobileImportActive = false
+					if copyErr != nil {
+						a.State.SetStatusMessage(mobileFileAccessStatusKind(copyErr), util.RED, mobileFileAccessStatusArgs(copyErr))
+						a.refreshUI()
+						handedOff = true
+						return
+					}
+					a.onDrop([]string{localPath})
+					handedOff = true
+				})
+
+				select {
+				case handedOff := <-handoffResult:
+					if !handedOff {
+						removeOrphan()
+					}
+				case <-ctx.Done():
+					if handoffClaimed.CompareAndSwap(false, true) {
+						removeOrphan()
+						return
+					}
+					if handedOff := <-handoffResult; !handedOff {
+						removeOrphan()
+					}
+				}
+			})
+		case "file":
+			_ = reader.Close()
+			a.onDrop([]string{path})
+		default:
+			_ = reader.Close()
 		}
 	}, a.Window)
 
@@ -335,34 +407,75 @@ func validateMobileTempFilename(name string) error {
 	return nil
 }
 
-// copyURIToTemp copies a file from a content:// URI to a local temp file
-// Returns the path to the local file
-func (a *App) copyURIToTemp(reader io.Reader, filename string) (string, error) {
+// copyURIToTemp copies a content URI stream to one local temporary file.
+func copyURIToTemp(ctx context.Context, tempDir string, reader io.ReadCloser, filename string) (resultPath string, resultErr error) {
+	var destFile *os.File
+	var destPath string
+	destinationCreated := false
+	defer func() {
+		if destFile != nil {
+			if err := destFile.Close(); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("close mobile temporary file: %w", err))
+			}
+		}
+		if err := reader.Close(); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close mobile source: %w", err))
+		}
+		if resultErr == nil {
+			return
+		}
+
+		resultPath = ""
+		if destinationCreated {
+			if err := os.Remove(destPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				resultErr = errors.Join(resultErr, fmt.Errorf("remove partial mobile temporary file: %w", err))
+			}
+		}
+	}()
+
 	if err := validateMobileTempFilename(filename); err != nil {
 		return "", err
 	}
 
-	// Create temp directory for mobile file copies
-	tempDir := a.getMobileTempDir()
 	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return "", err
 	}
 
-	// Create the destination file
-	destPath := filepath.Join(tempDir, filename)
-	destFile, err := fileops.CreateSecureNoSymlink(destPath)
+	destPath = filepath.Join(tempDir, filename)
+	var err error
+	destFile, err = fileops.CreateSecureNoSymlink(destPath)
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = destFile.Close() }()
+	destinationCreated = true
 
-	// Copy the content
-	_, err = io.Copy(destFile, reader)
-	if err != nil {
-		_ = os.Remove(destPath)
-		return "", err
+	buffer := make([]byte, 32*1024)
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+
+		n, readErr := reader.Read(buffer)
+		if n > 0 {
+			written, writeErr := destFile.Write(buffer[:n])
+			if writeErr != nil {
+				return "", writeErr
+			}
+			if written != n {
+				return "", io.ErrShortWrite
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return "", readErr
+		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	return destPath, nil
 }
 

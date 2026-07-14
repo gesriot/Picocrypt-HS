@@ -57,7 +57,7 @@ jobs:
     - name: Build GUI
       run: |
         cd src
-        go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+        go build -v -tags migrated_fynedo -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
 

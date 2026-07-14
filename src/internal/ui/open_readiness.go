@@ -158,10 +158,21 @@ func (a *App) cancelOpenedPathReadiness() {
 	}
 }
 
-func (a *App) beginOpenedPathReadiness(paths []string) (context.Context, uint64) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (a *App) beginOpenedPathReadiness(paths []string) (context.Context, uint64, *workerReservation, bool) {
+	ctx, cancel := context.WithCancel(a.workers.ctx)
+	reservation, ok := a.workers.reserve()
+	if !ok {
+		cancel()
+		return nil, 0, nil, false
+	}
 
 	a.openReadinessMu.Lock()
+	if a.workers.isStopping() {
+		a.openReadinessMu.Unlock()
+		cancel()
+		reservation.release()
+		return nil, 0, nil, false
+	}
 	previousCancel := a.openReadinessCancel
 	a.openReadinessGeneration++
 	generation := a.openReadinessGeneration
@@ -174,13 +185,16 @@ func (a *App) beginOpenedPathReadiness(paths []string) (context.Context, uint64)
 	if previousCancel != nil {
 		previousCancel()
 	}
-	return ctx, generation
+	return ctx, generation, reservation, true
 }
 
 func (a *App) isOpenedPathReadinessCurrent(generation uint64) bool {
+	if a.workers.isStopping() {
+		return false
+	}
 	a.openReadinessMu.Lock()
 	defer a.openReadinessMu.Unlock()
-	return a.openReadinessGeneration == generation && a.openReadinessCancel != nil
+	return !a.workers.isStopping() && a.openReadinessGeneration == generation && a.openReadinessCancel != nil
 }
 
 func (a *App) finishOpenedPathReadiness(generation uint64) {
@@ -241,9 +255,12 @@ func (a *App) openedPathReadinessCanUpdateUI(generation uint64) bool {
 }
 
 func (a *App) openedPathReadinessSnapshot(generation uint64) ([]string, bool) {
+	if a.workers.isStopping() {
+		return nil, false
+	}
 	a.openReadinessMu.Lock()
 	defer a.openReadinessMu.Unlock()
-	if a.openReadinessGeneration != generation || a.openReadinessCancel == nil {
+	if a.workers.isStopping() || a.openReadinessGeneration != generation || a.openReadinessCancel == nil {
 		return nil, false
 	}
 	return append([]string(nil), a.openReadinessPaths...), true
@@ -253,9 +270,12 @@ func (a *App) openedPathReadinessSnapshot(generation uint64) ([]string, bool) {
 // openedPathCloudSettleRemaining holds the apply open for trailing batches.
 // It does NOT gate merging: mergeLateOpenedPaths extends any active session.
 func (a *App) enableLateOpenedPathCollection(generation uint64) {
+	if a.workers.isStopping() {
+		return
+	}
 	a.openReadinessMu.Lock()
 	defer a.openReadinessMu.Unlock()
-	if a.openReadinessGeneration != generation || a.openReadinessCancel == nil {
+	if a.workers.isStopping() || a.openReadinessGeneration != generation || a.openReadinessCancel == nil {
 		return
 	}
 	a.openReadinessCollectLate = true
@@ -265,9 +285,12 @@ func (a *App) enableLateOpenedPathCollection(generation uint64) {
 // later openURLs: batch of the same gesture. Merging before apply is always
 // safe: the session re-checks readiness for the combined set before applying.
 func (a *App) mergeLateOpenedPaths(paths []string) bool {
+	if a.workers.isStopping() {
+		return false
+	}
 	a.openReadinessMu.Lock()
 	defer a.openReadinessMu.Unlock()
-	if a.openReadinessCancel == nil {
+	if a.workers.isStopping() || a.openReadinessCancel == nil {
 		return false
 	}
 
@@ -344,8 +367,11 @@ func (a *App) mergeWithRecentCloudApply(paths []string) []string {
 }
 
 func (a *App) finishOpenedPathReadinessIfPathsCurrent(generation uint64, paths []string, hadCloudItem bool) bool {
+	if a.workers.isStopping() {
+		return false
+	}
 	a.openReadinessMu.Lock()
-	if a.openReadinessGeneration != generation || a.openReadinessCancel == nil {
+	if a.workers.isStopping() || a.openReadinessGeneration != generation || a.openReadinessCancel == nil {
 		a.openReadinessMu.Unlock()
 		return false
 	}
@@ -393,9 +419,12 @@ func (a *App) suppressesOpenedPaths() bool {
 }
 
 func (a *App) openedPathCloudSettleRemaining(generation uint64) time.Duration {
+	if a.workers.isStopping() {
+		return 0
+	}
 	a.openReadinessMu.Lock()
 	defer a.openReadinessMu.Unlock()
-	if a.openReadinessGeneration != generation || a.openReadinessCancel == nil || !a.openReadinessCollectLate {
+	if a.workers.isStopping() || a.openReadinessGeneration != generation || a.openReadinessCancel == nil || !a.openReadinessCollectLate {
 		return 0
 	}
 	if openedPathCloudSettleDelay <= 0 {
@@ -409,6 +438,9 @@ func (a *App) openedPathCloudSettleRemaining(generation uint64) time.Duration {
 }
 
 func applyOpenedPathPreparingStatus(a *App, generation uint64) {
+	if !a.isOpenedPathReadinessCurrent(generation) {
+		return
+	}
 	fyne.Do(func() {
 		if !a.openedPathReadinessUIGuard(generation) {
 			return
@@ -419,6 +451,9 @@ func applyOpenedPathPreparingStatus(a *App, generation uint64) {
 }
 
 func (a *App) applyOpenedPaths(paths []string) {
+	if a.workers.isStopping() {
+		return
+	}
 	normalized := normalizeOpenedPaths(paths)
 	if len(normalized) == 0 {
 		return
@@ -434,17 +469,13 @@ func (a *App) applyOpenedPaths(paths []string) {
 		return
 	}
 
-	ctx, generation := a.beginOpenedPathReadiness(normalized)
-	a.openReadinessMu.Lock()
-	if a.openReadinessStopped {
-		a.openReadinessMu.Unlock()
-		a.finishOpenedPathReadiness(generation)
+	ctx, generation, reservation, ok := a.beginOpenedPathReadiness(normalized)
+	if !ok {
 		return
 	}
-	a.openReadinessTasks.Go(func() {
+	reservation.launch(func(context.Context) {
 		a.waitForOpenedPathsAndApply(ctx, generation)
 	})
-	a.openReadinessMu.Unlock()
 }
 
 func (a *App) waitForOpenedPathsAndApply(ctx context.Context, generation uint64) {
@@ -556,6 +587,9 @@ func sameStringSlices(a, b []string) bool {
 func (a *App) applyReadyOpenedPaths(generation uint64, paths []string, hadCloudItem bool) bool {
 	applied := false
 	beforeOpenedPathReadyApply()
+	if !a.isOpenedPathReadinessCurrent(generation) {
+		return false
+	}
 	fyne.DoAndWait(func() {
 		if !a.openedPathReadinessUIGuard(generation) {
 			return
@@ -571,6 +605,9 @@ func (a *App) applyReadyOpenedPaths(generation uint64, paths []string, hadCloudI
 }
 
 func (a *App) applyOpenedPathReadinessError(generation uint64) {
+	if !a.isOpenedPathReadinessCurrent(generation) {
+		return
+	}
 	fyne.Do(func() {
 		if !a.openedPathReadinessCanUpdateUI(generation) {
 			return
@@ -583,6 +620,9 @@ func (a *App) applyOpenedPathReadinessError(generation uint64) {
 }
 
 func (a *App) applyOpenedPathReadinessTimeout(generation uint64) {
+	if !a.isOpenedPathReadinessCurrent(generation) {
+		return
+	}
 	fyne.Do(func() {
 		if !a.openedPathReadinessCanUpdateUI(generation) {
 			return

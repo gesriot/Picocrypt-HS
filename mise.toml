@@ -59,23 +59,23 @@ fi
 [tasks.vet]
 description = "Run go vet with CGO enabled"
 dir = "src"
-run = "CGO_ENABLED=1 go vet ./..."
+run = "CGO_ENABLED=1 go vet -tags migrated_fynedo ./..."
 
 [tasks.lint]
 description = "Run golangci-lint"
 dir = "src"
-run = "golangci-lint run ./..."
+run = "golangci-lint run --build-tags migrated_fynedo ./..."
 
 [tasks.vuln]
 description = "Run govulncheck"
 dir = "src"
-run = "govulncheck ./..."
+run = "govulncheck -tags migrated_fynedo ./..."
 
 [tasks.test]
 description = "Run the fast Go test suite"
 alias = "t"
 dir = "src"
-run = "go test ./..."
+run = "go test -tags migrated_fynedo ./..."
 
 [tasks."test:golden"]
 description = "Run volume golden compatibility tests"
@@ -95,13 +95,13 @@ run = "PICOCRYPT_RUN_CLI_INTEGRATION=1 go test ./internal/cli"
 [tasks."test:race"]
 description = "Run race-sensitive Go tests with bounded package parallelism"
 dir = "src"
-run = "CGO_ENABLED=1 go test -race -p 2 -timeout 15m ./..."
+run = "CGO_ENABLED=1 go test -tags migrated_fynedo -race -p 2 -timeout 15m ./..."
 
 [tasks."build:desktop"]
 description = "Build the desktop GUI binary"
 alias = "bd"
 dir = "src"
-run = "CGO_ENABLED=1 go build -ldflags='-s -w' -o Picocrypt-NG ./cmd/picocrypt"
+run = "CGO_ENABLED=1 go build -tags migrated_fynedo -ldflags='-s -w' -o Picocrypt-NG ./cmd/picocrypt"
 
 [tasks."build:cli"]
 description = "Build the CLI-only binary"

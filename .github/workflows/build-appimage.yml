@@ -48,7 +48,7 @@ jobs:
     - name: Build GUI
       run: |
         cd src
-        GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=1 go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+        GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=1 go build -v -tags migrated_fynedo -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
 
     - name: Fetch and verify AppImage tooling
       run: |

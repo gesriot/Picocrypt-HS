@@ -39,7 +39,7 @@ Download the appropriate binary for your platform from the [releases page](https
 cd src/
 
 # GUI + CLI build (requires graphics libraries)
-CGO_ENABLED=1 go build -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+CGO_ENABLED=1 go build -tags migrated_fynedo -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
 
 # CLI-only build (no graphics dependencies)
 CGO_ENABLED=1 go build -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
@@ -51,7 +51,7 @@ Picocrypt NG offers two build configurations:
 
 | Build Mode | Command | Graphics Required | Use Case |
 |------------|---------|-------------------|----------|
-| GUI + CLI | `go build ./cmd/picocrypt` | Yes | Desktop systems |
+| GUI + CLI | `go build -tags migrated_fynedo ./cmd/picocrypt` | Yes | Desktop systems |
 | CLI-only | `go build -tags cli ./cmd/picocrypt` | No | Servers, containers, automation |
 
 The **CLI-only build** has zero graphics dependencies, making it suitable for:

@@ -16,17 +16,17 @@
 ```bash
 git clone https://github.com/Picocrypt-NG/Picocrypt-NG.git
 cd Picocrypt-NG/src
-go build -o picocrypt ./cmd/picocrypt
+go build -tags migrated_fynedo -o picocrypt ./cmd/picocrypt
 ```
 
 ## Testing
 
 ```bash
-go test ./...                                        # All tests
-go test -cover ./...                                 # With coverage
-go test -race ./...                                  # Race detector
+go test -tags migrated_fynedo ./...                  # All tests
+go test -tags migrated_fynedo -cover ./...           # With coverage
+go test -tags migrated_fynedo -race ./...            # Race detector
 go test -v ./internal/volume -run TestGoldenVectors  # Backward compatibility
-go test -bench=. ./...                               # Benchmarks
+go test -tags migrated_fynedo -bench=. ./...         # Benchmarks
 ```
 
 Golden tests verify v1/v2 volume compatibility.
@@ -34,7 +34,7 @@ Golden tests verify v1/v2 volume compatibility.
 ## Code Style
 
 - Run `gofmt -w .` before committing
-- Use `golangci-lint run` for linting
+- Use `golangci-lint run --build-tags migrated_fynedo` for linting
 - Doc comments on all exported symbols
 - Handle all errors
 - Use `defer` for cleanup
@@ -78,9 +78,9 @@ AI assistance does not replace human judgment on security decisions.
 
 ### Before Submitting
 
-- [ ] Tests pass (`go test ./...`)
+- [ ] Tests pass (`go test -tags migrated_fynedo ./...`)
 - [ ] Code formatted (`gofmt -w .`)
-- [ ] Linter clean (`golangci-lint run`)
+- [ ] Linter clean (`golangci-lint run --build-tags migrated_fynedo`)
 - [ ] Golden tests pass
 - [ ] Documentation updated
 

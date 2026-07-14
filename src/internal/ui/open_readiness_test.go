@@ -1,11 +1,9 @@
 package ui
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"testing"
-	"time"
 )
 
 func TestNormalizeOpenedPathsFiltersProcessSerialAndDedupesInOrder(t *testing.T) {
@@ -40,13 +38,5 @@ func TestOpenedPathReadinessResultReportsTerminalErrors(t *testing.T) {
 	}
 	if result.terminalError() == nil {
 		t.Fatal("terminalError() = nil; want access error")
-	}
-}
-
-func TestSleepOrCancelStopsOnContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if !sleepOrCancel(ctx, time.Hour) {
-		t.Fatal("sleepOrCancel() = false after cancellation; want true")
 	}
 }

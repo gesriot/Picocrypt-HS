@@ -53,6 +53,11 @@ jobs:
       run: |
         sudo apt install -y gcc pkg-config libgl1-mesa-dev xorg-dev libgtk-3-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev wget libxml2-utils librsvg2-bin desktop-file-utils appstream
 
+    - name: Install Linux GUI smoke dependencies
+      if: matrix.arch == 'amd64'
+      run: |
+        sudo apt install -y xvfb openbox xdotool wmctrl libgl1-mesa-dri
+
     - name: Validate dist artefacts
       run: |
         xmllint --noout dist/mime/application-x-pcv.xml
@@ -72,12 +77,12 @@ jobs:
         cd src
         if [ "${{ matrix.arch }}" = "amd64" ]; then
           # Under -race, concurrent Argon2 volume and Fyne package tests exceed the
-          # runner's RAM, so cap package binaries at two. CLI integration spawns a
-          # separate non-race product binary, so run it separately without -race.
-          CGO_ENABLED=1 go test -v -race -p 2 -timeout 15m ./...
-          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./internal/cli/...
+          # runner's RAM, so cap package binaries at two. Only the single opt-in CLI
+          # integration parent runs separately with its non-race product binary.
+          CGO_ENABLED=1 go test -v -tags migrated_fynedo -race -p 2 -timeout 15m ./...
+          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m -run '^TestCLIIntegration$' ./internal/cli/...
         else
-          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -timeout 15m ./...
+          PICOCRYPT_RUN_CLI_INTEGRATION=1 CGO_ENABLED=1 go test -v -tags migrated_fynedo -timeout 15m ./...
         fi
 
     - name: Build GUI
@@ -86,7 +91,11 @@ jobs:
         if [ "${{ matrix.arch }}" = "amd64" ]; then
           export GOAMD64=v1
         fi
-        GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -v -ldflags="-s -w" -o "${{ matrix.gui_binary }}" ./cmd/picocrypt
+        GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -v -tags migrated_fynedo -ldflags="-s -w" -o "${{ matrix.gui_binary }}" ./cmd/picocrypt
+
+    - name: Smoke test Linux GUI
+      if: matrix.arch == 'amd64'
+      run: .github/scripts/smoke-linux-gui.sh "src/${{ matrix.gui_binary }}"
 
     - name: Build CLI-only (no graphics dependencies)
       run: |

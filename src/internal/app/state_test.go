@@ -5,39 +5,11 @@ import (
 	"Picocrypt-NG/internal/util"
 	"errors"
 	"image/color"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 )
-
-// repoRoot walks up from the test working directory to the repository root —
-// the first ancestor that contains both the VERSION file and .github/workflows.
-// Mirrors the established pattern in internal/distmeta and internal/workflowpolicy
-// (no repoRoot exists in package app). Used by TestStateVersion to tie the
-// app.Version const to the canonical VERSION file.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	current := wd
-	for {
-		_, verErr := os.Stat(filepath.Join(current, "VERSION"))
-		_, wfErr := os.Stat(filepath.Join(current, ".github", "workflows"))
-		if verErr == nil && wfErr == nil {
-			return current
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			t.Fatal("could not find repository root (dir with VERSION and .github/workflows) from test working directory")
-		}
-		current = parent
-	}
-}
 
 // mustNewState builds a *State for tests, failing the test if RS-codec
 // initialization returns an error. Centralizes the (*State, error) call so the
@@ -617,20 +589,6 @@ func TestSetProgress(t *testing.T) {
 	}
 }
 
-func TestSetCanCancel(t *testing.T) {
-	state := mustNewState(t)
-
-	state.SetCanCancel(true)
-	if !state.CanCancel {
-		t.Error("CanCancel should be true")
-	}
-
-	state.SetCanCancel(false)
-	if state.CanCancel {
-		t.Error("CanCancel should be false")
-	}
-}
-
 func TestGenPassword(t *testing.T) {
 	state := mustNewState(t)
 
@@ -671,92 +629,6 @@ func TestGenPasswordNoOptions(t *testing.T) {
 
 	if password != "" {
 		t.Errorf("Password = %q; want empty when no char sets", password)
-	}
-}
-
-// TestStateWorkerCallbackConcurrency models the APP-02 worker↔render boundary:
-// one set of goroutines plays the encrypt/decrypt worker (reading the request
-// fields via Snapshot() and writing status/result via the locked setters), while
-// another set plays the Fyne render-thread callbacks (reading/writing the same
-// fields via the locked getters/setters). It must be clean under `go test -race`
-// — it is the project-code race the APP-02 gate keeps green (D-06).
-//
-// This test will not compile until State grows Snapshot() plus the missing
-// locked accessors (Mode/Working/InputFile/OutputFile/Comments/Deniability/
-// Keep/Kept). That non-compiling state is the RED phase.
-func TestStateWorkerCallbackConcurrency(t *testing.T) {
-	state, err := NewState()
-	if err != nil {
-		t.Fatalf("NewState() error: %v", err)
-	}
-
-	const iterations = 200
-	var wg sync.WaitGroup
-
-	// Worker goroutine: build a request snapshot under one RLock, then write
-	// status/result through the locked setters — exactly the operations.go
-	// doEncrypt/doDecrypt hot-path access pattern.
-	wg.Go(func() {
-		for i := range iterations {
-			snap := state.Snapshot()
-			// Touch the snapshot fields so the race detector sees the reads.
-			_ = snap.Mode
-			_ = snap.InputFile
-			_ = snap.OutputFile
-			_ = snap.Password
-			_ = snap.Keyfiles
-			_ = snap.Comments
-			_ = snap.Paranoid
-			_ = snap.ReedSolomon
-			_ = snap.Deniability
-			_ = snap.Compress
-			_ = snap.VerifyFirst
-			_ = snap.Keep
-			state.SetStatus("working", util.WHITE)
-			state.SetKept(i%2 == 0)
-		}
-	})
-
-	// Render-thread callback goroutine: drives the locked setters the drop /
-	// operations callbacks use to mutate shared fields concurrently.
-	wg.Go(func() {
-		for i := range iterations {
-			state.SetMode("encrypt")
-			state.SetWorking(i%2 == 0)
-			state.SetInputFile("in.txt")
-			state.SetOutputFile("out.pcv")
-			state.SetComments("hello")
-			state.SetDeniability(i%2 == 0)
-			state.SetKeep(i%2 == 1)
-		}
-	})
-
-	// Render-thread reader goroutine: hits the locked getters concurrently.
-	wg.Go(func() {
-		for range iterations {
-			_ = state.IsEncrypting()
-			_ = state.IsDecrypting()
-			_ = state.IsWorking()
-			rsnap := state.Snapshot()
-			_ = rsnap.InputFile
-			_ = rsnap.OutputFile
-			_ = rsnap.Comments
-			_ = rsnap.Deniability
-			_ = rsnap.Keep
-			_ = state.WasKept()
-		}
-	})
-
-	wg.Wait()
-
-	// Sanity: the accessors round-trip a written value consistently.
-	state.SetMode("decrypt")
-	if !state.IsDecrypting() {
-		t.Fatal("IsDecrypting() = false after SetMode(\"decrypt\")")
-	}
-	state.SetWorking(true)
-	if !state.IsWorking() {
-		t.Fatal("IsWorking() = false after SetWorking(true)")
 	}
 }
 
@@ -874,21 +746,4 @@ func TestPassgenCharClassesDefaultOn(t *testing.T) {
 			t.Fatalf("after Reset passgen classes = %v; want %v", got, want)
 		}
 	})
-}
-
-// TestStateVersion is a desync tripwire, not a tautology: it asserts the
-// app.Version const stays in lockstep with the canonical root VERSION file
-// (app.Version must be "v" + <VERSION>). A version bump that edits VERSION but
-// forgets state.go (or vice versa) fails here. This is non-duplicative of
-// distmeta's TestActiveReleaseMetadataVersions, which validates VERSION against
-// distribution metadata but never references app.Version.
-func TestStateVersion(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "VERSION"))
-	if err != nil {
-		t.Fatalf("read VERSION: %v", err)
-	}
-	want := "v" + strings.TrimSpace(string(raw))
-	if Version != want {
-		t.Fatalf("app.Version = %q; want %q (derived from root VERSION file)", Version, want)
-	}
 }

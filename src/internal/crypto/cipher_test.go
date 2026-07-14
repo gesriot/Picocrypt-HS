@@ -10,8 +10,8 @@ import (
 // [132]uint32 derived from the Serpent key; if it survives Close it is residual
 // key material. The check encrypts a fixed block before Close (capturing the
 // keyed ciphertext), then encrypts the same block again after Close and asserts
-// the two outputs DIFFER — proving the key material is gone. Skips gracefully
-// if the linked serpent build predates Zero().
+// the two outputs DIFFER — proving the key material is gone. The reviewed
+// serpent fork must expose Zero(); without it, key-schedule wiping is absent.
 func TestCipherSuiteCloseWipesSerpentSchedule(t *testing.T) {
 	key := bytes.Repeat([]byte{1}, 32)
 	nonce := bytes.Repeat([]byte{2}, 24)
@@ -32,7 +32,7 @@ func TestCipherSuiteCloseWipesSerpentSchedule(t *testing.T) {
 		Encrypt(dst, src []byte)
 	})
 	if !ok {
-		t.Skip("serpent fork without Zero() not yet released")
+		t.Fatal("serpent block does not expose required Zero() key-schedule wiping")
 	}
 
 	pt := bytes.Repeat([]byte{0xAB}, 16) // one Serpent block

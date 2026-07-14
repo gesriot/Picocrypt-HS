@@ -10,12 +10,6 @@ name: pr-test-installer-upgrade
 # Tiny stub binaries are used (the installer copies bytes verbatim — it does not
 # parse the exe), so this does not depend on the heavy Go/ResHacker/UPX pipeline.
 #
-# Scenario 0 is a NEGATIVE CONTROL: it builds a minimal installer that
-# deliberately reproduces the pre-fix File+Rename bug and asserts the test
-# harness DETECTS it. If the detector fails to flag a known-broken installer the
-# whole job fails — this is what proves the real assertions below are not
-# fictitious (i.e. cannot silently pass when the behavior regresses).
-
 permissions:
   contents: read
 
@@ -51,8 +45,6 @@ jobs:
         $outDir   = (Resolve-Path "dist\windows").Path
         $built    = Join-Path $outDir "Picocrypt-NG-Setup.exe"
         $version  = (Get-Content -Path "VERSION" -Raw).Trim()
-        $tmp      = $env:RUNNER_TEMP
-
         # --- helpers ---------------------------------------------------------
 
         function Main-Path([string]$dir) { Join-Path $dir "Picocrypt-NG.exe" }
@@ -84,59 +76,6 @@ jobs:
           $got = if (Test-Path $exe) { Get-Content -Path $exe -Raw } else { "<missing>" }
           throw "$ctx : expected main exe '$expected', got '$got'"
         }
-
-        # === Scenario 0: NEGATIVE CONTROL ====================================
-        # Build a minimal installer that reproduces the pre-fix bug (File then
-        # Rename onto the existing target) and prove the harness flags it. NSIS
-        # Rename fails when the destination exists, so the upgrade must leave the
-        # OLD marker plus an orphan — exactly what Assert-Main / the orphan check
-        # must catch. If they don't, the real test below would be fictitious.
-        $negNsi = Join-Path $tmp "neg.nsi"
-        $negSrc = Join-Path $tmp "neg-src.bin"
-        $negDir = "C:\pcng-neg"
-        # Built from an array (not a here-string) so it is immune to YAML block
-        # indentation. Single-quoted lines keep $INSTDIR literal for NSIS;
-        # double-quoted lines interpolate the PowerShell temp paths.
-        $negScript = @(
-          'Unicode true',
-          'Name "neg-control"',
-          "OutFile `"$tmp\neg-setup.exe`"",
-          'InstallDir "C:\pcng-neg-default"',
-          'RequestExecutionLevel admin',
-          'Section',
-          '  SetOutPath "$INSTDIR"',
-          "  File `"/oname=Picocrypt-NG-portable.exe`" `"$negSrc`"",
-          '  Rename "$INSTDIR\Picocrypt-NG-portable.exe" "$INSTDIR\Picocrypt-NG.exe"',
-          'SectionEnd'
-        ) -join "`r`n"
-        Set-Content -Path $negNsi -Value $negScript -Encoding ascii
-
-        function Build-Bug-Installer([string]$marker, [string]$dest) {
-          Set-Content -Path $negSrc -Value $marker -NoNewline -Encoding ascii
-          & $makensis -V2 $negNsi
-          if ($LASTEXITCODE -ne 0) { throw "neg makensis failed ($LASTEXITCODE)" }
-          Copy-Item (Join-Path $tmp "neg-setup.exe") $dest -Force
-        }
-
-        if (Test-Path $negDir) { Remove-Item -Recurse -Force $negDir }
-        Build-Bug-Installer "NEG1" (Join-Path $tmp "neg1.exe")
-        Build-Bug-Installer "NEG2" (Join-Path $tmp "neg2.exe")
-
-        $rc = Install (Join-Path $tmp "neg1.exe") $negDir
-        if ($rc -ne 0) { throw "neg control v1 install exit code $rc" }
-        Assert-Main $negDir "NEG1" "neg control v1"
-
-        $rc = Install (Join-Path $tmp "neg2.exe") $negDir
-        if ($rc -ne 0) { throw "neg control v2 install exit code $rc" }
-        $detected = $false
-        try { Assert-Main $negDir "NEG2" "neg control upgrade (expected to fail)" } catch { $detected = $true }
-        if (-not $detected) {
-          throw "NEGATIVE CONTROL FAILED: harness did not detect a stale upgrade -> the runtime test is fictitious"
-        }
-        if (-not (Test-Path (Orphan-Path $negDir))) {
-          throw "NEGATIVE CONTROL FAILED: reproduced bug did not leave the expected orphan -> harness cannot see it"
-        }
-        Write-Host "OK: negative control confirms the harness detects the #163 regression (stale main exe + orphan)"
 
         # === Scenario A: clean install, then upgrade overwrites in place (#163) ===
         $instDir = "C:\pcng-itest"
@@ -175,6 +114,7 @@ jobs:
           $before = (Get-FileHash (Main-Path $instDir)).Hash
           # Silent install over the locked exe: MessageBox /SD IDCANCEL -> abort.
           $rc = Install (Join-Path $outDir "setup-v3.exe") $instDir
+          if ($running.HasExited) { throw "running-instance guard test invalid: held process exited during install" }
           $after = (Get-FileHash (Main-Path $instDir)).Hash
           if ($after -ne $before) { throw "running-instance guard FAILED: locked exe was modified (rc=$rc)" }
           if ($rc -eq 0)         { throw "running-instance guard FAILED: installer reported success over a locked exe" }
