@@ -731,11 +731,10 @@ func TestGoldenWrongPassword(t *testing.T) {
 	}
 
 	err = Decrypt(context.Background(), req)
-	if err == nil {
-		t.Error("Decrypt should have failed with wrong password")
-	} else {
-		t.Logf("Expected error: %v", err)
+	if !header.IsPasswordError(err) {
+		t.Fatalf("Decrypt error = %v; want password authentication error", err)
 	}
+	t.Logf("Expected error: %v", err)
 
 	// Output should not exist
 	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
@@ -776,11 +775,10 @@ func TestGoldenV1WrongPassword(t *testing.T) {
 	}
 
 	err = Decrypt(context.Background(), req)
-	if err == nil {
-		t.Error("Decrypt should have failed with wrong password")
-	} else {
-		t.Logf("Expected error: %v", err)
+	if !header.IsPasswordError(err) {
+		t.Fatalf("Decrypt error = %v; want password authentication error", err)
 	}
+	t.Logf("Expected error: %v", err)
 }
 
 func TestGoldenHeaderParsing(t *testing.T) {

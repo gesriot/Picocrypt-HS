@@ -59,11 +59,18 @@ func useFastTestKDF() func() {
 	return useTestKDF(fastTestVolumeKey, fastTestDeniabilityKey)
 }
 
+var (
+	productionTestVolumeKey      func(password, salt []byte, paranoid bool) ([]byte, error)
+	productionTestDeniabilityKey func(password, salt []byte) []byte
+)
+
 func useProductionTestKDF() func() {
-	return useTestKDF(crypto.DeriveKey, productionDeniabilityKey)
+	return useTestKDF(productionTestVolumeKey, productionTestDeniabilityKey)
 }
 
 func TestMain(m *testing.M) {
+	productionTestVolumeKey = deriveVolumeKey
+	productionTestDeniabilityKey = deriveDeniabilityKey
 	restore := useFastTestKDF()
 	code := m.Run()
 	restore()

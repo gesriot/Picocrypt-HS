@@ -2144,8 +2144,8 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 		t.Fatalf("Failed to write tampered file: %v", err)
 	}
 
-	// Attempt to decrypt - should fail due to:
-	// 1. Salt corruption -> wrong Argon2 key -> wrong HKDF -> header MAC mismatch
+	// Without ForceDecrypt, the over-budget RS16 corruption is rejected as a
+	// damaged header before key derivation.
 	decReq := &DecryptRequest{
 		InputFile:    tamperedPath,
 		OutputFile:   decryptedPath,
@@ -2156,8 +2156,8 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	}
 
 	err = Decrypt(context.Background(), decReq)
-	if err == nil {
-		t.Fatal("Expected decryption to fail due to header tampering, but it succeeded")
+	if !errors.Is(err, header.ErrCorruptedHeader) {
+		t.Fatalf("Decrypt error = %v; want ErrCorruptedHeader", err)
 	}
 
 	t.Logf("Header tamper correctly detected: %v", err)
