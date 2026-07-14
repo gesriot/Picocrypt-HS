@@ -117,12 +117,13 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 	a.nonASCIIHint.Wrapping = fyne.TextWrapWord
 	a.nonASCIIHint.Hide()
 
-	return container.NewVBox(
+	a.passwordContainer = container.NewVBox(
 		passwordHeader,
 		a.passwordEntry,
 		a.nonASCIIHint,
 		a.confirmRow,
 	)
+	return a.passwordContainer
 }
 
 // updatePasswordStrength updates the password strength indicator.
@@ -142,10 +143,17 @@ func (a *App) updateNonASCIIHint() {
 	if a.nonASCIIHint == nil {
 		return
 	}
-	if a.State.Mode != "decrypt" && pwnorm.ContainsNonASCII([]byte(a.State.Password)) {
+	shouldShow := a.State.Mode != "decrypt" && pwnorm.ContainsNonASCII([]byte(a.State.Password))
+	if a.nonASCIIHint.Visible() == shouldShow {
+		return
+	}
+	if shouldShow {
 		a.nonASCIIHint.Show()
 	} else {
 		a.nonASCIIHint.Hide()
+	}
+	if a.passwordContainer != nil {
+		a.passwordContainer.Refresh()
 	}
 }
 
