@@ -1,6 +1,9 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.view.WindowManager
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
@@ -34,8 +37,8 @@ class MainActivityUITest {
     // assert the launch-time default-ON behavior we MUST reset prefs + the SettingsRepository
     // singleton BEFORE the activity launches. A plain @Before is too late. The RuleChain below
     // wraps the compose rule in an outer ExternalResource whose before() runs first, guaranteeing
-    // a clean, default-ON state at launch. commit() (not apply()) so the write is durable before
-    // the activity reads it.
+    // a clean, default-ON state and, when required, notification permission before launch.
+    // commit() (not apply()) so the preference write is durable before the activity reads it.
     // NOTE: intentionally NOT annotated @get:Rule — it is applied via `ruleChain` below. Adding
     // @get:Rule here would apply it twice and break the outer-rule-runs-first ordering.
     private val composeTestRule = createAndroidComposeRule<MainActivity>()
@@ -45,6 +48,19 @@ class MainActivityUITest {
         .outerRule(object : ExternalResource() {
             override fun before() {
                 clearSettings()
+                // AndroidX says revocation crashes the running instrumentation; this run is disposable.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val instrumentation = InstrumentationRegistry.getInstrumentation()
+                    val context = instrumentation.targetContext
+                    if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                        instrumentation.uiAutomation.grantRuntimePermission(
+                            context.packageName,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        )
+                    }
+                }
             }
         })
         .around(composeTestRule)
@@ -76,6 +92,7 @@ class MainActivityUITest {
 
     @Test
     fun mainActivity_hides_work_buttons_before_file_selection() {
+        composeTestRule.onNodeWithContentDescription("Choose file").assertIsDisplayed()
         composeTestRule.onAllNodesWithText("Encrypt File").assertCountEquals(0)
         composeTestRule.onAllNodesWithText("Decrypt File").assertCountEquals(0)
     }
