@@ -682,6 +682,11 @@ func TestAndroidReleaseWorkflowsRunExactArtifactVerifier(t *testing.T) {
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("Android release APK verifier mode = %v, want executable", info.Mode().Perm())
 	}
+	verifier := mustReadRepoFile(t, "android/verify-release-apks.sh")
+	// Keep Java native-access warnings out of the pinned apksigner diagnostic
+	// without filtering stderr, which would weaken the fail-closed check.
+	mustContain(t, verifier, `apksigner_command=("$APKSIGNER" -J-enable-native-access=ALL-UNNAMED)`)
+	mustContain(t, verifier, `"${apksigner_command[@]}" verify --Werr --verbose --print-certs "$apk"`)
 
 	for _, tc := range []struct {
 		name string
