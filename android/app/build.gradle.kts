@@ -7,13 +7,6 @@ plugins {
     alias(libs.plugins.kotlin.parcelize)
 }
 
-configurations.matching { it.name == "kotlinAbiValidationCompatClasspath" }.configureEach {
-    // Kotlin 2.4.0's ABI validation classpath otherwise resolves build tools to a pre-release version.
-    resolutionStrategy.force(
-        "org.jetbrains.kotlin:kotlin-build-tools-impl:${libs.versions.kotlin.get()}"
-    )
-}
-
 val releaseSigningRequested = gradle.startParameter.taskNames.any { task ->
     val lower = task.lowercase()
     lower.contains("assemblerelease") ||
