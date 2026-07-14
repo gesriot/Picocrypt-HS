@@ -115,6 +115,7 @@ type App struct {
 	languageSelector   *languageSelector
 	aboutVersionLabel  *widget.Label
 	mainContent        *fyne.Container
+	passwordContainer  *fyne.Container
 	passwordLabel      *widget.Label
 	passwordEntry      *PasswordEntry
 	cPasswordEntry     *PasswordEntry

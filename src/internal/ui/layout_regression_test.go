@@ -582,6 +582,148 @@ func TestDesktopPasswordEntriesUseFullFormWidth(t *testing.T) {
 	}
 }
 
+func TestUpdateNonASCIIHintRelayoutsPasswordSection(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
+	a := newDesktopEncryptLayoutApp(t, fyneApp)
+
+	nonASCII := "caf" + string(rune(0x00E9))
+	var baselineY, shownY, hintBottom, restoredY float32
+	var hintWidth, hintHeight float32
+	var shown, hidden bool
+
+	fyne.DoAndWait(func() {
+		baselineY = a.confirmRow.Position().Y
+
+		a.State.Password = nonASCII
+		a.updateNonASCIIHint()
+		shown = a.nonASCIIHint.Visible()
+		hintSize := a.nonASCIIHint.Size()
+		hintWidth = hintSize.Width
+		hintHeight = hintSize.Height
+		hintBottom = a.nonASCIIHint.Position().Y + hintSize.Height
+		shownY = a.confirmRow.Position().Y
+
+		a.State.Password = "plain-ascii"
+		a.updateNonASCIIHint()
+		hidden = !a.nonASCIIHint.Visible()
+		restoredY = a.confirmRow.Position().Y
+	})
+
+	if !shown {
+		t.Fatal("non-ASCII hint was not shown")
+	}
+	if hintWidth <= 0 || hintHeight <= 0 {
+		t.Fatalf("hint size = (%.1f, %.1f); want non-zero laid-out geometry", hintWidth, hintHeight)
+	}
+	if shownY < baselineY+1 {
+		t.Fatalf("confirm row Y %.1f did not move below baseline %.1f", shownY, baselineY)
+	}
+	if shownY < hintBottom-1 {
+		t.Fatalf("confirm row Y %.1f overlaps hint bottom %.1f", shownY, hintBottom)
+	}
+	if !hidden {
+		t.Fatal("non-ASCII hint was not hidden after returning to ASCII")
+	}
+	restoredDelta := restoredY - baselineY
+	if restoredDelta < -1 || restoredDelta > 1 {
+		t.Fatalf("confirm row did not return to baseline: baseline %.1f restored %.1f", baselineY, restoredY)
+	}
+}
+
+func TestDesktopNonASCIIHintLayoutDoesNotDrift(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
+	a := newDesktopEncryptLayoutApp(t, fyneApp)
+
+	const asciiPassword = "plain-ascii"
+	nonASCII := "caf" + string(rune(0x00E9))
+
+	type layoutSnapshot struct {
+		hintVisible   bool
+		hintWidth     float32
+		hintHeight    float32
+		hintMinHeight float32
+		hintBottom    float32
+		confirmY      float32
+		windowHeight  float32
+	}
+
+	capture := func(password string) layoutSnapshot {
+		t.Helper()
+		var got layoutSnapshot
+		fyne.DoAndWait(func() {
+			a.passwordEntry.SetText(password)
+			hintSize := a.nonASCIIHint.Size()
+			got = layoutSnapshot{
+				hintVisible:   a.nonASCIIHint.Visible(),
+				hintWidth:     hintSize.Width,
+				hintHeight:    hintSize.Height,
+				hintMinHeight: a.nonASCIIHint.MinSize().Height,
+				hintBottom:    a.nonASCIIHint.Position().Y + hintSize.Height,
+				confirmY:      a.confirmRow.Position().Y,
+				windowHeight:  a.Window.Canvas().Size().Height,
+			}
+		})
+		assertWindowFitsContent(t, a)
+		return got
+	}
+
+	baseline := capture(asciiPassword)
+	if baseline.hintVisible {
+		t.Fatal("non-ASCII hint is visible for the ASCII baseline")
+	}
+
+	firstShown := capture(nonASCII)
+	firstHidden := capture(asciiPassword)
+	secondShown := capture(nonASCII)
+	secondHidden := capture(asciiPassword)
+
+	assertShown := func(cycle int, got layoutSnapshot) {
+		t.Helper()
+		if !got.hintVisible {
+			t.Fatalf("cycle %d: non-ASCII hint is hidden", cycle)
+		}
+		if got.hintWidth <= 0 || got.hintHeight <= 0 {
+			t.Fatalf("cycle %d: hint size = (%.1f, %.1f); want non-zero geometry", cycle, got.hintWidth, got.hintHeight)
+		}
+		if got.hintHeight < got.hintMinHeight-1 {
+			t.Fatalf("cycle %d: hint height %.1f clips MinSize height %.1f", cycle, got.hintHeight, got.hintMinHeight)
+		}
+		if got.confirmY < baseline.confirmY+1 {
+			t.Fatalf("cycle %d: confirm row Y %.1f did not move below baseline %.1f", cycle, got.confirmY, baseline.confirmY)
+		}
+		if got.confirmY < got.hintBottom-1 {
+			t.Fatalf("cycle %d: confirm row Y %.1f overlaps hint bottom %.1f", cycle, got.confirmY, got.hintBottom)
+		}
+	}
+
+	assertHidden := func(cycle int, got layoutSnapshot) {
+		t.Helper()
+		if got.hintVisible {
+			t.Fatalf("cycle %d: non-ASCII hint stayed visible for ASCII password", cycle)
+		}
+		confirmDelta := got.confirmY - baseline.confirmY
+		if confirmDelta < -1 || confirmDelta > 1 {
+			t.Fatalf("cycle %d: confirm row drifted from %.1f to %.1f", cycle, baseline.confirmY, got.confirmY)
+		}
+		windowDelta := got.windowHeight - baseline.windowHeight
+		if windowDelta < -1 || windowDelta > 1 {
+			t.Fatalf("cycle %d: window height drifted from %.1f to %.1f", cycle, baseline.windowHeight, got.windowHeight)
+		}
+	}
+
+	assertShown(1, firstShown)
+	assertHidden(1, firstHidden)
+	assertShown(2, secondShown)
+	assertHidden(2, secondHidden)
+
+	shownDelta := secondShown.windowHeight - firstShown.windowHeight
+	if shownDelta < -1 || shownDelta > 1 {
+		t.Fatalf("visible window height drifted from %.1f to %.1f", firstShown.windowHeight, secondShown.windowHeight)
+	}
+}
+
 func newDesktopEncryptLayoutApp(t *testing.T, fyneApp fyne.App) *App {
 	t.Helper()
 
