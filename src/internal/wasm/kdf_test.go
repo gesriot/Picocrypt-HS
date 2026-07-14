@@ -1,7 +1,6 @@
 package wasm
 
 import (
-	"Picocrypt-NG/internal/crypto"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -10,6 +9,8 @@ import (
 )
 
 const fastTestWASMKDFDomain = "Picocrypt-NG internal/wasm test KDF v1"
+
+var productionTestWASMKey func(password, salt []byte, paranoid bool) ([]byte, error)
 
 func fastTestWASMKey(password, salt []byte, paranoid bool) ([]byte, error) {
 	h := sha256.New()
@@ -41,10 +42,11 @@ func swapWASMTestKDF(kdf func(password, salt []byte, paranoid bool) ([]byte, err
 
 func useProductionTestWASMKDF(t *testing.T) {
 	t.Helper()
-	t.Cleanup(swapWASMTestKDF(crypto.DeriveKey))
+	t.Cleanup(swapWASMTestKDF(productionTestWASMKey))
 }
 
 func TestMain(m *testing.M) {
+	productionTestWASMKey = deriveWASMKey
 	restore := swapWASMTestKDF(fastTestWASMKey)
 	code := m.Run()
 	restore()
