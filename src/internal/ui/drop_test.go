@@ -1853,10 +1853,12 @@ func TestInvalidStartCancelsOpenedPathReadiness(t *testing.T) {
 func TestOpenedPathReadinessPendingStatusDoesNotOverwriteBusyStatus(t *testing.T) {
 	oldCheck := checkOpenedPathReadiness
 	oldPoll := openedPathPollInterval
-	defer func() {
+	// Register this before the App cleanup so its readiness worker is joined
+	// before these package-level test seams are restored (cleanups run LIFO).
+	t.Cleanup(func() {
 		checkOpenedPathReadiness = oldCheck
 		openedPathPollInterval = oldPoll
-	}()
+	})
 	openedPathPollInterval = 5 * time.Millisecond
 
 	fyneApp := newTestFyneApp(t)
