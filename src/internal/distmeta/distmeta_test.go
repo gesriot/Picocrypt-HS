@@ -902,6 +902,31 @@ func TestWindowsNSISScript(t *testing.T) {
 		}
 	})
 
+	t.Run("external_uninstaller_signing_round_trip", func(t *testing.T) {
+		importBlock := regexp.MustCompile(`(?ms)!ifdef IMPORT_UNINST\s+File\s+"/oname=Uninstall\.exe"\s+"\$\{__FILEDIR__\}\\Uninstall\.exe"\s+!else\s+WriteUninstaller\s+"\$INSTDIR\\Uninstall\.exe"\s+!endif`).FindString(text)
+		if importBlock == "" {
+			t.Error("installer.nsi must import a signed Uninstall.exe instead of generating a new unsigned uninstaller on the final build")
+		}
+
+		exportBlock := regexp.MustCompile(`(?ms)!ifdef EXPORT_UNINST.*?!uninstfinalize.*?\$\{__FILEDIR__\}\\Uninstall\.exe.*?!endif`).FindString(text)
+		if exportBlock == "" {
+			t.Error("installer.nsi must export the generated Uninstall.exe for external SignPath signing")
+		}
+
+		guardedUnpages := regexp.MustCompile(`(?ms)!ifndef IMPORT_UNINST\s+!insertmacro MUI_UNPAGE_CONFIRM\s+!insertmacro MUI_UNPAGE_INSTFILES\s+!endif`).FindString(text)
+		if guardedUnpages == "" {
+			t.Error("uninstaller pages must be excluded when rebuilding the installer with the signed imported Uninstall.exe")
+		}
+		guardedUninit := regexp.MustCompile(`(?ms)!ifndef IMPORT_UNINST\s+Function un\.onInit.*?FunctionEnd\s+!endif`).FindString(text)
+		if guardedUninit == "" {
+			t.Error("un.onInit must be excluded when rebuilding the installer with the signed imported Uninstall.exe")
+		}
+		guardedUninstallSection := regexp.MustCompile(`(?ms)!ifndef IMPORT_UNINST\s+Section\s+"Uninstall".*?SectionEnd\s+!endif`).FindString(text)
+		if guardedUninstallSection == "" {
+			t.Error("the Uninstall section must be excluded when rebuilding the installer with the signed imported Uninstall.exe")
+		}
+	})
+
 	// --- Uninstaller block scoped assertions (D-27 hybrid cleanup) ---
 	uninstallBlock := regexp.MustCompile(`(?ms)Section\s+"Uninstall".*?SectionEnd`).FindString(text)
 	if uninstallBlock == "" {

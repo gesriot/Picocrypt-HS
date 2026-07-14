@@ -1,6 +1,10 @@
 ; Picocrypt-NG NSIS installer script (Phase 4 D-01 canonical source-of-truth).
 ;
 ; Build:   makensis -WX -V4 -DVERSION=<version> dist/windows/installer.nsi
+; Signed uninstaller round trip:
+;   makensis -WX -V4 -DVERSION=<version> -DEXPORT_UNINST dist/windows/installer.nsi
+;   sign dist/windows/Uninstall.exe externally
+;   makensis -WX -V4 -DVERSION=<version> -DIMPORT_UNINST dist/windows/installer.nsi
 ; Output:  dist/windows/Picocrypt-NG-Setup.exe (per OutFile, written adjacent to this script)
 ;
 ; Decision references:
@@ -71,8 +75,10 @@ VIAddVersionKey   "LegalCopyright"  "(c) ${COMPANYNAME}"
 !define MUI_FINISHPAGE_RUN_TEXT "Run Picocrypt-NG"
 !insertmacro MUI_PAGE_FINISH
 
+!ifndef IMPORT_UNINST
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
+!endif
 
 !insertmacro MUI_LANGUAGE "English"
 
@@ -85,9 +91,11 @@ Function .onInit
   SetRegView 64
 FunctionEnd
 
+!ifndef IMPORT_UNINST
 Function un.onInit
   SetRegView 64
 FunctionEnd
+!endif
 
 ; --- Section: Picocrypt-NG (required, hidden via leading dash, RO) ---
 Section "-Picocrypt-NG (required)" SecCore
@@ -132,7 +140,11 @@ Section "-Picocrypt-NG (required)" SecCore
   File "${__FILEDIR__}\..\..\images\pcv-icon.ico"
 
   ; --- Uninstaller writer ---
+!ifdef IMPORT_UNINST
+  File "/oname=Uninstall.exe" "${__FILEDIR__}\Uninstall.exe"
+!else
   WriteUninstaller "$INSTDIR\Uninstall.exe"
+!endif
 
   ; --- InstallDir record for re-install detection (D-24) ---
   WriteRegStr HKLM "Software\${APPNAME}" "InstallDir" "$INSTDIR"
@@ -154,6 +166,11 @@ Section "-Picocrypt-NG (required)" SecCore
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKLM "${ARP}" "EstimatedSize" "$0"
 SectionEnd
+
+!ifdef EXPORT_UNINST
+  ; Export the generated uninstaller for external signing and -DIMPORT_UNINST.
+  !uninstfinalize 'echo copy /Y "%1" "${__FILEDIR__}\Uninstall.exe"&copy /Y "%1" "${__FILEDIR__}\Uninstall.exe" >nul'
+!endif
 
 ; --- Section: Associate .pcv files (D-21 six-key, D-22 capabilities, D-25 SHChangeNotify) ---
 Section "Associate .pcv files" SecAssoc
@@ -208,6 +225,7 @@ LangString DESC_SecStartMenu ${LANG_ENGLISH} "Create a Start Menu folder with Pi
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; --- Section: Uninstall (D-27 hybrid cleanup, D-26 SHChangeNotify, D-28 RMDir-if-empty) ---
+!ifndef IMPORT_UNINST
 Section "Uninstall"
   ; --- Hybrid cleanup — only our keys; preserve other apps' OpenWithProgids (D-27) ---
   DeleteRegKey   HKLM "Software\Classes\${PROGID}"
@@ -245,3 +263,4 @@ Section "Uninstall"
   ; --- Notify shell (D-26) ---
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, p 0, p 0)'
 SectionEnd
+!endif

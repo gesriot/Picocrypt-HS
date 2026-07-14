@@ -3,7 +3,9 @@ package workflowpolicy
 import (
 	"crypto/sha256"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,12 +98,17 @@ func TestExternalGitHubActionsPinnedToFullSHAWithVersionComment(t *testing.T) {
 
 func TestReleaseJobsRequireMainBranchAndReleaseEnvironment(t *testing.T) {
 	const releaseGuard = "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish_release) }}"
+	const signPathReleaseGuard = "${{ github.ref == 'refs/heads/main' && !inputs.signpath_test && !inputs.signpath_release_dry_run && (github.event_name == 'push' || inputs.publish_release) }}"
 
 	for _, tc := range releaseWorkflowCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			workflow := mustReadWorkflowDoc(t, tc.path)
 			releaseJob := mustJob(t, workflow, tc.job)
-			if releaseJob.If != releaseGuard {
+			wantGuard := releaseGuard
+			if tc.name == "build-windows" || tc.name == "build-windows-legacy" {
+				wantGuard = signPathReleaseGuard
+			}
+			if releaseJob.If != wantGuard {
 				t.Fatalf("release job if = %q, want guarded push or explicit manual release", releaseJob.If)
 			}
 			if got := releaseEnvironmentName(releaseJob.Environment); got != "release" {
@@ -290,6 +297,449 @@ func TestWindowsReleaseWorkflowPassesRootVersionToNSIS(t *testing.T) {
 		`makensis.exe`,
 		`"-DVERSION=$version"`,
 	)
+}
+
+func TestWindowsReleaseAuthenticodeSigningPrecedesPackagingAndSigstore(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-windows.yml")
+	buildJob := mustJob(t, workflow, "build")
+	unsignedUpload := mustStepNamed(t, buildJob, "Upload artifact")
+	if got := unsignedUpload.With["name"]; got != "unsigned-windows" {
+		t.Fatalf("unsigned Windows artifact name = %#v, want unsigned-windows", got)
+	}
+	if got := unsignedUpload.With["retention-days"]; got != 1 {
+		t.Fatalf("unsigned Windows artifact retention = %#v, want 1 day", got)
+	}
+
+	signJob := mustJob(t, workflow, "sign")
+
+	if signJob.If != "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish_release || inputs.signpath_test || inputs.signpath_release_dry_run) }}" {
+		t.Fatalf("Windows SignPath job if = %q, want main release, test signing, or release-signing dry-run guard", signJob.If)
+	}
+	if signJob.TimeoutMinutes != 60 {
+		t.Fatalf("Windows SignPath job timeout = %d minutes, want 60 for three sequential requests", signJob.TimeoutMinutes)
+	}
+	if got := releaseEnvironmentName(signJob.Environment); got != "release" {
+		t.Fatalf("Windows SignPath job environment = %#v, want release", signJob.Environment)
+	}
+	mustPermission(t, signJob.Permissions, "actions", "read")
+	mustPermission(t, signJob.Permissions, "contents", "read")
+	if got := signJob.Env["SIGNPATH_PRODUCTION_CERTIFICATE_SHA256"]; got != "${{ vars.SIGNPATH_PRODUCTION_CERTIFICATE_SHA256 }}" {
+		t.Fatalf("production certificate trust anchor = %q, want protected GitHub variable", got)
+	}
+	if got := signJob.Env["SIGNPATH_SIGNING_POLICY_SLUG"]; got != "${{ inputs.signpath_test && 'test-signing' || 'release-signing' }}" {
+		t.Fatalf("Windows SignPath policy routing = %q, want explicit test/release policies", got)
+	}
+	if got := signJob.Env["SIGNPATH_TEST"]; got != "${{ inputs.signpath_test && 'true' || 'false' }}" {
+		t.Fatalf("Windows test-signing verification mode = %q, want exact boolean routing", got)
+	}
+	if _, ok := signJob.Permissions["contents"]; !ok {
+		t.Fatal("Windows SignPath job must declare contents: read explicitly")
+	}
+	validateMode := mustStepNamed(t, signJob, "Reject conflicting SignPath modes")
+	if validateMode.If != "${{ inputs.signpath_test && inputs.signpath_release_dry_run }}" {
+		t.Fatalf("Windows SignPath mode validation if = %q, want mutually exclusive test and release dry-run modes", validateMode.If)
+	}
+	mustContain(t, validateMode.Run, "cannot both be enabled")
+
+	orderedSigningSteps := []string{
+		"Download unsigned build artifact",
+		"Stage unsigned binaries for SignPath",
+		"Upload unsigned binaries for SignPath",
+		"Sign binaries with SignPath",
+		"Verify signed binaries before packaging",
+		"Export unsigned NSIS uninstaller",
+		"Upload unsigned uninstaller for SignPath",
+		"Sign uninstaller with SignPath",
+		"Verify signed uninstaller",
+		"Build NSIS installer from signed components",
+		"Upload unsigned installer for SignPath",
+		"Sign installer with SignPath",
+		"Verify final Authenticode artifacts",
+		"Upload signed Windows artifacts",
+	}
+	lastIndex := -1
+	for _, name := range orderedSigningSteps {
+		index := -1
+		for candidateIndex, step := range signJob.Steps {
+			if step.Name == name {
+				index = candidateIndex
+				break
+			}
+		}
+		if index < 0 {
+			t.Fatalf("Windows SignPath job is missing step %q", name)
+		}
+		if index <= lastIndex {
+			t.Fatalf("Windows SignPath step %q is out of order; want %s", name, strings.Join(orderedSigningSteps, " < "))
+		}
+		lastIndex = index
+	}
+
+	for _, tc := range []struct {
+		name              string
+		configurationSlug string
+		uploadStepID      string
+		outputDirectory   string
+	}{
+		{name: "Sign binaries with SignPath", configurationSlug: "windows-binaries", uploadStepID: "upload-signpath-binaries", outputDirectory: "signpath-signed-binaries"},
+		{name: "Sign uninstaller with SignPath", configurationSlug: "windows-uninstaller", uploadStepID: "upload-signpath-uninstaller", outputDirectory: "signpath-signed-uninstaller"},
+		{name: "Sign installer with SignPath", configurationSlug: "windows-installer", uploadStepID: "upload-signpath-installer", outputDirectory: "signpath-signed-installer"},
+	} {
+		step := mustStepNamed(t, signJob, tc.name)
+		if step.Uses != "signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd" {
+			t.Fatalf("%s action = %q, want reviewed SignPath v2.2 commit", tc.name, step.Uses)
+		}
+		for key, want := range map[string]any{
+			"api-token":                   "${{ secrets.SIGNPATH_API_TOKEN }}",
+			"organization-id":             "d6e78672-6bae-47d3-b2b8-fa464705b34e",
+			"project-slug":                "${{ vars.SIGNPATH_PROJECT_SLUG }}",
+			"signing-policy-slug":         "${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}",
+			"artifact-configuration-slug": tc.configurationSlug,
+			"github-artifact-id":          "${{ steps." + tc.uploadStepID + ".outputs.artifact-id }}",
+			"wait-for-completion":         true,
+			"output-artifact-directory":   tc.outputDirectory,
+		} {
+			if got := step.With[key]; got != want {
+				t.Fatalf("%s input %s = %#v, want %#v", tc.name, key, got, want)
+			}
+		}
+	}
+
+	verifyFinal := mustStepNamed(t, signJob, "Verify final Authenticode artifacts")
+	mustContain(t, verifyFinal.Run, "Get-AuthenticodeSignature")
+	mustContain(t, verifyFinal.Run, "GetCertHashString")
+	mustContain(t, verifyFinal.Run, "SIGNPATH_PRODUCTION_CERTIFICATE_SHA256")
+	mustContain(t, verifyFinal.Run, "TimeStamperCertificate")
+	mustContain(t, verifyFinal.Run, "Picocrypt-NG-Setup.exe")
+	mustContain(t, verifyFinal.Run, "7z.exe")
+	mustContain(t, verifyFinal.Run, "Picocrypt-NG.exe")
+	mustContain(t, verifyFinal.Run, "Picocrypt-NG-cli.exe")
+	mustContain(t, verifyFinal.Run, "Uninstall.exe")
+	mustContain(t, verifyFinal.Run, "Get-FileHash")
+	for _, name := range []string{
+		"Verify signed binaries before packaging",
+		"Verify signed uninstaller",
+		"Verify final Authenticode artifacts",
+	} {
+		if got := mustStepNamed(t, signJob, name).ContinueOnError; got != nil && got != false {
+			t.Fatalf("Windows verification step %q continue-on-error = %#v, want blocking", name, got)
+		}
+	}
+
+	uploadSigned := mustStepNamed(t, signJob, "Upload signed Windows artifacts")
+	if got := uploadSigned.With["name"]; got != "${{ inputs.signpath_test && 'signed-windows-TEST-DO-NOT-PUBLISH' || inputs.signpath_release_dry_run && 'signed-windows-RELEASE-SIGNING-DRY-RUN-DO-NOT-PUBLISH' || 'signed-windows' }}" {
+		t.Fatalf("signed Windows artifact name = %#v, want visibly distinct test and release dry-run artifacts", got)
+	}
+	if got := uploadSigned.With["retention-days"]; got != 1 {
+		t.Fatalf("signed Windows artifact retention = %#v, want 1 day", got)
+	}
+
+	releaseJob := mustJob(t, workflow, "release")
+	needs, ok := releaseJob.Needs.([]any)
+	if !ok || len(needs) != 2 || needs[0] != "build" || needs[1] != "sign" {
+		t.Fatalf("Windows release needs = %#v, want [build sign] so unsigned artifacts cannot bypass SignPath", releaseJob.Needs)
+	}
+	mustContain(t, releaseJob.If, "!inputs.signpath_test")
+	mustContain(t, releaseJob.If, "!inputs.signpath_release_dry_run")
+	downloadSigned := mustStepNamed(t, releaseJob, "Download signed artifact")
+	if got := downloadSigned.With["name"]; got != "signed-windows" {
+		t.Fatalf("Windows release artifact name = %#v, want signed-windows", got)
+	}
+	orderedReleaseSteps := []string{"Download signed artifact", "Sign and attest artifacts", "Release"}
+	lastIndex = -1
+	for _, name := range orderedReleaseSteps {
+		index := -1
+		for candidateIndex, step := range releaseJob.Steps {
+			if step.Name == name {
+				index = candidateIndex
+				break
+			}
+		}
+		if index < 0 || index <= lastIndex {
+			t.Fatalf("Windows release steps must be ordered as %s", strings.Join(orderedReleaseSteps, " < "))
+		}
+		lastIndex = index
+	}
+}
+
+func TestWindowsLegacyReleaseUsesSignPathBeforeSigstore(t *testing.T) {
+	workflow := mustReadWorkflowDoc(t, ".github/workflows/build-windows-legacy.yml")
+	buildJob := mustJob(t, workflow, "build")
+	unsignedUpload := mustStepNamed(t, buildJob, "Upload artifact")
+	if got := unsignedUpload.With["name"]; got != "unsigned-windows-legacy" {
+		t.Fatalf("unsigned legacy artifact name = %#v, want unsigned-windows-legacy", got)
+	}
+	if got := unsignedUpload.With["retention-days"]; got != 1 {
+		t.Fatalf("unsigned legacy artifact retention = %#v, want 1 day", got)
+	}
+
+	signJob := mustJob(t, workflow, "sign")
+	if signJob.If != "${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish_release || inputs.signpath_test || inputs.signpath_release_dry_run) }}" {
+		t.Fatalf("legacy SignPath job if = %q, want main release, test signing, or release-signing dry-run guard", signJob.If)
+	}
+	if got := releaseEnvironmentName(signJob.Environment); got != "release" {
+		t.Fatalf("legacy SignPath job environment = %#v, want release", signJob.Environment)
+	}
+	mustPermission(t, signJob.Permissions, "actions", "read")
+	mustPermission(t, signJob.Permissions, "contents", "read")
+	if got := signJob.Env["SIGNPATH_PRODUCTION_CERTIFICATE_SHA256"]; got != "${{ vars.SIGNPATH_PRODUCTION_CERTIFICATE_SHA256 }}" {
+		t.Fatalf("legacy production certificate trust anchor = %q, want protected GitHub variable", got)
+	}
+	if got := signJob.Env["SIGNPATH_SIGNING_POLICY_SLUG"]; got != "${{ inputs.signpath_test && 'test-signing' || 'release-signing' }}" {
+		t.Fatalf("legacy SignPath policy routing = %q, want explicit test/release policies", got)
+	}
+	if got := signJob.Env["SIGNPATH_TEST"]; got != "${{ inputs.signpath_test && 'true' || 'false' }}" {
+		t.Fatalf("legacy test-signing verification mode = %q, want exact boolean routing", got)
+	}
+	validateMode := mustStepNamed(t, signJob, "Reject conflicting SignPath modes")
+	if validateMode.If != "${{ inputs.signpath_test && inputs.signpath_release_dry_run }}" {
+		t.Fatalf("legacy SignPath mode validation if = %q, want mutually exclusive test and release dry-run modes", validateMode.If)
+	}
+	mustContain(t, validateMode.Run, "cannot both be enabled")
+
+	signStep := mustStepNamed(t, signJob, "Sign legacy CLI with SignPath")
+	if signStep.Uses != "signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd" {
+		t.Fatalf("legacy SignPath action = %q, want reviewed SignPath v2.2 commit", signStep.Uses)
+	}
+	for key, want := range map[string]any{
+		"api-token":                   "${{ secrets.SIGNPATH_API_TOKEN }}",
+		"organization-id":             "d6e78672-6bae-47d3-b2b8-fa464705b34e",
+		"project-slug":                "${{ vars.SIGNPATH_PROJECT_SLUG }}",
+		"signing-policy-slug":         "${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}",
+		"artifact-configuration-slug": "windows-legacy-cli",
+		"github-artifact-id":          "${{ steps.upload-signpath-legacy.outputs.artifact-id }}",
+		"wait-for-completion":         true,
+		"output-artifact-directory":   "signpath-signed-legacy",
+	} {
+		if got := signStep.With[key]; got != want {
+			t.Fatalf("legacy SignPath input %s = %#v, want %#v", key, got, want)
+		}
+	}
+
+	verifyStep := mustStepNamed(t, signJob, "Verify legacy Authenticode signature")
+	mustContain(t, verifyStep.Run, "Get-AuthenticodeSignature")
+	mustContain(t, verifyStep.Run, "GetCertHashString")
+	mustContain(t, verifyStep.Run, "SIGNPATH_PRODUCTION_CERTIFICATE_SHA256")
+	mustContain(t, verifyStep.Run, "TimeStamperCertificate")
+	if got := verifyStep.ContinueOnError; got != nil && got != false {
+		t.Fatalf("legacy verification continue-on-error = %#v, want blocking", got)
+	}
+	uploadSigned := mustStepNamed(t, signJob, "Upload signed Windows legacy artifact")
+	if got := uploadSigned.With["name"]; got != "${{ inputs.signpath_test && 'signed-windows-legacy-TEST-DO-NOT-PUBLISH' || inputs.signpath_release_dry_run && 'signed-windows-legacy-RELEASE-SIGNING-DRY-RUN-DO-NOT-PUBLISH' || 'signed-windows-legacy' }}" {
+		t.Fatalf("signed legacy artifact name = %#v, want visibly distinct test and release dry-run artifacts", got)
+	}
+	if got := uploadSigned.With["retention-days"]; got != 1 {
+		t.Fatalf("signed legacy artifact retention = %#v, want 1 day", got)
+	}
+
+	releaseJob := mustJob(t, workflow, "release")
+	needs, ok := releaseJob.Needs.([]any)
+	if !ok || len(needs) != 2 || needs[0] != "build" || needs[1] != "sign" {
+		t.Fatalf("legacy release needs = %#v, want [build sign]", releaseJob.Needs)
+	}
+	mustContain(t, releaseJob.If, "!inputs.signpath_test")
+	mustContain(t, releaseJob.If, "!inputs.signpath_release_dry_run")
+	downloadStep := mustStepNamed(t, releaseJob, "Download signed artifact")
+	if got := downloadStep.With["name"]; got != "signed-windows-legacy" {
+		t.Fatalf("legacy signed artifact name = %#v, want signed-windows-legacy", got)
+	}
+}
+
+func TestWindowsSignPathReleaseDryRunUsesProductionVerificationWithoutPublishing(t *testing.T) {
+	for _, path := range []string{
+		".github/workflows/build-windows.yml",
+		".github/workflows/build-windows-legacy.yml",
+	} {
+		t.Run(path, func(t *testing.T) {
+			workflow := mustReadWorkflowDoc(t, path)
+			input, ok := workflow.On.WorkflowDispatch.Inputs["signpath_release_dry_run"]
+			if !ok {
+				t.Fatal("workflow_dispatch must expose signpath_release_dry_run so the production certificate path can be tested without publishing")
+			}
+			if input.Required || input.Default != false || input.Type != "boolean" {
+				t.Fatalf("signpath_release_dry_run = %#v, want optional boolean defaulting to false", input)
+			}
+			mustContain(t, input.Description, "Never publishes a GitHub release")
+
+			signJob := mustJob(t, workflow, "sign")
+			mustContain(t, signJob.If, "inputs.signpath_release_dry_run")
+			if got := signJob.Env["SIGNPATH_SIGNING_POLICY_SLUG"]; got != "${{ inputs.signpath_test && 'test-signing' || 'release-signing' }}" {
+				t.Fatalf("release dry-run policy route = %q, want release-signing whenever signpath_test is false", got)
+			}
+			if got := signJob.Env["SIGNPATH_TEST"]; got != "${{ inputs.signpath_test && 'true' || 'false' }}" {
+				t.Fatalf("release dry-run verification mode = %q, want production verification whenever signpath_test is false", got)
+			}
+
+			releaseJob := mustJob(t, workflow, "release")
+			mustContain(t, releaseJob.If, "!inputs.signpath_release_dry_run")
+		})
+	}
+}
+
+type signPathArtifactConfiguration struct {
+	XMLName xml.Name           `xml:"artifact-configuration"`
+	ZIP     signPathZIPElement `xml:"zip-file"`
+}
+
+type signPathZIPElement struct {
+	PEFiles []signPathPEFile `xml:"pe-file"`
+}
+
+type signPathPEFile struct {
+	Path string                   `xml:"path,attr"`
+	Sign signPathAuthenticodeSign `xml:"authenticode-sign"`
+}
+
+type signPathAuthenticodeSign struct {
+	HashAlgorithm  string `xml:"hash-algorithm,attr"`
+	Description    string `xml:"description,attr"`
+	DescriptionURL string `xml:"description-url,attr"`
+}
+
+func mustAllowOnlySignPathElements(t *testing.T, content, namespace string, wantFiles []string) {
+	t.Helper()
+
+	decoder := xml.NewDecoder(strings.NewReader(content))
+	stack := make([]xml.Name, 0, 4)
+	counts := make(map[string]int)
+	peIndex := 0
+
+	checkAttributes := func(element xml.StartElement, want map[string]string, allowDefaultNamespace bool) {
+		t.Helper()
+
+		got := make(map[string]string)
+		for _, attribute := range element.Attr {
+			if allowDefaultNamespace && attribute.Name.Space == "" && attribute.Name.Local == "xmlns" {
+				if attribute.Value != namespace {
+					t.Fatalf("%s default namespace = %q, want %q", element.Name.Local, attribute.Value, namespace)
+				}
+				continue
+			}
+			if attribute.Name.Space != "" {
+				t.Fatalf("%s has unexpected namespaced attribute %s:%s", element.Name.Local, attribute.Name.Space, attribute.Name.Local)
+			}
+			got[attribute.Name.Local] = attribute.Value
+		}
+		if len(got) != len(want) {
+			t.Fatalf("%s attributes = %#v, want exactly %#v", element.Name.Local, got, want)
+		}
+		for name, value := range want {
+			if got[name] != value {
+				t.Fatalf("%s attribute %s = %q, want %q", element.Name.Local, name, got[name], value)
+			}
+		}
+	}
+
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decode SignPath XML token: %v", err)
+		}
+
+		switch token := token.(type) {
+		case xml.StartElement:
+			if token.Name.Space != namespace {
+				t.Fatalf("element %s namespace = %q, want %q", token.Name.Local, token.Name.Space, namespace)
+			}
+			parent := ""
+			if len(stack) > 0 {
+				parent = stack[len(stack)-1].Local
+			}
+			counts[token.Name.Local]++
+			switch token.Name.Local {
+			case "artifact-configuration":
+				if parent != "" || counts[token.Name.Local] != 1 {
+					t.Fatal("artifact-configuration must be the single root element")
+				}
+				checkAttributes(token, map[string]string{}, true)
+			case "zip-file":
+				if parent != "artifact-configuration" || counts[token.Name.Local] != 1 {
+					t.Fatal("zip-file must be the single artifact-configuration child")
+				}
+				checkAttributes(token, map[string]string{}, false)
+			case "pe-file":
+				if parent != "zip-file" || peIndex >= len(wantFiles) {
+					t.Fatalf("unexpected pe-file at index %d", peIndex)
+				}
+				checkAttributes(token, map[string]string{"path": wantFiles[peIndex]}, false)
+				peIndex++
+			case "authenticode-sign":
+				if parent != "pe-file" || counts[token.Name.Local] > len(wantFiles) {
+					t.Fatal("each pe-file must contain one authenticode-sign directive")
+				}
+				checkAttributes(token, map[string]string{
+					"hash-algorithm":  "sha256",
+					"description":     "Picocrypt NG",
+					"description-url": "https://github.com/Picocrypt-NG/Picocrypt-NG",
+				}, false)
+			default:
+				t.Fatalf("unexpected SignPath artifact configuration element %q", token.Name.Local)
+			}
+			stack = append(stack, token.Name)
+		case xml.EndElement:
+			if len(stack) == 0 || stack[len(stack)-1] != token.Name {
+				t.Fatalf("unexpected closing element %q", token.Name.Local)
+			}
+			stack = stack[:len(stack)-1]
+		case xml.CharData:
+			if strings.TrimSpace(string(token)) != "" {
+				t.Fatalf("unexpected text in SignPath artifact configuration: %q", string(token))
+			}
+		case xml.ProcInst:
+			if token.Target != "xml" {
+				t.Fatalf("unexpected XML processing instruction %q", token.Target)
+			}
+		case xml.Directive:
+			t.Fatalf("unexpected XML directive %q", string(token))
+		}
+	}
+
+	if len(stack) != 0 || counts["artifact-configuration"] != 1 || counts["zip-file"] != 1 || peIndex != len(wantFiles) || counts["authenticode-sign"] != len(wantFiles) {
+		t.Fatalf("SignPath XML tree counts = %#v, PE files = %d/%d", counts, peIndex, len(wantFiles))
+	}
+}
+
+func TestSignPathArtifactConfigurationsAllowlistOnlyReleaseExecutables(t *testing.T) {
+	const namespace = "http://signpath.io/artifact-configuration/v1"
+	const projectURL = "https://github.com/Picocrypt-NG/Picocrypt-NG"
+
+	for _, tc := range []struct {
+		path      string
+		wantFiles []string
+	}{
+		{path: "dist/signpath/windows-binaries.xml", wantFiles: []string{"Picocrypt-NG-portable.exe", "Picocrypt-NG-cli.exe"}},
+		{path: "dist/signpath/windows-uninstaller.xml", wantFiles: []string{"Uninstall.exe"}},
+		{path: "dist/signpath/windows-installer.xml", wantFiles: []string{"Picocrypt-NG-Setup.exe"}},
+		{path: "dist/signpath/windows-legacy-cli.xml", wantFiles: []string{"Picocrypt-NG-cli-Legacy.exe"}},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			content := mustReadRepoFile(t, tc.path)
+			mustAllowOnlySignPathElements(t, content, namespace, tc.wantFiles)
+
+			var configuration signPathArtifactConfiguration
+			if err := xml.Unmarshal([]byte(content), &configuration); err != nil {
+				t.Fatalf("parse SignPath artifact configuration: %v", err)
+			}
+			if configuration.XMLName.Space != namespace {
+				t.Fatalf("artifact configuration namespace = %q, want %q", configuration.XMLName.Space, namespace)
+			}
+			if len(configuration.ZIP.PEFiles) != len(tc.wantFiles) {
+				t.Fatalf("PE file count = %d, want %d exact release files", len(configuration.ZIP.PEFiles), len(tc.wantFiles))
+			}
+			for i, wantFile := range tc.wantFiles {
+				pe := configuration.ZIP.PEFiles[i]
+				if pe.Path != wantFile {
+					t.Fatalf("PE file %d path = %q, want %q", i, pe.Path, wantFile)
+				}
+				if pe.Sign.HashAlgorithm != "sha256" || pe.Sign.Description != "Picocrypt NG" || pe.Sign.DescriptionURL != projectURL {
+					t.Fatalf("PE file %q Authenticode settings = %#v, want sha256 and Picocrypt NG project identity", pe.Path, pe.Sign)
+				}
+			}
+		})
+	}
 }
 
 func TestLinuxUPXDownloadsRemainChecksumGated(t *testing.T) {
