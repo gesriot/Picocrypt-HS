@@ -451,10 +451,11 @@ func TestSnapcraftWorkflowSmokeTestsInstalledSnap(t *testing.T) {
 	mustContain(t, smokeStep.Run, "snap run picocrypt-ng --version")
 }
 
-func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
+func TestAndroidPRWorkflowRunsBoundedDeviceSuites(t *testing.T) {
 	const (
-		runner = "ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
-		script = "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes"
+		runner    = "ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d"
+		command   = "./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class="
+		roundtrip = "io.github.picocrypt_ng.picocrypt_ng.OperationManagerIntegrationTest#encrypt_then_decrypt_recovers_the_original_bytes"
 	)
 
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
@@ -463,9 +464,22 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 		arch   string
 		memory string
 		target string
+		script string
 	}{
-		24: {arch: "x86_64", memory: "3583", target: "google_apis"},
-		36: {arch: "x86_64", memory: "6144", target: "default"},
+		// Storage and staging must work on Picocrypt NG's Android 7 compatibility floor.
+		24: {
+			arch:   "x86_64",
+			memory: "3583",
+			target: "google_apis",
+			script: command + roundtrip + ",io.github.picocrypt_ng.picocrypt_ng.FileCopyServiceTest,io.github.picocrypt_ng.picocrypt_ng.StagingServiceInstrumentedTest",
+		},
+		// Activity security and Compose state must work on the target-SDK runtime.
+		36: {
+			arch:   "x86_64",
+			memory: "6144",
+			target: "default",
+			script: command + roundtrip + ",io.github.picocrypt_ng.picocrypt_ng.MainActivityUITest,io.github.picocrypt_ng.picocrypt_ng.ui.components.WorkButtonTest",
+		},
 	}
 	seen := make(map[int]struct{}, len(wantByAPI))
 
@@ -507,8 +521,8 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 		if got := step.With["working-directory"]; got != "android" {
 			t.Errorf("API %d working-directory = %#v, want android", apiLevel, got)
 		}
-		if got := step.With["script"]; got != script {
-			t.Errorf("API %d script = %#v, want exact on-device crypto roundtrip", apiLevel, got)
+		if got := step.With["script"]; got != want.script {
+			t.Errorf("API %d script = %#v, want exact on-device suite %q", apiLevel, got, want.script)
 		}
 		if step.If != "" {
 			t.Errorf("API %d step if = %q, want unconditional compatibility gate", apiLevel, step.If)
@@ -520,7 +534,7 @@ func TestAndroidPRWorkflowRunsBoundedCryptoRoundtripOnDevice(t *testing.T) {
 
 	for apiLevel := range wantByAPI {
 		if _, ok := seen[apiLevel]; !ok {
-			t.Errorf("missing on-device crypto roundtrip for API %d", apiLevel)
+			t.Errorf("missing on-device suite for API %d", apiLevel)
 		}
 	}
 }
