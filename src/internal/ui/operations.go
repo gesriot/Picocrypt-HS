@@ -108,13 +108,14 @@ func (g *operationReporterGate) validLocked() bool {
 	return g.open && g.ctx.Err() == nil && !g.stopping() && g.current() == g.generation
 }
 
-func (g *operationReporterGate) accept(fn func()) {
+func (g *operationReporterGate) accept(fn func()) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.validLocked() {
-		return
+		return false
 	}
 	fn()
+	return true
 }
 
 func (g *operationReporterGate) canApply() bool {
@@ -801,18 +802,20 @@ func (a *App) CreateReporter(session *operationSession) *app.UIReporter {
 			})
 		},
 		func(can bool) {
-			session.gate.accept(func() {
+			if !session.gate.accept(func() {
 				a.State.SetCanCancel(can)
-				fyne.Do(func() {
-					if !session.gate.canApply() || a.cancelButton == nil {
-						return
-					}
-					if can {
-						a.cancelButton.Enable()
-					} else {
-						a.cancelButton.Disable()
-					}
-				})
+			}) {
+				return
+			}
+			fyne.Do(func() {
+				if !session.gate.canApply() || a.cancelButton == nil {
+					return
+				}
+				if can {
+					a.cancelButton.Enable()
+				} else {
+					a.cancelButton.Disable()
+				}
 			})
 		},
 		func() bool {

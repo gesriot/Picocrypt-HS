@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/test"
 )
 
 type controlledOperationCall struct {
@@ -603,13 +604,14 @@ func TestUpdateOutputFileForCompressClearsDialogConfirmation(t *testing.T) {
 }
 
 func TestCreateReporterCallbacksUpdateStateAndCancelButton(t *testing.T) {
-	fyneApp := newTestFyneApp(t)
+	fyneApp := test.NewApp()
+	t.Cleanup(fyneApp.Quit)
 
 	a := createUIReadyDropTestApp(t, fyneApp)
 	session := a.newOperationSession()
 	a.setOperationSession(session)
 	defer func() {
-		session.gate.cancel(session.cancel)
+		session.cancel()
 		a.clearOperationSession(session)
 	}()
 	fyne.DoAndWait(func() {
