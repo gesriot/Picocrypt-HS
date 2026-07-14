@@ -11,12 +11,30 @@ import (
 )
 
 type workflowDoc struct {
+	On          workflowTriggers       `yaml:"on"`
 	Permissions map[string]string      `yaml:"permissions"`
 	Jobs        map[string]workflowJob `yaml:"jobs"`
 }
 
+type workflowTriggers struct {
+	WorkflowDispatch workflowDispatch `yaml:"workflow_dispatch"`
+}
+
+type workflowDispatch struct {
+	Inputs map[string]workflowDispatchInput `yaml:"inputs"`
+}
+
+type workflowDispatchInput struct {
+	Description string `yaml:"description"`
+	Required    bool   `yaml:"required"`
+	Type        string `yaml:"type"`
+	Default     any    `yaml:"default"`
+}
+
 type workflowJob struct {
 	If              string            `yaml:"if"`
+	Needs           any               `yaml:"needs"`
+	TimeoutMinutes  int               `yaml:"timeout-minutes"`
 	ContinueOnError any               `yaml:"continue-on-error"`
 	Environment     any               `yaml:"environment"`
 	Permissions     map[string]string `yaml:"permissions"`
