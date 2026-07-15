@@ -678,9 +678,7 @@ func mustAllowOnlySignPathElements(t *testing.T, content, namespace string, want
 					t.Fatal("each pe-file must contain one authenticode-sign directive")
 				}
 				checkAttributes(token, map[string]string{
-					"hash-algorithm":  "sha256",
-					"description":     "Picocrypt NG",
-					"description-url": "https://github.com/Picocrypt-NG/Picocrypt-NG",
+					"hash-algorithm": "sha256",
 				}, false)
 			default:
 				t.Fatalf("unexpected SignPath artifact configuration element %q", token.Name.Local)
@@ -711,7 +709,6 @@ func mustAllowOnlySignPathElements(t *testing.T, content, namespace string, want
 
 func TestSignPathArtifactConfigurationsAllowlistOnlyReleaseExecutables(t *testing.T) {
 	const namespace = "http://signpath.io/artifact-configuration/v1"
-	const projectURL = "https://github.com/Picocrypt-NG/Picocrypt-NG"
 
 	for _, tc := range []struct {
 		path      string
@@ -741,8 +738,8 @@ func TestSignPathArtifactConfigurationsAllowlistOnlyReleaseExecutables(t *testin
 				if pe.Path != wantFile {
 					t.Fatalf("PE file %d path = %q, want %q", i, pe.Path, wantFile)
 				}
-				if pe.Sign.HashAlgorithm != "sha256" || pe.Sign.Description != "Picocrypt NG" || pe.Sign.DescriptionURL != projectURL {
-					t.Fatalf("PE file %q Authenticode settings = %#v, want sha256 and Picocrypt NG project identity", pe.Path, pe.Sign)
+				if pe.Sign.HashAlgorithm != "sha256" || pe.Sign.Description != "" || pe.Sign.DescriptionURL != "" {
+					t.Fatalf("PE file %q Authenticode settings = %#v, want sha256 with subscription-managed identity", pe.Path, pe.Sign)
 				}
 			}
 		})
