@@ -114,6 +114,9 @@ jobs:
         # the 64-bit x86_64 gomobile/JNI library in the extended crypto scope.
         api-level: 36
         arch: x86_64
+        # Keep the manual target-SDK suite within the same hosted-runner AVD
+        # disk budget as the mandatory pull-request gate.
+        disk-size: 2048M
         disable-animations: true
         # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
         # (src/internal/crypto/kdf.go); the runner's default ~2.5 GiB emulator OOMs

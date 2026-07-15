@@ -123,6 +123,10 @@ jobs:
         api-level: 24
         target: google_apis
         arch: x86_64
+        # Bound the writable AVD partition. The emulator default exceeds the
+        # free disk left on current hosted runners after the Android builds.
+        # These on-device fixtures are deliberately small, so 2048M is ample.
+        disk-size: 2048M
         disable-animations: true
         # -memory 3583 keeps all guest RAM below QEMU's 3.5 GiB split threshold;
         # API 24 stalled when 4/6 GiB configurations mapped the excess above 4 GiB.
@@ -141,6 +145,9 @@ jobs:
         api-level: 36
         target: default
         arch: x86_64
+        # Keep the target-SDK gate bootable under the same hosted-runner disk
+        # budget as the Android 7 compatibility gate above.
+        disk-size: 2048M
         disable-animations: true
         # -memory 6144: the Argon2id KDF allocates 1 GiB per operation
         # (src/internal/crypto/kdf.go); the runner's default ~2.5 GiB emulator OOMs
