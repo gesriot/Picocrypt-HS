@@ -296,6 +296,50 @@ func TestCatalogValueValidationRequiresExactLocalePluralForms(t *testing.T) {
 			},
 		},
 		{
+			name: "Russian few many one and other",
+			code: "ru",
+			value: map[string]any{
+				"few":   "{{.Count}} файла",
+				"many":  "{{.Count}} файлов",
+				"one":   "{{.Count}} файл",
+				"other": "{{.Count}} файла",
+			},
+		},
+		{
+			name: "German one and other",
+			code: "de",
+			value: map[string]any{
+				"one":   "{{.Count}} Datei",
+				"other": "{{.Count}} Dateien",
+			},
+		},
+		{
+			name: "Italian many one and other",
+			code: "it",
+			value: map[string]any{
+				"many":  "{{.Count}} file",
+				"one":   "{{.Count}} file",
+				"other": "{{.Count}} file",
+			},
+		},
+		{
+			name: "Spanish many one and other",
+			code: "es",
+			value: map[string]any{
+				"many":  "{{.Count}} archivos",
+				"one":   "{{.Count}} archivo",
+				"other": "{{.Count}} archivos",
+			},
+		},
+		{
+			name: "Hindi one and other",
+			code: "hi",
+			value: map[string]any{
+				"one":   "{{.Count}} फ़ाइल",
+				"other": "{{.Count}} फ़ाइलें",
+			},
+		},
+		{
 			name: "Chinese other only",
 			code: "zh-Hans",
 			value: map[string]any{
