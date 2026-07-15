@@ -13,7 +13,7 @@ type languageSelector struct {
 
 func newLanguageSelector(owner *App) *languageSelector {
 	selector := &languageSelector{owner: owner}
-	selector.button = widget.NewButton(string(activeLanguage()), func() {
+	selector.button = widget.NewButton(languageButtonLabel(activeLanguage()), func() {
 		if owner == nil || owner.Window == nil {
 			return
 		}
@@ -35,7 +35,7 @@ func (s *languageSelector) refresh() {
 	if s == nil || s.button == nil {
 		return
 	}
-	s.button.SetText(string(activeLanguage()))
+	s.button.SetText(languageButtonLabel(activeLanguage()))
 	s.button.Refresh()
 }
 

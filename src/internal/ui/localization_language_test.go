@@ -83,6 +83,28 @@ func TestBundledLanguageOptionsOnlyIncludesLoadedCatalogs(t *testing.T) {
 	}
 }
 
+func TestRequestedDesktopLocalesHaveStableMetadata(t *testing.T) {
+	want := map[LanguageCode]LanguageOption{
+		"de":      {Code: "de", Name: "Deutsch"},
+		"fr":      {Code: "fr", Name: "Français"},
+		"es":      {Code: "es", Name: "Español"},
+		"zh-Hans": {Code: "zh-Hans", Name: "简体中文", ButtonLabel: "zh"},
+		"hi":      {Code: "hi", Name: "हिन्दी"},
+	}
+
+	for _, option := range knownLanguageOptions {
+		if expected, ok := want[option.Code]; ok {
+			if option != expected {
+				t.Errorf("language metadata for %q = %#v; want %#v", option.Code, option, expected)
+			}
+			delete(want, option.Code)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("requested desktop locales are not registered: %#v", want)
+	}
+}
+
 func TestRuntimeLanguageSwitchRerendersInputSummary(t *testing.T) {
 	resetLocalizationForTest(t)
 	testFS := fstest.MapFS{
