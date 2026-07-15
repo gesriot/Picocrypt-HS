@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
       signpath_release_dry_run:
-        description: "Submit the legacy CLI to SignPath with the release policy for end-to-end validation. Never publishes a GitHub release."
+        description: "Validate the SignPath release policy without uploading signed output or publishing a GitHub release."
         required: false
         type: boolean
         default: false
@@ -206,9 +206,10 @@ jobs:
         }
 
     - name: Upload signed Windows legacy artifact
+      if: ${{ !inputs.signpath_release_dry_run }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ${{ inputs.signpath_test && 'signed-windows-legacy-TEST-DO-NOT-PUBLISH' || inputs.signpath_release_dry_run && 'signed-windows-legacy-RELEASE-SIGNING-DRY-RUN-DO-NOT-PUBLISH' || 'signed-windows-legacy' }}
+        name: ${{ inputs.signpath_test && 'signed-windows-legacy-TEST-DO-NOT-PUBLISH' || 'signed-windows-legacy' }}
         path: signpath-signed-legacy/Picocrypt-NG-cli-Legacy.exe
         if-no-files-found: error
         compression-level: 9
