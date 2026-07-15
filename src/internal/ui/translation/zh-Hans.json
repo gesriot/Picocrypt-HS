@@ -16,7 +16,7 @@
   "action.process": "处理",
   "language.menu": "语言",
   "start.hint.noFiles": "添加文件或文件夹以继续。",
-  "start.hint.scanning": "正在扫描文件；请等待后再开始。",
+  "start.hint.scanning": "正在扫描文件；请稍候再开始。",
   "start.hint.enterPasswordOrKeyfiles": "输入密码或添加密钥文件。",
   "start.hint.repeatPassword": "再次输入密码以继续。",
   "start.hint.passwordMismatch": "密码不一致。",
@@ -62,7 +62,7 @@
   "advanced.split.unit.total": "总计",
   "advanced.force_decrypt.label": "强制解密",
   "advanced.force_decrypt.tooltip": "保留已损坏或未经验证的输出。",
-  "advanced.verify_first.label": "先验证",
+  "advanced.verify_first.label": "先验证完整性",
   "advanced.verify_first.tooltip": "解密前验证完整性。",
   "advanced.delete_volume.label": "删除加密卷",
   "advanced.delete_volume.tooltip": "解密后删除加密卷",
@@ -86,7 +86,7 @@
     "other": "已完成（{{.Count}} 个文件）"
   },
   "status.recursive_failed_all": {
-    "other": "失败（全部 {{.Count}} 个文件）"
+    "other": "失败（{{.Count}} 个文件全部失败）"
   },
   "status.recursive_completed_failed": "已完成（{{.OK}} 成功，{{.Failed}} 失败）",
   "status.processing_file": "正在处理文件 {{.Index}}/{{.Total}}…",
