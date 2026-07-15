@@ -99,8 +99,10 @@ Picocrypt-NG keeps Fyne/Weblate-shaped flat JSON catalogs under
   `ui.language`.
 - Only complete embedded Fyne catalogs appear in the selector. Registered
   desktop codes are `en`, `ru`, `de`, `fr`, `it`, `es`, `zh-Hans`, and `hi`.
-  `zh-Hans` is the catalog filename stem and stored preference; only the closed
-  selector abbreviates it to `zh`. The open menu uses native names and no flags.
+  `zh-Hans` is the catalog filename stem and stored preference, with the open
+  menu label `简体中文`; `hi` uses the open-menu label `हिन्दी`. Only the closed
+  selector abbreviates `zh-Hans` to `zh`. The open menu uses native names and no
+  flags.
   Registration without a catalog does not claim that a locale has shipped.
 - Every embedded non-English catalog must exactly match `en.json` message IDs,
   singular/plural shapes, and template placeholders, while using the exact
