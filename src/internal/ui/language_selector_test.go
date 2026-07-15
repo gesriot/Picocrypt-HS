@@ -42,14 +42,35 @@ func TestChineseLanguagePreferenceKeepsFullCodeWhileSelectorShowsZh(t *testing.T
 	}
 
 	a := &App{fyneApp: fyneApp}
-	if err := a.SwitchLanguage("zh-Hans"); err != nil {
-		t.Fatalf("SwitchLanguage(zh-Hans) returned error: %v", err)
+	selector := newLanguageSelector(a)
+	a.languageSelector = selector
+	if got := selector.button.Text; got != "en" {
+		t.Fatalf("initial selector closed text = %q; want en", got)
 	}
+
+	var chineseItem *fyne.MenuItem
+	for _, item := range selector.menu().Items {
+		if item.Label == "简体中文" {
+			chineseItem = item
+			break
+		}
+	}
+	if chineseItem == nil {
+		t.Fatal("language selector menu is missing 简体中文")
+	}
+	if chineseItem.Action == nil {
+		t.Fatal("简体中文 language selector item has no action")
+	}
+	chineseItem.Action()
+
 	if got := activeLanguage(); got != "zh-Hans" {
-		t.Fatalf("activeLanguage = %q; want zh-Hans", got)
+		t.Errorf("activeLanguage after menu action = %q; want zh-Hans", got)
 	}
 	if got := fyneApp.Preferences().StringWithFallback(languagePreferenceKey, ""); got != "zh-Hans" {
-		t.Fatalf("stored language preference = %q; want zh-Hans", got)
+		t.Errorf("stored language preference after menu action = %q; want zh-Hans", got)
+	}
+	if got := selector.button.Text; got != "zh" {
+		t.Errorf("selector closed text after menu action = %q; want zh", got)
 	}
 	if err := setActiveLanguage("en"); err != nil {
 		t.Fatalf("setActiveLanguage(en) returned error: %v", err)
@@ -59,11 +80,6 @@ func TestChineseLanguagePreferenceKeepsFullCodeWhileSelectorShowsZh(t *testing.T
 	}
 	if got := activeLanguage(); got != "zh-Hans" {
 		t.Fatalf("activeLanguage after preference restore = %q; want zh-Hans", got)
-	}
-
-	selector := newLanguageSelector(a)
-	if got := selector.button.Text; got != "zh" {
-		t.Fatalf("selector closed text = %q; want zh", got)
 	}
 }
 

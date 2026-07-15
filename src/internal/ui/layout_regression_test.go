@@ -505,29 +505,40 @@ func TestDesktopEncryptLayoutCollapsedAdvancedHeightBudgetRussian(t *testing.T) 
 	}
 }
 
-func TestDesktopEncryptLayoutExpandedAdvancedStillFitsWidth(t *testing.T) {
-	fyneApp := newTestFyneApp(t)
-	fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
-
-	a := newDesktopEncryptLayoutApp(t, fyneApp)
-
-	fyne.DoAndWait(func() {
-		a.State.Split = true
-		a.refreshAdvanced()
-		a.updateUIState()
-	})
-
-	var min, size fyne.Size
-	fyne.DoAndWait(func() {
-		min = a.Window.Content().MinSize()
-		size = a.Window.Canvas().Size()
-	})
-
-	if min.Width > windowWidth {
-		t.Fatalf("expanded encrypt layout MinSize width %.1f exceeds compact window width %.1f", min.Width, float32(windowWidth))
+func TestDesktopEncryptLayoutExpandedAdvancedKeepsCompactWidthForAllBundledLanguages(t *testing.T) {
+	resetLocalizationForTest(t)
+	if err := loadTranslations(); err != nil {
+		t.Fatalf("loadTranslations returned error: %v", err)
 	}
-	if size.Width > windowWidth {
-		t.Fatalf("expanded encrypt layout window width %.1f exceeds compact window width %.1f", size.Width, float32(windowWidth))
+
+	for _, option := range bundledLanguageOptions() {
+		t.Run(string(option.Code), func(t *testing.T) {
+			fyneApp := newTestFyneApp(t)
+			fyneApp.Settings().SetTheme(fixedVariantTheme{Theme: NewCompactTheme(), variant: theme.VariantLight})
+
+			a := newDesktopEncryptLayoutApp(t, fyneApp)
+
+			var min, size fyne.Size
+			fyne.DoAndWait(func() {
+				if err := a.SwitchLanguage(option.Code); err != nil {
+					t.Fatalf("SwitchLanguage(%s) returned error: %v", option.Code, err)
+				}
+				if a.advancedToggleBtn == nil {
+					t.Fatal("advanced disclosure button was not built")
+				}
+				a.advancedToggleBtn.OnTapped()
+				min = a.Window.Content().MinSize()
+				size = a.Window.Canvas().Size()
+			})
+
+			if min.Width > windowWidth {
+				t.Fatalf("%s expanded encrypt layout MinSize width %.1f exceeds compact window width %.1f", option.Code, min.Width, float32(windowWidth))
+			}
+			if size.Width > windowWidth {
+				t.Fatalf("%s expanded encrypt layout window width %.1f exceeds compact window width %.1f", option.Code, size.Width, float32(windowWidth))
+			}
+			assertWindowFitsContent(t, a)
+		})
 	}
 }
 
