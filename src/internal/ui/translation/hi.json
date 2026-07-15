@@ -102,9 +102,9 @@
   "drop.failed_stat_item": "ड्रॉप की गई वस्तु की जानकारी नहीं मिल सकी",
   "drop.failed_stat_items": "ड्रॉप की गई वस्तुओं की जानकारी नहीं मिल सकी",
   "drop.read_access_denied": "पढ़ने की अनुमति नहीं",
-  "drop.header_may_be_deniable": "हेडर पढ़ा नहीं जा सका; वॉल्यूम में विश्वसनीय इनकार हो सकता है",
+  "drop.header_may_be_deniable": "हेडर पढ़ा नहीं जा सका; वॉल्यूम संभवतः विश्वसनीय इनकार का समर्थन करता है।",
   "drop.header_damaged": "वॉल्यूम हेडर क्षतिग्रस्त है",
-  "drop.failed_split_path": "स्प्लिट वॉल्यूम पथ नहीं बनाया जा सका",
+  "drop.failed_split_path": "विभाजित वॉल्यूम का पथ निर्धारित नहीं किया जा सका",
   "selection.scanning_files": "फ़ाइलें स्कैन हो रही हैं... ({{.Size}})",
   "selection.with_size": "{{.Label}} ({{.Size}})",
   "selection.files": {
@@ -148,7 +148,7 @@
   "mobile.app_storage.select_title": "ऐप स्टोरेज से चुनें",
   "mobile.file_access_failed": "फ़ाइल तक पहुँचा नहीं जा सका: {{.Error}}",
   "mobile.file_access_failed_unsafe_name": "फ़ाइल तक पहुँचा नहीं जा सका: असुरक्षित फ़ाइल नाम",
-  "mobile.folder_selection.unsupported": "Android पर फ़ोल्डर चयन पूरी तरह समर्थित नहीं है।\n\nफ़ोल्डरों के लिए:\n1. फ़ाइल मैनेजर से अपना फ़ोल्डर ऐप स्टोरेज में कॉपी करें\n2. उसे चुनने के लिए ऐप स्टोरेज (बड़ी फ़ाइलें) बटन उपयोग करें\n\nऐप स्टोरेज पथ:\n{{.Path}}",
+  "mobile.folder_selection.unsupported": "Android पर फ़ोल्डर चयन पूरी तरह समर्थित नहीं है।\n\nफ़ोल्डरों के लिए:\n1. फ़ाइल मैनेजर से अपना फ़ोल्डर ऐप स्टोरेज में कॉपी करें\n2. उसे चुनने के लिए ऐप स्टोरेज (बड़ी फ़ाइलें) बटन का उपयोग करें\n\nऐप स्टोरेज पथ:\n{{.Path}}",
   "mobile.folder_selection.copy_path": "पथ क्लिपबोर्ड पर कॉपी करें",
   "mobile.folder_selection.open_app_storage": "ऐप स्टोरेज खोलें",
   "mobile.folder_selection.title": "फ़ोल्डर चयन"
