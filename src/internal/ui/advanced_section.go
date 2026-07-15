@@ -140,6 +140,14 @@ func (a *App) buildEncryptOptions() {
 	a.buildEncryptOptionsInto(a.advancedContainer)
 }
 
+func adaptiveAdvancedOptionPair(left, right fyne.CanvasObject) fyne.CanvasObject {
+	pair := container.NewGridWithColumns(2, left, right)
+	if pair.MinSize().Width > desktopContentWidth() {
+		return container.NewVBox(left, right)
+	}
+	return pair
+}
+
 func (a *App) buildEncryptOptionsInto(target *fyne.Container) {
 	if target == nil {
 		return
@@ -159,7 +167,7 @@ func (a *App) buildEncryptOptionsInto(target *fyne.Container) {
 	a.compressCheck.SetToolTip(tr("advanced.compress.tooltip", "Compress before encrypting"))
 	a.compressCheck.SetChecked(a.State.Compress)
 
-	row1 := container.NewGridWithColumns(2, a.paranoidCheck, a.compressCheck)
+	row1 := adaptiveAdvancedOptionPair(a.paranoidCheck, a.compressCheck)
 
 	a.reedSolomonCheck = ttwidget.NewCheck(tr("advanced.reed_solomon.label", "Reed-Solomon"), func(checked bool) {
 		a.State.ReedSolomon = checked
@@ -173,7 +181,7 @@ func (a *App) buildEncryptOptionsInto(target *fyne.Container) {
 	a.deleteCheck.SetToolTip(tr("advanced.delete_files.tooltip", "Delete source files after encryption"))
 	a.deleteCheck.SetChecked(a.State.Delete)
 
-	row2 := container.NewGridWithColumns(2, a.reedSolomonCheck, a.deleteCheck)
+	row2 := adaptiveAdvancedOptionPair(a.reedSolomonCheck, a.deleteCheck)
 
 	a.deniabilityCheck = ttwidget.NewCheck(tr("advanced.deniability.label", "Deniability"), func(checked bool) {
 		a.State.Deniability = checked
@@ -195,7 +203,7 @@ func (a *App) buildEncryptOptionsInto(target *fyne.Container) {
 	a.recursivelyCheck.SetToolTip(tr("advanced.recursively.tooltip", "Process each file separately"))
 	a.recursivelyCheck.SetChecked(a.State.Recursively)
 
-	row3 := container.NewGridWithColumns(2, a.deniabilityCheck, a.recursivelyCheck)
+	row3 := adaptiveAdvancedOptionPair(a.deniabilityCheck, a.recursivelyCheck)
 
 	a.splitCheck = ttwidget.NewCheck(tr("advanced.split.label", "Split:"), func(checked bool) {
 		a.State.Split = checked

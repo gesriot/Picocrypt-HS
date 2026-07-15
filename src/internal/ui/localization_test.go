@@ -16,6 +16,25 @@ import (
 	"unicode/utf8"
 )
 
+var requiredCatalogPluralForms = map[LanguageCode][]string{
+	"en":      {"one", "other"},
+	"ru":      {"few", "many", "one", "other"},
+	"de":      {"one", "other"},
+	"fr":      {"many", "one", "other"},
+	"it":      {"many", "one", "other"},
+	"es":      {"many", "one", "other"},
+	"zh-Hans": {"other"},
+	"hi":      {"one", "other"},
+}
+
+func requiredPluralFormsForLanguage(code LanguageCode) ([]string, error) {
+	forms, ok := requiredCatalogPluralForms[code]
+	if !ok {
+		return nil, fmt.Errorf("no plural-form contract registered for language %q", code)
+	}
+	return forms, nil
+}
+
 func TestLoadTranslations(t *testing.T) {
 	resetLocalizationForTest(t)
 
@@ -45,7 +64,7 @@ func TestLocalizationCatalogJSON(t *testing.T) {
 		if strings.TrimSpace(key) == "" {
 			t.Fatal("translation/en.json contains an empty key")
 		}
-		validateCatalogValue(t, key, value)
+		validateCatalogValue(t, "en", key, value)
 	}
 }
 
@@ -78,34 +97,37 @@ func TestLocalizationCatalogEmbeddedByLoader(t *testing.T) {
 	}
 }
 
-func TestRussianFyneCatalogMatchesEnglishKeysAndPlaceholders(t *testing.T) {
+func TestEmbeddedFyneCatalogsMatchEnglish(t *testing.T) {
 	english := loadEmbeddedCatalog(t, "translation/en.json")
-	russian := loadEmbeddedCatalog(t, "translation/ru.json")
-
-	assertCatalogMatchesEnglish(t, "translation/ru.json", english, russian)
-}
-
-func TestRussianFyneCatalogUsesRussianPluralForms(t *testing.T) {
-	english := loadEmbeddedCatalog(t, "translation/en.json")
-	russian := loadEmbeddedCatalog(t, "translation/ru.json")
-
-	var failures []string
-	for key, englishValue := range english {
-		if !isPluralCatalogValue(englishValue) {
-			continue
-		}
-		translated, ok := russian[key].(map[string]any)
-		if !ok {
-			failures = append(failures, key+": missing Russian plural object")
-			continue
-		}
-		if got, want := sortedMapKeys(translated), []string{"few", "many", "one", "other"}; !sameStringSet(got, want) {
-			failures = append(failures, fmt.Sprintf("%s: plural forms = %v; want %v", key, got, want))
-		}
+	entries, err := translationFS.ReadDir("translation")
+	if err != nil {
+		t.Fatalf("read embedded translation directory: %v", err)
 	}
-	sort.Strings(failures)
-	if len(failures) > 0 {
-		t.Fatalf("Russian plural catalog must use one/few/many/other forms:\n%s", strings.Join(failures, "\n"))
+
+	known := make(map[LanguageCode]bool, len(knownLanguageOptions))
+	for _, option := range knownLanguageOptions {
+		known[option.Code] = true
+	}
+
+	nonEnglishCatalogs := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || entry.Name() == "en.json" {
+			continue
+		}
+		nonEnglishCatalogs++
+		code := LanguageCode(strings.TrimSuffix(entry.Name(), ".json"))
+		if !known[code] {
+			t.Errorf("embedded catalog %q has no registered language option", entry.Name())
+			continue
+		}
+		path := "translation/" + entry.Name()
+		t.Run(string(code), func(t *testing.T) {
+			translated := loadEmbeddedCatalog(t, path)
+			assertCatalogMatchesEnglish(t, code, path, english, translated)
+		})
+	}
+	if nonEnglishCatalogs == 0 {
+		t.Fatal("found no embedded non-English catalogs to validate")
 	}
 }
 
@@ -258,46 +280,132 @@ func TestSelectionMixedCatalogComposesPluralizedPhrases(t *testing.T) {
 	}
 }
 
-func TestCatalogValueValidationRequiresEnglishPluralForms(t *testing.T) {
+func TestCatalogValueValidationRequiresExactLocalePluralForms(t *testing.T) {
 	tests := []struct {
-		name  string
-		value map[string]any
+		name    string
+		code    LanguageCode
+		value   map[string]any
+		wantErr bool
 	}{
 		{
-			name: "missing one",
+			name: "English one and other",
+			code: "en",
 			value: map[string]any{
+				"one":   "{{.Count}} file",
 				"other": "{{.Count}} files",
 			},
 		},
 		{
-			name: "missing other",
+			name: "Russian few many one and other",
+			code: "ru",
 			value: map[string]any{
-				"one": "{{.Count}} file",
+				"few":   "{{.Count}} файла",
+				"many":  "{{.Count}} файлов",
+				"one":   "{{.Count}} файл",
+				"other": "{{.Count}} файла",
 			},
 		},
 		{
-			name: "missing count",
+			name: "German one and other",
+			code: "de",
 			value: map[string]any{
-				"one":   "One file",
-				"other": "{{.Count}} files",
+				"one":   "{{.Count}} Datei",
+				"other": "{{.Count}} Dateien",
 			},
+		},
+		{
+			name: "Italian many one and other",
+			code: "it",
+			value: map[string]any{
+				"many":  "{{.Count}} file",
+				"one":   "{{.Count}} file",
+				"other": "{{.Count}} file",
+			},
+		},
+		{
+			name: "Spanish many one and other",
+			code: "es",
+			value: map[string]any{
+				"many":  "{{.Count}} archivos",
+				"one":   "{{.Count}} archivo",
+				"other": "{{.Count}} archivos",
+			},
+		},
+		{
+			name: "Hindi one and other",
+			code: "hi",
+			value: map[string]any{
+				"one":   "{{.Count}} फ़ाइल",
+				"other": "{{.Count}} फ़ाइलें",
+			},
+		},
+		{
+			name: "Chinese other only",
+			code: "zh-Hans",
+			value: map[string]any{
+				"other": "{{.Count}} 个文件",
+			},
+		},
+		{
+			name: "Chinese rejects extra one",
+			code: "zh-Hans",
+			value: map[string]any{
+				"one":   "{{.Count}} 个文件",
+				"other": "{{.Count}} 个文件",
+			},
+			wantErr: true,
+		},
+		{
+			name: "Hindi requires one",
+			code: "hi",
+			value: map[string]any{
+				"other": "{{.Count}} फ़ाइलें",
+			},
+			wantErr: true,
+		},
+		{
+			name: "French requires many",
+			code: "fr",
+			value: map[string]any{
+				"one":   "{{.Count}} fichier",
+				"other": "{{.Count}} fichiers",
+			},
+			wantErr: true,
+		},
+		{
+			name: "French accepts one many and other",
+			code: "fr",
+			value: map[string]any{
+				"one":   "{{.Count}} fichier",
+				"many":  "{{.Count}} fichiers",
+				"other": "{{.Count}} fichiers",
+			},
+		},
+		{
+			name: "plural form cannot omit count",
+			code: "de",
+			value: map[string]any{
+				"one":   "Eine Datei",
+				"other": "{{.Count}} Dateien",
+			},
+			wantErr: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := catalogValueValidationError("selection.files", tc.value); err == nil {
+			forms, err := requiredPluralFormsForLanguage(tc.code)
+			if err != nil {
+				t.Fatalf("requiredPluralFormsForLanguage(%q): %v", tc.code, err)
+			}
+			err = catalogValueValidationError("selection.files", tc.value, forms)
+			if tc.wantErr && err == nil {
 				t.Fatal("catalogValueValidationError returned nil; want validation error")
 			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("catalogValueValidationError returned error: %v", err)
+			}
 		})
-	}
-
-	valid := map[string]any{
-		"one":   "{{.Count}} file",
-		"other": "{{.Count}} files",
-	}
-	if err := catalogValueValidationError("selection.files", valid); err != nil {
-		t.Fatalf("catalogValueValidationError(valid) = %v; want nil", err)
 	}
 }
 
@@ -417,6 +525,10 @@ func TestFyneUITranslationCallKeysExistInCatalog(t *testing.T) {
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		t.Fatalf("parse translation/en.json: %v", err)
 	}
+	englishPluralForms, err := requiredPluralFormsForLanguage("en")
+	if err != nil {
+		t.Fatalf("resolve English plural forms: %v", err)
+	}
 
 	files := uiProductionGoFiles(t)
 
@@ -454,7 +566,7 @@ func TestFyneUITranslationCallKeysExistInCatalog(t *testing.T) {
 					missing = append(missing, fset.Position(keyLit.Pos()).String()+": "+key+" is not plural")
 					return true
 				}
-				if err := catalogValueValidationError(key, plural); err != nil {
+				if err := catalogValueValidationError(key, plural, englishPluralForms); err != nil {
 					missing = append(missing, fset.Position(keyLit.Pos()).String()+": "+err.Error())
 				}
 			}
@@ -511,10 +623,14 @@ func TestNewAppLoadsEmbeddedTranslationsBeforeReturning(t *testing.T) {
 	}
 }
 
-func validateCatalogValue(t *testing.T, key string, value any) {
+func validateCatalogValue(t *testing.T, code LanguageCode, key string, value any) {
 	t.Helper()
 
-	if err := catalogValueValidationError(key, value); err != nil {
+	forms, err := requiredPluralFormsForLanguage(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := catalogValueValidationError(key, value, forms); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -537,8 +653,13 @@ func loadEmbeddedCatalog(t *testing.T, path string) map[string]any {
 	return catalog
 }
 
-func assertCatalogMatchesEnglish(t *testing.T, path string, english, translated map[string]any) {
+func assertCatalogMatchesEnglish(t *testing.T, code LanguageCode, path string, english, translated map[string]any) {
 	t.Helper()
+
+	requiredForms, err := requiredPluralFormsForLanguage(code)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var failures []string
 	for key, englishValue := range english {
@@ -551,7 +672,7 @@ func assertCatalogMatchesEnglish(t *testing.T, path string, english, translated 
 			failures = append(failures, key+": plural/string shape differs")
 			continue
 		}
-		if err := catalogValueValidationError(key, translatedValue); err != nil {
+		if err := catalogValueValidationError(key, translatedValue, requiredForms); err != nil {
 			failures = append(failures, key+": "+err.Error())
 		}
 		if got, want := templatePlaceholders(translatedValue), templatePlaceholders(englishValue); !sameStringSet(got, want) {
@@ -565,7 +686,7 @@ func assertCatalogMatchesEnglish(t *testing.T, path string, english, translated 
 	}
 	sort.Strings(failures)
 	if len(failures) > 0 {
-		t.Fatalf("%s must match translation/en.json keys, shapes, and placeholders:\n%s", path, strings.Join(failures, "\n"))
+		t.Fatalf("%s must match translation/en.json keys, shapes, placeholders, and locale plural forms:\n%s", path, strings.Join(failures, "\n"))
 	}
 }
 
@@ -649,22 +770,18 @@ func sameStringSet(a, b []string) bool {
 	return true
 }
 
-func catalogValueValidationError(key string, value any) error {
+func catalogValueValidationError(key string, value any, requiredForms []string) error {
 	switch v := value.(type) {
 	case string:
 		if strings.TrimSpace(v) == "" {
 			return fmt.Errorf("translation %q has an empty value", key)
 		}
 	case map[string]any:
-		for _, form := range []string{"one", "other"} {
-			if _, ok := v[form]; !ok {
-				return fmt.Errorf("plural translation %q is missing %s", key, form)
-			}
+		gotForms := sortedMapKeys(v)
+		if !sameStringSet(gotForms, requiredForms) {
+			return fmt.Errorf("plural translation %q has forms %v; want %v", key, gotForms, requiredForms)
 		}
 		for form, raw := range v {
-			if strings.TrimSpace(form) == "" {
-				return fmt.Errorf("plural translation %q contains an empty plural form", key)
-			}
 			text, ok := raw.(string)
 			if !ok {
 				return fmt.Errorf("plural translation %q form %q has non-string value %T", key, form, raw)

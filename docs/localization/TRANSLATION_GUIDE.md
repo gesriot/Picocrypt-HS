@@ -55,6 +55,7 @@ Use these sources before adding or changing localization mechanics:
 
 - go-i18n runtime localization: <https://github.com/nicksnyder/go-i18n>
 - Fyne app preferences and widgets: <https://docs.fyne.io/>
+- Fyne custom theme API: <https://docs.fyne.io/extend/custom-theme/>
 - Android localization: <https://developer.android.com/guide/topics/resources/localization>
 - Android string resources and plurals: <https://developer.android.com/guide/topics/resources/string-resource>
 - Android language and layout support: <https://developer.android.com/training/basics/supporting-devices/languages>
@@ -67,6 +68,9 @@ Use these sources before adding or changing localization mechanics:
 - Weblate hosted pricing and Libre plan: <https://weblate.org/en/hosting/>
 - Unicode CLDR plural rules: <https://cldr.unicode.org/index/cldr-spec/plural-rules>
 - Unicode LDML / locale identifiers: <https://www.unicode.org/reports/tr35/>
+- Unicode grapheme clusters: <https://unicode.org/reports/tr29/>
+- HarfBuzz shaping scope: <https://harfbuzz.github.io/what-harfbuzz-doesnt-do.html>
+- Noto font-selection guidance: <https://notofonts.github.io/noto-docs/website/use/>
 - Microsoft Localization Style Guides: <https://learn.microsoft.com/en-us/globalization/reference/microsoft-style-guides>
 - Microsoft Terminology: <https://learn.microsoft.com/en-us/globalization/reference/microsoft-terminology>
 - Microsoft Writing Style Guide: <https://learn.microsoft.com/en-us/style-guide/welcome/>
@@ -93,12 +97,27 @@ Picocrypt-NG keeps Fyne/Weblate-shaped flat JSON catalogs under
   menu shows native language names. Do not use flags.
 - The selected desktop UI language is stored in Fyne preferences under
   `ui.language`.
-- Only complete bundled Fyne catalogs appear in the selector. Target language
-  codes are `en`, `ru`, `de`, `fr`, `it`, and `es`. Russian is the first
-  curated non-English catalog and is gated by
-  `docs/localization/RUSSIAN_TRANSLATION_REVIEW.md`; additional non-English
-  production catalogs remain blocked until their language-specific review gate
-  or the Fyne/Weblate JSON round-trip proof exists.
+- Only complete embedded Fyne catalogs appear in the selector. Registered
+  desktop codes are `en`, `ru`, `de`, `fr`, `it`, `es`, `zh-Hans`, and `hi`.
+  `zh-Hans` is the catalog filename stem and stored preference, with the open
+  menu label `简体中文`; `hi` uses the open-menu label `हिन्दी`. Only the closed
+  selector abbreviates `zh-Hans` to `zh`. The open menu uses native names and no
+  flags.
+  Registration without a catalog does not claim that a locale has shipped.
+- Every embedded non-English catalog must exactly match `en.json` message IDs,
+  singular/plural shapes, and template placeholders, while using the exact
+  plural forms required by the pinned go-i18n version. The current contract is:
+
+  | Locale | Required plural forms |
+  |---|---|
+  | `en`, `de`, `hi` | `one`, `other` |
+  | `fr`, `es`, `it` | `one`, `many`, `other` |
+  | `ru` | `one`, `few`, `many`, `other` |
+  | `zh-Hans` | `other` |
+
+  In go-i18n 2.6.1, French and Hindi use `one` for integer zero; French and
+  Spanish use `many` for values such as one million. Runtime tests, not this
+  table alone, are the executable source of truth.
 - UI state must store semantic display state for labels and UI-owned statuses.
   Do not store translated strings as durable state when the text must relocalize
   after a runtime language switch.
@@ -122,6 +141,31 @@ JSON shape Picocrypt-NG uses. Generic Weblate JSON is useful for simple key/valu
 files, but its plain JSON format does not carry all plural/context metadata.
 The curated Russian catalog is a native-review exception, not evidence that the
 Fyne Weblate component is ready.
+
+### Fyne fonts and packaged rendering
+
+Picocrypt-NG uses Fyne's default theme and system-font fallback. It does not
+bundle or download fonts, install operating-system packages, hard-code font
+paths, or set `FYNE_FONT`. Nerd Fonts are not a CJK or Devanagari solution.
+
+Fyne's embedded Latin font covers the catalog text required by German, French,
+and Spanish. Simplified Chinese and Hindi depend on suitable fonts already
+available to the operating system. Fyne shapes text with HarfBuzz, but its
+preferred system face follows the operating-system locale rather than the
+language selected inside Picocrypt-NG. Therefore `zh-Hans` and `hi` require
+real packaged-build review both with matching and non-matching OS locales.
+
+Before either locale becomes selectable, reject screenshots containing tofu,
+replacement glyphs, wrong Simplified-Chinese regional forms, detached Hindi
+matras, dotted circles, exposed halants, broken conjuncts, clipped vertical
+metrics, hidden controls, or window growth beyond the normal 340 px desktop
+width. Missing system coverage blocks that locale on the affected target; it
+does not authorize adding an unreviewed font asset.
+
+Emoji and arbitrary mixed-script filenames/comments are platform best-effort.
+Font fallback must not change the underlying application string or selected
+path and must not cause a crash, but Picocrypt-NG does not promise universal
+rendering of every Unicode character or emoji sequence.
 
 ### Android
 
@@ -207,6 +251,8 @@ Language-specific voice:
 | German | Use formal-neutral `Sie` in instructions. Avoid English Title Case. Split long compounds with hyphens when readability suffers. |
 | Spanish | Use neutral international Spanish. Avoid regional-only terms and avoid relying on either `tú` or `usted` where an impersonal UI phrase works. |
 | Italian | Use concise UI actions and impersonal wording. Prefer short labels; use longer technical forms in explanatory text when needed. |
+| Simplified Chinese | Use concise Simplified Chinese and review regional glyph forms. Security terms such as deniability need an explanatory tooltip, not only a short label. |
+| Hindi | Use concise contemporary technical Hindi. Review conjuncts and matras visually; do not accept code-point presence as shaping proof. |
 
 ## Product Glossary
 
@@ -392,20 +438,44 @@ Every localization PR or Weblate merge must answer these checks:
 11. Has Android been checked with pseudolocales after large resource changes?
 12. Are non-translatable identifiers marked or excluded from translation?
 13. Does the change leave CLI output untouched?
+14. For a Fyne desktop locale, does the complete catalog pass exact key,
+    placeholder, message-shape, and locale-plural validation?
+15. Has the real packaged desktop UI been checked at 340 px in light and dark
+    mode? For `zh-Hans` and `hi`, was shaping checked with both matching and
+    non-matching operating-system locales?
+16. Are Android build and pseudolocale checks requested only when Android
+    resources are actually part of the localization change?
 
 ## Implementation Readiness Gates
 
-Before enabling a locale in a release:
+Before enabling any locale:
 
-- The locale has a glossary review against this guide.
-- Android resources compile.
-- Fyne catalogs load without runtime errors.
-- No enabled localized surface still depends on hard-coded user-facing source
-  text that bypasses the platform catalog.
-- Weblate or local validation reports no unresolved placeholder/plural/XML
-  issues.
-- The translated UI has been manually smoke-tested for core workflows:
-  selecting files, encrypting, decrypting, keyfiles, comments, force decrypt,
-  verify-first, deletion options, and error dialogs.
-- Release notes mention localization as user-facing UI work, not as a
-  cryptographic change.
+- The locale has a native or near-native linguistic review and a maintainer
+  security-meaning review against this guide.
+- No enabled surface depends on untranslated user-facing source text that
+  bypasses its platform catalog.
+- All placeholder, plural, syntax, and glossary checks are clean.
+- Release notes describe localization as UI work, not a cryptographic change.
+
+Before enabling a Fyne desktop locale:
+
+- The catalog is complete against `src/internal/ui/translation/en.json` and
+  passes the generic embedded-catalog contract.
+- Runtime language switching and preference restoration preserve the full
+  locale code.
+- Core workflows have been checked in a real packaged application: initial,
+  encrypt, decrypt, keyfiles, comments, force decrypt, verify-first, deletion
+  options, progress, and dialogs.
+- Windows 10/11 installer and portable builds, the supported macOS `.app`, and
+  Linux raw, `.deb`, and AppImage builds have no clipped controls or unexpected
+  width growth. Flatpak and Snap are checked when that catalog ships through
+  those channels.
+- Simplified Chinese and Hindi additionally pass the system-font and shaping
+  checks in this guide. Hindi also requires grapheme-safe application-owned
+  truncation before `hi.json` is admitted.
+
+Before enabling a native Android locale:
+
+- Android resources compile and the relevant UI passes pseudolocale checks.
+- Hard-coded Kotlin user messages for the localized surface have been
+  externalized or explicitly mapped.

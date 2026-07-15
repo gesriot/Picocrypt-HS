@@ -9,6 +9,80 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+func TestLanguageButtonLabelUsesCompactChineseCode(t *testing.T) {
+	tests := []struct {
+		code LanguageCode
+		want string
+	}{
+		{code: "en", want: "en"},
+		{code: "de", want: "de"},
+		{code: "zh-Hans", want: "zh"},
+		{code: "hi", want: "hi"},
+		{code: "zz", want: "zz"},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.code), func(t *testing.T) {
+			if got := languageButtonLabel(tc.code); got != tc.want {
+				t.Fatalf("languageButtonLabel(%q) = %q; want %q", tc.code, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestChineseLanguagePreferenceKeepsFullCodeWhileSelectorShowsZh(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	resetLocalizationForTest(t)
+	testFS := fstest.MapFS{
+		"translation/en.json":      {Data: []byte(`{"status.ready":"Ready"}`)},
+		"translation/zh-Hans.json": {Data: []byte(`{"status.ready":"就绪"}`)},
+	}
+	if err := loadTranslationsFromFS(testFS); err != nil {
+		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
+	}
+
+	a := &App{fyneApp: fyneApp}
+	selector := newLanguageSelector(a)
+	a.languageSelector = selector
+	if got := selector.button.Text; got != "en" {
+		t.Fatalf("initial selector closed text = %q; want en", got)
+	}
+
+	var chineseItem *fyne.MenuItem
+	for _, item := range selector.menu().Items {
+		if item.Label == "简体中文" {
+			chineseItem = item
+			break
+		}
+	}
+	if chineseItem == nil {
+		t.Fatal("language selector menu is missing 简体中文")
+	}
+	if chineseItem.Action == nil {
+		t.Fatal("简体中文 language selector item has no action")
+	}
+	chineseItem.Action()
+
+	if got := activeLanguage(); got != "zh-Hans" {
+		t.Errorf("activeLanguage after menu action = %q; want zh-Hans", got)
+	}
+	if got := fyneApp.Preferences().StringWithFallback(languagePreferenceKey, ""); got != "zh-Hans" {
+		t.Errorf("stored language preference after menu action = %q; want zh-Hans", got)
+	}
+	if got := selector.button.Text; got != "zh" {
+		t.Errorf("selector closed text after menu action = %q; want zh", got)
+	}
+	if err := setActiveLanguage("en"); err != nil {
+		t.Fatalf("setActiveLanguage(en) returned error: %v", err)
+	}
+	if err := a.loadPreferredLanguage(fyneApp.Preferences()); err != nil {
+		t.Fatalf("loadPreferredLanguage returned error: %v", err)
+	}
+	if got := activeLanguage(); got != "zh-Hans" {
+		t.Fatalf("activeLanguage after preference restore = %q; want zh-Hans", got)
+	}
+}
+
 func TestLanguageSelectorClosedTextUsesLanguageCode(t *testing.T) {
 	resetLocalizationForTest(t)
 	testFS := fstest.MapFS{
@@ -32,9 +106,11 @@ func TestLanguageSelectorClosedTextUsesLanguageCode(t *testing.T) {
 func TestLanguageSelectorMenuUsesNativeNamesAndNoIcons(t *testing.T) {
 	resetLocalizationForTest(t)
 	testFS := fstest.MapFS{
-		"translation/en.json": {Data: []byte(`{"status.ready":"Ready"}`)},
-		"translation/fr.json": {Data: []byte(`{"status.ready":"Pret"}`)},
-		"translation/it.json": {Data: []byte(`{"status.ready":"Pronto"}`)},
+		"translation/en.json":      {Data: []byte(`{"status.ready":"Ready"}`)},
+		"translation/fr.json":      {Data: []byte(`{"status.ready":"Pret"}`)},
+		"translation/it.json":      {Data: []byte(`{"status.ready":"Pronto"}`)},
+		"translation/zh-Hans.json": {Data: []byte(`{"status.ready":"就绪"}`)},
+		"translation/hi.json":      {Data: []byte(`{"status.ready":"तैयार"}`)},
 	}
 	if err := loadTranslationsFromFS(testFS); err != nil {
 		t.Fatalf("loadTranslationsFromFS returned error: %v", err)
@@ -50,7 +126,7 @@ func TestLanguageSelectorMenuUsesNativeNamesAndNoIcons(t *testing.T) {
 			t.Fatalf("language menu item %q has an icon; flags/icons are not allowed", item.Label)
 		}
 	}
-	want := []string{"English", "Français", "Italiano"}
+	want := []string{"English", "Français", "Italiano", "简体中文", "हिन्दी"}
 	if len(got) != len(want) {
 		t.Fatalf("menu labels = %#v; want %#v", got, want)
 	}

@@ -917,24 +917,27 @@ func TestAndroidPRWorkflowRunsBoundedDeviceSuites(t *testing.T) {
 	workflow := mustReadWorkflowDoc(t, ".github/workflows/pr-test-build-android.yml")
 	job := mustJob(t, workflow, "pr-test-build-android")
 	wantByAPI := map[int]struct {
-		arch   string
-		memory string
-		target string
-		script string
+		arch     string
+		diskSize string
+		memory   string
+		target   string
+		script   string
 	}{
 		// Storage and staging must work on Picocrypt NG's Android 7 compatibility floor.
 		24: {
-			arch:   "x86_64",
-			memory: "3583",
-			target: "google_apis",
-			script: command + roundtrip + ",io.github.picocrypt_ng.picocrypt_ng.FileCopyServiceTest,io.github.picocrypt_ng.picocrypt_ng.StagingServiceInstrumentedTest",
+			arch:     "x86_64",
+			diskSize: "2048M",
+			memory:   "3583",
+			target:   "google_apis",
+			script:   command + roundtrip + ",io.github.picocrypt_ng.picocrypt_ng.FileCopyServiceTest,io.github.picocrypt_ng.picocrypt_ng.StagingServiceInstrumentedTest",
 		},
 		// Activity security and Compose state must work on the target-SDK runtime.
 		36: {
-			arch:   "x86_64",
-			memory: "6144",
-			target: "default",
-			script: command + roundtrip + ",io.github.picocrypt_ng.picocrypt_ng.MainActivityUITest,io.github.picocrypt_ng.picocrypt_ng.ui.components.WorkButtonTest",
+			arch:     "x86_64",
+			diskSize: "2048M",
+			memory:   "6144",
+			target:   "default",
+			script:   command + roundtrip + ",io.github.picocrypt_ng.picocrypt_ng.MainActivityUITest,io.github.picocrypt_ng.picocrypt_ng.ui.components.WorkButtonTest",
 		},
 	}
 	seen := make(map[int]struct{}, len(wantByAPI))
@@ -965,6 +968,9 @@ func TestAndroidPRWorkflowRunsBoundedDeviceSuites(t *testing.T) {
 		}
 		if got := step.With["arch"]; got != want.arch {
 			t.Errorf("API %d arch = %#v, want %s", apiLevel, got, want.arch)
+		}
+		if got := step.With["disk-size"]; got != want.diskSize {
+			t.Errorf("API %d disk-size = %#v, want %s", apiLevel, got, want.diskSize)
 		}
 		emulatorOptions, ok := step.With["emulator-options"].(string)
 		if !ok {
@@ -1441,6 +1447,9 @@ func TestAndroidInstrumentedWorkflowIsManualAndPinned(t *testing.T) {
 	instrEmulator := mustHaveStepUsingPrefix(t, instrJob, "ReactiveCircus/android-emulator-runner@")
 	if got := instrEmulator.With["api-level"]; got != 36 {
 		t.Fatalf("instrumented emulator api-level = %v, want 36", got)
+	}
+	if got := instrEmulator.With["disk-size"]; got != "2048M" {
+		t.Fatalf("instrumented emulator disk-size = %v, want 2048M", got)
 	}
 }
 

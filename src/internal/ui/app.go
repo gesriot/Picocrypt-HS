@@ -63,9 +63,11 @@ const (
 	windowHeightDecrypt = 430 // Reduced height for decrypt mode (fewer options)
 	windowHeightInitial = 350 // Compact height for initial state (no advanced options)
 	buttonWidth         = 54
-	padding             = 4 // Reduced from 8 to match compact theme
-	contentWidth        = windowWidth - padding*2
 )
+
+func desktopContentWidth() float32 {
+	return float32(windowWidth) - theme.Padding()*2
+}
 
 // App represents the main UI application.
 type App struct {
@@ -250,6 +252,12 @@ func (a *App) SwitchLanguage(code LanguageCode) error {
 		a.fyneApp.Preferences().SetString(languagePreferenceKey, string(code))
 	}
 	a.refreshLocalizedText()
+	if a.passwordContainer != nil {
+		a.rebuildPasswordHeader()
+	}
+	if a.advancedContainer != nil {
+		a.refreshAdvanced()
+	}
 	return nil
 }
 

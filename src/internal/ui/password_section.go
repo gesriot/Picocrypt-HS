@@ -70,10 +70,6 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 		a.showPassgenModal()
 	})
 
-	buttonRow := container.NewGridWithColumns(5,
-		a.showHideBtn, a.clearPwdBtn, a.copyBtn, a.pasteBtn, a.createBtn,
-	)
-
 	// Password input with strength indicator
 	a.passwordEntry = NewPasswordEntry()
 	a.passwordEntry.SetPlaceHolder(tr("password.placeholder", "Password"))
@@ -100,9 +96,6 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 	// Create bold labels for better visual hierarchy
 	a.passwordLabel = widget.NewLabel(tr("password.label", "Password:"))
 	a.passwordLabel.TextStyle = fyne.TextStyle{Bold: true}
-	passwordTitle := container.NewHBox(a.passwordLabel, a.strengthIndicator)
-	passwordHeader := container.NewBorder(nil, nil, passwordTitle, buttonRow, nil)
-
 	a.confirmLabel = widget.NewLabel(tr("password.confirm_label", "Confirm password:"))
 	a.confirmLabel.TextStyle = fyne.TextStyle{Bold: true}
 	confirmTitle := container.NewHBox(a.confirmLabel, a.validIndicator)
@@ -117,13 +110,32 @@ func (a *App) buildPasswordSection() fyne.CanvasObject {
 	a.nonASCIIHint.Wrapping = fyne.TextWrapWord
 	a.nonASCIIHint.Hide()
 
-	a.passwordContainer = container.NewVBox(
-		passwordHeader,
-		a.passwordEntry,
-		a.nonASCIIHint,
-		a.confirmRow,
-	)
+	a.passwordContainer = container.NewVBox()
+	a.rebuildPasswordHeader()
 	return a.passwordContainer
+}
+
+func (a *App) adaptivePasswordHeader() fyne.CanvasObject {
+	passwordTitle := container.NewHBox(a.passwordLabel, a.strengthIndicator)
+	buttonRow := container.NewGridWithColumns(5,
+		a.showHideBtn, a.clearPwdBtn, a.copyBtn, a.pasteBtn, a.createBtn,
+	)
+	passwordHeader := container.NewBorder(nil, nil, passwordTitle, buttonRow, nil)
+	if passwordHeader.MinSize().Width > desktopContentWidth() {
+		return container.NewVBox(passwordTitle, buttonRow)
+	}
+	return passwordHeader
+}
+
+func (a *App) rebuildPasswordHeader() {
+	if a.passwordContainer == nil {
+		return
+	}
+	a.passwordContainer.RemoveAll()
+	a.passwordContainer.Add(a.adaptivePasswordHeader())
+	a.passwordContainer.Add(a.passwordEntry)
+	a.passwordContainer.Add(a.nonASCIIHint)
+	a.passwordContainer.Add(a.confirmRow)
 }
 
 // updatePasswordStrength updates the password strength indicator.
