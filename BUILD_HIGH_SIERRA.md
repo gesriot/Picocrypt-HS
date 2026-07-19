@@ -12,6 +12,32 @@ with Xcode 9 / SDK 10.13 and **Go 1.20.x** — Go 1.21 and later require macOS
 The script pins `GOTOOLCHAIN=local` so Go never downloads a newer toolchain,
 verifies the installed version, and writes `src/Picocrypt-HS`.
 
+## Packaging a .app with an icon, inside a .dmg
+
+```bash
+./build-dmg.sh                  # builds, bundles and packages in one step
+```
+
+This produces `Picocrypt-HS.app` and `Picocrypt-HS.dmg` in the repository root
+(both are gitignored). It runs `build-high-sierra.sh` for you, then assembles
+the bundle by hand — upstream's `fyne package` path is unavailable here because
+the Fyne CLI needs a modern Go toolchain.
+
+The icon (`Contents/Resources/icon.icns`) and the base `Info.plist` are taken
+from upstream's `dist/macos/`. The plist is patched in place with `plutil`
+rather than duplicated into a fork-specific copy, so upstream's edits to it keep
+flowing through on merges. The patches are: identifier
+`io.github.picocryptng.PicocryptHS`, name/executable `Picocrypt-HS`,
+`LSMinimumSystemVersion` lowered from upstream's `15.0` to `10.13`, and the
+version stamped from the root `VERSION` file.
+
+Upstream's `.pcv` document-type and UTI declarations are preserved, so
+double-clicking a `.pcv` volume opens the app.
+
+The bundle is ad-hoc signed (`codesign --sign -`) so 10.13 does not report it as
+damaged. That is not a Developer ID signature — the first launch still needs
+right-click → Open.
+
 Equivalent manual invocation:
 
 ```bash

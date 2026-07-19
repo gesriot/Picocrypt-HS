@@ -50,7 +50,7 @@ func showFatalErrorDialog(err error) {
 	fmt.Fprintf(os.Stderr, "Failed to initialize: %v\n", err)
 
 	a := fyneApp.New()
-	win := a.NewWindow("Picocrypt NG")
+	win := a.NewWindow("Picocrypt HS")
 	// Closing the transient window quits the event loop so the caller's
 	// os.Exit(1) runs (the error dialog sits on top of this window).
 	win.SetCloseIntercept(func() { a.Quit() })

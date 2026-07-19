@@ -422,7 +422,7 @@ func (a *App) Run(startupPaths []string) {
 	// taskbars/docks show the .desktop Name or WM_CLASS, and mixing in the
 	// version made the user-visible name inconsistent across DEs. The version
 	// stays available via the CLI and the packaged file metadata.
-	a.Window = a.fyneApp.NewWindow("Picocrypt NG")
+	a.Window = a.fyneApp.NewWindow("Picocrypt HS")
 	// NewWindow initializes the GLFW driver; native window creation happens on Show.
 	prepareWindowIdentity()
 	a.Window.SetIcon(appIcon)

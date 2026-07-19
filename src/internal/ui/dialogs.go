@@ -52,13 +52,13 @@ func (a *App) showProgressModal(session *operationSession) {
 // indicator: the window title intentionally carries none (#133).
 func (a *App) showAboutModal() {
 	a.aboutVersionLabel = widget.NewLabelWithStyle(
-		tr("dialog.about.version_label", "Picocrypt NG {{.Version}}", map[string]any{
+		tr("dialog.about.version_label", "Picocrypt HS {{.Version}}", map[string]any{
 			"Version": a.Version,
 		}), fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	repo := widget.NewHyperlink(tr("dialog.about.github_link", "Picocrypt-NG on GitHub"), &url.URL{
+	repo := widget.NewHyperlink(tr("dialog.about.github_link", "Picocrypt-HS on GitHub"), &url.URL{
 		Scheme: "https",
 		Host:   "github.com",
-		Path:   "/Picocrypt-NG/Picocrypt-NG",
+		Path:   "/gesriot/Picocrypt-HS",
 	})
 
 	content := container.NewVBox(
