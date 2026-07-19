@@ -14,9 +14,21 @@ set -euo pipefail
 cd "$(dirname "$0")/src"
 
 OUTPUT="Picocrypt-HS"
-BUILD_TAGS=""
+
+# "legacy" is a Fyne build tag, not a Picocrypt one. It excludes
+# fyne/app/app_notlegacy_darwin.go, whose entire content is
+#   #cgo LDFLAGS: -framework Foundation -framework UserNotifications
+# UserNotifications.framework first shipped in macOS 10.14, so without this tag
+# the link fails here with "framework not found UserNotifications". Fyne's
+# app_darwin.m already guards the matching ObjC code behind
+# __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400 and falls back to the pre-10.14
+# notification path, so dropping the framework costs nothing on 10.13.
+#
+# Note this tag is *required* on a 10.13 SDK and *breaks* on a 10.14+ SDK, where
+# app_darwin.m compiles the UserNotifications path and then needs the framework.
+BUILD_TAGS="legacy"
 if [ "${1:-}" = "cli" ]; then
-	BUILD_TAGS="cli"
+	BUILD_TAGS="legacy,cli"
 	echo "Building CLI-only (no Fyne/OpenGL)."
 else
 	echo "Building GUI + CLI."
@@ -42,12 +54,9 @@ export CGO_LDFLAGS="-mmacosx-version-min=10.13"
 
 echo "Toolchain: $GO_VERSION"
 echo "Target:    macOS 10.13, $(go env GOARCH)"
+echo "Tags:      $BUILD_TAGS"
 
-if [ -n "$BUILD_TAGS" ]; then
-	go build -tags "$BUILD_TAGS" -ldflags="-s -w" -o "$OUTPUT" ./cmd/picocrypt
-else
-	go build -ldflags="-s -w" -o "$OUTPUT" ./cmd/picocrypt
-fi
+go build -tags "$BUILD_TAGS" -ldflags="-s -w" -o "$OUTPUT" ./cmd/picocrypt
 
 echo
 echo "Built src/$OUTPUT"

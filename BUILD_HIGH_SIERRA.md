@@ -20,12 +20,31 @@ GOTOOLCHAIN=local CGO_ENABLED=1 \
   MACOSX_DEPLOYMENT_TARGET=10.13 \
   CGO_CFLAGS="-mmacosx-version-min=10.13" \
   CGO_LDFLAGS="-mmacosx-version-min=10.13" \
-  go build -ldflags="-s -w" -o Picocrypt-HS ./cmd/picocrypt
+  go build -tags legacy -ldflags="-s -w" -o Picocrypt-HS ./cmd/picocrypt
 ```
 
-Note: the CLI-only build tag is `cli`. Earlier revisions of this file used
-`-tags legacy`, which matches no build constraint in the tree and silently did
-nothing (it produced a normal GUI build).
+## Why `-tags legacy` is mandatory here
+
+`legacy` is a **Fyne** build tag, not a Picocrypt one. It excludes exactly one
+file in the whole dependency tree, `fyne/app/app_notlegacy_darwin.go`, whose
+entire content is:
+
+```go
+#cgo LDFLAGS: -framework Foundation -framework UserNotifications
+```
+
+`UserNotifications.framework` first shipped in macOS 10.14, so on a 10.13 SDK a
+build without the tag dies at link time with `ld: framework not found
+UserNotifications`. Fyne's `app_darwin.m` already guards the corresponding
+Objective-C behind `__MAC_OS_X_VERSION_MAX_ALLOWED >= 101400` and falls back to
+the pre-10.14 notification path, so dropping the framework costs nothing — and
+Picocrypt never sends notifications anyway.
+
+The tag is *required* on a 10.13 SDK and *breaks* on a 10.14+ SDK, where
+`app_darwin.m` compiles the UserNotifications path and then needs the framework
+(the link fails on `_OBJC_CLASS_$_UNUserNotificationCenter`). That asymmetry
+means a GUI build of this fork cannot be validated on a modern macOS host; only
+the `cli` variant links on both.
 
 ## How this fork differs from upstream
 
