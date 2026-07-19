@@ -2,7 +2,10 @@ package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -14,7 +17,12 @@ import org.junit.Rule
 import org.junit.Test
 import io.github.picocrypt_ng.picocrypt_ng.testutils.MainDispatcherRule
 import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
+import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
+import io.mockk.verify
 
 /**
  * Unit tests for OperationViewModel.
@@ -44,11 +52,16 @@ class OperationViewModelTest {
     
     @After
     fun tearDown() {
+        if (::viewModel.isInitialized) {
+            runTest(mainDispatcherRule.testDispatcher) {
+                viewModel.viewModelScope.coroutineContext[Job]?.cancelAndJoin()
+            }
+        }
         resetOperationState()
     }
     
     @Test
-    fun `operationState exposes OperationManager currentOperation`() = runTest {
+    fun `operationState exposes OperationManager currentOperation`() = runTest(mainDispatcherRule.testDispatcher) {
         val operationState = viewModel.operationState.first()
         
         // Initially should be null
@@ -60,36 +73,53 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `startEncrypt launches operation`() = runTest {
-        val formData = TestDataBuilders.createEncryptFormData(
-            password = "test",
-            confirmPassword = "test"
-        )
-        
-        // This will fail validation or require GoBridge, but we test the method call
-        viewModel.startEncrypt(mockContext, formData)
-        
-        advanceUntilIdle()
-        
-        // Operation may or may not start depending on validation/GoBridge availability
-        // But the method should not throw
+    fun `startEncrypt surfaces a start failure as a terminal error state`() = runTest(mainDispatcherRule.testDispatcher) {
+        // Mock startEncrypt to return failure on the test dispatcher so the
+        // onFailure → surfaceStartFailure path runs deterministically.
+        // surfaceStartFailure must call the real implementation to update _currentOperation.
+        mockkObject(OperationManager)
+        try {
+            val error = AppError.ValidationError.NoFileSelected
+            coEvery { OperationManager.startEncrypt(any(), any()) } returns Result.failure(error)
+            every { OperationManager.surfaceStartFailure(any(), any()) } answers { callOriginal() }
+
+            viewModel.startEncrypt(mockContext, TestDataBuilders.createEncryptFormData())
+            advanceUntilIdle()
+
+            val state = viewModel.operationState.value
+            assertNotNull("A start failure must surface as an error state (not silent null)", state)
+            assertTrue("Error state must be terminal (done=true)", state!!.done)
+            assertNotNull("Error state must carry the error", state.error)
+            assertEquals(OperationType.ENCRYPT, state.type)
+        } finally {
+            unmockkObject(OperationManager)
+        }
+    }
+
+    @Test
+    fun `startDecrypt surfaces a start failure as a terminal error state`() = runTest(mainDispatcherRule.testDispatcher) {
+        // Mirror of the encrypt test on the decrypt path.
+        mockkObject(OperationManager)
+        try {
+            val error = AppError.ValidationError.NoFileSelected
+            coEvery { OperationManager.startDecrypt(any(), any()) } returns Result.failure(error)
+            every { OperationManager.surfaceStartFailure(any(), any()) } answers { callOriginal() }
+
+            viewModel.startDecrypt(mockContext, TestDataBuilders.createDecryptFormData())
+            advanceUntilIdle()
+
+            val state = viewModel.operationState.value
+            assertNotNull("A start failure must surface as an error state (not silent null)", state)
+            assertTrue("Error state must be terminal (done=true)", state!!.done)
+            assertNotNull("Error state must carry the error", state.error)
+            assertEquals(OperationType.DECRYPT, state.type)
+        } finally {
+            unmockkObject(OperationManager)
+        }
     }
     
     @Test
-    fun `startDecrypt launches operation`() = runTest {
-        val formData = TestDataBuilders.createDecryptFormData(
-            password = "test"
-        )
-        
-        viewModel.startDecrypt(mockContext, formData)
-        
-        advanceUntilIdle()
-        
-        // Method should not throw
-    }
-    
-    @Test
-    fun `cancelOperation stops polling and cancels operation`() = runTest {
+    fun `cancelOperation stops polling and cancels operation`() = runTest(mainDispatcherRule.testDispatcher) {
         viewModel.cancelOperation()
         
         advanceUntilIdle()
@@ -98,7 +128,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `clearOperation stops polling and clears operation`() = runTest {
+    fun `clearOperation stops polling and clears operation`() = runTest(mainDispatcherRule.testDispatcher) {
         setOperationState(
             OperationState(
                 id = "op_123",
@@ -120,7 +150,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `pausePolling switches to background mode`() = runTest {
+    fun `pausePolling switches to background mode`() = runTest(mainDispatcherRule.testDispatcher) {
         // pausePolling sets isForeground to false and starts background polling
         viewModel.pausePolling()
         
@@ -132,7 +162,7 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `resumePolling switches to foreground mode`() = runTest {
+    fun `resumePolling switches to foreground mode`() = runTest(mainDispatcherRule.testDispatcher) {
         // First pause
         viewModel.pausePolling()
         advanceUntilIdle()
@@ -145,15 +175,24 @@ class OperationViewModelTest {
     }
     
     @Test
-    fun `operationState updates when OperationManager state changes`() = runTest {
-        // Initially null
-        var operationState = viewModel.operationState.first()
-        assertNull("Should be null initially", operationState)
-        
-        // Note: We can't easily set OperationManager state without GoBridge,
-        // but we verify the StateFlow is connected
-        val managerState = OperationManager.currentOperation.first()
-        assertEquals(managerState, operationState)
+    fun `startForegroundServiceSafely swallows a background-start IllegalStateException`() {
+        // On Android 12+ starting a foreground service from the background throws
+        // ForegroundServiceStartNotAllowedException (an IllegalStateException subclass).
+        // Because the service start happens AFTER the suspending op-start, the app may
+        // have backgrounded in that window. The Go operation is already running, so we
+        // must keep going (poll for progress) rather than crash the coroutine.
+        mockkObject(OperationForegroundService.Companion)
+        try {
+            every { OperationForegroundService.start(any()) } throws
+                IllegalStateException("ForegroundServiceStartNotAllowedException")
+
+            // Must not rethrow.
+            viewModel.startForegroundServiceSafely(mockContext)
+
+            verify { OperationForegroundService.start(any()) }
+        } finally {
+            unmockkObject(OperationForegroundService.Companion)
+        }
     }
 
     private fun resetOperationState() {

@@ -31,6 +31,7 @@ class MainViewModel(
         reedSolomon = false, // Always default, no persistence
         paranoid = false, // Always default, no persistence
         deniability = false, // Always default, no persistence
+        verifyFirst = false, // Always default, no persistence
         keyfileFilenames = emptyList(), // Always default, no persistence
         keyfileOrdered = false, // Always default, no persistence
         decryptionInfo = null // Never save decryption info (transient)
@@ -137,6 +138,11 @@ class MainViewModel(
                 copiedFilePath = "",
                 comments = "",
                 keyfileFilenames = emptyList(),
+                inputFiles = emptyList(),
+                onlyFolders = emptyList(),
+                onlyFiles = emptyList(),
+                selectionKind = SelectionKind.SINGLE_FILE,
+                suggestedOutputName = "",
                 decryptionInfo = null
             )
             
@@ -169,8 +175,14 @@ class MainViewModel(
             reedSolomon = false,
             paranoid = false,
             deniability = false,
+            verifyFirst = false,
             keyfileFilenames = emptyList(),
             keyfileOrdered = false,
+            inputFiles = emptyList(),
+            onlyFolders = emptyList(),
+            onlyFiles = emptyList(),
+            selectionKind = SelectionKind.SINGLE_FILE,
+            suggestedOutputName = "",
             decryptionInfo = null
         )
         _formState.value = reset

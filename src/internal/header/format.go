@@ -2,11 +2,9 @@
 // This is AUDIT-CRITICAL code - changes here directly affect file format compatibility.
 package header
 
-import "Picocrypt-NG/internal/encoding"
-
 // Version constants
 const (
-	CurrentVersion = "v2.08"
+	CurrentVersion = "v2.18"
 	MaxCommentLen  = 99999
 )
 
@@ -126,14 +124,4 @@ func NewVolumeHeader(salt, hkdfSalt, serpentIV, nonce []byte) *VolumeHeader {
 // IsLegacyV1 returns true if this header is from a v1.x volume
 func (h *VolumeHeader) IsLegacyV1() bool {
 	return len(h.Version) >= 2 && h.Version[:2] == "v1"
-}
-
-// Codecs returns the Reed-Solomon codecs needed for header encoding/decoding
-type Codecs struct {
-	*encoding.RSCodecs
-}
-
-// NewCodecs creates a new Codecs instance wrapping the encoding.RSCodecs
-func NewCodecs(rs *encoding.RSCodecs) *Codecs {
-	return &Codecs{RSCodecs: rs}
 }

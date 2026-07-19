@@ -3,31 +3,13 @@ package fileops
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
-
-func TestTempZipCiphers(t *testing.T) {
-	ciphers, err := NewTempZipCiphers()
-	if err != nil {
-		t.Fatalf("NewTempZipCiphers() failed: %v", err)
-	}
-
-	if ciphers.Writer == nil {
-		t.Error("Writer cipher should not be nil")
-	}
-	if ciphers.Reader == nil {
-		t.Error("Reader cipher should not be nil")
-	}
-	if len(ciphers.key) != 32 {
-		t.Errorf("Key length = %d; want 32", len(ciphers.key))
-	}
-	if len(ciphers.nonce) != 12 {
-		t.Errorf("Nonce length = %d; want 12", len(ciphers.nonce))
-	}
-}
 
 func TestTempZipCiphersClose(t *testing.T) {
 	ciphers, err := NewTempZipCiphers()
@@ -35,9 +17,9 @@ func TestTempZipCiphersClose(t *testing.T) {
 		t.Fatalf("NewTempZipCiphers() failed: %v", err)
 	}
 
-	// Save references to check zeroing
-	keyRef := ciphers.key
-	nonceRef := ciphers.nonce
+	// Save references to the backing arrays before Close() to verify zeroing
+	keyRef := ciphers.key.Bytes()
+	nonceRef := ciphers.nonce.Bytes()
 
 	ciphers.Close()
 
@@ -63,23 +45,11 @@ func TestTempZipCiphersClose(t *testing.T) {
 		t.Error("Reader should be nil after Close()")
 	}
 	if ciphers.key != nil {
-		t.Error("key should be nil after Close()")
+		t.Error("key Secret should be nil after Close()")
 	}
 	if ciphers.nonce != nil {
-		t.Error("nonce should be nil after Close()")
+		t.Error("nonce Secret should be nil after Close()")
 	}
-}
-
-func TestTempZipCiphersCloseIdempotent(t *testing.T) {
-	ciphers, err := NewTempZipCiphers()
-	if err != nil {
-		t.Fatalf("NewTempZipCiphers() failed: %v", err)
-	}
-
-	// Multiple Close() calls should be safe
-	ciphers.Close()
-	ciphers.Close()
-	ciphers.Close()
 }
 
 func TestTempZipCiphersCloseNil(t *testing.T) {
@@ -141,10 +111,10 @@ func TestCreateZip(t *testing.T) {
 	content1 := []byte("Content of file 1")
 	content2 := []byte("Content of file 2, a bit longer")
 
-	if err := os.WriteFile(file1, content1, 0644); err != nil {
+	if err := os.WriteFile(file1, content1, 0o644); err != nil {
 		t.Fatalf("Create file1: %v", err)
 	}
-	if err := os.WriteFile(file2, content2, 0644); err != nil {
+	if err := os.WriteFile(file2, content2, 0o644); err != nil {
 		t.Fatalf("Create file2: %v", err)
 	}
 
@@ -176,8 +146,24 @@ func TestCreateZip(t *testing.T) {
 		t.Errorf("Zip contains %d files; want 2", len(reader.File))
 	}
 
-	// Verify file contents
+	// Each entry must appear under its exact relative name with its exact body.
+	// Checking against an explicit want map (and asserting every key is seen)
+	// catches a mutation that writes an entry under the wrong/extra name or
+	// emits an empty body — a plain "if name == known" branch silently passes
+	// both because the unmatched arm leaves expected==nil and bytes.Equal(nil,nil).
+	want := map[string][]byte{
+		"file1.txt": content1,
+		"file2.txt": content2,
+	}
+	seen := make(map[string]bool, len(want))
 	for _, f := range reader.File {
+		exp, ok := want[f.Name]
+		if !ok {
+			t.Errorf("unexpected zip entry %q", f.Name)
+			continue
+		}
+		seen[f.Name] = true
+
 		rc, err := f.Open()
 		if err != nil {
 			t.Fatalf("Open %s in zip: %v", f.Name, err)
@@ -188,19 +174,47 @@ func TestCreateZip(t *testing.T) {
 			t.Fatalf("Read %s from zip: %v", f.Name, err)
 		}
 
-		var expected []byte
-		if f.Name == "file1.txt" {
-			expected = content1
-		} else if f.Name == "file2.txt" {
-			expected = content2
-		}
-
-		if !bytes.Equal(content, expected) {
-			t.Errorf("Content of %s mismatch", f.Name)
+		if !bytes.Equal(content, exp) {
+			t.Errorf("Content of %s = %q; want %q", f.Name, content, exp)
 		}
 	}
 
-	t.Log("Zip creation successful")
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("expected zip entry %q was missing", name)
+		}
+	}
+}
+
+// TestCreateZipReportsSpeedAndETA verifies the compression pass reports a status
+// with throughput and ETA (like split/recombine/encrypt), not just a percentage.
+func TestCreateZipReportsSpeedAndETA(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "input.bin")
+	// Enough bytes to drive at least one in-loop progress tick.
+	if err := os.WriteFile(inputPath, bytes.Repeat([]byte("x"), 2*1024*1024), 0o644); err != nil {
+		t.Fatalf("Create input: %v", err)
+	}
+
+	var statuses []string
+	err := CreateZip(ZipOptions{
+		Files:      []string{inputPath},
+		RootDir:    tmpDir,
+		OutputPath: filepath.Join(tmpDir, "out.zip"),
+		Compress:   true,
+		Progress:   func(p float32, info string) {},
+		Status:     func(s string) { statuses = append(statuses, s) },
+	})
+	if err != nil {
+		t.Fatalf("CreateZip failed: %v", err)
+	}
+
+	for _, s := range statuses {
+		if strings.Contains(s, "MiB/s") && strings.Contains(s, "ETA:") {
+			return
+		}
+	}
+	t.Errorf("expected a compression status reporting speed+ETA, got %v", statuses)
 }
 
 func TestCreateZipWithCompression(t *testing.T) {
@@ -210,7 +224,7 @@ func TestCreateZipWithCompression(t *testing.T) {
 	file1 := filepath.Join(tmpDir, "compressible.txt")
 	content := bytes.Repeat([]byte("AAAA"), 10000) // 40 KB of A's
 
-	if err := os.WriteFile(file1, content, 0644); err != nil {
+	if err := os.WriteFile(file1, content, 0o644); err != nil {
 		t.Fatalf("Create file: %v", err)
 	}
 
@@ -258,7 +272,7 @@ func TestCreateZipWithEncryption(t *testing.T) {
 	file1 := filepath.Join(tmpDir, "secret.txt")
 	content := []byte("Secret content that should be encrypted")
 
-	if err := os.WriteFile(file1, content, 0644); err != nil {
+	if err := os.WriteFile(file1, content, 0o644); err != nil {
 		t.Fatalf("Create file: %v", err)
 	}
 
@@ -304,7 +318,7 @@ func TestCreateZipWithEncryption(t *testing.T) {
 	reader := WrapReaderWithCipher(bytes.NewReader(encryptedData), ciphers)
 	decrypted := make([]byte, len(encryptedData))
 	n, err := reader.Read(decrypted)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("Read decrypted data: %v", err)
 	}
 	_, _ = decryptedFile.Write(decrypted[:n])
@@ -318,10 +332,25 @@ func TestCreateZipWithEncryption(t *testing.T) {
 	defer zipReader.Close()
 
 	if len(zipReader.File) != 1 {
-		t.Errorf("Decrypted zip contains %d files; want 1", len(zipReader.File))
+		t.Fatalf("Decrypted zip contains %d files; want 1", len(zipReader.File))
 	}
 
-	t.Log("Encrypted zip creation and decryption successful")
+	// Read the single entry back and compare against the original literal.
+	// A "valid zip with 1 entry" check is not enough: if the Writer/Reader
+	// ciphers ever desync (different key/nonce), the structure can still parse
+	// while the body is garbage. Asserting the exact plaintext catches that.
+	rc, err := zipReader.File[0].Open()
+	if err != nil {
+		t.Fatalf("Open entry in decrypted zip: %v", err)
+	}
+	got, err := io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		t.Fatalf("Read entry from decrypted zip: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("decrypted entry body = %q; want %q", got, content)
+	}
 }
 
 func TestCreateZipCancellation(t *testing.T) {
@@ -330,7 +359,7 @@ func TestCreateZipCancellation(t *testing.T) {
 	// Create a test file
 	file1 := filepath.Join(tmpDir, "file.txt")
 	content := bytes.Repeat([]byte("X"), 10000)
-	if err := os.WriteFile(file1, content, 0644); err != nil {
+	if err := os.WriteFile(file1, content, 0o644); err != nil {
 		t.Fatalf("Create file: %v", err)
 	}
 
@@ -356,46 +385,6 @@ func TestCreateZipCancellation(t *testing.T) {
 	}
 }
 
-func TestCreateZipProgress(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create test files
-	file1 := filepath.Join(tmpDir, "file1.txt")
-	file2 := filepath.Join(tmpDir, "file2.txt")
-	if err := os.WriteFile(file1, bytes.Repeat([]byte("A"), 1000), 0644); err != nil {
-		t.Fatalf("Create file1: %v", err)
-	}
-	if err := os.WriteFile(file2, bytes.Repeat([]byte("B"), 1000), 0644); err != nil {
-		t.Fatalf("Create file2: %v", err)
-	}
-
-	progressCalls := 0
-	statusCalls := 0
-
-	zipPath := filepath.Join(tmpDir, "progress.zip")
-	err := CreateZip(ZipOptions{
-		Files:      []string{file1, file2},
-		RootDir:    tmpDir,
-		OutputPath: zipPath,
-		Progress: func(p float32, info string) {
-			progressCalls++
-		},
-		Status: func(s string) {
-			statusCalls++
-		},
-	})
-
-	if err != nil {
-		t.Fatalf("CreateZip failed: %v", err)
-	}
-
-	if progressCalls == 0 {
-		t.Error("Progress callback was never called")
-	}
-
-	t.Logf("Progress called %d times", progressCalls)
-}
-
 func TestWrapReaderWithCipher(t *testing.T) {
 	// Test with nil cipher
 	reader := bytes.NewReader([]byte("test"))
@@ -416,6 +405,30 @@ func TestWrapReaderWithCipher(t *testing.T) {
 	if wrapped2 == reader2 {
 		t.Error("WrapReaderWithCipher should wrap the reader")
 	}
+
+	// Round-trip: encrypt a known plaintext with the Writer cipher, then read it
+	// back through WrapReaderWithCipher and assert we recover the plaintext.
+	// This pins the wrapper to the *Reader* cipher: if it were wired to the Writer
+	// cipher (or made a no-op), the keystream would not cancel and the output
+	// would differ from the plaintext, failing bytes.Equal.
+	plaintext := []byte("round-trip plaintext for cipher wiring check")
+	var encBuf bytes.Buffer
+	ew := &encryptedWriter{w: &encBuf, cipher: ciphers.Writer}
+	if _, err := ew.Write(plaintext); err != nil {
+		t.Fatalf("encryptedWriter.Write() failed: %v", err)
+	}
+	if bytes.Equal(encBuf.Bytes(), plaintext) {
+		t.Fatal("ciphertext must differ from plaintext")
+	}
+
+	rt := WrapReaderWithCipher(bytes.NewReader(encBuf.Bytes()), ciphers)
+	got, err := io.ReadAll(rt)
+	if err != nil {
+		t.Fatalf("io.ReadAll(wrapped) failed: %v", err)
+	}
+	if !bytes.Equal(got, plaintext) {
+		t.Errorf("round-trip = %q; want %q", got, plaintext)
+	}
 }
 
 func TestCreateZipWithSubdirectory(t *testing.T) {
@@ -423,17 +436,17 @@ func TestCreateZipWithSubdirectory(t *testing.T) {
 
 	// Create a subdirectory with a file
 	subDir := filepath.Join(tmpDir, "subdir")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatalf("Create subdir: %v", err)
 	}
 
 	file1 := filepath.Join(tmpDir, "root.txt")
 	file2 := filepath.Join(subDir, "nested.txt")
 
-	if err := os.WriteFile(file1, []byte("root file"), 0644); err != nil {
+	if err := os.WriteFile(file1, []byte("root file"), 0o644); err != nil {
 		t.Fatalf("Create file1: %v", err)
 	}
-	if err := os.WriteFile(file2, []byte("nested file"), 0644); err != nil {
+	if err := os.WriteFile(file2, []byte("nested file"), 0o644); err != nil {
 		t.Fatalf("Create file2: %v", err)
 	}
 
@@ -473,18 +486,40 @@ func TestCreateZipWithSubdirectory(t *testing.T) {
 func TestCreateZipRejectsNonLocalEntryName(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "file.txt")
-	if err := os.WriteFile(inputPath, []byte("content"), 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte("content"), 0o644); err != nil {
 		t.Fatalf("Create file: %v", err)
 	}
 
 	zipPath := filepath.Join(tmpDir, "bad.zip")
+	const offending = "../escape.txt"
 	err := CreateZip(ZipOptions{
 		Files:      []string{inputPath},
 		RootDir:    tmpDir,
-		EntryNames: map[string]string{inputPath: "../escape.txt"},
+		EntryNames: map[string]string{inputPath: offending},
 		OutputPath: zipPath,
 	})
 	if err == nil {
 		t.Fatal("Expected non-local entry name error")
+	}
+
+	// Reject for the right reason, and name the offending entry — so the test
+	// fails if the guard is replaced by some unrelated error, or accepts a
+	// non-local name under a different message.
+	if !strings.Contains(err.Error(), "is not local") {
+		t.Errorf("error = %v; want it to contain %q", err, "is not local")
+	}
+	if !strings.Contains(err.Error(), offending) {
+		t.Errorf("error = %v; want it to name the offending entry %q", err, offending)
+	}
+
+	// Security outcome: no partial zip left behind and no escape artifact written
+	// outside RootDir. If the non-local entry were accepted, CreateZip would have
+	// produced the zip (and a real traversal write could escape tmpDir).
+	if _, statErr := os.Stat(zipPath); !os.IsNotExist(statErr) {
+		t.Errorf("zip file should not exist after rejection, stat err = %v", statErr)
+	}
+	escapeArtifact := filepath.Join(tmpDir, "..", "escape.txt")
+	if _, statErr := os.Stat(escapeArtifact); !os.IsNotExist(statErr) {
+		t.Errorf("escape artifact %q should not exist, stat err = %v", escapeArtifact, statErr)
 	}
 }

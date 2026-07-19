@@ -5,42 +5,61 @@ import (
 	"testing"
 )
 
+// TestSentinelErrors locks down the Err... sentinels listed below:
+// its self-identity under errors.Is, its exact message literal, and pairwise
+// distinctness across the listed set. Callers (e.g. volume/decrypt.go) branch on
+// these via errors.Is, so two sentinels collapsing into one — or a message
+// drifting — must fail a test, not silently change runtime behavior. The
+// ErrCorruptHeader/ErrCorruptData pair is the load-bearing case: they
+// distinguish corruption kinds and must never be aliased.
 func TestSentinelErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
+		want string // exact message literal, mirroring errors.go
 	}{
-		{"ErrCancelled", ErrCancelled},
-		{"ErrAuthFailed", ErrAuthFailed},
-		{"ErrCorruptHeader", ErrCorruptHeader},
-		{"ErrCorruptData", ErrCorruptData},
-		{"ErrNoInputFiles", ErrNoInputFiles},
-		{"ErrNoCredentials", ErrNoCredentials},
-		{"ErrPasswordMismatch", ErrPasswordMismatch},
-		{"ErrInvalidChunkSize", ErrInvalidChunkSize},
-		{"ErrDuplicateKeyfiles", ErrDuplicateKeyfiles},
-		{"ErrFileNotFound", ErrFileNotFound},
-		{"ErrFileExists", ErrFileExists},
-		{"ErrInvalidFormat", ErrInvalidFormat},
-		{"ErrVersionMismatch", ErrVersionMismatch},
-		{"ErrRandFailure", ErrRandFailure},
-		{"ErrKeyDerivation", ErrKeyDerivation},
-		{"ErrHKDFFailure", ErrHKDFFailure},
-		{"ErrMACFailure", ErrMACFailure},
-		{"ErrCipherFailure", ErrCipherFailure},
-		{"ErrRSEncode", ErrRSEncode},
-		{"ErrRSDecode", ErrRSDecode},
+		{"ErrCancelled", ErrCancelled, "operation cancelled"},
+		{"ErrAuthFailed", ErrAuthFailed, "authentication failed"},
+		{"ErrCorruptHeader", ErrCorruptHeader, "header corrupted"},
+		{"ErrCorruptData", ErrCorruptData, "data corrupted"},
+		{"ErrNoInputFiles", ErrNoInputFiles, "no input files specified"},
+		{"ErrNoCredentials", ErrNoCredentials, "no password or keyfiles provided"},
+		{"ErrPasswordMismatch", ErrPasswordMismatch, "passwords do not match"},
+		{"ErrInvalidChunkSize", ErrInvalidChunkSize, "invalid chunk size"},
+		{"ErrChunkSizeTooLarge", ErrChunkSizeTooLarge, "chunk size exceeds maximum"},
+		{"ErrDuplicateKeyfiles", ErrDuplicateKeyfiles, "duplicate keyfiles detected"},
+		{"ErrCommentTooLong", ErrCommentTooLong, "comment exceeds maximum length"},
+		{"ErrFileNotFound", ErrFileNotFound, "file not found"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.err == nil {
-				t.Error("sentinel error should not be nil")
+				t.Fatal("sentinel error must not be nil")
 			}
-			if tt.err.Error() == "" {
-				t.Error("sentinel error should have a message")
+			// Self-identity: a sentinel must satisfy errors.Is against itself.
+			if !errors.Is(tt.err, tt.err) {
+				t.Errorf("errors.Is(%s, %s) = false; want true (self-identity)", tt.name, tt.name)
+			}
+			// Exact message literal — drift must fail the test.
+			if got := tt.err.Error(); got != tt.want {
+				t.Errorf("%s.Error() = %q; want %q", tt.name, got, tt.want)
 			}
 		})
+	}
+
+	// Pairwise distinctness: no two sentinels may be == or errors.Is-equal.
+	// Critically guards ErrCorruptHeader vs ErrCorruptData (volume/decrypt.go
+	// branches on the difference). Aliasing any pair must fail here.
+	for i := range tests {
+		for j := i + 1; j < len(tests); j++ {
+			a, b := tests[i], tests[j]
+			if errors.Is(a.err, b.err) {
+				t.Errorf("errors.Is(%s, %s) = true; sentinels must not be Is-equal", a.name, b.name)
+			}
+			if errors.Is(b.err, a.err) {
+				t.Errorf("errors.Is(%s, %s) = true; sentinels must not be Is-equal", b.name, a.name)
+			}
+		}
 	}
 }
 
@@ -52,7 +71,7 @@ func TestCryptoError(t *testing.T) {
 		t.Errorf("unexpected error message: %s", cryptoErr.Error())
 	}
 
-	if cryptoErr.Unwrap() != baseErr {
+	if !errors.Is(cryptoErr.Unwrap(), baseErr) {
 		t.Error("Unwrap should return underlying error")
 	}
 
@@ -71,7 +90,7 @@ func TestFileError(t *testing.T) {
 		t.Errorf("unexpected error message: %s", fileErr.Error())
 	}
 
-	if fileErr.Unwrap() != baseErr {
+	if !errors.Is(fileErr.Unwrap(), baseErr) {
 		t.Error("Unwrap should return underlying error")
 	}
 
@@ -99,7 +118,7 @@ func TestHeaderError(t *testing.T) {
 		t.Errorf("unexpected error message: %s", headerErr.Error())
 	}
 
-	if headerErr.Unwrap() != baseErr {
+	if !errors.Is(headerErr.Unwrap(), baseErr) {
 		t.Error("Unwrap should return underlying error")
 	}
 }

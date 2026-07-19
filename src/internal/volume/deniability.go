@@ -1,27 +1,41 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/util"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
+	"time"
 
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/util"
+	pwnorm "Picocrypt-NG/internal/password"
 
 	"golang.org/x/crypto/chacha20"
 )
+
+// newDeniabilityReader is identity in production; tests replace it to inject
+// short reads and verify the io.ReadFull loops pin the rekey boundary to a
+// fixed block count regardless of read chunking. Mirrors newPayloadReader in
+// decrypt.go for the main payload path.
+var newDeniabilityReader = func(r io.Reader) io.Reader { return r }
+
+// isDeniableReadVersion reads IsDeniable's encoded version prefix. It is a
+// package-level seam (mirroring newDeniabilityReader) so tests can inject an I/O
+// failure on a file that already cleared the size guard, exercising the
+// read-error branch that is otherwise unreachable on a real filesystem.
+var isDeniableReadVersion = io.ReadFull
 
 // AddDeniability wraps a volume with a deniability layer.
 // This encrypts the entire volume with XChaCha20 using a separate key derived from the password.
 //
 // CRITICAL: Deniability uses its own Argon2 derivation (4 passes, 1 GiB, 4 threads)
 // and stores salt(16) + nonce(24) at the beginning of the file.
-func AddDeniability(volumePath, password string, reporter ProgressReporter) error {
+func AddDeniability(volumePath string, password []byte, reporter ProgressReporter) error {
 	if reporter != nil {
 		reporter.SetStatus("Adding plausible deniability...")
 		reporter.SetCanCancel(false)
@@ -56,7 +70,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 	defer func() { _ = fin.Close() }()
 
-	fout, err := fileops.CreateSecure(incompletePath)
+	fout, err := fileops.CreateSecureNoSymlink(incompletePath)
 	if err != nil {
 		_ = fin.Close()
 		restoreOriginal()
@@ -86,8 +100,12 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 		return fmt.Errorf("write nonce: %w", err)
 	}
 
-	// Derive key using Argon2 (normal mode parameters)
-	key := deriveDeniabilityKey([]byte(password), salt)
+	// Derive key using Argon2 (normal mode parameters). NFC-normalize the
+	// password so a deniable volume — which has no readable header to fall back
+	// on — is cross-platform-decryptable (#19).
+	kdfInput := pwnorm.EncodeForKDF(password)
+	defer crypto.SecureZero(kdfInput)
+	key := deriveDeniabilityKey(kdfInput, salt)
 	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
@@ -104,8 +122,11 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	dst := util.GetMiBBuffer()
 	defer util.PutMiBBuffer(dst)
 
+	reader := newDeniabilityReader(io.Reader(fin))
+	startTime := time.Now()
+
 	for {
-		n, readErr := fin.Read(buf)
+		n, readErr := io.ReadFull(reader, buf)
 		if n > 0 {
 			cipher.XORKeyStream(dst[:n], buf[:n])
 
@@ -115,10 +136,17 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 			}
 
 			done += int64(n)
-			counter += int64(n)
+			// Pin the rekey boundary to a fixed block count regardless of read
+			// chunking: io.ReadFull delivers full MiB blocks, so the counter
+			// advances by util.MiB per block. The threshold is a MiB multiple
+			// and only crossable on a full block, so the final partial block's
+			// over-count is irrelevant (the loop breaks at EOF).
+			counter += int64(util.MiB)
 
 			if reporter != nil {
-				reporter.SetProgress(float32(done)/float32(total), "")
+				progress, speed, eta := util.Statify(done, total, startTime)
+				reporter.SetProgress(progress, "")
+				reporter.SetStatus(fmt.Sprintf("Adding deniability at %.2f MiB/s (ETA: %s)", speed, eta))
 				reporter.Update()
 			}
 
@@ -133,7 +161,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 			}
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {
@@ -151,7 +179,11 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 	}
 	_ = fout.Close()
 
-	// Clean up: remove .tmp and rename .incomplete to final name
+	// Clean up: remove the .tmp (holds inner .pcv ciphertext) and rename
+	// .incomplete to final name.
+	// NOTE: this site is intentionally error-checked (not `_ =`): a failed .tmp
+	// removal must abort before the rename so both files are left for manual
+	// recovery. Preserve that control flow.
 	if err := os.Remove(tmpPath); err != nil {
 		// .tmp removal failed, but we have the complete .incomplete
 		// Don't try to rename - leave both files for manual inspection
@@ -176,7 +208,7 @@ func AddDeniability(volumePath, password string, reporter ProgressReporter) erro
 //
 // CRITICAL: Must read salt(16) + nonce(24) from the beginning,
 // then decrypt with XChaCha20 using Argon2-derived key.
-func RemoveDeniability(volumePath, password string, reporter ProgressReporter, rs *encoding.RSCodecs) (string, error) {
+func RemoveDeniability(volumePath string, password []byte, reporter ProgressReporter, rs *encoding.RSCodecs) (string, error) {
 	if reporter != nil {
 		reporter.SetStatus("Removing deniability protection...")
 		reporter.SetProgress(0, "")
@@ -204,7 +236,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	}
 	outputPath += ".tmp"
 
-	fout, err := fileops.CreateSecure(outputPath)
+	fout, err := fileops.CreateSecureNoSymlink(outputPath)
 	if err != nil {
 		return "", fmt.Errorf("create output: %w", err)
 	}
@@ -228,8 +260,25 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 		return "", fmt.Errorf("read nonce: %w", err)
 	}
 
-	// Derive key using Argon2 (normal mode parameters)
-	key := deriveDeniabilityKey([]byte(password), salt)
+	// The deniable wrapper carries no MAC; the correct key is the one whose
+	// keystream decodes a valid inner volume version. Probe the first encoded
+	// version field with each password normalization form (NFC/NFD/raw) and keep
+	// the first that matches, then decrypt the whole volume with that key (#19).
+	probe := make([]byte, header.VersionEncSize)
+	if _, err := io.ReadFull(fin, probe); err != nil {
+		cleanup()
+		return "", fmt.Errorf("read version probe: %w", err)
+	}
+	if _, err := fin.Seek(int64(len(salt)+len(nonce)), io.SeekStart); err != nil {
+		cleanup()
+		return "", fmt.Errorf("seek after probe: %w", err)
+	}
+
+	key, err := selectDeniabilityKey(password, salt, nonce, probe, rs)
+	if err != nil {
+		cleanup()
+		return "", err
+	}
 	defer crypto.SecureZero(key)
 
 	cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
@@ -246,8 +295,11 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	dst := util.GetMiBBuffer()
 	defer util.PutMiBBuffer(dst)
 
+	reader := newDeniabilityReader(io.Reader(fin))
+	startTime := time.Now()
+
 	for {
-		n, readErr := fin.Read(buf)
+		n, readErr := io.ReadFull(reader, buf)
 		if n > 0 {
 			cipher.XORKeyStream(dst[:n], buf[:n])
 
@@ -257,10 +309,15 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 			}
 
 			done += int64(n)
-			counter += int64(n)
+			// Pin the rekey boundary to a fixed block count (see AddDeniability):
+			// io.ReadFull delivers full MiB blocks, so the rekey offset is
+			// independent of how the underlying reader chunks its reads.
+			counter += int64(util.MiB)
 
 			if reporter != nil {
-				reporter.SetProgress(float32(done)/float32(total), "")
+				progress, speed, eta := util.Statify(done, total, startTime)
+				reporter.SetProgress(progress, "")
+				reporter.SetStatus(fmt.Sprintf("Removing deniability at %.2f MiB/s (ETA: %s)", speed, eta))
 				reporter.Update()
 			}
 
@@ -275,7 +332,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 			}
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {
@@ -315,7 +372,7 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
 
-	if valid, _ := regexp.Match(`^v\d\.\d{2}$`, versionDec); !valid {
+	if !header.MatchVersion(versionDec) {
 		_ = os.Remove(outputPath)
 		return "", errors.New("password is incorrect or the file is not a volume")
 	}
@@ -323,9 +380,37 @@ func RemoveDeniability(volumePath, password string, reporter ProgressReporter, r
 	return outputPath, nil
 }
 
+// selectDeniabilityKey returns the deniability key for the first password
+// normalization form (NFC/NFD/raw) whose keystream decodes a valid inner volume
+// version from probe (the RS-encoded version field). It returns an error if no
+// form matches. Trying several canonical forms of the same password does not
+// weaken the wrapper: each candidate must still yield a recognizable inner
+// header. ASCII passwords yield a single candidate, so there is no extra work.
+func selectDeniabilityKey(password []byte, salt, nonce, probe []byte, rs *encoding.RSCodecs) ([]byte, error) {
+	for _, cand := range pwnorm.Candidates(password) {
+		key := deriveDeniabilityKey(cand, salt)
+		cipher, err := chacha20.NewUnauthenticatedCipher(key, nonce)
+		if err != nil {
+			crypto.SecureZero(key)
+			return nil, fmt.Errorf("create cipher: %w", err)
+		}
+		dec := make([]byte, len(probe))
+		cipher.XORKeyStream(dec, probe)
+		if versionDec, decodeErr := encoding.Decode(rs.RS5, dec, false); decodeErr == nil && header.MatchVersion(versionDec) {
+			return key, nil
+		}
+		crypto.SecureZero(key)
+	}
+	return nil, errors.New("password is incorrect or the file is not a volume")
+}
+
 // IsDeniable checks if a volume appears to have deniability protection.
-// This is done by attempting to read and decode the version - if it fails,
-// the volume likely has a deniability wrapper.
+//
+// The leading bytes of a deniable volume are random salt/nonce bytes, while a
+// regular volume starts with an RS5-encoded version. A version decode failure is
+// ambiguous: it can be a deniable wrapper or a damaged regular header. Resolve
+// that ambiguity by checking whether the following comment-length and flags
+// fields still look like a regular Picocrypt header.
 func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 	// #nosec G304 -- volumePath is user-provided .pcv file
 	fin, err := os.Open(volumePath)
@@ -334,16 +419,88 @@ func IsDeniable(volumePath string, rs *encoding.RSCodecs) bool {
 	}
 	defer func() { _ = fin.Close() }()
 
+	// QUAL-02 negative pre-guard: a deniability-wrapped volume always wraps a COMPLETE
+	// inner regular volume, so its on-disk size is at least salt(16) + nonce(24) +
+	// header.BaseHeaderSize. A file shorter than that cannot be deniable — it is a
+	// truncated/corrupt regular volume (or junk). Classifying such a short file as
+	// deniable mis-routes it down the deniability-strip path; reject it here instead.
+	// This only ADDS a negative rejection; the positive RS5-magic detection path below
+	// is format-frozen and unchanged.
+	const minDeniableSize = 16 + 24 + header.BaseHeaderSize
+	if fi, err := fin.Stat(); err != nil || fi.Size() < int64(minDeniableSize) {
+		return false // too short to be a deniable volume (truncated/corrupt regular)
+	}
+
 	versionEnc := make([]byte, 15)
-	if _, err := io.ReadFull(fin, versionEnc); err != nil {
-		return true // Can't read, might be deniable
+	if _, err := isDeniableReadVersion(fin, versionEnc); err != nil {
+		// Size already cleared the minimum above, so a short read here means an I/O
+		// error rather than truncation — treat as non-deniable (cannot confirm).
+		return false
 	}
 
 	versionDec, err := encoding.Decode(rs.RS5, versionEnc, false)
 	if err != nil {
-		return true // Decode failed, likely deniable
+		return !looksLikeRegularHeaderAfterDamagedVersion(fin, rs)
 	}
 
-	valid, _ := regexp.Match(`^v\d\.\d{2}$`, versionDec)
-	return !valid // Invalid version format means deniable
+	if header.MatchVersion(versionDec) {
+		return false
+	}
+
+	return !looksLikeRegularHeaderAfterDamagedVersion(fin, rs)
+}
+
+func looksLikeRegularHeaderAfterDamagedVersion(fin *os.File, rs *encoding.RSCodecs) bool {
+	commentLenEnc := make([]byte, header.CommentLenEncSize)
+	if _, err := fin.ReadAt(commentLenEnc, int64(header.VersionEncSize)); err != nil {
+		return false
+	}
+	commentLenDec, err := encoding.Decode(rs.RS5, commentLenEnc, false)
+	if err != nil {
+		return false
+	}
+	commentsLen, ok := parseHeaderCommentLen(commentLenDec)
+	if !ok {
+		return false
+	}
+
+	flagsOffset := int64(header.VersionEncSize + header.CommentLenEncSize + commentsLen*3)
+	flagsEnc := make([]byte, header.FlagsEncSize)
+	if _, err := fin.ReadAt(flagsEnc, flagsOffset); err != nil {
+		return false
+	}
+	flagsDec, err := encoding.Decode(rs.RS5, flagsEnc, false)
+	if err != nil {
+		return false
+	}
+	return headerFlagsBytesPlausible(flagsDec)
+}
+
+func parseHeaderCommentLen(b []byte) (int, bool) {
+	if len(b) != 5 {
+		return 0, false
+	}
+	var n int
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	if n > header.MaxCommentLen {
+		return 0, false
+	}
+	return n, true
+}
+
+func headerFlagsBytesPlausible(b []byte) bool {
+	if len(b) < 5 {
+		return false
+	}
+	for _, c := range b[:5] {
+		if c != 0 && c != 1 {
+			return false
+		}
+	}
+	return true
 }

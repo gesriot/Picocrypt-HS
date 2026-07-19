@@ -3,82 +3,200 @@
 package main
 
 import (
-	"syscall/js"
-
 	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/header"
 	"Picocrypt-NG/internal/wasm"
+	"syscall/js"
 )
 
 func main() {
 	js.Global().Set("picocryptEncrypt", js.FuncOf(encrypt))
 	js.Global().Set("picocryptDecrypt", js.FuncOf(decrypt))
-
-	// Keep WASM alive
 	<-make(chan struct{})
 }
 
-// args[0] = Uint8Array, args[1] = password string
-// returns Uint8Array (0 prefix + plaintext) or error code int
-func decrypt(this js.Value, args []js.Value) any {
-	if len(args) < 2 {
-		return 1
-	}
+const (
+	// errInvalidArg is the bridge-level failure code for a malformed options
+	// object. Non-zero and distinct from internal/wasm codes 1-5 so the site
+	// keeps treating it as failure.
+	errInvalidArg = 6
+	// maxVolumeBytes caps the in-memory whole-file model at 1 GiB.
+	maxVolumeBytes = 1 << 30
+)
 
-	length := args[0].Get("length").Int()
-	if length <= 0 || length > 1<<30 {
-		return 1
-	}
-
-	fileData := make([]byte, length)
-	js.CopyBytesToGo(fileData, args[0])
-	defer crypto.SecureZero(fileData)
-
-	passwordBytes := []byte(args[1].String())
-	defer crypto.SecureZero(passwordBytes)
-
-	plaintext, errCode := wasm.DecryptVolume(fileData, string(passwordBytes))
-	if errCode != 0 {
-		return errCode
-	}
-	defer crypto.SecureZero(plaintext)
-
-	result := js.Global().Get("Uint8Array").New(len(plaintext) + 1)
-	resultData := make([]byte, len(plaintext)+1)
-	defer crypto.SecureZero(resultData)
-	resultData[0] = 0
-	copy(resultData[1:], plaintext)
-	js.CopyBytesToJS(result, resultData)
-	return result
+// errorResult builds {code: N}.
+func errorResult(code int) any {
+	o := js.Global().Get("Object").New()
+	o.Set("code", code)
+	return o
 }
 
-func encrypt(this js.Value, args []js.Value) any {
-	if len(args) < 2 {
-		return 1
+// readUint8Array copies a real Uint8Array to a Go slice. ok=false for any other
+// shape (undefined, null, wrong typed array, plain object) — checked before any
+// length/byte access so a bad value cannot panic.
+func readUint8Array(v js.Value) ([]byte, bool) {
+	if !v.InstanceOf(js.Global().Get("Uint8Array")) {
+		return nil, false
 	}
+	n := v.Get("length").Int()
+	b := make([]byte, n)
+	js.CopyBytesToGo(b, v)
+	return b, true
+}
 
-	length := args[0].Get("length").Int()
-	if length <= 0 || length > 1<<30 {
-		return 1
+// optBool reads obj[key] as a boolean, defaulting to false.
+func optBool(obj js.Value, key string) bool {
+	v := obj.Get(key)
+	return v.Type() == js.TypeBoolean && v.Bool()
+}
+
+// optString reads obj[key] as a string, defaulting to "".
+func optString(obj js.Value, key string) string {
+	v := obj.Get(key)
+	if v.Type() == js.TypeString {
+		return v.String()
 	}
+	return ""
+}
 
-	fileData := make([]byte, length)
-	js.CopyBytesToGo(fileData, args[0])
-	defer crypto.SecureZero(fileData)
+// readKeyfiles reads v as an Array of Uint8Array into [][]byte.
+// ok=false if v is present but malformed (non-array, or any element not a
+// Uint8Array). A missing/undefined/null value yields (nil, true) — no keyfiles.
+func readKeyfiles(v js.Value) ([][]byte, bool) {
+	if v.IsUndefined() || v.IsNull() {
+		return nil, true
+	}
+	if !v.InstanceOf(js.Global().Get("Array")) {
+		return nil, false
+	}
+	n := v.Length()
+	out := make([][]byte, 0, n)
+	for i := range n {
+		b, ok := readUint8Array(v.Index(i))
+		if !ok {
+			return nil, false
+		}
+		out = append(out, b)
+	}
+	return out, true
+}
 
-	passwordBytes := []byte(args[1].String())
+// successData builds {code:0, data: Uint8Array}.
+func successData(data []byte) any {
+	out := js.Global().Get("Uint8Array").New(len(data))
+	js.CopyBytesToJS(out, data)
+	o := js.Global().Get("Object").New()
+	o.Set("code", 0)
+	o.Set("data", out)
+	return o
+}
+
+func encrypt(this js.Value, args []js.Value) (result any) {
+	// A panic between validation and use must not escape FuncOf and kill the
+	// instance; convert it to the same malformed-argument code.
+	defer func() {
+		if r := recover(); r != nil {
+			result = errorResult(errInvalidArg)
+		}
+	}()
+
+	if len(args) < 1 || args[0].Type() != js.TypeObject {
+		return errorResult(errInvalidArg)
+	}
+	opts := args[0]
+
+	data, ok := readUint8Array(opts.Get("data"))
+	if !ok || len(data) == 0 || len(data) > maxVolumeBytes {
+		return errorResult(errInvalidArg)
+	}
+	pw := opts.Get("password")
+	if pw.Type() != js.TypeString {
+		return errorResult(errInvalidArg)
+	}
+	comments := optString(opts, "comments")
+	if len(comments) > header.MaxCommentLen {
+		return errorResult(errInvalidArg)
+	}
+	paranoid := optBool(opts, "paranoid")
+	keyfiles, ok := readKeyfiles(opts.Get("keyfiles"))
+	if !ok {
+		return errorResult(errInvalidArg)
+	}
+	keyfileOrdered := optBool(opts, "keyfileOrdered")
+	reedSolomon := optBool(opts, "reedSolomon")
+	deniability := optBool(opts, "deniability")
+
+	passwordBytes := []byte(pw.String())
 	defer crypto.SecureZero(passwordBytes)
-
-	ciphertext, errCode := wasm.EncryptVolume(fileData, string(passwordBytes))
-	if errCode != 0 {
-		return errCode
+	defer crypto.SecureZero(data)
+	for _, kf := range keyfiles {
+		defer crypto.SecureZero(kf)
 	}
-	defer crypto.SecureZero(ciphertext)
 
-	result := js.Global().Get("Uint8Array").New(len(ciphertext) + 1)
-	resultData := make([]byte, len(ciphertext)+1)
-	defer crypto.SecureZero(resultData)
-	resultData[0] = 0
-	copy(resultData[1:], ciphertext)
-	js.CopyBytesToJS(result, resultData)
-	return result
+	volumeData, code := wasm.EncryptVolume(data, passwordBytes, wasm.EncryptOptions{
+		Paranoid:       paranoid,
+		Comments:       comments,
+		Keyfiles:       keyfiles,
+		KeyfileOrdered: keyfileOrdered,
+		ReedSolomon:    reedSolomon,
+		Deniability:    deniability,
+	})
+	if code != 0 {
+		return errorResult(code)
+	}
+	defer crypto.SecureZero(volumeData)
+	return successData(volumeData)
+}
+
+func decrypt(this js.Value, args []js.Value) (result any) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = errorResult(errInvalidArg)
+		}
+	}()
+
+	if len(args) < 1 || args[0].Type() != js.TypeObject {
+		return errorResult(errInvalidArg)
+	}
+	opts := args[0]
+
+	data, ok := readUint8Array(opts.Get("data"))
+	if !ok || len(data) == 0 || len(data) > maxVolumeBytes {
+		return errorResult(errInvalidArg)
+	}
+	pw := opts.Get("password")
+	if pw.Type() != js.TypeString {
+		return errorResult(errInvalidArg)
+	}
+
+	keyfiles, ok := readKeyfiles(opts.Get("keyfiles"))
+	if !ok {
+		return errorResult(errInvalidArg)
+	}
+
+	passwordBytes := []byte(pw.String())
+	defer crypto.SecureZero(passwordBytes)
+	defer crypto.SecureZero(data)
+	for _, kf := range keyfiles {
+		defer crypto.SecureZero(kf)
+	}
+
+	res, code := wasm.DecryptVolume(data, passwordBytes, wasm.DecryptOptions{
+		Keyfiles: keyfiles,
+		Force:    optBool(opts, "forceDecrypt"),
+	})
+	// code 0 = verified; code 10 = kept-but-unverified (force). Both carry data;
+	// every other non-zero code is a plain failure with no payload.
+	if code != 0 && code != wasm.ErrModifiedButKept {
+		return errorResult(code)
+	}
+	defer crypto.SecureZero(res.Plaintext)
+
+	out := js.Global().Get("Uint8Array").New(len(res.Plaintext))
+	js.CopyBytesToJS(out, res.Plaintext)
+	o := js.Global().Get("Object").New()
+	o.Set("code", code)
+	o.Set("data", out)
+	o.Set("comments", res.Comments)
+	return o
 }

@@ -6,8 +6,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -76,7 +74,7 @@ type passwordStrengthRenderer struct {
 
 func (r *passwordStrengthRenderer) Layout(size fyne.Size) {
 	// Center the arc in the widget area
-	arcSize := fyne.NewSize(20, 20)
+	arcSize := fyne.NewSize(18, 18)
 	offset := fyne.NewPos(
 		(size.Width-arcSize.Width)/2,
 		(size.Height-arcSize.Height)/2,
@@ -122,7 +120,7 @@ func (r *passwordStrengthRenderer) updateArc() {
 	//
 	// Fyne Arc: 0° is top, positive is clockwise
 	// strength=0: 72° arc, strength=4: 360° (full circle)
-	endAngle := float32(72 * (r.indicator.strength + 1))
+	endAngle := float32(72 * (s + 1))
 
 	r.arc.StartAngle = 0
 	r.arc.EndAngle = endAngle
@@ -190,8 +188,8 @@ type validationRenderer struct {
 }
 
 func (r *validationRenderer) Layout(size fyne.Size) {
-	// Center the circle in the widget area - same size as password strength arc (20x20)
-	circleSize := fyne.NewSize(20, 20)
+	// Center the circle in the widget area - same optical size as password strength arc.
+	circleSize := fyne.NewSize(18, 18)
 	offset := fyne.NewPos(
 		(size.Width-circleSize.Width)/2,
 		(size.Height-circleSize.Height)/2,
@@ -228,22 +226,100 @@ func (r *validationRenderer) Objects() []fyne.CanvasObject {
 	return []fyne.CanvasObject{r.circle}
 }
 
-// DisabledEntry is an Entry widget that appears disabled but still shows content.
-type DisabledEntry struct {
-	widget.Entry
+// OutputDisplay is a read-only single-line text field used for generated output
+// names. Unlike Entry, it never shows an editing scrollbar for long filenames.
+type OutputDisplay struct {
+	widget.BaseWidget
+	Text string
 }
 
-// NewDisabledEntry creates a new disabled entry.
-func NewDisabledEntry() *DisabledEntry {
-	e := &DisabledEntry{}
-	e.ExtendBaseWidget(e)
-	e.Disable()
-	return e
+// NewOutputDisplay creates a read-only output text display.
+func NewOutputDisplay() *OutputDisplay {
+	o := &OutputDisplay{}
+	o.ExtendBaseWidget(o)
+	return o
 }
 
-// SetText sets the text of the disabled entry.
-func (e *DisabledEntry) SetText(text string) {
-	e.Entry.SetText(text)
+// SetText updates the displayed text.
+func (o *OutputDisplay) SetText(text string) {
+	o.Text = text
+	o.Refresh()
+}
+
+func (o *OutputDisplay) MinSize() fyne.Size {
+	height := fyne.MeasureText("M", theme.TextSize(), fyne.TextStyle{}).Height +
+		theme.Padding()*2 + theme.InputBorderSize()*2
+	return fyne.NewSize(80, height)
+}
+
+func (o *OutputDisplay) CreateRenderer() fyne.WidgetRenderer {
+	background := canvas.NewRectangle(theme.Color(theme.ColorNameInputBackground))
+	background.StrokeColor = theme.Color(theme.ColorNameInputBorder)
+	background.StrokeWidth = theme.InputBorderSize()
+	text := canvas.NewText(o.Text, theme.Color(theme.ColorNameForeground))
+	text.TextSize = theme.TextSize()
+
+	r := &outputDisplayRenderer{
+		display:    o,
+		background: background,
+		text:       text,
+	}
+	r.update()
+	return r
+}
+
+type outputDisplayRenderer struct {
+	display    *OutputDisplay
+	background *canvas.Rectangle
+	text       *canvas.Text
+	size       fyne.Size
+}
+
+func (r *outputDisplayRenderer) Layout(size fyne.Size) {
+	r.size = size
+	r.background.Move(fyne.NewPos(0, 0))
+	r.background.Resize(size)
+
+	pad := theme.Padding()
+	textSize := fyne.MeasureText("M", theme.TextSize(), fyne.TextStyle{})
+	y := (size.Height - textSize.Height) / 2
+	if y < 0 {
+		y = 0
+	}
+	r.text.Move(fyne.NewPos(pad, y))
+	r.text.Resize(fyne.NewSize(size.Width-pad*2, textSize.Height))
+	r.update()
+}
+
+func (r *outputDisplayRenderer) MinSize() fyne.Size {
+	return r.display.MinSize()
+}
+
+func (r *outputDisplayRenderer) Refresh() {
+	r.update()
+}
+
+func (r *outputDisplayRenderer) Destroy() {}
+
+func (r *outputDisplayRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.background, r.text}
+}
+
+func (r *outputDisplayRenderer) update() {
+	r.background.FillColor = theme.Color(theme.ColorNameInputBackground)
+	r.background.StrokeColor = theme.Color(theme.ColorNameInputBorder)
+	r.background.StrokeWidth = theme.InputBorderSize()
+	r.text.Color = theme.Color(theme.ColorNameForeground)
+	r.text.TextSize = theme.TextSize()
+
+	availableWidth := r.size.Width - theme.Padding()*2
+	if availableWidth > 0 {
+		r.text.Text = truncateTextToWidth(r.display.Text, availableWidth, theme.TextSize())
+	} else {
+		r.text.Text = r.display.Text
+	}
+	canvas.Refresh(r.background)
+	canvas.Refresh(r.text)
 }
 
 // PasswordEntry is an Entry widget that can toggle between password and text mode.
@@ -270,60 +346,6 @@ func (e *PasswordEntry) SetHidden(hidden bool) {
 // IsHidden returns whether the password is currently hidden.
 func (e *PasswordEntry) IsHidden() bool {
 	return e.hidden
-}
-
-// TooltipButton is a button with a tooltip that shows on hover.
-type TooltipButton struct {
-	widget.Button
-	tooltip string
-	popup   *widget.PopUp
-}
-
-var _ desktop.Hoverable = (*TooltipButton)(nil)
-
-// NewTooltipButton creates a new button with a tooltip.
-func NewTooltipButton(label string, tooltip string, onTapped func()) *TooltipButton {
-	b := &TooltipButton{tooltip: tooltip}
-	b.Text = label
-	b.OnTapped = onTapped
-	b.ExtendBaseWidget(b)
-	return b
-}
-
-// SetTooltip updates the tooltip text.
-func (b *TooltipButton) SetTooltip(tooltip string) {
-	b.tooltip = tooltip
-}
-
-// MouseIn is called when the mouse enters the button - shows tooltip.
-func (b *TooltipButton) MouseIn(e *desktop.MouseEvent) {
-	if b.tooltip == "" || b.Disabled() {
-		return
-	}
-	c := fyne.CurrentApp().Driver().CanvasForObject(b)
-	if c == nil {
-		return
-	}
-	// Use canvas.Text for simple single-line tooltip
-	text := canvas.NewText(b.tooltip, theme.Color(theme.ColorNameForeground))
-	text.TextSize = theme.CaptionTextSize()
-	// Add padding around the text
-	bg := canvas.NewRectangle(theme.Color(theme.ColorNameOverlayBackground))
-	content := container.NewStack(bg, container.NewPadded(text))
-	b.popup = widget.NewPopUp(content, c)
-	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(b)
-	b.popup.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+b.Size().Height+2))
-}
-
-// MouseMoved is called when the mouse moves within the button.
-func (b *TooltipButton) MouseMoved(e *desktop.MouseEvent) {}
-
-// MouseOut is called when the mouse leaves the button - hides tooltip.
-func (b *TooltipButton) MouseOut() {
-	if b.popup != nil {
-		b.popup.Hide()
-		b.popup = nil
-	}
 }
 
 // ColoredLabel is a label with custom text color.
@@ -411,7 +433,7 @@ func (r *coloredLabelRenderer) updateText() {
 
 	// Apply truncation if needed and we have available size
 	if r.label.truncation != fyne.TextTruncateOff && r.availableSize.Width > 0 {
-		displayText = r.truncateText(displayText, r.availableSize.Width)
+		displayText = truncateTextToWidth(displayText, r.availableSize.Width, theme.TextSize())
 	}
 
 	r.text.Text = displayText
@@ -419,19 +441,19 @@ func (r *coloredLabelRenderer) updateText() {
 	canvas.Refresh(r.text)
 }
 
-// truncateText truncates text with ellipsis if it exceeds maxWidth
-func (r *coloredLabelRenderer) truncateText(text string, maxWidth float32) string {
+// truncateTextToWidth truncates text with ellipsis if it exceeds maxWidth.
+func truncateTextToWidth(text string, maxWidth float32, textSize float32) string {
 	if maxWidth <= 0 {
 		return text
 	}
 
-	textSize := fyne.MeasureText(text, theme.TextSize(), fyne.TextStyle{})
-	if textSize.Width <= maxWidth {
+	measured := fyne.MeasureText(text, textSize, fyne.TextStyle{})
+	if measured.Width <= maxWidth {
 		return text
 	}
 
 	ellipsis := "..."
-	ellipsisWidth := fyne.MeasureText(ellipsis, theme.TextSize(), fyne.TextStyle{}).Width
+	ellipsisWidth := fyne.MeasureText(ellipsis, textSize, fyne.TextStyle{}).Width
 	availableWidth := maxWidth - ellipsisWidth
 
 	if availableWidth <= 0 {
@@ -445,7 +467,7 @@ func (r *coloredLabelRenderer) truncateText(text string, maxWidth float32) strin
 	for low < high {
 		mid := (low + high + 1) / 2
 		candidate := string(runes[:mid]) + ellipsis
-		candidateWidth := fyne.MeasureText(candidate, theme.TextSize(), fyne.TextStyle{}).Width
+		candidateWidth := fyne.MeasureText(candidate, textSize, fyne.TextStyle{}).Width
 
 		if candidateWidth <= maxWidth {
 			low = mid // This length fits, try longer

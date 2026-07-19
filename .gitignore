@@ -31,8 +31,77 @@ src/wasm_exec.js
 *.dmg
 *.app/
 src/Picocrypt-HS
+src/wasm
+*.prof
+
+# Android/Gradle root caches
+/.gradle/
+/local.properties
 
 # Logs
 *.log
 
-/docs/
+/docs/*
+!/docs/ONBOARDING.md
+!/docs/localization/
+!/docs/localization/TRANSLATION_GUIDE.md
+
+# Agent & AI tool artifacts
+.understand-anything
+.playwright-mcp/
+.gsd
+.gsd-id
+.mcp.json
+.bg-shell/
+.superpowers/
+.agents/
+.claude/
+skills-lock.json
+.kiro/
+.planning/
+.codex/
+
+# OS/System
+.DS_Store
+Thumbs.db
+nul
+nul.*
+con
+con.*
+prn
+prn.*
+aux
+aux.*
+com[1-9]
+com[1-9].*
+lpt[1-9]
+lpt[1-9].*
+
+# Editors
+*.swp
+*.swo
+*~
+.vscode/
+*.code-workspace
+
+# Environment / Secrets
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+
+# Dependencies / Build outputs
+node_modules/
+.next/
+build/
+out/
+output/
+__pycache__/
+*.pyc
+.venv/
+venv/
+target/
+coverage/
+.cache/
+tmp/

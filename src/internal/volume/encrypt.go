@@ -1,6 +1,13 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
+	"Picocrypt-NG/internal/log"
+	"Picocrypt-NG/internal/util"
 	"context"
 	"fmt"
 	"io"
@@ -8,20 +15,22 @@ import (
 	"strings"
 	"time"
 
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/keyfile"
-	"Picocrypt-NG/internal/log"
-	"Picocrypt-NG/internal/util"
+
+	pwnorm "Picocrypt-NG/internal/password"
 )
 
 // Encrypt performs a complete volume encryption operation.
 // This is the main entry point for encryption.
 // If ctx is nil, a background context is used.
 func Encrypt(ctx context.Context, req *EncryptRequest) error {
+	// Reject an unusable split chunk size before any preprocessing or key
+	// derivation, so an overflowing size fails fast here instead of at the final
+	// split step — where the silent no-op would delete the just-written volume.
+	if err := req.validateSplit(); err != nil {
+		return err
+	}
+
 	opCtx := NewEncryptContext(ctx, req)
 	defer opCtx.Close() // Secure zeroing of key material
 
@@ -92,8 +101,13 @@ func preprocessInputFiles(req *EncryptRequest) []string {
 func encryptPreprocess(ctx *OperationContext, req *EncryptRequest) error {
 	inputFiles := preprocessInputFiles(req)
 
-	// If multiple files, or single file with compression requested, create a zip
-	if len(inputFiles) > 1 || (len(inputFiles) == 1 && req.Compress) {
+	// Create a zip when the selection is anything other than a single bare file:
+	// multiple files, a single file with compression requested, or any folder
+	// selection (even one containing a single file). A dropped folder is labelled
+	// "Zip and Encrypt" by the UI and named "<name>.zip.pcv", so it must decrypt to
+	// a real zip that preserves the folder structure — see issue #130. OnlyFolders
+	// is the signal that a folder (not a bare file) was selected.
+	if len(inputFiles) > 1 || (len(inputFiles) == 1 && (req.Compress || len(req.OnlyFolders) > 0)) {
 		ctx.SetStatus("Compressing files...")
 
 		// Create temp zip ciphers for encrypting the temporary file
@@ -197,7 +211,7 @@ func encryptGenerateValues(ctx *OperationContext, req *EncryptRequest) error {
 
 func encryptWriteHeader(ctx *OperationContext, req *EncryptRequest) error {
 	// Create output file
-	fout, err := fileops.CreateSecure(req.OutputFile + ".incomplete")
+	fout, err := fileops.CreateSecureNoSymlink(req.OutputFile + ".incomplete")
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
@@ -217,11 +231,15 @@ func encryptWriteHeader(ctx *OperationContext, req *EncryptRequest) error {
 func encryptDeriveKeys(ctx *OperationContext, req *EncryptRequest) error {
 	ctx.SetStatus("Deriving key...")
 
-	key, err := deriveVolumeKey([]byte(req.Password), ctx.Header.Salt, req.Paranoid)
+	// Feed the KDF the NFC-normalized password so new volumes derive a
+	// canonical, cross-platform-stable key regardless of how it was typed (#19).
+	kdfInput := pwnorm.EncodeForKDF(req.Password)
+	defer crypto.SecureZero(kdfInput)
+	key, err := deriveVolumeKey(kdfInput, ctx.Header.Salt, req.Paranoid)
 	if err != nil {
 		return err
 	}
-	ctx.Key = key
+	ctx.setKey(key)
 
 	return nil
 }
@@ -242,17 +260,17 @@ func encryptProcessKeyfiles(ctx *OperationContext, req *EncryptRequest) error {
 		return err
 	}
 
-	ctx.KeyfileKey = result.Key
+	ctx.setKeyfileKey(result.Key)
 	ctx.KeyfileHash = result.Hash
 
 	return nil
 }
 
-func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error {
+func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error { //nolint:unparam // (ctx, req) signature shared by all encrypt phases; req unused here by design
 	ctx.SetStatus("Calculating values...")
 
 	// v2: Initialize HKDF BEFORE keyfile XOR
-	hkdfStream := crypto.NewHKDFStream(ctx.Key, ctx.Header.HKDFSalt)
+	hkdfStream := crypto.NewHKDFStream(ctx.Key.Bytes(), ctx.Header.HKDFSalt)
 	ctx.SubkeyReader = crypto.NewSubkeyReader(hkdfStream)
 
 	// Read header subkey for v2 MAC
@@ -260,6 +278,7 @@ func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error {
 	if err != nil {
 		return err
 	}
+	defer crypto.SecureZero(subkeyHeader)
 
 	// Compute header MAC
 	ctx.Header.KeyHash = header.ComputeV2HeaderMAC(subkeyHeader, ctx.Header, ctx.KeyfileHash)
@@ -269,14 +288,21 @@ func encryptComputeAuth(ctx *OperationContext, req *EncryptRequest) error {
 }
 
 func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
-	// Apply keyfile XOR to key (AFTER HKDF init for v2)
-	key := ctx.Key
+	// Apply keyfile XOR to key (AFTER HKDF init for v2).
 	if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
-		if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
+		if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey.Bytes()) {
 			return perrors.ErrDuplicateKeyfiles
 		}
-		key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
+		// SEC-05/WR-01: route the XOR reassignment through setKey for symmetry
+		// with the decrypt path. keyfile.XORWithKey allocates a NEW slice, so the
+		// old Argon2 backing array would otherwise linger until Close(); setKey
+		// zeros it now. Safe here because HKDF has already extracted ctx.Key
+		// (encryptComputeAuth read HeaderSubkey, so the stream's PRK is fixed) and
+		// the cipher uses the XOR result, not the original key. The pointer-identity
+		// guard means the no-keyfile path (this branch skipped) is never wiped.
+		ctx.setKey(keyfile.XORWithKey(ctx.Key.Bytes(), ctx.KeyfileKey.Bytes()))
 	}
+	key := ctx.Key.Bytes()
 
 	// Read remaining subkeys
 	macSubkey, err := ctx.SubkeyReader.MACSubkey()
@@ -319,7 +345,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	}
 	defer func() { _ = fin.Close() }()
 
-	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_WRONLY|os.O_APPEND, 0600)
+	fout, err := fileops.OpenExistingNoSymlink(req.OutputFile+".incomplete", os.O_WRONLY|os.O_APPEND)
 	if err != nil {
 		return fmt.Errorf("open output: %w", err)
 	}
@@ -330,6 +356,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 	if ctx.TempZipInUse && ctx.TempCiphers != nil {
 		reader = fileops.WrapReaderWithCipher(fin, ctx.TempCiphers)
 	}
+	reader = newPayloadReader(reader)
 
 	// Encrypt loop
 	ctx.SetCanCancel(true)
@@ -348,7 +375,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			return ctx.CancellationError()
 		}
 
-		n, readErr := reader.Read(src)
+		n, readErr := io.ReadFull(reader, src)
 		if n > 0 {
 			srcData := src[:n]
 			dstData := dst[:n]
@@ -359,7 +386,11 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			// Apply Reed-Solomon if enabled
 			var writeData []byte
 			if req.ReedSolomon {
-				writeData = encodeWithRS(dstData, req.RSCodecs)
+				enc, err := encoding.EncodeRSPayloadBlock(dstData, req.RSCodecs)
+				if err != nil {
+					return fmt.Errorf("rs encode payload: %w", err)
+				}
+				writeData = enc
 			} else {
 				writeData = dstData
 			}
@@ -369,7 +400,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			}
 
 			done += int64(n)
-			counter += int64(n)
+			counter += int64(util.MiB)
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress, fmt.Sprintf("%.2f%%", progress*100))
@@ -384,7 +415,7 @@ func encryptPayload(ctx *OperationContext, req *EncryptRequest) error {
 			}
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {
@@ -404,7 +435,7 @@ func encryptFinalize(ctx *OperationContext, req *EncryptRequest) error {
 	ctx.SetStatus("Writing values...")
 
 	// Open output file for seeking
-	fout, err := os.OpenFile(req.OutputFile+".incomplete", os.O_RDWR, 0600)
+	fout, err := fileops.OpenExistingNoSymlink(req.OutputFile+".incomplete", os.O_RDWR)
 	if err != nil {
 		return fmt.Errorf("open output for auth: %w", err)
 	}
@@ -481,41 +512,4 @@ func cleanupEncrypt(ctx *OperationContext, req *EncryptRequest) {
 	}
 	_ = os.Remove(req.OutputFile + ".incomplete")
 	// Note: ctx.Close() is called via defer in Encrypt()
-}
-
-// encodeWithRS encodes data with Reed-Solomon (rs128)
-// For partial blocks (< 1 MiB), this ALWAYS adds a padding chunk, even if data
-// is exactly divisible by 128, because the original Picocrypt always unpads
-// the last chunk of partial blocks.
-func encodeWithRS(data []byte, rs *encoding.RSCodecs) []byte {
-	// Pre-allocate result slice to avoid repeated reallocations
-	// Each RS128DataSize-byte input chunk becomes RS128EncodedSize bytes (128 data + 8 parity)
-	// For partial blocks, we add one more chunk for padding
-	chunks := (len(data) + encoding.RS128DataSize - 1) / encoding.RS128DataSize
-	if len(data) < util.MiB {
-		chunks++ // Extra chunk for padding in partial blocks
-	}
-	result := make([]byte, 0, chunks*encoding.RS128EncodedSize)
-
-	// Full 1 MiB block - no padding needed within the block
-	if len(data) == util.MiB {
-		for i := 0; i < util.MiB; i += encoding.RS128DataSize {
-			result = append(result, encoding.Encode(rs.RS128, data[i:i+encoding.RS128DataSize])...)
-		}
-		return result
-	}
-
-	// Partial block (< 1 MiB) - need to handle padding
-	// Encode full 128-byte chunks
-	fullChunks := len(data) / encoding.RS128DataSize
-	for i := 0; i < fullChunks; i++ {
-		result = append(result, encoding.Encode(rs.RS128, data[i*encoding.RS128DataSize:(i+1)*encoding.RS128DataSize])...)
-	}
-
-	// ALWAYS add a padded chunk for partial blocks (matches original line 2071-2072)
-	// This is because decryption always unpads the last chunk of partial blocks
-	remaining := data[fullChunks*encoding.RS128DataSize:]
-	result = append(result, encoding.Encode(rs.RS128, encoding.Pad(remaining))...)
-
-	return result
 }

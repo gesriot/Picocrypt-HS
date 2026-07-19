@@ -11,16 +11,16 @@ func TestBuildZipEntryNamesUsesCommonSelectionRoot(t *testing.T) {
 	fileA := filepath.Join(tmpDir, "alpha", "one.txt")
 	fileB := filepath.Join(tmpDir, "beta", "two.txt")
 
-	if err := os.MkdirAll(filepath.Dir(fileA), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fileA), 0o755); err != nil {
 		t.Fatalf("Create dir for fileA: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(fileB), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fileB), 0o755); err != nil {
 		t.Fatalf("Create dir for fileB: %v", err)
 	}
-	if err := os.WriteFile(fileA, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(fileA, []byte("one"), 0o644); err != nil {
 		t.Fatalf("Write fileA: %v", err)
 	}
-	if err := os.WriteFile(fileB, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(fileB, []byte("two"), 0o644); err != nil {
 		t.Fatalf("Write fileB: %v", err)
 	}
 

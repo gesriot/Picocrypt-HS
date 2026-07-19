@@ -108,6 +108,95 @@ func TestGenPasswordEmpty(t *testing.T) {
 	}
 }
 
+// TestGenPasswordDistribution generates a large number of passwords with all
+// charset classes enabled and asserts two properties:
+//  1. Every charset class (upper, lower, digit, symbol) appears at least once
+//     across the sample — so a missing-class bug is caught.
+//  2. No single character dominates beyond a loose statistical bound (3× its
+//     fair share), catching a trivially biased generator.
+//
+// These are sanity bounds, not strict RNG tests; they are deliberately wide to
+// avoid false positives while still catching broken implementations.
+// The test is falsifiable: disabling the Symbols charset in opts makes the
+// symbol-class assertion fail (proven and reverted per TDD Rule 9).
+func TestGenPasswordDistribution(t *testing.T) {
+	const (
+		n      = 500 // passwords
+		length = 20  // chars each
+	)
+	opts := PassgenOptions{
+		Length:  length,
+		Upper:   true,
+		Lower:   true,
+		Numbers: true,
+		Symbols: true,
+	}
+
+	// charset sizes from GenPassword source
+	upperChars := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	lowerChars := "abcdefghijklmnopqrstuvwxyz"
+	digitChars := "1234567890"
+	symbolChars := "-=_+!@#$^&()?<>"
+
+	charsetSize := len(upperChars) + len(lowerChars) + len(digitChars) + len(symbolChars)
+	totalChars := n * length
+
+	freq := make(map[rune]int)
+	hasUpper := false
+	hasLower := false
+	hasDigit := false
+	hasSymbol := false
+
+	for i := 0; i < n; i++ {
+		pw, err := GenPassword(opts)
+		if err != nil {
+			t.Fatalf("GenPassword failed at iteration %d: %v", i, err)
+		}
+		if len(pw) != length {
+			t.Fatalf("GenPassword returned length %d; want %d", len(pw), length)
+		}
+		for _, c := range pw {
+			freq[c]++
+			switch {
+			case strings.ContainsRune(upperChars, c):
+				hasUpper = true
+			case strings.ContainsRune(lowerChars, c):
+				hasLower = true
+			case strings.ContainsRune(digitChars, c):
+				hasDigit = true
+			case strings.ContainsRune(symbolChars, c):
+				hasSymbol = true
+			}
+		}
+	}
+
+	// Every charset class must appear at least once.
+	if !hasUpper {
+		t.Error("no uppercase character appeared across all samples; charset Upper is broken or not selected")
+	}
+	if !hasLower {
+		t.Error("no lowercase character appeared across all samples; charset Lower is broken or not selected")
+	}
+	if !hasDigit {
+		t.Error("no digit appeared across all samples; charset Numbers is broken or not selected")
+	}
+	if !hasSymbol {
+		t.Error("no symbol appeared across all samples; charset Symbols is broken or not selected")
+	}
+
+	// No single character should exceed 3× its fair-share frequency.
+	// Fair share = totalChars / charsetSize; 3× is a loose bound that passes
+	// for a uniform RNG but catches a generator stuck on one character.
+	fairShare := float64(totalChars) / float64(charsetSize)
+	limit := 3.0 * fairShare
+	for c, count := range freq {
+		if float64(count) > limit {
+			t.Errorf("character %q appears %d times (fair-share %.1f, limit %.1f): generator is biased",
+				c, count, fairShare, limit)
+		}
+	}
+}
+
 func TestRandomBytes(t *testing.T) {
 	// Test various lengths
 	lengths := []int{1, 16, 32, 64, 128, 1024}

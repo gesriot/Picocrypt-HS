@@ -1,17 +1,19 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/volume"
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	slices "golang.org/x/exp/slices"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/volume"
 
 	"github.com/spf13/cobra"
 )
@@ -115,50 +117,53 @@ func init() {
 	_ = encryptCmd.MarkFlagRequired("input")
 }
 
-func defaultEncryptOutput(rawInput string, allFiles []string, useStdin bool) string {
-	if useStdin {
-		return "encrypted.pcv"
+func defaultEncryptOutput(rawInput string, allFiles []string, onlyFolders []string, useStdin, payloadZip bool) string {
+	extension := ".pcv"
+	if payloadZip {
+		extension = ".zip.pcv"
 	}
-	if len(allFiles) == 1 {
-		return allFiles[0] + ".pcv"
+
+	if useStdin {
+		return "encrypted" + extension
+	}
+
+	if payloadZip && len(onlyFolders) == 1 && len(allFiles) <= 1 && rawInput != "" {
+		return rawInput + extension
+	}
+	if len(allFiles) == 1 && len(onlyFolders) == 0 {
+		return allFiles[0] + extension
 	}
 	if len(allFiles) == 0 && rawInput != "" {
-		return rawInput + ".pcv"
+		return rawInput + extension
 	}
-	return "encrypted.pcv"
+	return "encrypted" + extension
 }
 
 func runEncrypt(cmd *cobra.Command, args []string) error {
 	// Validate inputs
 	if len(encInput) == 0 {
-		return fmt.Errorf("at least one input file is required (-i)")
+		return errors.New("at least one input file is required (-i)")
 	}
 
 	// Check for stdin/stdout
 	useStdout := IsStdout(encOutput)
 
 	// Check if any input is stdin
-	hasStdinInput := false
-	for _, p := range encInput {
-		if IsStdin(p) {
-			hasStdinInput = true
-			break
-		}
-	}
+	hasStdinInput := slices.ContainsFunc(encInput, IsStdin)
 	useStdin := len(encInput) == 1 && hasStdinInput
 
 	// Validate stdin/stdout constraints
 	if hasStdinInput && len(encInput) > 1 {
-		return fmt.Errorf("stdin (-i -) cannot be combined with other input files")
+		return errors.New("stdin (-i -) cannot be combined with other input files")
 	}
 	if useStdin && encPasswordStdin {
-		return fmt.Errorf("cannot use -P (password from stdin) with -i - (input from stdin)")
+		return errors.New("cannot use -P (password from stdin) with -i - (input from stdin)")
 	}
 	if (useStdin || useStdout) && encSplit {
-		return fmt.Errorf("stdin/stdout not compatible with --split")
+		return errors.New("stdin/stdout not compatible with --split")
 	}
 	if (useStdin || useStdout) && encDeniability {
-		return fmt.Errorf("stdin/stdout not compatible with --deniability")
+		return errors.New("stdin/stdout not compatible with --deniability")
 	}
 
 	// Auto-quiet when outputting to stdout (avoid mixing progress with data)
@@ -166,21 +171,18 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		encQuiet = true
 	}
 
-	// Track temp files for cleanup
+	// Track temp files for cleanup. The stdin temp holds raw piped plaintext and
+	// the stdout temp holds the .pcv output; both are removed when the run ends.
 	var stdinTempFile string
 	var stdoutTempFile string
-	defer func() {
-		if stdinTempFile != "" {
-			_ = os.Remove(stdinTempFile)
-		}
-		if stdoutTempFile != "" {
-			_ = os.Remove(stdoutTempFile)
-		}
-	}()
+	defer func() { cleanupTempFiles(stdinTempFile, stdoutTempFile) }()
 
 	outputFile := encOutput
 	if outputFile == "" && useStdin {
 		outputFile = "encrypted.pcv"
+		if encCompress {
+			outputFile = "encrypted.zip.pcv"
+		}
 	}
 	if outputFile != "" && !useStdout && !strings.HasSuffix(outputFile, ".pcv") {
 		outputFile += ".pcv"
@@ -239,11 +241,11 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 							// Follow symlink if flag set
 							target, err := filepath.EvalSymlinks(path)
 							if err != nil {
-								return nil // skip broken symlinks
+								return nil //nolint:nilerr // intentional: skip broken symlinks, continue walking
 							}
 							targetInfo, err := os.Stat(target)
 							if err != nil || !targetInfo.Mode().IsRegular() {
-								return nil // skip symlinks to dirs/special files
+								return nil //nolint:nilerr // intentional: skip symlinks to dirs/special files, continue walking
 							}
 							allFiles = append(allFiles, path)
 						}
@@ -261,7 +263,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(allFiles) == 0 {
-		return fmt.Errorf("no files found to encrypt")
+		return errors.New("no files found to encrypt")
 	}
 
 	// Determine output file
@@ -280,7 +282,8 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 		if len(encInput) > 0 {
 			rawInput = encInput[0]
 		}
-		outputFile = defaultEncryptOutput(rawInput, allFiles, useStdin)
+		payloadZip := len(allFiles) > 1 || len(onlyFolders) > 0 || encCompress
+		outputFile = defaultEncryptOutput(rawInput, allFiles, onlyFolders, useStdin, payloadZip)
 	}
 
 	// Add .pcv extension if missing (not for stdout temp)
@@ -304,24 +307,28 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 				}
 				response = strings.TrimSpace(strings.ToLower(response))
 				if response != "y" && response != "yes" {
-					return fmt.Errorf("operation cancelled")
+					return errors.New("operation cancelled")
 				}
 			}
 		}
 	}
 
-	// Get password
-	password := encPassword
+	// Get password. Owned []byte from boundary to KDF; zeroed when this returns.
+	// A closure (not `defer crypto.SecureZero(password)`) so the FINAL value is
+	// zeroed — password is reassigned below by the stdin/interactive readers, and
+	// a plain defer would bind the initial []byte(encPassword) at defer time.
+	password := []byte(encPassword)
+	defer func() { crypto.SecureZero(password) }()
 	if encPasswordStdin {
 		var err error
 		password, err = ReadPasswordFromStdin()
 		if err != nil {
 			return err
 		}
-		if password == "" && len(encKeyfiles) == 0 {
+		if len(password) == 0 && len(encKeyfiles) == 0 {
 			return fmt.Errorf("password input: %w", ErrPasswordEmpty)
 		}
-	} else if password == "" {
+	} else if len(password) == 0 {
 		// Prompt for password interactively
 		// Allow empty password only if keyfiles are provided
 		hasKeyfiles := len(encKeyfiles) > 0
@@ -347,7 +354,7 @@ func runEncrypt(cmd *cobra.Command, args []string) error {
 	var chunkUnit fileops.SplitUnit
 	if encSplit {
 		if encSplitSize <= 0 {
-			return fmt.Errorf("--split-size is required when --split is enabled")
+			return errors.New("--split-size is required when --split is enabled")
 		}
 		chunkSize = encSplitSize
 
@@ -447,8 +454,10 @@ func cleanupEncryptError(outputFile string, useStdout, outputPreExisted bool) {
 	if useStdout {
 		return
 	}
+	// outputFile is the user's named .pcv output; a plain unlink is fine here.
 	if !outputPreExisted {
 		_ = os.Remove(outputFile)
 	}
+	// Remove the partially-written .incomplete staging file.
 	_ = os.Remove(outputFile + ".incomplete")
 }

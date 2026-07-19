@@ -72,83 +72,77 @@ class AppErrorTest {
         assertFalse(fileError.allowsPasswordRetry())
     }
     
+    // fromGoError now classifies on the stable Go error code (see Go errorCode),
+    // not on the human-readable message. These tests pin the SECURITY-RELEVANT
+    // mapping and the retry affordances it gates.
+
     @Test
-    fun `fromGoError converts password error correctly`() {
-        val errorMessages = listOf(
-            "Incorrect password",
-            "Password authentication failed",
-            "Incorrect keyfile",
-            "Authentication failed"
-        )
-        
-        errorMessages.forEach { message ->
-            val error = AppError.fromGoError(message, OperationType.DECRYPT)
-            assertTrue("Error should be PasswordAuth for: $message", error is AppError.OperationError.PasswordAuth)
-            assertTrue("Error should allow password retry", error.allowsPasswordRetry())
-        }
+    fun `fromGoError AUTH_FAILED is PasswordAuth allowing retry not force-decrypt`() {
+        val error = AppError.fromGoError("The password is incorrect or header is tampered", OperationType.DECRYPT, "AUTH_FAILED")
+        assertTrue("Error should be PasswordAuth", error is AppError.OperationError.PasswordAuth)
+        assertTrue("AUTH_FAILED must allow password retry", error.allowsPasswordRetry())
+        assertFalse("AUTH_FAILED must NOT allow force-decrypt", error.allowsForceDecrypt())
     }
-    
+
     @Test
-    fun `fromGoError converts data corruption error correctly for decrypt`() {
-        val errorMessages = listOf(
-            "Data corrupted",
-            "Data corruption detected"
-        )
-        
-        errorMessages.forEach { message ->
-            val error = AppError.fromGoError(message, OperationType.DECRYPT)
-            assertTrue("Error should be DataCorruption for: $message", error is AppError.OperationError.DataCorruption)
-            assertTrue("Error should allow force decrypt", error.allowsForceDecrypt())
-        }
+    fun `fromGoError DATA_CORRUPTED is DataCorruption allowing force-decrypt not retry`() {
+        val error = AppError.fromGoError("data corrupted", OperationType.DECRYPT, "DATA_CORRUPTED")
+        assertTrue("Error should be DataCorruption", error is AppError.OperationError.DataCorruption)
+        assertTrue("DATA_CORRUPTED must allow force-decrypt", error.allowsForceDecrypt())
+        assertFalse("DATA_CORRUPTED must NOT allow password retry", error.allowsPasswordRetry())
     }
-    
+
     @Test
-    fun `fromGoError does not convert data corruption for encrypt`() {
-        val error = AppError.fromGoError("Data corrupted", OperationType.ENCRYPT)
-        // Should be generic, not DataCorruption (only applies to decrypt)
-        assertFalse("Error should not be DataCorruption for encrypt", error is AppError.OperationError.DataCorruption)
+    fun `fromGoError CORRUPT_HEADER is not DataCorruption and not force-decryptable`() {
+        // Header corruption is deliberately NOT force-decryptable (old logic
+        // excluded header errors from DataCorruption).
+        val error = AppError.fromGoError("header damaged: volume header is damaged", OperationType.DECRYPT, "CORRUPT_HEADER")
+        assertFalse("CORRUPT_HEADER must NOT be DataCorruption", error is AppError.OperationError.DataCorruption)
+        assertFalse("CORRUPT_HEADER must NOT allow force-decrypt", error.allowsForceDecrypt())
+        assertTrue("CORRUPT_HEADER falls through to GenericOperation", error is AppError.OperationError.GenericOperation)
     }
-    
+
     @Test
-    fun `fromGoError prioritizes auth error over corruption when both present`() {
-        // If error contains both corruption and auth keywords, auth should take priority
-        val error = AppError.fromGoError("Data corrupted but password incorrect", OperationType.DECRYPT)
-        // Should be PasswordAuth, not DataCorruption
-        assertTrue("Error should be PasswordAuth when both keywords present", error is AppError.OperationError.PasswordAuth)
+    fun `fromGoError CANCELLED is GenericOperation`() {
+        val error = AppError.fromGoError("operation cancelled", OperationType.DECRYPT, "CANCELLED")
+        assertTrue("CANCELLED falls through to GenericOperation", error is AppError.OperationError.GenericOperation)
+        assertFalse(error.allowsForceDecrypt())
+        assertFalse(error.allowsPasswordRetry())
     }
-    
+
     @Test
-    fun `fromGoError converts file not found error correctly`() {
-        val errorMessages = listOf(
-            "File not found",
-            "No such file or directory",
-            "Cannot find file"
-        )
-        
-        errorMessages.forEach { message ->
-            val error = AppError.fromGoError(message, OperationType.DECRYPT)
-            assertTrue("Error should be FileNotFound for: $message", error is AppError.OperationError.FileNotFound)
-        }
+    fun `fromGoError FILE_NOT_FOUND is FileNotFound`() {
+        val error = AppError.fromGoError("file not found", OperationType.DECRYPT, "FILE_NOT_FOUND")
+        assertTrue("Error should be FileNotFound", error is AppError.OperationError.FileNotFound)
+        assertFalse(error.allowsForceDecrypt())
+        assertFalse(error.allowsPasswordRetry())
     }
-    
+
     @Test
-    fun `fromGoError converts generic error for unknown messages`() {
-        val errorMessages = listOf(
-            "Unknown error occurred",
-            "Something went wrong",
-            "Unexpected error"
-        )
-        
-        errorMessages.forEach { message ->
-            val error = AppError.fromGoError(message, OperationType.ENCRYPT)
-            assertTrue("Error should be GenericOperation for: $message", error is AppError.OperationError.GenericOperation)
-        }
+    fun `fromGoError empty code is GenericOperation`() {
+        // The synchronous validation-error path passes no code (default "").
+        val error = AppError.fromGoError("input file is required", OperationType.ENCRYPT)
+        assertTrue("Empty code falls through to GenericOperation", error is AppError.OperationError.GenericOperation)
+        assertFalse(error.allowsForceDecrypt())
+        assertFalse(error.allowsPasswordRetry())
     }
-    
+
+    @Test
+    fun `fromGoError unknown code is GenericOperation`() {
+        val error = AppError.fromGoError("Something went wrong", OperationType.DECRYPT, "TOTALLY_UNKNOWN")
+        assertTrue("Unknown code falls through to GenericOperation", error is AppError.OperationError.GenericOperation)
+    }
+
+    @Test
+    fun `fromGoError GENERIC code is GenericOperation`() {
+        val error = AppError.fromGoError("Unexpected error", OperationType.DECRYPT, "GENERIC")
+        assertTrue("GENERIC code is GenericOperation", error is AppError.OperationError.GenericOperation)
+    }
+
     @Test
     fun `fromGoError preserves error messages`() {
         val userMessage = "Custom error message"
-        val error = AppError.fromGoError(userMessage, OperationType.ENCRYPT)
+        val error = AppError.fromGoError(userMessage, OperationType.ENCRYPT, "GENERIC")
         assertEquals(userMessage, error.userMessage)
         assertEquals(userMessage, error.technicalMessage)
     }
@@ -232,14 +226,16 @@ class AppErrorTest {
     }
     
     @Test
-    fun `fromGoError handles case insensitive matching`() {
-        val error1 = AppError.fromGoError("PASSWORD INCORRECT", OperationType.DECRYPT)
-        val error2 = AppError.fromGoError("password incorrect", OperationType.DECRYPT)
-        val error3 = AppError.fromGoError("Password Incorrect", OperationType.DECRYPT)
-        
-        assertTrue("Should handle uppercase", error1 is AppError.OperationError.PasswordAuth)
-        assertTrue("Should handle lowercase", error2 is AppError.OperationError.PasswordAuth)
-        assertTrue("Should handle mixed case", error3 is AppError.OperationError.PasswordAuth)
+    fun `fromGoError ignores message content classifying solely by code`() {
+        // Classification is now code-driven and locale-independent: a message that
+        // would have tripped the old "password" substring path must NOT be treated
+        // as auth unless the code says so. This is the core point of the refactor.
+        val asGeneric = AppError.fromGoError("PASSWORD INCORRECT", OperationType.DECRYPT, "GENERIC")
+        assertTrue("Message wording must not drive classification", asGeneric is AppError.OperationError.GenericOperation)
+
+        val asAuth = AppError.fromGoError("ничего полезного", OperationType.DECRYPT, "AUTH_FAILED")
+        assertTrue("Non-English message still classifies via code", asAuth is AppError.OperationError.PasswordAuth)
+        assertTrue(asAuth.allowsPasswordRetry())
     }
 }
 

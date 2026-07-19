@@ -1,18 +1,117 @@
 package wasm
 
 import (
-	"bytes"
-
 	"Picocrypt-NG/internal/crypto"
 	"Picocrypt-NG/internal/encoding"
 	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
 	"Picocrypt-NG/internal/util"
+	"bytes"
+	"io"
+
+	pwnorm "Picocrypt-NG/internal/password"
 )
+
+var (
+	writeAuthValues = header.WriteAuthValues
+	newCipherSuite  = crypto.NewCipherSuite
+)
+
+type wasmZeroingBufferKind string
+
+const (
+	wasmZeroingPasswordBytes         wasmZeroingBufferKind = "password bytes"
+	wasmZeroingHeaderSubkey          wasmZeroingBufferKind = "header subkey"
+	wasmZeroingMACSubkey             wasmZeroingBufferKind = "mac subkey"
+	wasmZeroingSerpentKey            wasmZeroingBufferKind = "serpent key"
+	wasmZeroingCiphertextChunk       wasmZeroingBufferKind = "ciphertext chunk"
+	wasmZeroingCiphertextBuffer      wasmZeroingBufferKind = "ciphertext buffer"
+	wasmZeroingKeyfileHash           wasmZeroingBufferKind = "keyfile hash"
+	wasmZeroingHeaderKeyHash         wasmZeroingBufferKind = "header auth value"
+	wasmZeroingAuthTag               wasmZeroingBufferKind = "payload auth value"
+	wasmZeroingHeaderBuffer          wasmZeroingBufferKind = "header buffer"
+	wasmZeroingDecryptPasswordBytes  wasmZeroingBufferKind = "decrypt password bytes"
+	wasmZeroingDecryptKeyfileHash    wasmZeroingBufferKind = "decrypt keyfile hash"
+	wasmZeroingDecryptHeaderSubkey   wasmZeroingBufferKind = "decrypt header subkey"
+	wasmZeroingDecryptMACSubkey      wasmZeroingBufferKind = "decrypt mac subkey"
+	wasmZeroingDecryptSerpentKey     wasmZeroingBufferKind = "decrypt serpent key"
+	wasmZeroingDecryptPlaintextChunk wasmZeroingBufferKind = "decrypt plaintext chunk"
+	wasmZeroingDecryptComputedMAC    wasmZeroingBufferKind = "decrypt computed mac"
+	wasmZeroingKeyfileKey            wasmZeroingBufferKind = "keyfile key"
+	wasmZeroingCipherKey             wasmZeroingBufferKind = "keyfile cipher key"
+	wasmZeroingDecryptKeyfileKey     wasmZeroingBufferKind = "decrypt keyfile key"
+	wasmZeroingDecryptCipherKey      wasmZeroingBufferKind = "decrypt keyfile cipher key"
+	wasmZeroingDeniabilityKey        wasmZeroingBufferKind = "deniability key"
+	wasmZeroingDeniabilityKDFInput   wasmZeroingBufferKind = "deniability kdf input"
+)
+
+type wasmZeroingEvent struct {
+	Kind       wasmZeroingBufferKind
+	Len        int
+	WasNonZero bool
+	Zeroed     bool
+}
+
+// wasmZeroingObserver is a package-local test seam. It is nil in production and
+// records only aggregate zeroing state, never buffer contents.
+var wasmZeroingObserver func(wasmZeroingEvent)
+
+func zeroWASMSensitiveBuffer(kind wasmZeroingBufferKind, b []byte) {
+	if len(b) == 0 {
+		return
+	}
+	wasNonZero := hasNonZeroByte(b)
+	crypto.SecureZero(b)
+	zeroed := !hasNonZeroByte(b)
+	if wasmZeroingObserver != nil {
+		wasmZeroingObserver(wasmZeroingEvent{
+			Kind:       kind,
+			Len:        len(b),
+			WasNonZero: wasNonZero,
+			Zeroed:     zeroed,
+		})
+	}
+}
+
+func hasNonZeroByte(b []byte) bool {
+	for _, v := range b {
+		if v != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+type byteSliceWriterAt struct {
+	data []byte
+}
+
+func (w byteSliceWriterAt) WriteAt(p []byte, off int64) (int, error) {
+	if off < 0 || off > int64(len(w.data)) {
+		return 0, io.ErrShortWrite
+	}
+	start := int(off)
+	if len(p) > len(w.data)-start {
+		return 0, io.ErrShortWrite
+	}
+	copy(w.data[start:], p)
+	return len(p), nil
+}
+
+// EncryptOptions configures an in-memory encryption. Zero value = normal,
+// no-comment volume (the pre-P0 behavior).
+type EncryptOptions struct {
+	Paranoid       bool     // 8 Argon2 passes, Serpent-CTR + XChaCha20, HMAC-SHA3
+	Comments       string   // plaintext header comments (NOT encrypted); len <= header.MaxCommentLen
+	Keyfiles       [][]byte // each element is one keyfile's full contents
+	KeyfileOrdered bool     // true = order matters (sequential hash); false = XOR
+	ReedSolomon    bool     // RS128 error-correction framing of the payload
+	Deniability    bool     // wrap the finished volume in an outer deniability layer
+}
 
 // EncryptVolume encrypts plaintext data into a Picocrypt volume.
 // Returns (ciphertext, 0) on success, or (nil, errorCode) on failure.
-// Web version: password-only, no keyfiles, no paranoid mode, no RS on payload.
-func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
+func EncryptVolume(plaintext, password []byte, opts EncryptOptions) ([]byte, int) {
 	// Initialize RS codecs
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -40,22 +139,46 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 		return nil, ErrRandomFailure
 	}
 
-	// Create header (normal mode, no keyfiles, no RS on payload)
+	// Create header; flags/comments come from opts.
+	const miB = 1 << 20
 	hdr := header.NewVolumeHeader(salt, hkdfSalt, serpentIV, nonce)
 	hdr.Flags = header.Flags{
-		Paranoid:       false,
-		UseKeyfiles:    false,
-		KeyfileOrdered: false,
-		ReedSolomon:    false, // No RS on payload for web version (simpler, smaller)
-		Padded:         false,
+		Paranoid:       opts.Paranoid,
+		UseKeyfiles:    len(opts.Keyfiles) > 0,
+		KeyfileOrdered: len(opts.Keyfiles) > 0 && opts.KeyfileOrdered,
+		ReedSolomon:    opts.ReedSolomon,
+		Padded:         opts.ReedSolomon && len(plaintext)%miB >= miB-128,
 	}
+	hdr.Comments = opts.Comments
 
-	// Derive key
-	key, err := crypto.DeriveKey([]byte(password), salt, false)
+	// Derive key from the NFC-normalized password (#19) so web-encrypted
+	// volumes are cross-platform-decryptable regardless of how it was typed.
+	passwordBytes := pwnorm.EncodeForKDF(password)
+	key, err := deriveWASMKey(passwordBytes, salt, opts.Paranoid)
+	zeroWASMSensitiveBuffer(wasmZeroingPasswordBytes, passwordBytes)
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
 	defer crypto.SecureZero(key)
+
+	// Keyfiles (password-independent). Zero key/hash material on the way out.
+	var keyfileKey []byte
+	keyfileHash := make([]byte, 32)
+	if len(opts.Keyfiles) > 0 {
+		res, code := processWASMKeyfiles(opts.Keyfiles, opts.KeyfileOrdered)
+		if code != 0 {
+			return nil, code
+		}
+		keyfileKey = res.Key
+		copy(keyfileHash, res.Hash)
+		defer zeroWASMSensitiveBuffer(wasmZeroingKeyfileKey, keyfileKey)
+	}
+	keyfileHashZeroed := false
+	defer func() {
+		if !keyfileHashZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingKeyfileHash, keyfileHash)
+		}
+	}()
 
 	// Initialize HKDF (v2 order: HKDF before keyfile XOR)
 	hkdfStream := crypto.NewHKDFStream(key, hkdfSalt)
@@ -66,11 +189,17 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
-	defer crypto.SecureZero(subkeyHeader)
 
-	// Compute header MAC (no keyfiles, so keyfileHash is zeros)
-	keyfileHash := make([]byte, 32)
+	// Compute header MAC
 	hdr.KeyHash = header.ComputeV2HeaderMAC(subkeyHeader, hdr, keyfileHash)
+	headerKeyHash := hdr.KeyHash
+	headerKeyHashZeroed := false
+	defer func() {
+		if !headerKeyHashZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingHeaderKeyHash, headerKeyHash)
+		}
+	}()
+	zeroWASMSensitiveBuffer(wasmZeroingHeaderSubkey, subkeyHeader)
 	hdr.KeyfileHash = keyfileHash
 
 	// Read remaining subkeys
@@ -78,30 +207,44 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
-	defer crypto.SecureZero(macSubkey)
 
 	serpentKey, err := subkeyReader.SerpentKey()
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
-	defer crypto.SecureZero(serpentKey)
 
-	// Create MAC (normal mode = BLAKE2b)
-	mac, err := crypto.NewMAC(macSubkey, false)
+	// Create MAC
+	mac, err := crypto.NewMAC(macSubkey, opts.Paranoid)
+	zeroWASMSensitiveBuffer(wasmZeroingMACSubkey, macSubkey)
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
 
-	// Create cipher suite (normal mode, no Serpent)
-	cipherSuite, err := crypto.NewCipherSuite(
-		key,
+	// XOR password key with keyfile key to produce the cipher key.
+	// HKDF subkeys (MAC, Serpent) stay seeded from the password key only.
+	cipherKey := key
+	if keyfileKey != nil {
+		cipherKey = keyfile.XORWithKey(key, keyfileKey)
+		// Register the wipe the instant the secret exists — BEFORE the fallible
+		// NewCipherSuite call — so cipherKey is zeroed on EVERY return path,
+		// including a NewCipherSuite error (where Close() below is never set up).
+		// On success CipherSuite.Close() also wipes it (it aliases cs.key) and,
+		// being registered later, runs first in LIFO order; this defer is then a
+		// harmless second wipe. It is the SOLE wipe on the error path.
+		defer zeroWASMSensitiveBuffer(wasmZeroingCipherKey, cipherKey)
+	}
+
+	// Create cipher suite
+	cipherSuite, err := newCipherSuite(
+		cipherKey,
 		nonce,
 		serpentKey,
 		serpentIV,
 		mac,
 		subkeyReader.Reader(),
-		false, // not paranoid
+		opts.Paranoid,
 	)
+	zeroWASMSensitiveBuffer(wasmZeroingSerpentKey, serpentKey)
 	if err != nil {
 		return nil, ErrRandomFailure
 	}
@@ -113,22 +256,46 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 	if _, err := headerWriter.WriteHeader(hdr); err != nil {
 		return nil, ErrRandomFailure
 	}
+	headerBufferZeroed := false
+	defer func() {
+		if !headerBufferZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingHeaderBuffer, headerBuf.Bytes())
+		}
+	}()
 
 	// Encrypt payload
 	var ciphertextBuf bytes.Buffer
+	ciphertextBufferZeroed := false
+	defer func() {
+		if !ciphertextBufferZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingCiphertextBuffer, ciphertextBuf.Bytes())
+		}
+	}()
 	chunkSize := util.MiB
 	var counter int64
 
 	for offset := 0; offset < len(plaintext); offset += chunkSize {
-		end := offset + chunkSize
-		if end > len(plaintext) {
-			end = len(plaintext)
-		}
+		end := min(offset+chunkSize, len(plaintext))
 
-		chunk := plaintext[offset:end]
+		// Copy chunk: paranoid Encrypt mutates src (Serpent intermediate), which
+		// would corrupt the caller's plaintext buffer if we passed a slice of it.
+		chunk := make([]byte, end-offset)
+		copy(chunk, plaintext[offset:end])
 		dst := make([]byte, len(chunk))
 		cipherSuite.Encrypt(dst, chunk)
-		ciphertextBuf.Write(dst)
+		crypto.SecureZero(chunk)
+		if opts.ReedSolomon {
+			enc, encErr := encoding.EncodeRSPayloadBlock(dst, rsCodecs)
+			if encErr != nil {
+				zeroWASMSensitiveBuffer(wasmZeroingCiphertextChunk, dst)
+				return nil, ErrRandomFailure
+			}
+			ciphertextBuf.Write(enc)
+			zeroWASMSensitiveBuffer(wasmZeroingCiphertextChunk, enc)
+		} else {
+			ciphertextBuf.Write(dst)
+		}
+		zeroWASMSensitiveBuffer(wasmZeroingCiphertextChunk, dst)
 
 		counter += int64(len(chunk))
 
@@ -143,33 +310,51 @@ func EncryptVolume(plaintext []byte, password string) ([]byte, int) {
 
 	// Get final MAC
 	authTag := cipherSuite.Sum()
+	authTagZeroed := false
+	defer func() {
+		if !authTagZeroed {
+			zeroWASMSensitiveBuffer(wasmZeroingAuthTag, authTag)
+		}
+	}()
 	hdr.AuthTag = authTag
 
 	// Now we need to patch the auth values into the header
 	// The header was written with placeholders, we need to update them
 	headerBytes := headerBuf.Bytes()
-
-	// Calculate offset for auth values
-	offset := header.AuthValuesOffset(len(hdr.Comments))
-
-	// Encode and write KeyHash (rs64)
-	keyHashEnc := encoding.Encode(rsCodecs.RS64, hdr.KeyHash)
-	copy(headerBytes[offset:], keyHashEnc)
-	offset += int64(header.KeyHashEncSize)
-
-	// Encode and write KeyfileHash (rs32)
-	keyfileHashEnc := encoding.Encode(rsCodecs.RS32, hdr.KeyfileHash)
-	copy(headerBytes[offset:], keyfileHashEnc)
-	offset += int64(header.KeyfileHashEncSize)
-
-	// Encode and write AuthTag (rs64)
-	authTagEnc := encoding.Encode(rsCodecs.RS64, authTag)
-	copy(headerBytes[offset:], authTagEnc)
+	if err := writeAuthValues(
+		byteSliceWriterAt{data: headerBytes},
+		header.AuthValuesOffset(len(hdr.Comments)),
+		hdr.KeyHash,
+		hdr.KeyfileHash,
+		authTag,
+		rsCodecs,
+	); err != nil {
+		return nil, ErrModifiedData
+	}
+	zeroWASMSensitiveBuffer(wasmZeroingKeyfileHash, keyfileHash)
+	keyfileHashZeroed = true
+	zeroWASMSensitiveBuffer(wasmZeroingHeaderKeyHash, hdr.KeyHash)
+	headerKeyHashZeroed = true
+	zeroWASMSensitiveBuffer(wasmZeroingAuthTag, authTag)
+	authTagZeroed = true
 
 	// Combine header and encrypted payload
-	result := make([]byte, 0, len(headerBytes)+ciphertextBuf.Len())
+	ciphertextBytes := ciphertextBuf.Bytes()
+	result := make([]byte, 0, len(headerBytes)+len(ciphertextBytes))
 	result = append(result, headerBytes...)
-	result = append(result, ciphertextBuf.Bytes()...)
+	result = append(result, ciphertextBytes...)
+	zeroWASMSensitiveBuffer(wasmZeroingHeaderBuffer, headerBytes)
+	headerBufferZeroed = true
+	zeroWASMSensitiveBuffer(wasmZeroingCiphertextBuffer, ciphertextBytes)
+	ciphertextBufferZeroed = true
 
+	if opts.Deniability {
+		wrapped, code := wrapDeniability(result, password)
+		crypto.SecureZero(result) // inner .pcv ciphertext, no longer needed
+		if code != 0 {
+			return nil, code
+		}
+		return wrapped, 0
+	}
 	return result, 0
 }

@@ -1,9 +1,9 @@
-// Picocrypt NG v2.08
+// Picocrypt NG v2.18
 // Copyright (c) Picocrypt NG developers
 // Released under GPL-3.0-only
 // https://github.com/Picocrypt-NG/Picocrypt-NG
 //
-// Picocrypt NG is a secure, audited file encryption tool that uses:
+// Picocrypt NG is a secure file encryption tool that uses:
 //   - Argon2id for password-based key derivation (memory-hard, GPU-resistant)
 //   - XChaCha20 for symmetric encryption (256-bit security, extended nonce)
 //   - BLAKE2b-512 for message authentication (or HMAC-SHA3 in paranoid mode)
@@ -20,8 +20,8 @@
 package main
 
 // version is the application version displayed in the window title.
-// Format: "vMAJOR.MINOR" (e.g., "v2.08")
-const version = "v2.08"
+// Format: "vMAJOR.MINOR" (e.g., "v2.18")
+const version = "v2.18"
 
 func main() {
 	run()

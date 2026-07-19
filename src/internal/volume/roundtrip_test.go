@@ -1,6 +1,9 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
 	"archive/zip"
 	"context"
 	"errors"
@@ -10,9 +13,34 @@ import (
 	"strings"
 	"testing"
 
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/fileops"
+	perrors "Picocrypt-NG/internal/errors"
 )
+
+// readVolumeHeader opens an encrypted .pcv volume and decodes its header using the
+// production header reader. It is the read-back seam for flag/comment assertions:
+// tests use it to prove that EncryptRequest options are actually persisted into the
+// on-disk header (not merely honored in-memory during the round-trip).
+func readVolumeHeader(t *testing.T, encryptedPath string) *header.VolumeHeader {
+	t.Helper()
+	rsCodecs, err := encoding.NewRSCodecs()
+	if err != nil {
+		t.Fatalf("Failed to create RS codecs: %v", err)
+	}
+	fin, err := os.Open(encryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to open encrypted volume: %v", err)
+	}
+	defer func() { _ = fin.Close() }()
+
+	res, err := NewHeaderReaderForTest(fin, rsCodecs).ReadHeader()
+	if err != nil {
+		t.Fatalf("ReadHeader failed: %v", err)
+	}
+	if res.DecodeError != nil {
+		t.Fatalf("header decode error: %v", res.DecodeError)
+	}
+	return res.Header
+}
 
 // TestRoundTripBasic tests basic encrypt -> decrypt cycle
 func TestRoundTripBasic(t *testing.T) {
@@ -26,7 +54,7 @@ func TestRoundTripBasic(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Hello, Picocrypt! This is a test message for round-trip encryption.")
 	inputPath := filepath.Join(tmpDir, "test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -39,7 +67,7 @@ func TestRoundTripBasic(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "testpassword123",
+		Password:    []byte("testpassword123"),
 		Paranoid:    false,
 		ReedSolomon: false,
 		Deniability: false,
@@ -60,7 +88,7 @@ func TestRoundTripBasic(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "testpassword123",
+		Password:     []byte("testpassword123"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -83,6 +111,36 @@ func TestRoundTripBasic(t *testing.T) {
 	t.Log("Round-trip basic: SUCCESS")
 }
 
+// TestEncryptRejectsOverflowingChunkSizeEarly proves volume.Encrypt rejects an
+// overflowing split chunk size at the pipeline entry — before preprocessing, key
+// derivation, or writing any output — so the just-encrypted volume can never be
+// silently destroyed by the final split step (the fileops.Split data-loss path).
+func TestEncryptRejectsOverflowingChunkSizeEarly(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(inputPath, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	outputPath := filepath.Join(tmpDir, "test.txt.pcv")
+
+	req := &EncryptRequest{
+		InputFile:  inputPath,
+		OutputFile: outputPath,
+		Password:   []byte("testpassword123"),
+		Split:      true,
+		ChunkSize:  1 << 23, // 2^23 TiB overflows int64 when scaled to bytes
+		ChunkUnit:  fileops.SplitUnitTiB,
+	}
+
+	err := Encrypt(context.Background(), req)
+	if !errors.Is(err, perrors.ErrChunkSizeTooLarge) {
+		t.Fatalf("Encrypt() error = %v, want ErrChunkSizeTooLarge", err)
+	}
+	if _, statErr := os.Stat(outputPath); !os.IsNotExist(statErr) {
+		t.Errorf("output must not exist after early rejection, stat err = %v", statErr)
+	}
+}
+
 // TestRoundTripParanoid tests encrypt -> decrypt with paranoid mode
 func TestRoundTripParanoid(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
@@ -94,7 +152,7 @@ func TestRoundTripParanoid(t *testing.T) {
 
 	plaintext := []byte("Paranoid mode test data with extra security.")
 	inputPath := filepath.Join(tmpDir, "paranoid_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -107,7 +165,7 @@ func TestRoundTripParanoid(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "paranoid_password",
+		Password:   []byte("paranoid_password"),
 		Paranoid:   true,
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -117,11 +175,24 @@ func TestRoundTripParanoid(t *testing.T) {
 		t.Fatalf("Encrypt (paranoid) failed: %v", err)
 	}
 
+	// The Paranoid flag must be persisted into the on-disk header (dropping the
+	// flag write would still round-trip but fail to record paranoid mode).
+	h := readVolumeHeader(t, encryptedPath)
+	if !h.Flags.Paranoid {
+		t.Error("header Flags.Paranoid = false, want true for paranoid volume")
+	}
+	if h.Flags.UseKeyfiles {
+		t.Error("header Flags.UseKeyfiles = true, want false (no keyfiles used)")
+	}
+	if h.Flags.ReedSolomon {
+		t.Error("header Flags.ReedSolomon = true, want false (RS not enabled)")
+	}
+
 	// Decrypt
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "paranoid_password",
+		Password:     []byte("paranoid_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -152,14 +223,23 @@ func TestRoundTripReedSolomon(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	plaintext := []byte("Reed-Solomon protected data for error correction testing.")
-	inputPath := filepath.Join(tmpDir, "rs_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	// Size the plaintext so the on-disk Padded flag is set. encrypt.go computes
+	// Padded = (Total % MiB) >= (MiB - RS128DataSize), i.e. the final partial-MiB
+	// block lands within the last 128 bytes of a 1 MiB block. (1<<20)-1 bytes makes
+	// Total % MiB = MiB-1, which satisfies that bound, so Padded must be true. NOTE:
+	// a tiny plaintext does NOT pad (Total % MiB is far below the bound) — the size
+	// here is load-bearing for the Padded assertion below.
+	plaintext := make([]byte, (1<<20)-1)
+	for i := range plaintext {
+		plaintext[i] = byte((i * 7) % 256)
+	}
+	inputPath := filepath.Join(tmpDir, "rs_test.bin")
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	encryptedPath := filepath.Join(tmpDir, "rs_test.txt.pcv")
-	decryptedPath := filepath.Join(tmpDir, "rs_decrypted.txt")
+	encryptedPath := filepath.Join(tmpDir, "rs_test.bin.pcv")
+	decryptedPath := filepath.Join(tmpDir, "rs_decrypted.bin")
 
 	reporter := &GoldenTestReporter{}
 
@@ -167,7 +247,7 @@ func TestRoundTripReedSolomon(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "rs_password",
+		Password:    []byte("rs_password"),
 		ReedSolomon: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -177,11 +257,22 @@ func TestRoundTripReedSolomon(t *testing.T) {
 		t.Fatalf("Encrypt (RS) failed: %v", err)
 	}
 
+	// The ReedSolomon flag must be persisted, and for this deliberately-sized input
+	// the final block pads, so the Padded flag must also be set (Padded otherwise
+	// has zero coverage). Dropping either flag write fails here.
+	h := readVolumeHeader(t, encryptedPath)
+	if !h.Flags.ReedSolomon {
+		t.Error("header Flags.ReedSolomon = false, want true for Reed-Solomon volume")
+	}
+	if !h.Flags.Padded {
+		t.Error("header Flags.Padded = false, want true (input sized to MiB-1 pads its final block)")
+	}
+
 	// Decrypt
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "rs_password",
+		Password:     []byte("rs_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -214,7 +305,7 @@ func TestRoundTripDeniability(t *testing.T) {
 
 	plaintext := []byte("Deniability test data - this should be hidden!")
 	inputPath := filepath.Join(tmpDir, "deny_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -227,7 +318,7 @@ func TestRoundTripDeniability(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "deny_password",
+		Password:    []byte("deny_password"),
 		Deniability: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -246,7 +337,7 @@ func TestRoundTripDeniability(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "deny_password",
+		Password:     []byte("deny_password"),
 		Deniability:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -280,7 +371,7 @@ func TestRoundTripAllOptions(t *testing.T) {
 
 	plaintext := []byte("Full options test: paranoid + Reed-Solomon + deniability")
 	inputPath := filepath.Join(tmpDir, "full_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -293,7 +384,7 @@ func TestRoundTripAllOptions(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "full_options_password",
+		Password:    []byte("full_options_password"),
 		Paranoid:    true,
 		ReedSolomon: true,
 		Deniability: true,
@@ -305,11 +396,18 @@ func TestRoundTripAllOptions(t *testing.T) {
 		t.Fatalf("Encrypt (all options) failed: %v", err)
 	}
 
+	// Deniability is enabled, so the outer header is randomized and cannot be decoded
+	// for flags; instead assert the deniability wrap is present (dropping it with all
+	// options set would leave a decodable, non-deniable header).
+	if !IsDeniable(encryptedPath, rsCodecs) {
+		t.Error("all-options volume with Deniability set should be detected as deniable")
+	}
+
 	// Decrypt
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "full_options_password",
+		Password:     []byte("full_options_password"),
 		Deniability:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -343,7 +441,7 @@ func TestRoundTripWithComments(t *testing.T) {
 
 	plaintext := []byte("Test data with comments in the header.")
 	inputPath := filepath.Join(tmpDir, "comments_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -356,7 +454,7 @@ func TestRoundTripWithComments(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "comments_password",
+		Password:   []byte("comments_password"),
 		Comments:   "This is a test comment! 日本語テスト 🔐",
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -366,11 +464,18 @@ func TestRoundTripWithComments(t *testing.T) {
 		t.Fatalf("Encrypt (with comments) failed: %v", err)
 	}
 
+	// Comments are stored in the (plaintext) header and must round-trip exactly,
+	// including multibyte UTF-8 — no prior test reads a non-empty comment back.
+	h := readVolumeHeader(t, encryptedPath)
+	if h.Comments != "This is a test comment! 日本語テスト 🔐" {
+		t.Errorf("header Comments = %q, want %q", h.Comments, "This is a test comment! 日本語テスト 🔐")
+	}
+
 	// Decrypt
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "comments_password",
+		Password:     []byte("comments_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -404,14 +509,14 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Keyfile protected data for testing.")
 	inputPath := filepath.Join(tmpDir, "keyfile_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfile
 	keyfilePath := filepath.Join(tmpDir, "keyfile.bin")
 	keyfileData := []byte("This is my secret keyfile content!")
-	if err := os.WriteFile(keyfilePath, keyfileData, 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, keyfileData, 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -424,7 +529,7 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "password_with_keyfile",
+		Password:   []byte("password_with_keyfile"),
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -434,11 +539,18 @@ func TestRoundTripWithKeyfile(t *testing.T) {
 		t.Fatalf("Encrypt (with keyfile) failed: %v", err)
 	}
 
+	// The UseKeyfiles flag must be persisted for self-encrypted volumes, otherwise
+	// decryption could not know a keyfile is required.
+	h := readVolumeHeader(t, encryptedPath)
+	if !h.Flags.UseKeyfiles {
+		t.Error("header Flags.UseKeyfiles = false, want true for keyfile-protected volume")
+	}
+
 	// Decrypt with keyfile
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "password_with_keyfile",
+		Password:     []byte("password_with_keyfile"),
 		Keyfiles:     []string{keyfilePath},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -473,17 +585,17 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Multiple keyfiles protected data.")
 	inputPath := filepath.Join(tmpDir, "multi_keyfile_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfiles
 	keyfile1 := filepath.Join(tmpDir, "keyfile1.bin")
 	keyfile2 := filepath.Join(tmpDir, "keyfile2.bin")
-	if err := os.WriteFile(keyfile1, []byte("First keyfile content"), 0644); err != nil {
+	if err := os.WriteFile(keyfile1, []byte("First keyfile content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile1: %v", err)
 	}
-	if err := os.WriteFile(keyfile2, []byte("Second keyfile content"), 0644); err != nil {
+	if err := os.WriteFile(keyfile2, []byte("Second keyfile content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile2: %v", err)
 	}
 
@@ -496,7 +608,7 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:      inputPath,
 		OutputFile:     encryptedPath,
-		Password:       "multi_keyfile_pass",
+		Password:       []byte("multi_keyfile_pass"),
 		Keyfiles:       []string{keyfile1, keyfile2},
 		KeyfileOrdered: false,
 		Reporter:       reporter,
@@ -511,7 +623,7 @@ func TestRoundTripWithMultipleKeyfiles(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "multi_keyfile_pass",
+		Password:     []byte("multi_keyfile_pass"),
 		Keyfiles:     []string{keyfile2, keyfile1}, // Reversed order
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -546,17 +658,17 @@ func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Ordered keyfiles protected data.")
 	inputPath := filepath.Join(tmpDir, "ordered_keyfile_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfiles
 	keyfile1 := filepath.Join(tmpDir, "ordered1.bin")
 	keyfile2 := filepath.Join(tmpDir, "ordered2.bin")
-	if err := os.WriteFile(keyfile1, []byte("First ordered keyfile"), 0644); err != nil {
+	if err := os.WriteFile(keyfile1, []byte("First ordered keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile1: %v", err)
 	}
-	if err := os.WriteFile(keyfile2, []byte("Second ordered keyfile"), 0644); err != nil {
+	if err := os.WriteFile(keyfile2, []byte("Second ordered keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile2: %v", err)
 	}
 
@@ -569,7 +681,7 @@ func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:      inputPath,
 		OutputFile:     encryptedPath,
-		Password:       "ordered_keyfile_pass",
+		Password:       []byte("ordered_keyfile_pass"),
 		Keyfiles:       []string{keyfile1, keyfile2},
 		KeyfileOrdered: true,
 		Reporter:       reporter,
@@ -584,7 +696,7 @@ func TestRoundTripWithOrderedKeyfiles(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "ordered_keyfile_pass",
+		Password:     []byte("ordered_keyfile_pass"),
 		Keyfiles:     []string{keyfile1, keyfile2},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -618,19 +730,19 @@ func TestWrongKeyfileFails(t *testing.T) {
 
 	plaintext := []byte("Secret data")
 	inputPath := filepath.Join(tmpDir, "secret.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create correct keyfile
 	correctKeyfile := filepath.Join(tmpDir, "correct_keyfile.bin")
-	if err := os.WriteFile(correctKeyfile, []byte("Correct keyfile"), 0644); err != nil {
+	if err := os.WriteFile(correctKeyfile, []byte("Correct keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write correct keyfile: %v", err)
 	}
 
 	// Create wrong keyfile
 	wrongKeyfile := filepath.Join(tmpDir, "wrong_keyfile.bin")
-	if err := os.WriteFile(wrongKeyfile, []byte("Wrong keyfile"), 0644); err != nil {
+	if err := os.WriteFile(wrongKeyfile, []byte("Wrong keyfile"), 0o644); err != nil {
 		t.Fatalf("Failed to write wrong keyfile: %v", err)
 	}
 
@@ -643,7 +755,7 @@ func TestWrongKeyfileFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "keyfile_password",
+		Password:   []byte("keyfile_password"),
 		Keyfiles:   []string{correctKeyfile},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -657,7 +769,7 @@ func TestWrongKeyfileFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "keyfile_password",
+		Password:     []byte("keyfile_password"),
 		Keyfiles:     []string{wrongKeyfile},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -692,7 +804,7 @@ func TestRoundTripSplit(t *testing.T) {
 		plaintext[i] = byte(i % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "split_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -706,7 +818,7 @@ func TestRoundTripSplit(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "split_password",
+		Password:   []byte("split_password"),
 		Split:      true,
 		ChunkSize:  10,
 		ChunkUnit:  0, // SplitUnitKiB
@@ -725,9 +837,11 @@ func TestRoundTripSplit(t *testing.T) {
 	}
 	if len(chunks) < 2 {
 		t.Logf("Only %d chunk(s) created - file might be too small for splitting", len(chunks))
-		// Still try to decrypt the first chunk if it exists
+		// A 100 KiB input split into 10 KiB chunks MUST produce multiple chunks;
+		// zero chunks means splitting silently failed — fail loud (Rule 12), never
+		// skip a broken split as if it were an environment gap.
 		if len(chunks) == 0 {
-			t.Skip("No chunks created - splitting might not be working")
+			t.Fatalf("split produced zero chunks for %q (splitting is broken)", encryptedPath)
 		}
 	}
 	t.Logf("Created %d chunks", len(chunks))
@@ -737,7 +851,7 @@ func TestRoundTripSplit(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath, // Base path - recombine will look for .0, .1, etc.
 		OutputFile:   decryptedPath,
-		Password:     "split_password",
+		Password:     []byte("split_password"),
 		Recombine:    true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -782,7 +896,7 @@ func TestRoundTripDecryptFromFirstChunkWithRecombine(t *testing.T) {
 		plaintext[i] = byte(i % 251)
 	}
 	inputPath := filepath.Join(tmpDir, "split_first_chunk.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -793,7 +907,7 @@ func TestRoundTripDecryptFromFirstChunkWithRecombine(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "split_password",
+		Password:   []byte("split_password"),
 		Split:      true,
 		ChunkSize:  8,
 		ChunkUnit:  0,
@@ -812,7 +926,7 @@ func TestRoundTripDecryptFromFirstChunkWithRecombine(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    firstChunk,
 		OutputFile:   decryptedPath,
-		Password:     "split_password",
+		Password:     []byte("split_password"),
 		Recombine:    true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -848,7 +962,7 @@ func TestWrongPasswordFails(t *testing.T) {
 
 	plaintext := []byte("Secret data")
 	inputPath := filepath.Join(tmpDir, "secret.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -861,7 +975,7 @@ func TestWrongPasswordFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "correct_password",
+		Password:   []byte("correct_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -874,7 +988,7 @@ func TestWrongPasswordFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "wrong_password",
+		Password:     []byte("wrong_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -905,17 +1019,17 @@ func TestAutoUnzip(t *testing.T) {
 	// Create a test file and zip it
 	testContent := []byte("Auto-unzip test content!")
 	testDir := filepath.Join(tmpDir, "test_folder")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
 	testFile := filepath.Join(testDir, "test_file.txt")
-	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
+	if err := os.WriteFile(testFile, testContent, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create zip file
 	zipPath := filepath.Join(tmpDir, "test.zip")
-	if err := createTestZip(zipPath, testDir, "test_folder"); err != nil {
+	if err := createTestZip(zipPath, testDir); err != nil {
 		t.Fatalf("Failed to create test zip: %v", err)
 	}
 
@@ -928,7 +1042,7 @@ func TestAutoUnzip(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  zipPath,
 		OutputFile: encryptedPath,
-		Password:   "autounzip_password",
+		Password:   []byte("autounzip_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -945,7 +1059,7 @@ func TestAutoUnzip(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "autounzip_password",
+		Password:     []byte("autounzip_password"),
 		AutoUnzip:    true,
 		SameLevel:    false, // Extract to directory containing the zip
 		ForceDecrypt: false,
@@ -989,24 +1103,24 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 
 	// Create subdirectory for the encrypted file
 	volumeDir := filepath.Join(tmpDir, "volume_location")
-	if err := os.MkdirAll(volumeDir, 0755); err != nil {
+	if err := os.MkdirAll(volumeDir, 0o755); err != nil {
 		t.Fatalf("Failed to create volume directory: %v", err)
 	}
 
 	// Create a test file and zip it
 	testContent := []byte("Same-level unzip test content!")
 	testDir := filepath.Join(tmpDir, "source_folder")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
 	testFile := filepath.Join(testDir, "same_level_test.txt")
-	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
+	if err := os.WriteFile(testFile, testContent, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create zip file
 	zipPath := filepath.Join(tmpDir, "samelevel.zip")
-	if err := createTestZip(zipPath, testDir, "source_folder"); err != nil {
+	if err := createTestZip(zipPath, testDir); err != nil {
 		t.Fatalf("Failed to create test zip: %v", err)
 	}
 
@@ -1019,7 +1133,7 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  zipPath,
 		OutputFile: encryptedPath,
-		Password:   "samelevel_password",
+		Password:   []byte("samelevel_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1036,7 +1150,7 @@ func TestAutoUnzipSameLevel(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "samelevel_password",
+		Password:     []byte("samelevel_password"),
 		AutoUnzip:    true,
 		SameLevel:    true, // Extract to same directory as volume
 		ForceDecrypt: false,
@@ -1076,16 +1190,16 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 	tmpDir := t.TempDir()
 	testContent := []byte("Auto-unzip rollback test content!")
 	testDir := filepath.Join(tmpDir, "rollback_folder")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
+	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
 	testFile := filepath.Join(testDir, "rollback.txt")
-	if err := os.WriteFile(testFile, testContent, 0644); err != nil {
+	if err := os.WriteFile(testFile, testContent, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	zipPath := filepath.Join(tmpDir, "rollback.zip")
-	if err := createTestZip(zipPath, testDir, "rollback_folder"); err != nil {
+	if err := createTestZip(zipPath, testDir); err != nil {
 		t.Fatalf("Failed to create test zip: %v", err)
 	}
 
@@ -1096,7 +1210,7 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  zipPath,
 		OutputFile: encryptedPath,
-		Password:   "rollback_password",
+		Password:   []byte("rollback_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1118,7 +1232,7 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "rollback_password",
+		Password:     []byte("rollback_password"),
 		AutoUnzip:    true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -1142,7 +1256,7 @@ func TestAutoUnzipRestoresRenamedOutputOnUnpackFailure(t *testing.T) {
 }
 
 // createTestZip creates a zip file from a directory
-func createTestZip(zipPath, sourceDir, baseName string) error {
+func createTestZip(zipPath, sourceDir string) error {
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return err
@@ -1196,16 +1310,16 @@ func TestRoundTripAutoUnzipMultipleFilesFromDifferentDirs(t *testing.T) {
 	fileA := filepath.Join(tmpDir, "alpha", "one.txt")
 	fileB := filepath.Join(tmpDir, "beta", "two.txt")
 
-	if err := os.MkdirAll(filepath.Dir(fileA), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fileA), 0o755); err != nil {
 		t.Fatalf("Failed to create dir for fileA: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(fileB), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fileB), 0o755); err != nil {
 		t.Fatalf("Failed to create dir for fileB: %v", err)
 	}
-	if err := os.WriteFile(fileA, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(fileA, []byte("one"), 0o644); err != nil {
 		t.Fatalf("Failed to write fileA: %v", err)
 	}
-	if err := os.WriteFile(fileB, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(fileB, []byte("two"), 0o644); err != nil {
 		t.Fatalf("Failed to write fileB: %v", err)
 	}
 
@@ -1217,7 +1331,7 @@ func TestRoundTripAutoUnzipMultipleFilesFromDifferentDirs(t *testing.T) {
 		InputFiles: []string{fileA, fileB},
 		OnlyFiles:  []string{fileA, fileB},
 		OutputFile: encryptedPath,
-		Password:   "pw",
+		Password:   []byte("pw"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1228,7 +1342,7 @@ func TestRoundTripAutoUnzipMultipleFilesFromDifferentDirs(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encryptedPath,
 		OutputFile: outputPath,
-		Password:   "pw",
+		Password:   []byte("pw"),
 		AutoUnzip:  true,
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -1263,13 +1377,13 @@ func TestRoundTripMultiFile(t *testing.T) {
 	file2Path := filepath.Join(tmpDir, "file2.txt")
 	file3Path := filepath.Join(tmpDir, "file3.txt")
 
-	if err := os.WriteFile(file1Path, file1Content, 0644); err != nil {
+	if err := os.WriteFile(file1Path, file1Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file1: %v", err)
 	}
-	if err := os.WriteFile(file2Path, file2Content, 0644); err != nil {
+	if err := os.WriteFile(file2Path, file2Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file2: %v", err)
 	}
-	if err := os.WriteFile(file3Path, file3Content, 0644); err != nil {
+	if err := os.WriteFile(file3Path, file3Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file3: %v", err)
 	}
 
@@ -1282,7 +1396,7 @@ func TestRoundTripMultiFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFiles: []string{file1Path, file2Path, file3Path},
 		OutputFile: encryptedPath,
-		Password:   "multifile_password",
+		Password:   []byte("multifile_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1300,7 +1414,7 @@ func TestRoundTripMultiFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "multifile_password",
+		Password:     []byte("multifile_password"),
 		AutoUnzip:    true,
 		SameLevel:    true,
 		ForceDecrypt: false,
@@ -1339,8 +1453,15 @@ func TestRoundTripMultiFile(t *testing.T) {
 	t.Log("Round-trip multi-file: SUCCESS")
 }
 
-// TestRoundTripSplitWithDeniability tests split + deniability combination
-func TestRoundTripSplitWithDeniability(t *testing.T) {
+// TestRoundTripSingleFileFolderProducesZip is a regression test for issue #130:
+// "Zip and Encrypt" of a folder containing a single file must still produce a zip
+// archive. The GUI labels a dropped folder "Zip and Encrypt" and names the output
+// "<name>.zip.pcv", so decryption must yield a real zip — not the raw inner file.
+// Before the fix, a folder with exactly one file (compress off) skipped zipping
+// because the decision only looked at file count, so decryption produced a
+// ".zip"-named file whose bytes were the raw inner file and which no unzip tool
+// (nor Auto unzip) could extract.
+func TestRoundTripSingleFileFolderProducesZip(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
 		t.Fatalf("Failed to create RS codecs: %v", err)
@@ -1348,77 +1469,74 @@ func TestRoundTripSplitWithDeniability(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create test file
-	plaintext := make([]byte, 50*1024) // 50 KiB
-	for i := range plaintext {
-		plaintext[i] = byte(i % 256)
+	// A folder ("test_dir") containing exactly one file, mirroring the issue.
+	folder := filepath.Join(tmpDir, "test_dir")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatalf("Failed to create folder: %v", err)
 	}
-	inputPath := filepath.Join(tmpDir, "split_deny_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
+	innerContent := []byte("hello world\n")
+	innerPath := filepath.Join(folder, "hello.txt")
+	if err := os.WriteFile(innerPath, innerContent, 0o644); err != nil {
+		t.Fatalf("Failed to write inner file: %v", err)
 	}
 
-	encryptedPath := filepath.Join(tmpDir, "split_deny_test.bin.pcv")
-	decryptedPath := filepath.Join(tmpDir, "split_deny_decrypted.bin")
+	encryptedPath := filepath.Join(tmpDir, "encrypted.zip.pcv")
+	decryptedPath := filepath.Join(tmpDir, "encrypted.zip")
 
 	reporter := &GoldenTestReporter{}
 
-	// Encrypt with split + deniability
+	// Folder selection: one input file, folder recorded in OnlyFolders, compress off.
 	encReq := &EncryptRequest{
-		InputFile:   inputPath,
+		InputFiles:  []string{innerPath},
+		OnlyFolders: []string{folder},
 		OutputFile:  encryptedPath,
-		Password:    "split_deny_password",
-		Deniability: true,
-		Split:       true,
-		ChunkSize:   10,
-		ChunkUnit:   0, // KiB
+		Password:    []byte("pw"),
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
 	}
-
 	if err := Encrypt(context.Background(), encReq); err != nil {
-		t.Fatalf("Encrypt (split+deniability) failed: %v", err)
+		t.Fatalf("Encrypt failed: %v", err)
 	}
 
-	// Verify chunks were created
-	chunks, _ := filepath.Glob(encryptedPath + ".*")
-	if len(chunks) < 2 {
-		t.Logf("Only %d chunk(s) created", len(chunks))
-	}
-
-	// Decrypt with recombine + deniability
+	// Decrypt WITHOUT auto-unzip: the on-disk output must itself be a valid zip.
 	decReq := &DecryptRequest{
-		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
-		Password:     "split_deny_password",
-		Deniability:  true,
-		Recombine:    true,
-		ForceDecrypt: false,
-		Reporter:     reporter,
-		RSCodecs:     rsCodecs,
+		InputFile:  encryptedPath,
+		OutputFile: decryptedPath,
+		Password:   []byte("pw"),
+		Reporter:   reporter,
+		RSCodecs:   rsCodecs,
 	}
-
 	if err := Decrypt(context.Background(), decReq); err != nil {
-		t.Fatalf("Decrypt (split+deniability) failed: %v", err)
+		t.Fatalf("Decrypt failed: %v", err)
 	}
 
-	decrypted, err := os.ReadFile(decryptedPath)
+	// The decrypted output must be a real zip archive containing test_dir/hello.txt.
+	zr, err := zip.OpenReader(decryptedPath)
 	if err != nil {
-		t.Fatalf("Failed to read decrypted file: %v", err)
+		t.Fatalf("decrypted output is not a valid zip archive (issue #130): %v", err)
+	}
+	defer func() { _ = zr.Close() }()
+
+	if len(zr.File) != 1 {
+		t.Fatalf("expected 1 zip entry, got %d", len(zr.File))
+	}
+	entry := zr.File[0]
+	if entry.Name != "test_dir/hello.txt" {
+		t.Fatalf("expected entry name %q, got %q", "test_dir/hello.txt", entry.Name)
 	}
 
-	if len(decrypted) != len(plaintext) {
-		t.Errorf("Length mismatch. Expected: %d, Got: %d", len(plaintext), len(decrypted))
+	rc, err := entry.Open()
+	if err != nil {
+		t.Fatalf("Failed to open zip entry: %v", err)
 	}
-
-	for i := range plaintext {
-		if decrypted[i] != plaintext[i] {
-			t.Errorf("Content mismatch at byte %d", i)
-			break
-		}
+	got, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil {
+		t.Fatalf("Failed to read zip entry: %v", err)
 	}
-
-	t.Log("Round-trip split+deniability: SUCCESS")
+	if string(got) != string(innerContent) {
+		t.Fatalf("zip entry content mismatch: got %q want %q", got, innerContent)
+	}
 }
 
 // TestRoundTripSplitWithReedSolomon tests split + Reed-Solomon combination.
@@ -1441,7 +1559,7 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 		plaintext[i] = byte((i * 7) % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "split_rs_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1455,7 +1573,7 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "split_rs_password",
+		Password:    []byte("split_rs_password"),
 		ReedSolomon: true,
 		Split:       true,
 		ChunkSize:   50, // 50 KiB chunks
@@ -1476,7 +1594,7 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "split_rs_password",
+		Password:     []byte("split_rs_password"),
 		Recombine:    true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -1506,83 +1624,6 @@ func TestRoundTripSplitWithReedSolomon(t *testing.T) {
 	t.Log("Round-trip split+Reed-Solomon: SUCCESS")
 }
 
-// TestRoundTripSplitAllOptions tests split + paranoid + RS + deniability
-func TestRoundTripSplitAllOptions(t *testing.T) {
-	rsCodecs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("Failed to create RS codecs: %v", err)
-	}
-
-	tmpDir := t.TempDir()
-
-	plaintext := make([]byte, 30*1024) // 30 KiB
-	for i := range plaintext {
-		plaintext[i] = byte((i * 13) % 256)
-	}
-	inputPath := filepath.Join(tmpDir, "split_all_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	encryptedPath := filepath.Join(tmpDir, "split_all_test.bin.pcv")
-	decryptedPath := filepath.Join(tmpDir, "split_all_decrypted.bin")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt with ALL options
-	encReq := &EncryptRequest{
-		InputFile:   inputPath,
-		OutputFile:  encryptedPath,
-		Password:    "split_all_password",
-		Paranoid:    true,
-		ReedSolomon: true,
-		Deniability: true,
-		Split:       true,
-		ChunkSize:   10,
-		ChunkUnit:   0, // KiB
-		Reporter:    reporter,
-		RSCodecs:    rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
-		t.Fatalf("Encrypt (split+all) failed: %v", err)
-	}
-
-	// Decrypt
-	decReq := &DecryptRequest{
-		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
-		Password:     "split_all_password",
-		Deniability:  true,
-		Recombine:    true,
-		ForceDecrypt: false,
-		Reporter:     reporter,
-		RSCodecs:     rsCodecs,
-	}
-
-	if err := Decrypt(context.Background(), decReq); err != nil {
-		t.Fatalf("Decrypt (split+all) failed: %v", err)
-	}
-
-	decrypted, err := os.ReadFile(decryptedPath)
-	if err != nil {
-		t.Fatalf("Failed to read decrypted file: %v", err)
-	}
-
-	if len(decrypted) != len(plaintext) {
-		t.Errorf("Length mismatch. Expected: %d, Got: %d", len(plaintext), len(decrypted))
-	}
-
-	for i := range plaintext {
-		if decrypted[i] != plaintext[i] {
-			t.Errorf("Content mismatch at byte %d", i)
-			break
-		}
-	}
-
-	t.Log("Round-trip split+all options: SUCCESS")
-}
-
 // TestRoundTripEmptyFile tests encryption/decryption of an empty file
 func TestRoundTripEmptyFile(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
@@ -1594,7 +1635,7 @@ func TestRoundTripEmptyFile(t *testing.T) {
 
 	// Create empty file
 	inputPath := filepath.Join(tmpDir, "empty.txt")
-	if err := os.WriteFile(inputPath, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte{}, 0o644); err != nil {
 		t.Fatalf("Failed to write empty file: %v", err)
 	}
 
@@ -1607,7 +1648,7 @@ func TestRoundTripEmptyFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "empty_file_password",
+		Password:   []byte("empty_file_password"),
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
 	}
@@ -1620,7 +1661,7 @@ func TestRoundTripEmptyFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "empty_file_password",
+		Password:     []byte("empty_file_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -1657,14 +1698,14 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 		plaintext[i] = byte((i * 17) % 256)
 	}
 	inputPath := filepath.Join(tmpDir, "split_keyfile_test.bin")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfile
 	keyfileContent := []byte("This is keyfile content for split test!")
 	keyfilePath := filepath.Join(tmpDir, "split.key")
-	if err := os.WriteFile(keyfilePath, keyfileContent, 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, keyfileContent, 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -1677,7 +1718,7 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "split_keyfile_password",
+		Password:   []byte("split_keyfile_password"),
 		Keyfiles:   []string{keyfilePath},
 		Split:      true,
 		ChunkSize:  10,
@@ -1694,7 +1735,7 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "split_keyfile_password",
+		Password:     []byte("split_keyfile_password"),
 		Keyfiles:     []string{keyfilePath},
 		Recombine:    true,
 		ForceDecrypt: false,
@@ -1725,7 +1766,9 @@ func TestRoundTripSplitWithKeyfile(t *testing.T) {
 	t.Log("Round-trip split+keyfile: SUCCESS")
 }
 
-// TestForceDecryptCorruptedData tests force decrypt with damaged RS data
+// TestForceDecryptCorruptedData proves the ForceDecrypt contract over a corrupted
+// payload: without ForceDecrypt a MAC failure is rejected with no output; with it,
+// the operation forces through, keeps a best-effort output file, and flags it kept.
 func TestForceDecryptCorruptedData(t *testing.T) {
 	rsCodecs, err := encoding.NewRSCodecs()
 	if err != nil {
@@ -1734,68 +1777,71 @@ func TestForceDecryptCorruptedData(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create test file
-	plaintext := []byte("Data that will be intentionally corrupted for recovery test.")
+	// Reed-Solomon OFF so a single ciphertext-byte flip reliably defeats the MAC
+	// (RS correction is covered by TestVerifyFirstCorrectableRS); a multi-KiB payload
+	// keeps the flip mid-ciphertext, away from the header and the trailing MAC.
+	plaintext := []byte(strings.Repeat("force-decrypt corruption payload. ", 64))
 	inputPath := filepath.Join(tmpDir, "corrupt_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
-
 	encryptedPath := filepath.Join(tmpDir, "corrupt_test.txt.pcv")
-	decryptedPath := filepath.Join(tmpDir, "corrupt_recovered.txt")
-
-	reporter := &GoldenTestReporter{}
-
-	// Encrypt with Reed-Solomon (needed for force decrypt to work)
-	encReq := &EncryptRequest{
+	if err := Encrypt(context.Background(), &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "corrupt_test_password",
-		ReedSolomon: true,
-		Reporter:    reporter,
+		Password:    []byte("corrupt_test_password"),
+		ReedSolomon: false,
+		Reporter:    &GoldenTestReporter{},
 		RSCodecs:    rsCodecs,
-	}
-
-	if err := Encrypt(context.Background(), encReq); err != nil {
+	}); err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
 	}
 
-	// Corrupt some bytes in the encrypted file (after the header)
+	// Flip one ciphertext byte in the middle of the payload.
 	data, err := os.ReadFile(encryptedPath)
 	if err != nil {
-		t.Fatalf("Failed to read encrypted file: %v", err)
+		t.Fatalf("read encrypted: %v", err)
+	}
+	data[len(data)/2] ^= 0xFF
+	if err := os.WriteFile(encryptedPath, data, 0o644); err != nil {
+		t.Fatalf("write corrupted: %v", err)
 	}
 
-	// Corrupt bytes near the end of the file (in the payload area)
-	// Header is approximately 789 + 3*comments bytes, so corrupt after that
-	corruptStart := len(data) - 100
-	if corruptStart > 0 && corruptStart < len(data)-10 {
-		for i := 0; i < 5; i++ {
-			data[corruptStart+i] ^= 0xFF // Flip bits
-		}
+	// Without ForceDecrypt: the MAC failure must be rejected, leaving no output.
+	rejectedPath := filepath.Join(tmpDir, "rejected.txt")
+	if err := Decrypt(context.Background(), &DecryptRequest{
+		InputFile:  encryptedPath,
+		OutputFile: rejectedPath,
+		Password:   []byte("corrupt_test_password"),
+		Reporter:   &GoldenTestReporter{},
+		RSCodecs:   rsCodecs,
+	}); err == nil {
+		t.Fatal("decrypt of corrupted data without ForceDecrypt must fail")
+	}
+	if _, statErr := os.Stat(rejectedPath); !os.IsNotExist(statErr) {
+		t.Error("rejected decrypt must not leave an output file")
 	}
 
-	if err := os.WriteFile(encryptedPath, data, 0644); err != nil {
-		t.Fatalf("Failed to write corrupted file: %v", err)
-	}
-
-	// Try to decrypt with force mode (should succeed with possible data loss)
-	decReq := &DecryptRequest{
+	// With ForceDecrypt: forces through the MAC failure, keeps a best-effort output
+	// file, and flags it as kept (input not authentic).
+	var kept bool
+	keptPath := filepath.Join(tmpDir, "kept.txt")
+	if err := Decrypt(context.Background(), &DecryptRequest{
 		InputFile:    encryptedPath,
-		OutputFile:   decryptedPath,
-		Password:     "corrupt_test_password",
-		ForceDecrypt: true, // Force through errors
-		Reporter:     reporter,
+		OutputFile:   keptPath,
+		Password:     []byte("corrupt_test_password"),
+		ForceDecrypt: true,
+		Kept:         &kept,
+		Reporter:     &GoldenTestReporter{},
 		RSCodecs:     rsCodecs,
+	}); err != nil {
+		t.Fatalf("ForceDecrypt over corrupted data must succeed, got: %v", err)
 	}
-
-	err = Decrypt(context.Background(), decReq)
-	// Force decrypt might succeed or fail depending on where corruption landed
-	// The test verifies that force decrypt at least attempts recovery
-	if err != nil {
-		t.Logf("Force decrypt returned error (expected for some corruptions): %v", err)
-	} else {
-		t.Log("Force decrypt succeeded - some data may be recoverable")
+	if !kept {
+		t.Error("ForceDecrypt over a MAC failure must set kept=true")
+	}
+	if _, statErr := os.Stat(keptPath); statErr != nil {
+		t.Errorf("ForceDecrypt must produce a best-effort output file: %v", statErr)
 	}
 }
 
@@ -1808,17 +1854,20 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create multiple test files
-	file1Content := []byte("Compressible content: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
-	file2Content := []byte("More compressible: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+	// Create multiple test files. Make them large and highly repetitive so the
+	// compressed+encrypted volume is reliably smaller than the raw input even after
+	// zip-per-entry and encryption overhead (a tight margin would make the size
+	// assertion flaky). Each compresses to a tiny fraction of its size.
+	file1Content := []byte(strings.Repeat("Compressible content: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n", 2000))
+	file2Content := []byte(strings.Repeat("More compressible: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n", 2000))
 
 	file1Path := filepath.Join(tmpDir, "compress1.txt")
 	file2Path := filepath.Join(tmpDir, "compress2.txt")
 
-	if err := os.WriteFile(file1Path, file1Content, 0644); err != nil {
+	if err := os.WriteFile(file1Path, file1Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file1: %v", err)
 	}
-	if err := os.WriteFile(file2Path, file2Content, 0644); err != nil {
+	if err := os.WriteFile(file2Path, file2Content, 0o644); err != nil {
 		t.Fatalf("Failed to write file2: %v", err)
 	}
 
@@ -1831,7 +1880,7 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFiles: []string{file1Path, file2Path},
 		OutputFile: encryptedPath,
-		Password:   "compress_multifile_password",
+		Password:   []byte("compress_multifile_password"),
 		Compress:   true, // Enable compression
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -1849,7 +1898,7 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "compress_multifile_password",
+		Password:     []byte("compress_multifile_password"),
 		AutoUnzip:    true,
 		SameLevel:    true,
 		ForceDecrypt: false,
@@ -1878,6 +1927,18 @@ func TestRoundTripCompressedMultiFile(t *testing.T) {
 		t.Errorf("file2 content mismatch")
 	}
 
+	// Compression must shrink the volume below the combined raw input size; if the
+	// Compress flag were ignored, the stored zip would exceed the inputs.
+	encryptedInfo, err := os.Stat(encryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to stat encrypted file: %v", err)
+	}
+	totalRaw := int64(len(file1Content) + len(file2Content))
+	if encryptedInfo.Size() >= totalRaw {
+		t.Errorf("compressed volume size = %d bytes, want < total raw input %d (Compress flag ignored?)",
+			encryptedInfo.Size(), totalRaw)
+	}
+
 	t.Log("Round-trip compressed multi-file: SUCCESS")
 }
 
@@ -1894,7 +1955,7 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 	fileContent := []byte(strings.Repeat("This is highly compressible test data! ", 100))
 
 	filePath := filepath.Join(tmpDir, "compressible_single.txt")
-	if err := os.WriteFile(filePath, fileContent, 0644); err != nil {
+	if err := os.WriteFile(filePath, fileContent, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1907,7 +1968,7 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFiles: []string{filePath},
 		OutputFile: encryptedPath,
-		Password:   "compress_single_password",
+		Password:   []byte("compress_single_password"),
 		Compress:   true, // Enable compression for single file
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -1929,7 +1990,7 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "compress_single_password",
+		Password:     []byte("compress_single_password"),
 		AutoUnzip:    true,
 		SameLevel:    true,
 		ForceDecrypt: false,
@@ -1952,13 +2013,18 @@ func TestRoundTripCompressedSingleFile(t *testing.T) {
 		t.Errorf("Content mismatch after round-trip")
 	}
 
-	// Verify compression actually happened by checking encrypted file size
-	// The compressed+encrypted file should be smaller than uncompressed+encrypted
-	encryptedInfo, _ := os.Stat(encryptedPath)
-
-	// Original file size is len(fileContent), encrypted file should be noticeably smaller
-	// due to compression (accounting for encryption overhead and headers)
-	t.Logf("Original size: %d bytes, Encrypted size: %d bytes", len(fileContent), encryptedInfo.Size())
+	// Compression must actually shrink the volume: the input is highly repetitive,
+	// so the compressed+encrypted output must be smaller than the raw plaintext even
+	// after zip/header/encryption overhead. If the Compress flag were ignored, the
+	// stored zip would be at least as large as the plaintext and this would fail.
+	encryptedInfo, err := os.Stat(encryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to stat encrypted file: %v", err)
+	}
+	if encryptedInfo.Size() >= int64(len(fileContent)) {
+		t.Errorf("compressed volume size = %d bytes, want < plaintext size %d (Compress flag ignored?)",
+			encryptedInfo.Size(), len(fileContent))
+	}
 
 	t.Log("Round-trip compressed single file: SUCCESS")
 }
@@ -1973,7 +2039,7 @@ func TestRoundTripCompressedSingleFileViaInputFileField(t *testing.T) {
 
 	filePath := filepath.Join(tmpDir, "compressible_inputfile.txt")
 	content := []byte(strings.Repeat("This compresses well. ", 100))
-	if err := os.WriteFile(filePath, content, 0644); err != nil {
+	if err := os.WriteFile(filePath, content, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -1985,7 +2051,7 @@ func TestRoundTripCompressedSingleFileViaInputFileField(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  filePath,
 		OutputFile: encryptedPath,
-		Password:   "compress_inputfile_password",
+		Password:   []byte("compress_inputfile_password"),
 		Compress:   true,
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2000,7 +2066,7 @@ func TestRoundTripCompressedSingleFileViaInputFileField(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "compress_inputfile_password",
+		Password:     []byte("compress_inputfile_password"),
 		AutoUnzip:    true,
 		SameLevel:    true,
 		ForceDecrypt: false,
@@ -2029,7 +2095,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 
 	plaintext := []byte("Header tamper detection test data.")
 	inputPath := filepath.Join(tmpDir, "tamper_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2042,7 +2108,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "tamper_test_password",
+		Password:   []byte("tamper_test_password"),
 		Comments:   "", // Empty comments for predictable header size
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2074,24 +2140,24 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 
 	// Write tampered file
 	tamperedPath := filepath.Join(tmpDir, "tampered.txt.pcv")
-	if err := os.WriteFile(tamperedPath, data, 0644); err != nil {
+	if err := os.WriteFile(tamperedPath, data, 0o644); err != nil {
 		t.Fatalf("Failed to write tampered file: %v", err)
 	}
 
-	// Attempt to decrypt - should fail due to:
-	// 1. Salt corruption -> wrong Argon2 key -> wrong HKDF -> header MAC mismatch
+	// Without ForceDecrypt, the over-budget RS16 corruption is rejected as a
+	// damaged header before key derivation.
 	decReq := &DecryptRequest{
 		InputFile:    tamperedPath,
 		OutputFile:   decryptedPath,
-		Password:     "tamper_test_password",
+		Password:     []byte("tamper_test_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
 	}
 
 	err = Decrypt(context.Background(), decReq)
-	if err == nil {
-		t.Fatal("Expected decryption to fail due to header tampering, but it succeeded")
+	if !errors.Is(err, header.ErrCorruptedHeader) {
+		t.Fatalf("Decrypt error = %v; want ErrCorruptedHeader", err)
 	}
 
 	t.Logf("Header tamper correctly detected: %v", err)
@@ -2101,7 +2167,7 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	decReqForce := &DecryptRequest{
 		InputFile:    tamperedPath,
 		OutputFile:   decryptedPath + ".forced",
-		Password:     "tamper_test_password",
+		Password:     []byte("tamper_test_password"),
 		ForceDecrypt: true,
 		Kept:         &kept,
 		Reporter:     reporter,
@@ -2109,11 +2175,25 @@ func TestV2HeaderTamperDetection(t *testing.T) {
 	}
 
 	err = Decrypt(context.Background(), decReqForce)
-	// ForceDecrypt may succeed or fail depending on corruption severity
+	// Documented ForceDecrypt behavior: salt corruption yields a wrong Argon2 key,
+	// so BOTH the header MAC and the payload MAC mismatch — but ForceDecrypt bypasses
+	// those gates (decrypt.go:323) and finalizes the volume anyway (decrypt.go:816),
+	// marking it Kept and producing an output file. Assert that observable outcome so
+	// this half can fail (e.g. if ForceDecrypt silently aborted or stopped setting
+	// Kept) rather than passing for either result.
 	if err != nil {
-		t.Logf("ForceDecrypt also failed (severe tampering): %v", err)
-	} else {
-		t.Log("ForceDecrypt succeeded - data may be partially recovered")
+		t.Fatalf("ForceDecrypt should proceed past the damaged header, got error: %v", err)
+	}
+	if !kept {
+		t.Fatal("ForceDecrypt finalized a MAC-mismatched volume but did not set Kept=true")
+	}
+	forcedOutput := decryptedPath + ".forced"
+	info, statErr := os.Stat(forcedOutput)
+	if statErr != nil {
+		t.Fatalf("ForceDecrypt did not produce an output file at %s: %v", forcedOutput, statErr)
+	}
+	if info.Size() == 0 {
+		t.Fatalf("ForceDecrypt produced an empty output file at %s", forcedOutput)
 	}
 
 	t.Log("V2 header tamper detection: SUCCESS")
@@ -2132,7 +2212,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Ordered keyfiles test - order must match!")
 	inputPath := filepath.Join(tmpDir, "ordered_kf_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2140,10 +2220,10 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	keyfile1Path := filepath.Join(tmpDir, "keyfile1.bin")
 	keyfile2Path := filepath.Join(tmpDir, "keyfile2.bin")
 
-	if err := os.WriteFile(keyfile1Path, []byte("keyfile1_unique_content_AAAA"), 0644); err != nil {
+	if err := os.WriteFile(keyfile1Path, []byte("keyfile1_unique_content_AAAA"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile1: %v", err)
 	}
-	if err := os.WriteFile(keyfile2Path, []byte("keyfile2_unique_content_BBBB"), 0644); err != nil {
+	if err := os.WriteFile(keyfile2Path, []byte("keyfile2_unique_content_BBBB"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile2: %v", err)
 	}
 
@@ -2156,7 +2236,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:      inputPath,
 		OutputFile:     encryptedPath,
-		Password:       "ordered_keyfile_password",
+		Password:       []byte("ordered_keyfile_password"),
 		Keyfiles:       []string{keyfile1Path, keyfile2Path},
 		KeyfileOrdered: true,
 		Reporter:       reporter,
@@ -2171,7 +2251,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	decReqCorrect := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "ordered_keyfile_password",
+		Password:     []byte("ordered_keyfile_password"),
 		Keyfiles:     []string{keyfile1Path, keyfile2Path}, // Correct order
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2198,7 +2278,7 @@ func TestOrderedKeyfilesOrderMatters(t *testing.T) {
 	decReqWrong := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath + ".wrong",
-		Password:     "ordered_keyfile_password",
+		Password:     []byte("ordered_keyfile_password"),
 		Keyfiles:     []string{keyfile2Path, keyfile1Path}, // WRONG order!
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2225,7 +2305,7 @@ func TestZeroLengthComments(t *testing.T) {
 
 	plaintext := []byte("Zero length comments test data.")
 	inputPath := filepath.Join(tmpDir, "zero_comments.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2238,7 +2318,7 @@ func TestZeroLengthComments(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "zero_comments_password",
+		Password:   []byte("zero_comments_password"),
 		Comments:   "", // Explicitly empty
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2248,11 +2328,18 @@ func TestZeroLengthComments(t *testing.T) {
 		t.Fatalf("Encrypt with zero-length comments failed: %v", err)
 	}
 
+	// An empty Comments request must store zero comment bytes in the header; any
+	// spurious comment bytes would be a regression.
+	h := readVolumeHeader(t, encryptedPath)
+	if len(h.Comments) != 0 {
+		t.Errorf("header Comments length = %d, want 0; got %q", len(h.Comments), h.Comments)
+	}
+
 	// Decrypt
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "zero_comments_password",
+		Password:     []byte("zero_comments_password"),
 		ForceDecrypt: false,
 		Reporter:     reporter,
 		RSCodecs:     rsCodecs,
@@ -2290,14 +2377,14 @@ func TestRoundTripKeyfileOnly(t *testing.T) {
 	// Create test file
 	plaintext := []byte("Keyfile-only encryption test - no password used!")
 	inputPath := filepath.Join(tmpDir, "keyfile_only_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create keyfile
 	keyfilePath := filepath.Join(tmpDir, "keyfile_only.bin")
 	keyfileData := []byte("This keyfile is the ONLY credential needed!")
-	if err := os.WriteFile(keyfilePath, keyfileData, 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, keyfileData, 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2310,7 +2397,7 @@ func TestRoundTripKeyfileOnly(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "", // Empty password - keyfile only!
+		Password:   []byte(""), // Empty password - keyfile only!
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2324,7 +2411,7 @@ func TestRoundTripKeyfileOnly(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "", // Empty password
+		Password:     []byte(""), // Empty password
 		Keyfiles:     []string{keyfilePath},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2362,12 +2449,12 @@ func TestRoundTripKeyfileOnlyParanoid(t *testing.T) {
 
 	plaintext := []byte("Paranoid keyfile-only test data.")
 	inputPath := filepath.Join(tmpDir, "kf_paranoid.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "kf_paranoid.key")
-	if err := os.WriteFile(keyfilePath, []byte("paranoid_keyfile_content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("paranoid_keyfile_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2380,7 +2467,7 @@ func TestRoundTripKeyfileOnlyParanoid(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "",
+		Password:   []byte(""),
 		Keyfiles:   []string{keyfilePath},
 		Paranoid:   true,
 		Reporter:   reporter,
@@ -2395,7 +2482,7 @@ func TestRoundTripKeyfileOnlyParanoid(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:  encryptedPath,
 		OutputFile: decryptedPath,
-		Password:   "",
+		Password:   []byte(""),
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2432,12 +2519,12 @@ func TestDeniabilityKeyfileOnly(t *testing.T) {
 
 	plaintext := []byte("Deniability with keyfile-only - wrapper uses empty password!")
 	inputPath := filepath.Join(tmpDir, "deny_kf_only.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "deny_kf_only.key")
-	if err := os.WriteFile(keyfilePath, []byte("deniability_keyfile_content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("deniability_keyfile_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2450,7 +2537,7 @@ func TestDeniabilityKeyfileOnly(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "", // Empty password
+		Password:    []byte(""), // Empty password
 		Keyfiles:    []string{keyfilePath},
 		Deniability: true,
 		Reporter:    reporter,
@@ -2470,7 +2557,7 @@ func TestDeniabilityKeyfileOnly(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:   encryptedPath,
 		OutputFile:  decryptedPath,
-		Password:    "", // Empty password for deniability wrapper
+		Password:    []byte(""), // Empty password for deniability wrapper
 		Keyfiles:    []string{keyfilePath},
 		Deniability: true,
 		Reporter:    reporter,
@@ -2507,12 +2594,12 @@ func TestDeniabilityPasswordAndKeyfiles(t *testing.T) {
 
 	plaintext := []byte("Deniability with password + keyfiles - maximum security!")
 	inputPath := filepath.Join(tmpDir, "deny_pw_kf.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "deny_pw_kf.key")
-	if err := os.WriteFile(keyfilePath, []byte("combined_keyfile_content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("combined_keyfile_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2525,7 +2612,7 @@ func TestDeniabilityPasswordAndKeyfiles(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "deniability_password",
+		Password:    []byte("deniability_password"),
 		Keyfiles:    []string{keyfilePath},
 		Deniability: true,
 		Reporter:    reporter,
@@ -2540,7 +2627,7 @@ func TestDeniabilityPasswordAndKeyfiles(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:   encryptedPath,
 		OutputFile:  decryptedPath,
-		Password:    "deniability_password",
+		Password:    []byte("deniability_password"),
 		Keyfiles:    []string{keyfilePath},
 		Deniability: true,
 		Reporter:    reporter,
@@ -2579,12 +2666,12 @@ func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
 
 	plaintext := []byte("Wrong password test - keyfile alone shouldn't work!")
 	inputPath := filepath.Join(tmpDir, "wrong_pw_kf.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	keyfilePath := filepath.Join(tmpDir, "wrong_pw_kf.key")
-	if err := os.WriteFile(keyfilePath, []byte("correct_keyfile_content"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("correct_keyfile_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2597,7 +2684,7 @@ func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "correct_password",
+		Password:   []byte("correct_password"),
 		Keyfiles:   []string{keyfilePath},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2611,7 +2698,7 @@ func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "wrong_password", // Wrong!
+		Password:     []byte("wrong_password"), // Wrong!
 		Keyfiles:     []string{keyfilePath},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2634,7 +2721,7 @@ func TestWrongPasswordWithKeyfilesFails(t *testing.T) {
 	decReqCorrect := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "correct_password",
+		Password:     []byte("correct_password"),
 		Keyfiles:     []string{keyfilePath},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2672,16 +2759,16 @@ func TestKeyfileOnlyWrongKeyfileFails(t *testing.T) {
 
 	plaintext := []byte("Keyfile-only wrong keyfile test")
 	inputPath := filepath.Join(tmpDir, "kf_only_wrong.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	correctKeyfile := filepath.Join(tmpDir, "correct.key")
 	wrongKeyfile := filepath.Join(tmpDir, "wrong.key")
-	if err := os.WriteFile(correctKeyfile, []byte("correct_key_content"), 0644); err != nil {
+	if err := os.WriteFile(correctKeyfile, []byte("correct_key_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write correct keyfile: %v", err)
 	}
-	if err := os.WriteFile(wrongKeyfile, []byte("wrong_key_content"), 0644); err != nil {
+	if err := os.WriteFile(wrongKeyfile, []byte("wrong_key_content"), 0o644); err != nil {
 		t.Fatalf("Failed to write wrong keyfile: %v", err)
 	}
 
@@ -2694,7 +2781,7 @@ func TestKeyfileOnlyWrongKeyfileFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:  inputPath,
 		OutputFile: encryptedPath,
-		Password:   "",
+		Password:   []byte(""),
 		Keyfiles:   []string{correctKeyfile},
 		Reporter:   reporter,
 		RSCodecs:   rsCodecs,
@@ -2708,7 +2795,7 @@ func TestKeyfileOnlyWrongKeyfileFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "",
+		Password:     []byte(""),
 		Keyfiles:     []string{wrongKeyfile},
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2739,7 +2826,7 @@ func TestDeniabilityWrongPasswordFails(t *testing.T) {
 
 	plaintext := []byte("Deniability wrong password test")
 	inputPath := filepath.Join(tmpDir, "deny_wrong_pw.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
@@ -2752,7 +2839,7 @@ func TestDeniabilityWrongPasswordFails(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:   inputPath,
 		OutputFile:  encryptedPath,
-		Password:    "correct_deniability_password",
+		Password:    []byte("correct_deniability_password"),
 		Deniability: true,
 		Reporter:    reporter,
 		RSCodecs:    rsCodecs,
@@ -2766,7 +2853,7 @@ func TestDeniabilityWrongPasswordFails(t *testing.T) {
 	decReq := &DecryptRequest{
 		InputFile:    encryptedPath,
 		OutputFile:   decryptedPath,
-		Password:     "wrong_deniability_password",
+		Password:     []byte("wrong_deniability_password"),
 		Deniability:  true,
 		ForceDecrypt: false,
 		Reporter:     reporter,
@@ -2795,13 +2882,13 @@ func TestDuplicateKeyfilesRejected(t *testing.T) {
 
 	plaintext := []byte("Duplicate keyfiles should be rejected.")
 	inputPath := filepath.Join(tmpDir, "dup_kf_test.txt")
-	if err := os.WriteFile(inputPath, plaintext, 0644); err != nil {
+	if err := os.WriteFile(inputPath, plaintext, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	// Create one keyfile
 	keyfilePath := filepath.Join(tmpDir, "keyfile.bin")
-	if err := os.WriteFile(keyfilePath, []byte("keyfile_content_123456789"), 0644); err != nil {
+	if err := os.WriteFile(keyfilePath, []byte("keyfile_content_123456789"), 0o644); err != nil {
 		t.Fatalf("Failed to write keyfile: %v", err)
 	}
 
@@ -2813,7 +2900,7 @@ func TestDuplicateKeyfilesRejected(t *testing.T) {
 	encReq := &EncryptRequest{
 		InputFile:      inputPath,
 		OutputFile:     encryptedPath,
-		Password:       "duplicate_keyfile_password",
+		Password:       []byte("duplicate_keyfile_password"),
 		Keyfiles:       []string{keyfilePath, keyfilePath}, // Same keyfile twice!
 		KeyfileOrdered: false,                              // Unordered = XOR cancellation
 		Reporter:       reporter,

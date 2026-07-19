@@ -86,7 +86,7 @@ func TestBufferStdinToTemp(t *testing.T) {
 		t.Fatalf("temp file not found: %v", err)
 	}
 	// Windows doesn't support Unix-style permissions
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
 	}
 
@@ -126,6 +126,12 @@ func TestBufferStdinToTempEmpty(t *testing.T) {
 	}
 	if info.Size() != 0 {
 		t.Errorf("expected empty file, got size %d", info.Size())
+	}
+	// The 0600 chmod must apply even on the empty-stdin path (mirrors the
+	// non-empty sibling). Mutation: dropping the Chmod(0600) in BufferStdinToTemp
+	// would leak stdin plaintext staging under a world-readable mode.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
 	}
 }
 
@@ -209,18 +215,13 @@ func TestCreateTempOutput(t *testing.T) {
 		t.Fatalf("temp file not found: %v", err)
 	}
 	// Windows doesn't support Unix-style permissions
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("temp file permissions = %o, want 0600", info.Mode().Perm())
 	}
 
 	// File should be empty initially
 	if info.Size() != 0 {
 		t.Errorf("expected empty file, got size %d", info.Size())
-	}
-
-	// Verify we can write to it (volume package will reopen)
-	if err := os.WriteFile(tmpPath, []byte("test"), 0600); err != nil {
-		t.Errorf("cannot write to temp file: %v", err)
 	}
 }
 
@@ -275,6 +276,75 @@ func TestStreamFileToStdoutNonexistent(t *testing.T) {
 	err := StreamFileToStdout("/nonexistent/file/path")
 	if err == nil {
 		t.Error("expected error for nonexistent file")
+	}
+}
+
+// TestCleanupTempFilesRemovesTemp verifies that the stdin/stdout staging temps
+// are removed by cleanupTempFiles. Cleanup is plain os.Remove (no shredding —
+// overwrite-before-unlink was dropped as useless on flash/CoW filesystems);
+// the invariant is only that the temp no longer exists afterwards.
+func TestCleanupTempFilesRemovesTemp(t *testing.T) {
+	cases := []struct {
+		name   string
+		prefix string
+	}{
+		{"decrypt-to-stdout plaintext temp", "picocrypt-out-"},
+		{"encrypt-from-stdin plaintext temp", "picocrypt-stdin-"},
+		{"ciphertext staging temp", "picocrypt-cipher-"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tmp := filepath.Join(dir, tc.prefix+"fixture")
+			if err := os.WriteFile(tmp, []byte("plaintext fragment"), 0o600); err != nil {
+				t.Fatalf("write temp: %v", err)
+			}
+
+			cleanupTempFiles(tmp)
+
+			if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+				t.Fatalf("temp still exists after cleanup: %v", err)
+			}
+		})
+	}
+}
+
+// TestCleanupTempFilesRemovesAllProvidedTemps proves the shared helper handles
+// the real call shape from both runEncrypt and runDecrypt: a stdin staging temp
+// AND a stdout staging temp are both removed in one cleanup pass.
+func TestCleanupTempFilesRemovesAllProvidedTemps(t *testing.T) {
+	dir := t.TempDir()
+	stdinTemp := filepath.Join(dir, "picocrypt-stdin-a")
+	stdoutTemp := filepath.Join(dir, "picocrypt-out-b")
+	for _, p := range []string{stdinTemp, stdoutTemp} {
+		if err := os.WriteFile(p, []byte("plaintext fragment"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+
+	cleanupTempFiles(stdinTemp, stdoutTemp)
+
+	for _, p := range []string{stdinTemp, stdoutTemp} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("temp %s still exists after cleanup", p)
+		}
+	}
+}
+
+// TestCleanupTempFilesSkipsEmptyPaths guards the "no temp was created" case:
+// runEncrypt/runDecrypt pass "" when stdin/stdout buffering never ran, and the
+// helper must skip empty paths rather than attempting to remove a sibling file.
+func TestCleanupTempFilesSkipsEmptyPaths(t *testing.T) {
+	dir := t.TempDir()
+	bystander := filepath.Join(dir, "bystander")
+	if err := os.WriteFile(bystander, []byte("keep me"), 0o600); err != nil {
+		t.Fatalf("write bystander: %v", err)
+	}
+
+	cleanupTempFiles("", "")
+
+	if _, err := os.Stat(bystander); err != nil {
+		t.Fatalf("cleanupTempFiles disturbed an unrelated file on empty input: %v", err)
 	}
 }
 

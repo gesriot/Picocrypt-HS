@@ -1,11 +1,10 @@
 package header
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"errors"
 	"fmt"
 	"io"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // Writer handles writing volume headers to an output stream
@@ -43,7 +42,11 @@ func (w *Writer) WriteHeader(h *VolumeHeader) (int, error) {
 	var totalWritten int
 
 	// Write version
-	n, err := w.w.Write(encoding.Encode(w.rs.RS5, []byte(h.Version)))
+	versionEnc, err := encoding.Encode(w.rs.RS5, []byte(h.Version))
+	if err != nil {
+		return totalWritten, fmt.Errorf("encode version: %w", err)
+	}
+	n, err := w.w.Write(versionEnc)
 	totalWritten += n
 	if err != nil {
 		return totalWritten, fmt.Errorf("write version: %w", err)
@@ -51,7 +54,11 @@ func (w *Writer) WriteHeader(h *VolumeHeader) (int, error) {
 
 	// Write comment length (5-digit zero-padded)
 	commentsLenStr := fmt.Sprintf("%05d", len(h.Comments))
-	n, err = w.w.Write(encoding.Encode(w.rs.RS5, []byte(commentsLenStr)))
+	commentLenEnc, err := encoding.Encode(w.rs.RS5, []byte(commentsLenStr))
+	if err != nil {
+		return totalWritten, fmt.Errorf("encode comment length: %w", err)
+	}
+	n, err = w.w.Write(commentLenEnc)
 	totalWritten += n
 	if err != nil {
 		return totalWritten, fmt.Errorf("write comment length: %w", err)
@@ -59,7 +66,11 @@ func (w *Writer) WriteHeader(h *VolumeHeader) (int, error) {
 
 	// Write each comment character (rs1 encoded)
 	for _, c := range []byte(h.Comments) {
-		n, err = w.w.Write(encoding.Encode(w.rs.RS1, []byte{c}))
+		commentEnc, err := encoding.Encode(w.rs.RS1, []byte{c})
+		if err != nil {
+			return totalWritten, fmt.Errorf("encode comment char: %w", err)
+		}
+		n, err = w.w.Write(commentEnc)
 		totalWritten += n
 		if err != nil {
 			return totalWritten, fmt.Errorf("write comment char: %w", err)
@@ -67,32 +78,52 @@ func (w *Writer) WriteHeader(h *VolumeHeader) (int, error) {
 	}
 
 	// Write flags
-	n, err = w.w.Write(encoding.Encode(w.rs.RS5, h.Flags.ToBytes()))
+	flagsEnc, err := encoding.Encode(w.rs.RS5, h.Flags.ToBytes())
+	if err != nil {
+		return totalWritten, fmt.Errorf("encode flags: %w", err)
+	}
+	n, err = w.w.Write(flagsEnc)
 	totalWritten += n
 	if err != nil {
 		return totalWritten, fmt.Errorf("write flags: %w", err)
 	}
 
 	// Write cryptographic values
-	n, err = w.w.Write(encoding.Encode(w.rs.RS16, h.Salt))
+	saltEnc, err := encoding.Encode(w.rs.RS16, h.Salt)
+	if err != nil {
+		return totalWritten, fmt.Errorf("encode salt: %w", err)
+	}
+	n, err = w.w.Write(saltEnc)
 	totalWritten += n
 	if err != nil {
 		return totalWritten, fmt.Errorf("write salt: %w", err)
 	}
 
-	n, err = w.w.Write(encoding.Encode(w.rs.RS32, h.HKDFSalt))
+	hkdfSaltEnc, err := encoding.Encode(w.rs.RS32, h.HKDFSalt)
+	if err != nil {
+		return totalWritten, fmt.Errorf("encode hkdf salt: %w", err)
+	}
+	n, err = w.w.Write(hkdfSaltEnc)
 	totalWritten += n
 	if err != nil {
 		return totalWritten, fmt.Errorf("write hkdf salt: %w", err)
 	}
 
-	n, err = w.w.Write(encoding.Encode(w.rs.RS16, h.SerpentIV))
+	serpentIVEnc, err := encoding.Encode(w.rs.RS16, h.SerpentIV)
+	if err != nil {
+		return totalWritten, fmt.Errorf("encode serpent iv: %w", err)
+	}
+	n, err = w.w.Write(serpentIVEnc)
 	totalWritten += n
 	if err != nil {
 		return totalWritten, fmt.Errorf("write serpent iv: %w", err)
 	}
 
-	n, err = w.w.Write(encoding.Encode(w.rs.RS24, h.Nonce))
+	nonceEnc, err := encoding.Encode(w.rs.RS24, h.Nonce)
+	if err != nil {
+		return totalWritten, fmt.Errorf("encode nonce: %w", err)
+	}
+	n, err = w.w.Write(nonceEnc)
 	totalWritten += n
 	if err != nil {
 		return totalWritten, fmt.Errorf("write nonce: %w", err)
@@ -127,19 +158,31 @@ func WriteAuthValues(w io.WriterAt, offset int64, keyHash, keyfileHash, authTag 
 	pos := offset
 
 	// Write encoded key hash
-	if _, err := w.WriteAt(encoding.Encode(rs.RS64, keyHash), pos); err != nil {
+	keyHashEnc, err := encoding.Encode(rs.RS64, keyHash)
+	if err != nil {
+		return fmt.Errorf("encode key hash: %w", err)
+	}
+	if _, err := w.WriteAt(keyHashEnc, pos); err != nil {
 		return fmt.Errorf("write key hash: %w", err)
 	}
 	pos += KeyHashEncSize
 
 	// Write encoded keyfile hash
-	if _, err := w.WriteAt(encoding.Encode(rs.RS32, keyfileHash), pos); err != nil {
+	keyfileHashEnc, err := encoding.Encode(rs.RS32, keyfileHash)
+	if err != nil {
+		return fmt.Errorf("encode keyfile hash: %w", err)
+	}
+	if _, err := w.WriteAt(keyfileHashEnc, pos); err != nil {
 		return fmt.Errorf("write keyfile hash: %w", err)
 	}
 	pos += KeyfileHashEncSize
 
 	// Write encoded auth tag
-	if _, err := w.WriteAt(encoding.Encode(rs.RS64, authTag), pos); err != nil {
+	authTagEnc, err := encoding.Encode(rs.RS64, authTag)
+	if err != nil {
+		return fmt.Errorf("encode auth tag: %w", err)
+	}
+	if _, err := w.WriteAt(authTagEnc, pos); err != nil {
 		return fmt.Errorf("write auth tag: %w", err)
 	}
 

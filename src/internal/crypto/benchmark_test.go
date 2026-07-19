@@ -2,8 +2,6 @@ package crypto
 
 import (
 	"testing"
-
-	"golang.org/x/crypto/chacha20"
 )
 
 // BenchmarkDeriveKeyNormal measures Argon2id key derivation in normal mode.
@@ -13,7 +11,7 @@ func BenchmarkDeriveKeyNormal(b *testing.B) {
 	salt := make([]byte, 16)
 
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		_, _ = DeriveKey(password, salt, false)
 	}
 }
@@ -25,7 +23,7 @@ func BenchmarkDeriveKeyParanoid(b *testing.B) {
 	salt := make([]byte, 16)
 
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		_, _ = DeriveKey(password, salt, true)
 	}
 }
@@ -35,7 +33,7 @@ func BenchmarkNewMAC_BLAKE2b(b *testing.B) {
 	subkey := make([]byte, 32)
 
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		_, _ = NewMAC(subkey, false)
 	}
 }
@@ -45,7 +43,7 @@ func BenchmarkNewMAC_HMACSHA3(b *testing.B) {
 	subkey := make([]byte, 32)
 
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		_, _ = NewMAC(subkey, true)
 	}
 }
@@ -58,7 +56,7 @@ func BenchmarkMACWrite_BLAKE2b(b *testing.B) {
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		mac.Reset()
 		mac.Write(data)
 		_ = mac.Sum(nil)
@@ -73,25 +71,10 @@ func BenchmarkMACWrite_HMACSHA3(b *testing.B) {
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		mac.Reset()
 		mac.Write(data)
 		_ = mac.Sum(nil)
-	}
-}
-
-// BenchmarkXChaCha20 measures XChaCha20 encryption throughput.
-func BenchmarkXChaCha20(b *testing.B) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 24)
-	cipher, _ := chacha20.NewUnauthenticatedCipher(key, nonce)
-	data := make([]byte, 1<<20) // 1 MiB
-	dst := make([]byte, len(data))
-
-	b.ResetTimer()
-	b.SetBytes(int64(len(data)))
-	for b.Loop() {
-		cipher.XORKeyStream(dst, data)
 	}
 }
 
@@ -100,7 +83,7 @@ func BenchmarkSecureZero(b *testing.B) {
 	data := make([]byte, 32) // Typical key size
 
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		SecureZero(data)
 	}
 }
@@ -111,7 +94,7 @@ func BenchmarkSecureZeroLarge(b *testing.B) {
 
 	b.ResetTimer()
 	b.SetBytes(int64(len(data)))
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		SecureZero(data)
 	}
 }
@@ -122,7 +105,7 @@ func BenchmarkDeniabilityRekey(b *testing.B) {
 	nonce := make([]byte, 24)
 
 	b.ResetTimer()
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		_, _, _ = DeniabilityRekey(key, nonce)
 	}
 }

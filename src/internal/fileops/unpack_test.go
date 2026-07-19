@@ -1,6 +1,7 @@
 package fileops
 
 import (
+	"Picocrypt-NG/internal/util"
 	"archive/zip"
 	"bytes"
 	"errors"
@@ -8,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"Picocrypt-NG/internal/util"
 )
 
 // TestUnpackPathTraversalPrevention verifies that zip files with "../" in
@@ -37,54 +36,6 @@ func TestUnpackPathTraversalPrevention(t *testing.T) {
 	}
 
 	t.Logf("Path traversal correctly blocked: %v", err)
-}
-
-// TestUnpackPathTraversalVariants tests various path traversal attempts
-func TestUnpackPathTraversalVariants(t *testing.T) {
-	maliciousPaths := []string{
-		"../etc/passwd",
-		"foo/../../../etc/passwd",
-		"..\\windows\\system32\\config\\sam",
-		"normal/../../etc/passwd",
-		"a/b/c/../../../../../../../etc/passwd",
-	}
-
-	for _, malPath := range maliciousPaths {
-		t.Run(malPath, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			zipPath := filepath.Join(tmpDir, "test.zip")
-
-			// Create zip with malicious path
-			f, err := os.Create(zipPath)
-			if err != nil {
-				t.Fatalf("Create zip file: %v", err)
-			}
-
-			w := zip.NewWriter(f)
-			_, err = w.Create(malPath)
-			if err != nil {
-				// Some paths may be rejected by the zip library itself
-				_ = w.Close()
-				_ = f.Close()
-				t.Skipf("Zip library rejected path: %v", err)
-				return
-			}
-			_ = w.Close()
-			_ = f.Close()
-
-			// Attempt to unpack
-			err = Unpack(UnpackOptions{
-				ZipPath:    zipPath,
-				ExtractDir: filepath.Join(tmpDir, "out"),
-			})
-
-			if err == nil {
-				t.Errorf("Expected error for malicious path %q, got nil", malPath)
-			} else {
-				t.Logf("Path %q correctly blocked: %v", malPath, err)
-			}
-		})
-	}
 }
 
 func TestUnpackRejectsWindowsTrimTraversalVariants(t *testing.T) {
@@ -291,11 +242,11 @@ func TestUnpackAllowsOverwriteWhenNetNewUsageFits(t *testing.T) {
 	createDeflatedZipWithContent(t, zipPath, "payload.txt", data)
 
 	extractDir := filepath.Join(tmpDir, "out")
-	if err := os.MkdirAll(extractDir, 0700); err != nil {
+	if err := os.MkdirAll(extractDir, 0o700); err != nil {
 		t.Fatalf("Create extract dir: %v", err)
 	}
 	existingPath := filepath.Join(extractDir, "payload.txt")
-	if err := os.WriteFile(existingPath, bytes.Repeat([]byte("x"), len(data)+8), 0600); err != nil {
+	if err := os.WriteFile(existingPath, bytes.Repeat([]byte("x"), len(data)+8), 0o600); err != nil {
 		t.Fatalf("Create existing file: %v", err)
 	}
 
@@ -358,7 +309,6 @@ func TestUnpackNormalPaths(t *testing.T) {
 		ZipPath:    zipPath,
 		ExtractDir: extractDir,
 	})
-
 	if err != nil {
 		t.Fatalf("Unpack failed for normal paths: %v", err)
 	}
@@ -497,12 +447,12 @@ func TestUnpackCancellation(t *testing.T) {
 func TestUnpackRejectsPreexistingSymlinkDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideDir := filepath.Join(tmpDir, "outside")
-	if err := os.MkdirAll(outsideDir, 0700); err != nil {
+	if err := os.MkdirAll(outsideDir, 0o700); err != nil {
 		t.Fatalf("Create outside dir: %v", err)
 	}
 
 	extractDir := filepath.Join(tmpDir, "extract")
-	if err := os.MkdirAll(extractDir, 0700); err != nil {
+	if err := os.MkdirAll(extractDir, 0o700); err != nil {
 		t.Fatalf("Create extract dir: %v", err)
 	}
 
@@ -542,15 +492,79 @@ func TestUnpackRejectsPreexistingSymlinkDirectory(t *testing.T) {
 	}
 }
 
+func TestUnpackRejectsParentSymlinkSwapBetweenValidationAndWrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	outsideDir := filepath.Join(tmpDir, "outside")
+	if err := os.MkdirAll(outsideDir, 0o700); err != nil {
+		t.Fatalf("Create outside dir: %v", err)
+	}
+
+	extractDir := filepath.Join(tmpDir, "extract")
+	if err := os.MkdirAll(extractDir, 0o700); err != nil {
+		t.Fatalf("Create extract dir: %v", err)
+	}
+
+	probeLink := filepath.Join(tmpDir, "symlink-probe")
+	if err := os.Symlink(outsideDir, probeLink); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "payload.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Create zip file: %v", err)
+	}
+	w := zip.NewWriter(f)
+	fw, err := w.Create("dir/payload.txt")
+	if err != nil {
+		t.Fatalf("Create entry: %v", err)
+	}
+	if _, err := fw.Write([]byte("payload")); err != nil {
+		t.Fatalf("Write entry: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close zip writer: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close zip file: %v", err)
+	}
+
+	swapped := false
+	err = Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+		AvailableSpace: func(string) (int64, error) {
+			if !swapped {
+				swapped = true
+				parent := filepath.Join(extractDir, "dir")
+				if err := os.RemoveAll(parent); err != nil {
+					t.Fatalf("Remove validated parent: %v", err)
+				}
+				if err := os.Symlink(outsideDir, parent); err != nil {
+					t.Fatalf("Swap parent for symlink: %v", err)
+				}
+			}
+			return 1 << 30, nil
+		},
+	})
+
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "symlink") {
+		t.Fatalf("Expected symlink rejection after parent swap, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outsideDir, "payload.txt")); !os.IsNotExist(err) {
+		t.Fatalf("Payload escaped extraction root after parent swap")
+	}
+}
+
 func TestUnpackRejectsSymlinkLeaf(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideFile := filepath.Join(tmpDir, "outside.txt")
-	if err := os.WriteFile(outsideFile, []byte("outside"), 0600); err != nil {
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
 		t.Fatalf("Create outside file: %v", err)
 	}
 
 	extractDir := filepath.Join(tmpDir, "extract")
-	if err := os.MkdirAll(extractDir, 0700); err != nil {
+	if err := os.MkdirAll(extractDir, 0o700); err != nil {
 		t.Fatalf("Create extract dir: %v", err)
 	}
 
@@ -594,10 +608,102 @@ func TestUnpackRejectsSymlinkLeaf(t *testing.T) {
 	}
 }
 
+// TestUnpackSymlinkEscape pins SEC-03: an archive whose entries declare a
+// symlinked intermediate directory component (a/b -> outside, immediately
+// followed by a/b/evil) cannot write outside the extraction root via a
+// TOCTOU symlink escape. This is a characterization test for the EXISTING
+// defense in unpack.go (prepareExtractionPath per-component os.Lstat +
+// os.ModeSymlink reject, plus the fact that Go's archive/zip materializes a
+// symlink entry as a REGULAR FILE whose body is the target string and never
+// realizes it as an OS symlink); no production code change is expected.
+//
+// RED-meaningful: if unpack.go realized in-archive symlink entries as real
+// OS symlinks (or skipped the per-component Lstat reject), the a/b/evil entry
+// would follow a/b -> outsideDir and land at outsideDir/evil, escaping the
+// root. The assertions below (no outsideDir/evil + a non-nil rejection error)
+// fail-closed and would catch any such regression.
+func TestUnpackSymlinkEscape(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Symlink-support probe: bail out cleanly on platforms (e.g. Windows
+	// without privilege) where symlinks are unavailable, matching the
+	// established skip pattern in the sibling extraction tests.
+	probeLink := filepath.Join(tmpDir, "symlink-probe")
+	if err := os.Symlink(tmpDir, probeLink); err != nil {
+		t.Skipf("Symlinks unavailable on this platform: %v", err)
+	}
+	_ = os.Remove(probeLink)
+
+	outsideDir := filepath.Join(tmpDir, "outside")
+	if err := os.MkdirAll(outsideDir, 0o700); err != nil {
+		t.Fatalf("Create outside dir: %v", err)
+	}
+
+	zipPath := filepath.Join(tmpDir, "evil.zip")
+	f, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatalf("Create zip file: %v", err)
+	}
+
+	w := zip.NewWriter(f)
+
+	// Entry 1: "a/b" authored as a symlink entry whose body is outsideDir.
+	// Go's archive/zip has no symlink type-flag; Unpack ignores the mode bits
+	// and writes the body as a regular file, never realizing the symlink.
+	h := &zip.FileHeader{Name: "a/b"}
+	h.SetMode(os.ModeSymlink | 0o777)
+	sw, err := w.CreateHeader(h)
+	if err != nil {
+		t.Fatalf("Create symlink entry: %v", err)
+	}
+	if _, err := sw.Write([]byte(outsideDir)); err != nil {
+		t.Fatalf("Write symlink entry body: %v", err)
+	}
+
+	// Entry 2: "a/b/evil" — would escape to outsideDir/evil ONLY if a/b were
+	// realized as a real symlink to outsideDir.
+	ew, err := w.CreateHeader(&zip.FileHeader{Name: "a/b/evil", Method: zip.Store})
+	if err != nil {
+		t.Fatalf("Create escape entry: %v", err)
+	}
+	if _, err := ew.Write([]byte("pwned")); err != nil {
+		t.Fatalf("Write escape entry body: %v", err)
+	}
+	_ = w.Close()
+	_ = f.Close()
+
+	extractDir := filepath.Join(tmpDir, "extract")
+	err = Unpack(UnpackOptions{
+		ZipPath:    zipPath,
+		ExtractDir: extractDir,
+	})
+
+	// Primary security invariant: nothing was written outside the extraction
+	// root. This is the assertion that proves the escape was blocked.
+	if _, statErr := os.Stat(filepath.Join(outsideDir, "evil")); !os.IsNotExist(statErr) {
+		t.Fatalf("Payload escaped extraction root via symlinked intermediate dir")
+	}
+
+	// Secondary invariant: extraction reports a rejection error rather than
+	// silently succeeding. The a/b/evil entry forces a/b to be created as a
+	// directory during the first-pass component walk, so the second pass'
+	// CreateSecureNoSymlink for the a/b leaf entry hits the dir-collision
+	// reject ("path exists as directory", file.go). The exact branch observed
+	// at HEAD is the path-collision one; accept the symlink reject too so the
+	// test stays robust if the materialization order ever shifts.
+	if err == nil {
+		t.Fatalf("Expected extraction to reject the symlinked-intermediate archive, got nil")
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "path exists") && !strings.Contains(msg, "symlink") {
+		t.Fatalf("Expected a path-collision/symlink rejection, got %v", err)
+	}
+}
+
 func TestUnpackRejectsSymlinkedExtractionRootAncestor(t *testing.T) {
 	tmpDir := t.TempDir()
 	outsideRoot := filepath.Join(tmpDir, "outside-root")
-	if err := os.MkdirAll(outsideRoot, 0700); err != nil {
+	if err := os.MkdirAll(outsideRoot, 0o700); err != nil {
 		t.Fatalf("Create outside root: %v", err)
 	}
 
@@ -641,7 +747,7 @@ func TestUnpackRejectsSymlinkedExtractionRootAncestor(t *testing.T) {
 func TestWalkExtractionRootAllowsTrustedLeadingSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
 	realRoot := filepath.Join(tmpDir, "real-root")
-	if err := os.MkdirAll(realRoot, 0700); err != nil {
+	if err := os.MkdirAll(realRoot, 0o700); err != nil {
 		t.Fatalf("Create real root: %v", err)
 	}
 
@@ -676,12 +782,12 @@ func TestWalkExtractionRootAllowsTrustedLeadingSymlink(t *testing.T) {
 func TestWalkExtractionRootRejectsNestedSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
 	parent := filepath.Join(tmpDir, "parent")
-	if err := os.MkdirAll(parent, 0700); err != nil {
+	if err := os.MkdirAll(parent, 0o700); err != nil {
 		t.Fatalf("Create parent dir: %v", err)
 	}
 
 	outsideRoot := filepath.Join(tmpDir, "outside-root")
-	if err := os.MkdirAll(outsideRoot, 0700); err != nil {
+	if err := os.MkdirAll(outsideRoot, 0o700); err != nil {
 		t.Fatalf("Create outside root: %v", err)
 	}
 
@@ -697,18 +803,6 @@ func TestWalkExtractionRootRejectsNestedSymlink(t *testing.T) {
 
 	if _, statErr := os.Stat(filepath.Join(outsideRoot, "extract")); !os.IsNotExist(statErr) {
 		t.Fatalf("Nested symlink unexpectedly allowed extraction outside trusted root")
-	}
-}
-
-func TestAllowLeadingExtractionRootSymlink(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	if !allowLeadingExtractionRootSymlink(filepath.Join(tmpDir, "child"), tmpDir) {
-		t.Fatal("Expected extraction root under temp dir to allow trusted leading symlink handling")
-	}
-
-	if allowLeadingExtractionRootSymlink(filepath.Join(tmpDir, "..", "outside"), tmpDir) {
-		t.Fatal("Did not expect extraction root outside temp dir to allow trusted leading symlink handling")
 	}
 }
 

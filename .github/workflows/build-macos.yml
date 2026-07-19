@@ -7,11 +7,15 @@ on:
   push:
     paths:
       - "VERSION"
-      - ".github/workflows/build-macos.yml"
-      - ".github/scripts/assert-macos-minos.sh"
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish artifacts to the GitHub release. Existing assets are never overwritten."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,12 +31,12 @@ jobs:
       CGO_CFLAGS: "-mmacosx-version-min=15.0"
       CGO_LDFLAGS: "-mmacosx-version-min=15.0"
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
       with:
-        go-version: stable
+        go-version: "1.26.5"
         cache-dependency-path: src/go.sum
 
     - name: Install packages
@@ -53,7 +57,7 @@ jobs:
     - name: Build GUI
       run: |
         cd src
-        go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+        go build -v -tags migrated_fynedo -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
 
@@ -76,30 +80,68 @@ jobs:
         mv src/Picocrypt-NG Picocrypt-NG.app/Contents/MacOS/Picocrypt-NG
         rm Picocrypt-NG.app/Contents/Resources/icon.icns
         mv dist/macos/iconSmall.icns Picocrypt-NG.app/Contents/Resources/icon.icns
+        # === Phase 3 (FA-MAC-04): inject canonical Info.plist ===
+        cp dist/macos/Info.plist Picocrypt-NG.app/Contents/Info.plist
+        plutil -replace CFBundleShortVersionString -string "$(cat VERSION)" \
+            Picocrypt-NG.app/Contents/Info.plist
+        plutil -replace CFBundleVersion -string "$(cat VERSION)" \
+            Picocrypt-NG.app/Contents/Info.plist
+        plutil -lint Picocrypt-NG.app/Contents/Info.plist
+        # Sanity assertion: UTI must round-trip through plutil -extract (json form per Pitfall #7)
+        plutil -extract CFBundleDocumentTypes json -o - \
+            Picocrypt-NG.app/Contents/Info.plist | grep -q 'io.github.picocryptng.pcv' \
+            || (echo "::error::CFBundleDocumentTypes lost UTI ref"; exit 1)
+        plutil -extract UTExportedTypeDeclarations json -o - \
+            Picocrypt-NG.app/Contents/Info.plist | grep -q 'io.github.picocryptng.pcv' \
+            || (echo "::error::UTExportedTypeDeclarations lost UTI"; exit 1)
+        # === end Phase 3 ===
+        # === Ad-hoc code signing (free; no paid Apple Developer ID) ===
+        # Re-seal the assembled bundle so the signature covers the swapped
+        # executable, icon and injected Info.plist. Without a valid seal a
+        # quarantined download triggers the harsh "app is damaged and can't be
+        # opened" Gatekeeper block on Apple Silicon (an arm64 binary must be at
+        # least ad-hoc signed to run at all). A valid ad-hoc seal downgrades
+        # that to the bypassable "unidentified developer" prompt. It does NOT
+        # remove the warning entirely; that needs a paid Developer ID +
+        # notarization. spctl --assess is intentionally NOT run here: ad-hoc
+        # signatures are expected to fail notarization assessment.
+        codesign --force --deep --sign - Picocrypt-NG.app
+        codesign --verify --deep --strict --verbose=2 Picocrypt-NG.app
+        # === end ad-hoc signing ===
         mkdir out
         cp -R Picocrypt-NG.app out
         hdiutil create Picocrypt-NG.dmg -volname Picocrypt-NG -fs APFS -format UDZO -srcfolder out
 
+    - name: Stage release artifacts
+      run: |
+        mkdir release-staging
+        cp Picocrypt-NG.dmg release-staging/
+        cp src/Picocrypt-NG-cli-macos release-staging/
+        test -s release-staging/Picocrypt-NG.dmg
+        test -s release-staging/Picocrypt-NG-cli-macos
+
     - name: Upload artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: build-macos
-        path: |
-          Picocrypt-NG.dmg
-          src/Picocrypt-NG-cli-macos
+        path: release-staging/
         if-no-files-found: error
         compression-level: 9
 
   release:
     needs: build
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish_release) }}
     runs-on: ubuntu-24.04
+    environment: release
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
     - name: Download artifact
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: build-macos
         path: artifacts/build-macos
@@ -109,23 +151,32 @@ jobs:
         VERSION=$(cat VERSION)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-    - name: Generate checksums
+    - name: Verify artifacts present
       run: |
-        HASH=$(sha256sum artifacts/build-macos/Picocrypt-NG.dmg | cut -d ' ' -f1)
-        echo "CHECKSUM_PICOCRYPT_NG=$HASH" >> $GITHUB_ENV
-        HASH_CLI=$(sha256sum artifacts/build-macos/Picocrypt-NG-cli-macos | cut -d ' ' -f1)
-        echo "CHECKSUM_PICOCRYPT_NG_CLI_MACOS=$HASH_CLI" >> $GITHUB_ENV
+        set -euo pipefail
+        test -s artifacts/build-macos/Picocrypt-NG.dmg
+        test -s artifacts/build-macos/Picocrypt-NG-cli-macos
+
+    - name: Sign and attest artifacts
+      uses: ./.github/actions/sign-and-attest
+      with:
+        paths: |
+          artifacts/build-macos/Picocrypt-NG.dmg
+          artifacts/build-macos/Picocrypt-NG-cli-macos
+
+    - name: Generate release notes
+      uses: ./.github/actions/release-body
+      with:
+        version: ${{ env.VERSION }}
 
     - name: Release
-      uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
+      uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
       with:
+        body_path: ${{ github.workspace }}/release-body.md
         files: |
           artifacts/build-macos/Picocrypt-NG.dmg
           artifacts/build-macos/Picocrypt-NG-cli-macos
+          artifacts/build-macos/*.sigstore.json
         tag_name: ${{ env.VERSION }}
         make_latest: true
-        append_body: true
-        body: |
-          **macOS:**
-          `sha256(Picocrypt-NG.dmg)        ${{ env.CHECKSUM_PICOCRYPT_NG }}`
-          `sha256(Picocrypt-NG-cli-macos)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI_MACOS }}`
+        overwrite_files: false

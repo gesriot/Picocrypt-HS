@@ -3,7 +3,6 @@ package io.github.picocrypt_ng.picocrypt_ng.ui.components
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.picocrypt_ng.picocrypt_ng.AppError
@@ -42,7 +41,9 @@ class ProgressCardTest {
             )
         }
 
-        composeTestRule.onRoot().assertIsDisplayed()
+        // ProgressCard is a modal: with no active operation it renders nothing.
+        // Assert intent — no progress dialog is shown (its Cancel button is absent).
+        composeTestRule.onNodeWithText(application.getString(R.string.cancel)).assertDoesNotExist()
     }
 
     @Test
@@ -103,6 +104,37 @@ class ProgressCardTest {
             composeTestRule.onNodeWithText(application.getString(R.string.cancel)).assertIsDisplayed()
             composeTestRule.onNodeWithText(application.getString(R.string.data_corruption_detected)).assertIsDisplayed()
             composeTestRule.onNodeWithText("Ciphertext corrupted").assertIsDisplayed()
+        } finally {
+            restoreOperationState(originalState)
+        }
+    }
+
+    @Test
+    fun progressCard_shows_cancelled_dialog_without_save_button() {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        val mainViewModel = MainViewModel(application, savedStateHandle)
+        val operationViewModel = OperationViewModel()
+        val originalState = swapOperationState(
+            TestDataBuilders.createOperationState(
+                type = OperationType.ENCRYPT,
+                status = "Cancelled",
+                done = true,
+                error = null,
+                formData = TestDataBuilders.createEncryptFormData()
+            )
+        )
+
+        try {
+            composeTestRule.setContent {
+                ProgressCard(
+                    mainViewModel = mainViewModel,
+                    operationViewModel = operationViewModel
+                )
+            }
+
+            composeTestRule.onNodeWithText(application.getString(R.string.operation_cancelled)).assertIsDisplayed()
+            composeTestRule.onNodeWithText(application.getString(R.string.save)).assertDoesNotExist()
         } finally {
             restoreOperationState(originalState)
         }

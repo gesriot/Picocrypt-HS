@@ -3,35 +3,19 @@
 package keyfile
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/util"
 	"fmt"
 	"io"
 	"os"
-
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/util"
 
 	"golang.org/x/crypto/sha3"
 )
 
 // Result contains the computed keyfile key and its hash for verification.
-// Call Close() when done to securely zero the key material.
 type Result struct {
-	Key    []byte // 32 bytes - derived key for XOR with main password key
-	Hash   []byte // 32 bytes - SHA3-256(Key) for header storage/verification
-	closed bool
-}
-
-// Close securely zeros the keyfile key material.
-// The hash is retained as it's not sensitive (stored in header).
-//
-// SECURITY: Always call Close() when done with the keyfile result.
-func (r *Result) Close() {
-	if r == nil || r.closed {
-		return
-	}
-	crypto.SecureZero(r.Key)
-	r.Key = nil
-	r.closed = true
+	Key  []byte // 32 bytes - derived key for XOR with main password key
+	Hash []byte // 32 bytes - SHA3-256(Key) for header storage/verification
 }
 
 // ProgressFunc is called during keyfile processing with progress 0.0-1.0
@@ -62,130 +46,129 @@ func Process(paths []string, ordered bool, progress ProgressFunc) (*Result, erro
 		totalSize += stat.Size()
 	}
 
-	var key []byte
-	var err error
+	files := make([]*os.File, 0, len(paths))
+	readers := make([]io.Reader, 0, len(paths))
+	defer func() {
+		for _, f := range files {
+			_ = f.Close()
+		}
+	}()
 
-	if ordered {
-		key, err = processOrdered(paths, totalSize, progress)
-	} else {
-		key, err = processUnordered(paths, totalSize, progress)
+	var done int64
+	for _, path := range paths {
+		// #nosec G304 -- keyfile paths validated by caller
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+		readers = append(readers, &progressReader{r: f, done: &done, total: totalSize, progress: progress})
 	}
 
+	return ProcessReaders(readers, ordered)
+}
+
+// progressReader reports cumulative read progress across all keyfiles.
+type progressReader struct {
+	r        io.Reader
+	done     *int64
+	total    int64
+	progress ProgressFunc
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 && p.progress != nil && p.total > 0 {
+		*p.done += int64(n)
+		p.progress(float32(*p.done) / float32(p.total))
+	}
+	return n, err
+}
+
+// ProcessReaders computes the keyfile key from in-memory/streamed readers.
+// Same algorithm as Process, decoupled from the filesystem so the WASM build
+// (no paths) can share this AUDIT-CRITICAL logic:
+//   - Ordered:   SHA3-256(r1 || r2 || ...)
+//   - Unordered: SHA3-256(r1) XOR SHA3-256(r2) XOR ...
+func ProcessReaders(readers []io.Reader, ordered bool) (*Result, error) {
+	if len(readers) == 0 {
+		return &Result{Key: make([]byte, 32), Hash: make([]byte, 32)}, nil
+	}
+
+	var key []byte
+	var err error
+	if ordered {
+		key, err = hashOrdered(readers)
+	} else {
+		key, err = hashUnordered(readers)
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	// Compute hash of keyfile key for verification
-	h := sha3.New256()
-	h.Write(key)
-	hash := h.Sum(nil)
-
-	return &Result{
-		Key:  key,
-		Hash: hash,
-	}, nil
+	sum := sha3.Sum256(key)
+	hash := append([]byte(nil), sum[:]...)
+	return &Result{Key: key, Hash: hash}, nil
 }
 
-// processOrdered hashes all keyfiles sequentially.
-// The file order IS IMPORTANT - different order = different key.
-// Algorithm: SHA3-256(file1_contents || file2_contents || ...)
-func processOrdered(paths []string, totalSize int64, progress ProgressFunc) ([]byte, error) {
+// hashOrdered: single hash over the concatenation of all readers.
+func hashOrdered(readers []io.Reader) ([]byte, error) {
 	hasher := sha3.New256()
-	var done int64
 	buf := make([]byte, util.MiB)
 	defer crypto.SecureZero(buf)
-
-	for _, path := range paths {
-		// #nosec G304 -- keyfile paths validated by caller
-		fin, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-
-		for {
-			n, err := fin.Read(buf)
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				_ = fin.Close()
-				return nil, err
-			}
-
-			if _, err := hasher.Write(buf[:n]); err != nil {
-				_ = fin.Close()
-				return nil, err
-			}
-
-			done += int64(n)
-			if progress != nil {
-				progress(float32(done) / float32(totalSize))
-			}
-		}
-
-		if err := fin.Close(); err != nil {
+	for _, r := range readers {
+		if err := hashOne(hasher, r, buf); err != nil {
 			return nil, err
 		}
 	}
-
 	return hasher.Sum(nil), nil
 }
 
-// processUnordered hashes each keyfile individually and XORs the results.
-// The file order IS NOT important due to XOR commutativity.
-// Algorithm: SHA3-256(file1) XOR SHA3-256(file2) XOR ...
-func processUnordered(paths []string, totalSize int64, progress ProgressFunc) ([]byte, error) {
-	var combinedKey []byte
-	var done int64
+// hashUnordered: per-reader SHA3-256, XOR-combined.
+func hashUnordered(readers []io.Reader) ([]byte, error) {
+	var combined []byte
 	buf := make([]byte, util.MiB)
 	defer crypto.SecureZero(buf)
-
-	for _, path := range paths {
-		// #nosec G304 -- keyfile paths validated by caller
-		fin, err := os.Open(path)
-		if err != nil {
-			return nil, err
-		}
-
+	for _, r := range readers {
 		hasher := sha3.New256()
-		for {
-			n, err := fin.Read(buf)
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				_ = fin.Close()
-				return nil, err
-			}
-
-			if _, err := hasher.Write(buf[:n]); err != nil {
-				_ = fin.Close()
-				return nil, err
-			}
-
-			done += int64(n)
-			if progress != nil {
-				progress(float32(done) / float32(totalSize))
-			}
-		}
-
-		if err := fin.Close(); err != nil {
+		if err := hashOne(hasher, r, buf); err != nil {
 			return nil, err
 		}
-
 		fileHash := hasher.Sum(nil)
-
-		// XOR with combined key
-		if combinedKey == nil {
-			combinedKey = fileHash
+		if combined == nil {
+			combined = fileHash
 		} else {
 			for i, b := range fileHash {
-				combinedKey[i] ^= b
+				combined[i] ^= b
 			}
 		}
 	}
+	return combined, nil
+}
 
-	return combinedKey, nil
+// hashOne streams r into hasher using the provided scratch buffer (zeroed by the
+// caller). Uses an explicit loop (not io.Copy) to keep the scratch buffer
+// secure-zeroable.
+//
+// NOTE: buf[:n] is written to the hasher BEFORE the error is inspected. This
+// is intentional: the io.Reader contract permits a non-nil error (including
+// io.EOF) to be returned alongside n > 0 bytes in the same Read call, and
+// those bytes must not be silently dropped.
+func hashOne(hasher io.Writer, r io.Reader, buf []byte) error {
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			if _, werr := hasher.Write(buf[:n]); werr != nil {
+				return werr
+			}
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 // IsDuplicateKeyfileKey checks if the keyfile key is all zeros,

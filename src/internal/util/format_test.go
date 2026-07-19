@@ -51,26 +51,60 @@ func TestSizeify(t *testing.T) {
 	}
 }
 
+// TestStatify pins Statify's two boundary guards plus the happy path. Each guard row
+// catches removal of a real defense:
+//   - total==0: the divide-by-zero guard. Without it progress = done/0 = +Inf and the
+//     ETA math divides by zero; the guard must return exactly (0, 0, "00:00:00").
+//   - start in the future (elapsed<=0): the just-started guard. Without it elapsed is
+//     negative, making speed negative and ETA = remaining/negative -> garbage/NaN time
+//     string; the guard must return speed==0, eta=="00:00:00", with progress still the
+//     real fraction (~0.5 here). time.Now().Add(time.Second) keeps elapsed<=0
+//     deterministically without sleeping.
+//
+// The happy-path row keeps the original positive-progress / positive-speed / valid-ETA
+// assertions so a regression that breaks the normal case still trips.
 func TestStatify(t *testing.T) {
-	// Test basic progress calculation
-	start := time.Now().Add(-time.Second) // 1 second ago
-	done := int64(MiB)
-	total := int64(2 * MiB)
+	t.Run("happy path", func(t *testing.T) {
+		start := time.Now().Add(-time.Second) // 1 second ago
+		progress, speed, eta := Statify(int64(MiB), int64(2*MiB), start)
 
-	progress, speed, eta := Statify(done, total, start)
+		if progress < 0.49 || progress > 0.51 {
+			t.Errorf("progress = %f; want ~0.5", progress)
+		}
+		if speed <= 0 {
+			t.Errorf("speed = %f; want > 0", speed)
+		}
+		if len(eta) != 8 || eta[2] != ':' || eta[5] != ':' {
+			t.Errorf("eta = %s; want HH:MM:SS format", eta)
+		}
+	})
 
-	// Progress should be 0.5 (50%)
-	if progress < 0.49 || progress > 0.51 {
-		t.Errorf("Statify progress = %f; want ~0.5", progress)
-	}
+	t.Run("total zero divide-by-zero guard", func(t *testing.T) {
+		progress, speed, eta := Statify(int64(MiB), 0, time.Now().Add(-time.Second))
 
-	// Speed should be positive
-	if speed <= 0 {
-		t.Errorf("Statify speed = %f; want > 0", speed)
-	}
+		if progress != 0 {
+			t.Errorf("progress = %f; want 0 (total==0 guard)", progress)
+		}
+		if speed != 0 {
+			t.Errorf("speed = %f; want 0 (total==0 guard)", speed)
+		}
+		if eta != "00:00:00" {
+			t.Errorf("eta = %q; want %q (total==0 guard)", eta, "00:00:00")
+		}
+	})
 
-	// ETA should be a valid time string
-	if len(eta) != 8 || eta[2] != ':' || eta[5] != ':' {
-		t.Errorf("Statify eta = %s; want HH:MM:SS format", eta)
-	}
+	t.Run("just started guard (start in future)", func(t *testing.T) {
+		start := time.Now().Add(time.Second) // future => elapsed <= 0
+		progress, speed, eta := Statify(int64(MiB), int64(2*MiB), start)
+
+		if progress < 0.49 || progress > 0.51 {
+			t.Errorf("progress = %f; want ~0.5 (progress still computed when just started)", progress)
+		}
+		if speed != 0 {
+			t.Errorf("speed = %f; want 0 (elapsed<=0 guard)", speed)
+		}
+		if eta != "00:00:00" {
+			t.Errorf("eta = %q; want %q (elapsed<=0 guard)", eta, "00:00:00")
+		}
+	})
 }

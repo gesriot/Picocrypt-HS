@@ -1,25 +1,32 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/keyfile"
+	"Picocrypt-NG/internal/log"
+	"Picocrypt-NG/internal/util"
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"time"
 
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/keyfile"
-	"Picocrypt-NG/internal/log"
-	"Picocrypt-NG/internal/util"
+
+	pwnorm "Picocrypt-NG/internal/password"
 )
 
 var unpackArchive = fileops.Unpack
+
+// newPayloadReader is identity in production; tests replace it to inject short
+// reads and check that the io.ReadFull loops reassemble full blocks.
+var newPayloadReader = func(r io.Reader) io.Reader { return r }
 
 // Decrypt performs a complete volume decryption operation.
 // This is the main entry point for decryption.
@@ -42,20 +49,11 @@ func Decrypt(ctx context.Context, req *DecryptRequest) error {
 		return err
 	}
 
-	// Phase 3: Derive keys
-	if err := decryptDeriveKeys(opCtx, req); err != nil {
-		cleanupDecrypt(opCtx, req)
-		return err
-	}
-
-	// Phase 4: Process keyfiles
-	if err := decryptProcessKeyfiles(opCtx, req); err != nil {
-		cleanupDecrypt(opCtx, req)
-		return err
-	}
-
-	// Phase 5: Verify authentication
-	if err := decryptVerifyAuth(opCtx, req); err != nil {
+	// Phases 3-5: derive keys, process keyfiles, and verify authentication,
+	// trying each password normalization form (NFC/NFD/raw) until one
+	// authenticates (#19). On success the winning form is left on the context so
+	// the verify-first and RS-retry re-derivations reuse it.
+	if err := decryptDeriveProcessVerify(opCtx, req); err != nil {
 		cleanupDecrypt(opCtx, req)
 		return err
 	}
@@ -200,14 +198,16 @@ func decryptReadHeader(ctx *OperationContext, req *DecryptRequest) error {
 	return nil
 }
 
-func decryptDeriveKeys(ctx *OperationContext, req *DecryptRequest) error {
+func decryptDeriveKeys(ctx *OperationContext, req *DecryptRequest) error { //nolint:unparam // (ctx, req) signature shared by all decrypt phases; req unused here by design
 	ctx.SetStatus("Deriving key...")
 
-	key, err := deriveVolumeKey([]byte(req.Password), ctx.Header.Salt, ctx.Header.Flags.Paranoid)
+	key, err := deriveVolumeKey(ctx.passwordBytes.Bytes(), ctx.Header.Salt, ctx.Header.Flags.Paranoid)
 	if err != nil {
 		return err
 	}
-	ctx.Key = key
+	// SEC-05/WR-01: on the full-RS retry this re-runs, orphaning the prior key; setKey
+	// zeros the old backing array before reassigning (no-op on the first pass).
+	ctx.setKey(key)
 
 	return nil
 }
@@ -231,7 +231,9 @@ func decryptProcessKeyfiles(ctx *OperationContext, req *DecryptRequest) error {
 		return err
 	}
 
-	ctx.KeyfileKey = result.Key
+	// SEC-05/WR-01: on the full-RS retry this re-runs, orphaning the prior keyfile
+	// key; setKeyfileKey zeros the old backing array before reassigning.
+	ctx.setKeyfileKey(result.Key)
 	ctx.KeyfileHash = result.Hash
 
 	return nil
@@ -243,7 +245,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 	if ctx.IsLegacyV1 {
 		// v1: HKDF initialized AFTER keyfile XOR
 		// First verify password using SHA3-512(key)
-		authResult := header.VerifyV1Header(ctx.Key, ctx.Header)
+		authResult := header.VerifyV1Header(ctx.Key.Bytes(), ctx.Header)
 
 		if !authResult.Valid {
 			if req.ForceDecrypt {
@@ -264,21 +266,32 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 			}
 		}
 
-		// For v1, XOR keyfile key into main key BEFORE HKDF
-		key := ctx.Key
+		// For v1, XOR keyfile key into main key BEFORE HKDF, owning the result first.
 		if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
-			key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
+			// DATA-02: a legacy v1 volume may have been authored with an
+			// even-count duplicate keyfile set whose unordered XOR cancels to
+			// all-zeros. Original Picocrypt did not block this, so the volume
+			// is already decryptable (its effective key is just the password
+			// key). We must NOT block here like the v2 path does (D-11) — we
+			// only WARN, mirroring the encrypt-side detection (D-10/D-12). This
+			// sits AFTER the v1 SHA3-512(key) password verifier above, so it
+			// does not let a wrong-password/tampered volume through.
+			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey.Bytes()) {
+				log.Warn("duplicate keyfiles detected (keys cancel out)")
+				ctx.SetStatus("Warning: duplicate keyfiles detected (keys cancel out)...")
+			}
+			// XORWithKey returns a NEW slice; setKey zeros the orphaned Argon2
+			// backing array and adopts the result. No two-step window.
+			ctx.setKey(keyfile.XORWithKey(ctx.Key.Bytes(), ctx.KeyfileKey.Bytes()))
 		}
+		// (no keyfiles: ctx.Key already holds the password key — self-assign-safe)
 
-		// Initialize HKDF with XORed key (v1 behavior)
-		hkdfStream := crypto.NewHKDFStream(key, ctx.Header.HKDFSalt)
+		// Initialize HKDF with the (possibly XORed) owned key.
+		hkdfStream := crypto.NewHKDFStream(ctx.Key.Bytes(), ctx.Header.HKDFSalt)
 		ctx.SubkeyReader = crypto.NewSubkeyReader(hkdfStream)
-
-		// Store the XORed key for cipher initialization
-		ctx.Key = key
 	} else {
 		// v2: HKDF initialized BEFORE keyfile XOR
-		hkdfStream := crypto.NewHKDFStream(ctx.Key, ctx.Header.HKDFSalt)
+		hkdfStream := crypto.NewHKDFStream(ctx.Key.Bytes(), ctx.Header.HKDFSalt)
 		ctx.SubkeyReader = crypto.NewSubkeyReader(hkdfStream)
 
 		// Read header subkey for verification
@@ -286,6 +299,7 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 		if err != nil {
 			return err
 		}
+		defer crypto.SecureZero(subkeyHeader)
 
 		// Verify header MAC
 		authResult := header.VerifyV2Header(subkeyHeader, ctx.Header, ctx.KeyfileHash)
@@ -312,14 +326,93 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 
 		// For v2, XOR keyfile key AFTER HKDF init
 		if ctx.UseKeyfiles && ctx.KeyfileKey != nil {
-			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey) {
+			if keyfile.IsDuplicateKeyfileKey(ctx.KeyfileKey.Bytes()) {
 				return perrors.ErrDuplicateKeyfiles
 			}
-			ctx.Key = keyfile.XORWithKey(ctx.Key, ctx.KeyfileKey)
+			// SEC-05/WR-01: XORWithKey returns a NEW slice; setKey zeros the orphaned
+			// Argon2 backing array before reassigning.
+			ctx.setKey(keyfile.XORWithKey(ctx.Key.Bytes(), ctx.KeyfileKey.Bytes()))
 		}
 	}
 
 	return nil
+}
+
+// decryptDeriveProcessVerify runs the derive-keys -> process-keyfiles ->
+// verify-auth sequence, trying each password normalization form (NFC/NFD/raw)
+// until one authenticates against the volume MAC (#19). Only a
+// wrong-password/tamper failure triggers the next form; any other error (keyfile
+// mismatch, subkey read, etc.) is independent of the password and returned
+// immediately. The winning form stays on ctx.passwordBytes so the verify-first
+// and RS-retry re-derivations reuse it. ForceDecrypt has no auth gate to choose
+// a form, so it uses the password exactly as typed (a single attempt, preserving
+// historical behavior).
+func decryptDeriveProcessVerify(ctx *OperationContext, req *DecryptRequest) error {
+	candidates := pwnorm.Candidates(req.Password)
+	if req.ForceDecrypt {
+		// Own a copy so setPasswordBytes adopts an independent slice (it may zero
+		// the predecessor); never alias the caller's req.Password backing array.
+		candidates = [][]byte{append([]byte(nil), req.Password...)}
+	}
+
+	var lastErr error
+	for i, cand := range candidates {
+		ctx.setPasswordBytes(cand)
+
+		if err := decryptDeriveKeys(ctx, req); err != nil {
+			return err
+		}
+		if err := decryptProcessKeyfiles(ctx, req); err != nil {
+			return err
+		}
+		err := decryptVerifyAuth(ctx, req)
+		if err == nil {
+			return nil
+		}
+		if !header.IsPasswordError(err) || i == len(candidates)-1 {
+			return err
+		}
+		lastErr = err
+	}
+	return lastErr
+}
+
+// reDeriveForRetry resets the key-derivation state before a full-RS decode retry.
+//
+// IN-03: both the decryptFinalize retry and the verify-first (DATA-01) retry must
+// re-run the SAME three-step sequence — decryptDeriveKeys → decryptProcessKeyfiles
+// → decryptVerifyAuth — in this exact order so the HKDF stream and keyfile XOR
+// reset correctly (re-derive the key BEFORE any v1/v2 keyfile XOR so it is never
+// double-XORed, re-set the keyfile key/hash, and rebuild the SubkeyReader). This is
+// a pure extraction of the previously-duplicated sequence: a single source of truth
+// keeps the two AUDIT-CRITICAL retry paths in lockstep. It performs NO additional
+// work and changes NO behavior, MAC, output, or on-disk format.
+func reDeriveForRetry(ctx *OperationContext, req *DecryptRequest) error {
+	if err := decryptDeriveKeys(ctx, req); err != nil {
+		return err
+	}
+	if err := decryptProcessKeyfiles(ctx, req); err != nil {
+		return err
+	}
+	return decryptVerifyAuth(ctx, req)
+}
+
+// verifyFirstProgressDelta returns how many bytes to advance the verify-first pass's
+// progress counter for a read of n on-disk bytes.
+//
+// VER-03 (D-13/D-14, mechanism a): advance by the ACTUAL bytes read, n, for BOTH the
+// Reed-Solomon and plain cases. ctx.Total is the raw on-disk ciphertext byte count
+// (filesize - headerSize - comments*3, decrypt.go:160,192) and the verify loop reads
+// exactly those on-disk bytes — so `done` must track n to stay faithful to ctx.Total.
+// The previous code advanced by a FIXED full-block size for RS volumes, which
+// over-counts on the final partial read and pushes `done` past ctx.Total. util.Statify
+// masked the visible fraction with its <=1.0 clamp, but the counter was unfaithful;
+// advancing by n is monotonic, never overshoots ctx.Total, and reaches it exactly at
+// EOF (== 50% in pass-1 terms). This is verify-pass-only and display-only: it does not
+// touch the decrypt-pass increment (decrypt.go), the MAC, output bytes, the on-disk
+// format, or util.Statify.
+func verifyFirstProgressDelta(n int) int64 {
+	return int64(n)
 }
 
 // decryptVerifyMACFirst performs a verification-only pass to check MAC before decryption.
@@ -328,7 +421,27 @@ func decryptVerifyAuth(ctx *OperationContext, req *DecryptRequest) error {
 //
 // Trade-off: This doubles the I/O time since we read the file twice.
 // The MAC is computed over ciphertext, so we can verify without decrypting.
+//
+// It runs the fast RS decode first (matching the decrypt pass's first pass); on a
+// MAC mismatch with Reed-Solomon enabled it retries once with full RS correction
+// (DATA-01) via decryptVerifyMACFirstWithDecode.
 func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
+	return decryptVerifyMACFirstWithDecode(ctx, req, true)
+}
+
+// decryptVerifyMACFirstWithDecode is the verify-first pass body, parameterized by
+// fastDecode (sibling shape to decryptPayloadWithFastDecode):
+//   - fastDecode=true:  skip RS error correction (fast path, matches the decrypt
+//     pass's first pass). This is what the single call site uses.
+//   - fastDecode=false: full RS error correction — the DATA-01 one-shot retry,
+//     entered only on a MAC mismatch when Reed-Solomon is enabled.
+//
+// DATA-01 / Pitfall 4 (LOCKED guard rule): the retry guard is LOCAL — the
+// fastDecode recursion parameter. It MUST NOT touch or reuse ctx.TriedFullRSDecode,
+// which is owned exclusively by decryptFinalize; reusing it would disable the
+// decrypt-pass retry or risk infinite recursion. The fastDecode=false invocation
+// never recurses again, so the retry is one-shot (T-03-05).
+func decryptVerifyMACFirstWithDecode(ctx *OperationContext, req *DecryptRequest, fastDecode bool) error {
 	ctx.SetStatus("Verifying integrity (pass 1 of 2)...")
 
 	// Read remaining subkeys (same order as decryptPayload)
@@ -367,8 +480,16 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 	// Verification loop - read ciphertext and update MAC without decrypting
 	ctx.SetCanCancel(true)
 	startTime := time.Now()
-	var done int64
-	var counter int64
+	var done int64 // display-only progress counter (drives util.Statify)
+	// WR-02: `read` is a dedicated on-disk byte counter used SOLELY to detect the
+	// final chunk for RS unpadding (isLast). It is deliberately decoupled from the
+	// display-only `done` counter: decodeWithRSFast only unpads the last RS chunk
+	// when isLast && padded, and a wrong isLast would unpad the wrong block and
+	// corrupt the MAC input (turning a valid volume into a false ErrAuthFailed). By
+	// tracking the actual bytes read here, isLast stays correct even if `done`'s
+	// display semantics ever change (e.g. a future fixed-block increment), and the
+	// fast first pass and the full-RS verify retry detect the final chunk identically.
+	var read int64
 
 	reedsolo := ctx.Header.Flags.ReedSolomon
 	padded := ctx.Header.Flags.Padded
@@ -376,26 +497,36 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 	// Pre-allocate buffer outside loop to reduce GC pressure
 	var srcBufSize int
 	if reedsolo {
-		srcBufSize = util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
+		srcBufSize = encoding.RSEncodedBlockSize
 	} else {
 		srcBufSize = util.MiB
 	}
 	src := make([]byte, srcBufSize)
+
+	reader := newPayloadReader(io.Reader(fin))
 
 	for {
 		if ctx.IsCancelled() {
 			return ctx.CancellationError()
 		}
 
-		n, readErr := fin.Read(src)
+		n, readErr := io.ReadFull(reader, src)
 		if n > 0 {
 			srcData := src[:n]
 			var data []byte
 
-			// Decode Reed-Solomon if enabled (fast decode for verification)
+			// Advance the on-disk byte counter BEFORE deriving isLast so the check
+			// reflects this read's bytes (matches the prior `done+int64(n)` basis,
+			// since done was advanced by the actual bytes read on earlier iterations).
+			read += int64(n)
+			isLast := read >= ctx.Total
+
+			// Decode Reed-Solomon if enabled. fastDecode mirrors the decrypt pass:
+			// true skips RS error correction (fast path); false (the DATA-01 retry)
+			// applies full RS correction to repair correctable damage.
 			if reedsolo {
 				var decErr error
-				data, decErr = decodeWithRSFast(srcData, req.RSCodecs, done+int64(n) >= ctx.Total, padded, req.ForceDecrypt, true)
+				data, decErr = decodeWithRSFast(srcData, req.RSCodecs, isLast, padded, req.ForceDecrypt, fastDecode)
 				if decErr != nil && !req.ForceDecrypt {
 					return decErr
 				}
@@ -406,27 +537,20 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 			// Update MAC with ciphertext (no decryption!)
 			mac.Write(data)
 
-			if reedsolo {
-				done += int64(util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize)
-			} else {
-				done += int64(n)
-			}
-			counter += int64(len(data))
+			done += verifyFirstProgressDelta(n) // display only
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress/2, fmt.Sprintf("%.2f%% (verifying)", progress*50)) // Show 0-50% for pass 1
 			ctx.SetStatus(fmt.Sprintf("Verifying at %.2f MiB/s (ETA: %s)", speed, eta))
 
-			// Handle rekey threshold - we need to track this for MAC computation
-			// but can't actually rekey without ciphers. For very large files (>60GiB),
-			// this verification pass might not perfectly match the encryption MAC.
-			// However, since we're using the same MAC construction, it should still work.
-			if counter >= crypto.RekeyThreshold {
-				counter = 0
-			}
+			// No rekey handling here: the verify pass holds no cipher to rekey. It
+			// MACs the identical ciphertext bytes with the identical keyed MAC
+			// subkey as the decrypt pass, and Rekey() only reseeds the cipher
+			// nonce/IV (never the MAC), so the verify MAC matches the decrypt-pass
+			// MAC across the 60 GiB rekey boundary without any rekeying.
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {
@@ -440,6 +564,26 @@ func decryptVerifyMACFirst(ctx *OperationContext, req *DecryptRequest) error {
 		if req.ForceDecrypt {
 			// Continue anyway - user forced it
 			ctx.SetStatus("MAC verification failed, continuing anyway...")
+		} else if ctx.Header.Flags.ReedSolomon && fastDecode {
+			// DATA-01: the fast verify pass skips RS error correction, so
+			// correctable damage (<= 4 errors / 136-byte block) yields wrong
+			// ciphertext -> MAC mismatch. Before rejecting, retry the verify pass
+			// ONCE with full RS correction (fastDecode=false), mirroring
+			// decryptFinalize's guarded retry. Only reject if the full-RS verify
+			// ALSO fails — a genuinely forged MAC (damage beyond the RS budget)
+			// still returns ErrAuthFailed (PCC-004 fail-closed; T-03-04).
+			//
+			// State reset before recursing: the verify pass consumed MACSubkey()
+			// and SerpentKey() from ctx.SubkeyReader (one-shot reads), so re-derive
+			// keys + rebuild the HKDF stream first — otherwise the recursive read
+			// errors with "subkey already consumed". The verify pass writes no
+			// output, so there is no .incomplete file to remove.
+			ctx.SetStatus("Repairing (verifying)...")
+			if err := reDeriveForRetry(ctx, req); err != nil {
+				return err
+			}
+			// One-shot: fastDecode=false never recurses again (T-03-05).
+			return decryptVerifyMACFirstWithDecode(ctx, req, false)
 		} else {
 			return perrors.ErrAuthFailed
 		}
@@ -478,7 +622,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 
 	// Create cipher suite
 	cipherSuite, err := crypto.NewCipherSuite(
-		ctx.Key,
+		ctx.Key.Bytes(),
 		ctx.Header.Nonce,
 		serpentKey,
 		ctx.Header.SerpentIV,
@@ -488,6 +632,13 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	)
 	if err != nil {
 		return err
+	}
+	// RS-03: zero the previous suite's key material before replacing it on retry.
+	// On the full-RS-decode retry this function runs a second time; without this
+	// the prior XChaCha20/Serpent key + MAC state would linger until ctx.Close()
+	// at the very end (mirror OperationContext.Close, context.go:266-269).
+	if ctx.CipherSuite != nil {
+		ctx.CipherSuite.Close()
 	}
 	ctx.CipherSuite = cipherSuite
 
@@ -504,7 +655,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 		return fmt.Errorf("seek past header: %w", err)
 	}
 
-	fout, err := fileops.CreateSecure(req.OutputFile + ".incomplete")
+	fout, err := fileops.CreateSecureNoSymlink(req.OutputFile + ".incomplete")
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
@@ -523,7 +674,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	// RS-encoded buffer is larger: 1 MiB * 136/128 = ~1.0625 MiB
 	var srcBufSize int
 	if reedsolo {
-		srcBufSize = util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
+		srcBufSize = encoding.RSEncodedBlockSize
 	} else {
 		srcBufSize = util.MiB
 	}
@@ -531,12 +682,14 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 	dst := util.GetMiBBuffer()      // Decrypted data is always <= 1 MiB
 	defer util.PutMiBBuffer(dst)
 
+	reader := newPayloadReader(io.Reader(fin))
+
 	for {
 		if ctx.IsCancelled() {
 			return ctx.CancellationError()
 		}
 
-		n, readErr := fin.Read(src)
+		n, readErr := io.ReadFull(reader, src)
 		if n > 0 {
 			srcData := src[:n]
 			var data []byte
@@ -562,11 +715,11 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 			}
 
 			if reedsolo {
-				done += int64(util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize)
+				done += int64(encoding.RSEncodedBlockSize)
 			} else {
 				done += int64(n)
 			}
-			counter += int64(len(data))
+			counter += int64(util.MiB)
 
 			progress, speed, eta := util.Statify(done, ctx.Total, startTime)
 			ctx.UpdateProgress(progress, fmt.Sprintf("%.2f%%", progress*100))
@@ -585,7 +738,7 @@ func decryptPayloadWithFastDecode(ctx *OperationContext, req *DecryptRequest, fa
 			}
 		}
 
-		if readErr == io.EOF {
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
 			break
 		}
 		if readErr != nil {
@@ -611,19 +764,30 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 		// If Reed-Solomon is enabled, retry with full RS error correction (fastDecode=false)
 		reedsolo := ctx.Header.Flags.ReedSolomon
 		if reedsolo && !ctx.TriedFullRSDecode {
+			// RS-03: state reset invariant — the full-RS retry below re-runs the
+			// decrypt pipeline from a clean state so a second pass cannot bleed
+			// state into (or corrupt) the output. Every mutated piece of state is
+			// reset before the retry decode:
+			//   - ctx.Key:         re-derived by decryptDeriveKeys BEFORE any v1/v2
+			//                      keyfile XOR, so the key is never double-XORed.
+			//   - ctx.KeyfileKey/Hash: re-set by decryptProcessKeyfiles.
+			//   - ctx.SubkeyReader (HKDF stream): rebuilt by decryptVerifyAuth.
+			//   - ctx.CipherSuite: freshly built in decryptPayloadWithFastDecode;
+			//                      the previous suite is now Close()'d (key zeroed)
+			//                      before reassignment (see that function).
+			//   - input offset:    fresh os.Open + Seek(headerSize) per call.
+			//   - output:          the old .incomplete is removed and recreated
+			//                      (truncated) per call.
+			// The Argon2id re-derivation is intentionally KEPT (D-07); reducing
+			// Argon2 passes is Out of Scope — correctness over perf in a paranoid
+			// tool. Do NOT cache derived material or skip the re-derive.
 			ctx.TriedFullRSDecode = true
 
-			// Remove incomplete file
+			// Remove incomplete file (PLAINTEXT — plain unlink, SEC-04)
 			_ = os.Remove(req.OutputFile + ".incomplete")
 
-			// Re-derive keys (needed to reset HKDF stream)
-			if err := decryptDeriveKeys(ctx, req); err != nil {
-				return err
-			}
-			if err := decryptProcessKeyfiles(ctx, req); err != nil {
-				return err
-			}
-			if err := decryptVerifyAuth(ctx, req); err != nil {
+			// Re-derive keys (needed to reset HKDF stream); see reDeriveForRetry.
+			if err := reDeriveForRetry(ctx, req); err != nil {
 				return err
 			}
 
@@ -643,7 +807,7 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 				*req.Kept = true
 			}
 		} else {
-			// Remove incomplete output
+			// Remove incomplete output (PLAINTEXT — plain unlink, SEC-04)
 			_ = os.Remove(req.OutputFile + ".incomplete")
 			return perrors.ErrCorruptData
 		}
@@ -654,7 +818,7 @@ func decryptFinalize(ctx *OperationContext, req *DecryptRequest) error {
 		return fmt.Errorf("rename output: %w", err)
 	}
 
-	// Cleanup temp files
+	// Cleanup temp files (ciphertext .pcv temps — plain unlink, SEC-04)
 	if ctx.TempFile != "" {
 		_ = os.Remove(ctx.TempFile)
 	}
@@ -728,6 +892,7 @@ func isZipArchive(path string) bool {
 }
 
 func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
+	// Ciphertext .pcv temps — plain unlink (SEC-04).
 	if ctx.TempFile != "" {
 		_ = os.Remove(ctx.TempFile)
 	}
@@ -735,79 +900,18 @@ func cleanupDecrypt(ctx *OperationContext, req *DecryptRequest) {
 	if ctx.RecombinedFile != "" && ctx.RecombinedFile != ctx.TempFile {
 		_ = os.Remove(ctx.RecombinedFile)
 	}
+	// PLAINTEXT decrypt output — plain unlink (SEC-04, T-04-04).
 	_ = os.Remove(req.OutputFile + ".incomplete")
 	// Note: ctx.Close() is called via defer in Decrypt()
 }
 
-// decodeWithRSFast decodes Reed-Solomon encoded data with optional fast decode.
-// When fastDecode is true, it skips RS error correction and just returns the data bytes.
-// This matches the original Picocrypt behavior for performance.
+// decodeWithRSFast delegates to the shared encoding codec, translating the
+// encoding-layer sentinel to perrors.ErrCorruptData so existing volume callers
+// and IsCorrupt() keep matching. forceDecode is honored (desktop ForceDecrypt).
 func decodeWithRSFast(data []byte, rs *encoding.RSCodecs, isLast, padded, forceDecode, fastDecode bool) ([]byte, error) {
-	var result []byte
-	fullBlockEncodedSize := util.MiB / encoding.RS128DataSize * encoding.RS128EncodedSize
-
-	// Full 1 MiB block
-	if len(data) == fullBlockEncodedSize {
-		for i := 0; i < fullBlockEncodedSize; i += encoding.RS128EncodedSize {
-			decoded, err := encoding.Decode(rs.RS128, data[i:i+encoding.RS128EncodedSize], fastDecode)
-			if err != nil {
-				if forceDecode {
-					decoded = data[i : i+encoding.RS128DataSize] // Use raw data
-				} else {
-					return nil, perrors.ErrCorruptData
-				}
-			}
-
-			// Unpad last chunk if needed
-			if isLast && i == fullBlockEncodedSize-encoding.RS128EncodedSize && padded {
-				decoded = encoding.Unpad(decoded)
-			}
-
-			result = append(result, decoded...)
-		}
-	} else {
-		// Partial block - must have at least one RS128 chunk
-		if len(data) < encoding.RS128EncodedSize {
-			if forceDecode {
-				return data, nil // Return raw data for severely truncated input
-			}
-			return nil, perrors.ErrCorruptData
-		}
-
-		chunks := len(data)/encoding.RS128EncodedSize - 1
-		for i := 0; i < chunks; i++ {
-			decoded, err := encoding.Decode(rs.RS128, data[i*encoding.RS128EncodedSize:(i+1)*encoding.RS128EncodedSize], fastDecode)
-			if err != nil {
-				if forceDecode {
-					decoded = data[i*encoding.RS128EncodedSize : i*encoding.RS128EncodedSize+encoding.RS128DataSize]
-				} else {
-					return nil, perrors.ErrCorruptData
-				}
-			}
-			result = append(result, decoded...)
-		}
-
-		// Last chunk (always unpad)
-		lastChunkStart := chunks * encoding.RS128EncodedSize
-		lastChunkEnd := lastChunkStart + encoding.RS128EncodedSize
-		if lastChunkEnd > len(data) {
-			lastChunkEnd = len(data)
-		}
-		decoded, err := encoding.Decode(rs.RS128, data[lastChunkStart:lastChunkEnd], fastDecode)
-		if err != nil {
-			if forceDecode {
-				// Safely extract what we can
-				safeEnd := lastChunkStart + encoding.RS128DataSize
-				if safeEnd > len(data) {
-					safeEnd = len(data)
-				}
-				decoded = data[lastChunkStart:safeEnd]
-			} else {
-				return nil, perrors.ErrCorruptData
-			}
-		}
-		result = append(result, encoding.Unpad(decoded)...)
+	out, err := encoding.DecodeRSPayloadBlock(data, rs, isLast, padded, forceDecode, fastDecode)
+	if errors.Is(err, encoding.ErrCorruptData) {
+		return out, perrors.ErrCorruptData
 	}
-
-	return result, nil
+	return out, err
 }

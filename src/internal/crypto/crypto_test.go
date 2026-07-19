@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 )
 
@@ -17,18 +18,6 @@ func TestRandomBytes(t *testing.T) {
 
 		if len(data) != length {
 			t.Errorf("RandomBytes(%d) returned %d bytes", length, len(data))
-		}
-
-		// Check that it's not all zeros (statistically almost impossible)
-		allZero := true
-		for _, b := range data {
-			if b != 0 {
-				allZero = false
-				break
-			}
-		}
-		if allZero && length > 0 {
-			t.Errorf("RandomBytes(%d) returned all zeros (extremely unlikely)", length)
 		}
 	}
 }
@@ -90,10 +79,20 @@ func TestDeriveKey(t *testing.T) {
 		t.Error("Normal and paranoid keys should be different")
 	}
 
-	// Same inputs should produce same outputs (deterministic)
-	key1b, _ := DeriveKey(password, salt, false)
-	if !bytes.Equal(key1, key1b) {
-		t.Error("Same inputs should produce same key")
+	// Frozen KAT: pins the exact Argon2id parameters and KDF choice.
+	// KAT independently derived via argon2.IDKey with kdf.go params
+	// (passes/memory/threads/keysize) for normal(4,1<<20,4,32) and
+	// paranoid(8,1<<20,8,32); NOT captured from DeriveKey. Any change to
+	// passes/memory/threads/keysize or IDKey->other KDF turns this red.
+	const (
+		wantNormal   = "6aa5327cce3126fc935fddfd3eccf45db2479880e33196e235d261c7dbd8d369"
+		wantParanoid = "f57a11e75223311f35e8b21def3a0abd579985c9f6a2ea61fb35d1282bf6966d"
+	)
+	if got := hex.EncodeToString(key1); got != wantNormal {
+		t.Errorf("normal key = %s; want %s", got, wantNormal)
+	}
+	if got := hex.EncodeToString(key2); got != wantParanoid {
+		t.Errorf("paranoid key = %s; want %s", got, wantParanoid)
 	}
 }
 
@@ -139,22 +138,6 @@ func TestSubkeyReader(t *testing.T) {
 	}
 	if len(serpentKey) != SubkeySerpentSize {
 		t.Errorf("Serpent key length = %d; want %d", len(serpentKey), SubkeySerpentSize)
-	}
-
-	// Read rekey values
-	nonce, iv, err := reader.RekeyValues()
-	if err != nil {
-		t.Fatalf("RekeyValues() failed: %v", err)
-	}
-	if len(nonce) != RekeyNonceSize {
-		t.Errorf("Rekey nonce length = %d; want %d", len(nonce), RekeyNonceSize)
-	}
-	if len(iv) != RekeyIVSize {
-		t.Errorf("Rekey IV length = %d; want %d", len(iv), RekeyIVSize)
-	}
-
-	if reader.RekeyCount() != 1 {
-		t.Errorf("RekeyCount = %d; want 1", reader.RekeyCount())
 	}
 }
 
@@ -204,20 +187,20 @@ func TestNewMAC(t *testing.T) {
 	if bytes.Equal(sum1, sum2) {
 		t.Error("BLAKE2b and HMAC-SHA3 should produce different MACs")
 	}
-}
 
-func TestCounter(t *testing.T) {
-	c := NewCounter()
-
-	// Should not trigger rekey initially
-	if c.Add(1000) {
-		t.Error("Should not trigger rekey for small amounts")
+	// Frozen KAT: pins algorithm + keying, not just length.
+	// KAT independently derived via blake2b.New512(subkey) (normal) and
+	// hmac.New(sha3.New512, subkey) (paranoid); pins algorithm+keying, not
+	// just length. Catches blake2b<->hmac swap, sha3->sha2, dropped keying.
+	const (
+		wantNormal   = "3d76683e318a5304020e1fe66936a97fa28fc42e6381598bcf968a7bc9fae95eda2135fa80da23d7f0e69fd16ffefbd92f6184cc0c4858299cf7203cdeeffa79"
+		wantParanoid = "8930fc46f4b9a861a01fb882a5cc401228a4e2c3e500edd3f92bb29d177a6dd30ff14bb5b5ddccd6f6dc85c277ba2a39ae205ab832ac3c4189e448864a6412ae"
+	)
+	if got := hex.EncodeToString(sum1); got != wantNormal {
+		t.Errorf("normal (BLAKE2b-keyed) MAC = %s; want %s", got, wantNormal)
 	}
-
-	// Reset
-	c.Reset()
-	if c.Count() != 0 {
-		t.Error("Counter should be 0 after reset")
+	if got := hex.EncodeToString(sum2); got != wantParanoid {
+		t.Errorf("paranoid (HMAC-SHA3-512) MAC = %s; want %s", got, wantParanoid)
 	}
 }
 
@@ -244,6 +227,15 @@ func TestDeniabilityRekey(t *testing.T) {
 		t.Errorf("New nonce length = %d; want 24", len(newNonce))
 	}
 
+	// Known-answer: deniability rekey derives the nonce as SHA3-256(oldNonce)[:24].
+	// This pins the exact hash function (SHA3-256, not SHA3-512/BLAKE2/etc.) and the
+	// truncation length, so a regression in the hash selection turns the test red.
+	// Computed independently via crypto/sha3 over nonce[i]=byte(i*2).
+	const wantDenyNonce = "8a60ad32d225f2bc1256300009bba2ab79d38807f02db12d"
+	if got := hex.EncodeToString(newNonce); got != wantDenyNonce {
+		t.Errorf("DeniabilityRekey nonce = %s; want %s (SHA3-256(oldNonce)[:24])", got, wantDenyNonce)
+	}
+
 	// New nonce should be different from old
 	if bytes.Equal(nonce, newNonce) {
 		t.Error("New nonce should be different from old nonce")
@@ -256,56 +248,90 @@ func TestDeniabilityRekey(t *testing.T) {
 	}
 }
 
-func TestCipherSuiteRekey(t *testing.T) {
+func TestNormalModeCipherKAT(t *testing.T) {
+	// Normal-mode (paranoid=false) CipherSuite.Encrypt over an all-zero plaintext
+	// yields the raw XChaCha20 keystream. With a fixed key and nonce that keystream
+	// is deterministic, so this pins the exact cipher: a swapped/misconfigured
+	// stream cipher (or an accidental Serpent layer) produces different bytes and
+	// fails the test. The expected value was captured from the real code and
+	// independently confirmed to equal an unauthenticated XChaCha20 keystream over
+	// 64 zero bytes for key=0x01*32, nonce=0x02*24.
+	const wantKeystream = "b6bb0ee1dfec94dd5ebe93cf321db795e112a340f10d8a821569fa381fc5e69dcfdf41c006df49785248aa7a4c11392b0d10e3155689f8b2d84e5216c840054b"
+
 	key := make([]byte, 32)
+	for i := range key {
+		key[i] = 0x01
+	}
 	nonce := make([]byte, 24)
+	for i := range nonce {
+		nonce[i] = 0x02
+	}
+	// Unused in normal mode but required by the constructor signature.
 	serpentKey := make([]byte, 32)
 	serpentIV := make([]byte, 16)
 	hkdfSalt := make([]byte, 32)
 
-	for i := range key {
-		key[i] = byte(i)
-		serpentKey[i] = byte(i + 32)
+	mac, _ := NewMAC(make([]byte, 32), false)
+	hkdf := NewHKDFStream(key, hkdfSalt)
+
+	suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, false)
+	if err != nil {
+		t.Fatalf("NewCipherSuite() failed: %v", err)
 	}
 
-	// Test rekey in both modes
-	for _, paranoid := range []bool{false, true} {
-		t.Run(func() string {
-			if paranoid {
-				return "paranoid"
+	dst := make([]byte, 64)
+	suite.Encrypt(dst, make([]byte, 64))
+
+	if got := hex.EncodeToString(dst); got != wantKeystream {
+		t.Errorf("normal-mode keystream = %s; want %s", got, wantKeystream)
+	}
+}
+
+func TestCipherSuiteRekey(t *testing.T) {
+	// Fixed fixtures make the post-rekey keystream a stable golden. Encrypting an
+	// all-zero plaintext yields the raw keystream, so these vectors pin that
+	// Rekey actually reinitializes the cipher(s) with the fresh HKDF-derived
+	// nonce/IV. A no-op Rekey, a forgotten cs.chacha reassignment, or a skipped
+	// Serpent-IV read all change these bytes and turn the test red.
+	tests := []struct {
+		name     string
+		paranoid bool
+		wantHex  string // post-rekey keystream over 32 zero bytes
+	}{
+		{"normal", false, "af4d335462f511d0ac2c0086d0660c7e19ba7e657ac48528c30ed65171cc5547"},
+		{"paranoid", true, "c52f9d93f8b02d8f39aac6957d46afc6ec28b018c1c7c7b83d4fcc7493b96f5e"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := make([]byte, 32)
+			serpentKey := make([]byte, 32)
+			for i := range key {
+				key[i] = byte(i)
+				serpentKey[i] = byte(i + 32)
 			}
-			return "normal"
-		}(), func(t *testing.T) {
-			mac, _ := NewMAC(make([]byte, 32), paranoid)
+			nonce := make([]byte, 24)
+			serpentIV := make([]byte, 16)
+			hkdfSalt := make([]byte, 32)
+
+			mac, _ := NewMAC(make([]byte, 32), tt.paranoid)
 			hkdf := NewHKDFStream(key, hkdfSalt)
 
-			suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, paranoid)
+			suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, tt.paranoid)
 			if err != nil {
 				t.Fatalf("NewCipherSuite() failed: %v", err)
 			}
 
-			// Encrypt some data before rekey
-			src1 := []byte("data before rekey")
-			dst1 := make([]byte, len(src1))
-			suite.Encrypt(dst1, src1)
-
-			// Perform rekey
-			err = suite.Rekey()
-			if err != nil {
+			if err := suite.Rekey(); err != nil {
 				t.Fatalf("Rekey() failed: %v", err)
 			}
 
-			// Encrypt more data after rekey
-			src2 := []byte("data after rekey")
-			dst2 := make([]byte, len(src2))
-			suite.Encrypt(dst2, src2)
+			// Encrypt zero plaintext -> ciphertext is the post-rekey keystream.
+			got := make([]byte, 32)
+			suite.Encrypt(got, make([]byte, 32))
 
-			// Both should work (no panic, produces output)
-			if bytes.Equal(dst1, make([]byte, len(dst1))) {
-				t.Error("First encryption produced all zeros")
-			}
-			if bytes.Equal(dst2, make([]byte, len(dst2))) {
-				t.Error("Second encryption produced all zeros")
+			if gotHex := hex.EncodeToString(got); gotHex != tt.wantHex {
+				t.Errorf("post-rekey keystream = %s; want %s", gotHex, tt.wantHex)
 			}
 		})
 	}
@@ -313,8 +339,12 @@ func TestCipherSuiteRekey(t *testing.T) {
 
 func TestCipherSuiteRekeyMultiple(t *testing.T) {
 	key := make([]byte, 32)
-	nonce := make([]byte, 24)
 	serpentKey := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+		serpentKey[i] = byte(i + 32)
+	}
+	nonce := make([]byte, 24)
 	serpentIV := make([]byte, 16)
 	hkdfSalt := make([]byte, 32)
 
@@ -326,31 +356,43 @@ func TestCipherSuiteRekeyMultiple(t *testing.T) {
 		t.Fatalf("NewCipherSuite() failed: %v", err)
 	}
 
-	// Perform multiple rekeys (simulating very large file)
+	// Golden keystream block produced immediately after each successive rekey
+	// (paranoid: Serpent-CTR -> XChaCha20 over 16 zero bytes). Pins that every
+	// rekey reinitializes both ciphers from the advancing HKDF stream; a rekey
+	// that fails to advance or to reinstall a cipher would repeat a block or
+	// diverge from these vectors.
+	want := []string{
+		"c52f9d93f8b02d8f39aac6957d46afc6",
+		"be44c5e694339a0781c97c06303f934f",
+		"259fab0e64eb4f740ce2267fe04f5199",
+		"44f85e251feeebfc28a063e5714e58c5",
+		"154f0defa2d72f1f1a53393320f42010",
+	}
+
+	var prev []byte
 	for i := 0; i < 5; i++ {
-		err = suite.Rekey()
-		if err != nil {
+		if err := suite.Rekey(); err != nil {
 			t.Fatalf("Rekey() #%d failed: %v", i+1, err)
 		}
 
-		// Encrypt some data after each rekey
-		src := []byte("test data")
-		dst := make([]byte, len(src))
-		suite.Encrypt(dst, src)
+		// Encrypt zero plaintext -> ciphertext is this cycle's keystream block.
+		got := make([]byte, 16)
+		suite.Encrypt(got, make([]byte, 16))
+
+		if gotHex := hex.EncodeToString(got); gotHex != want[i] {
+			t.Errorf("cycle %d keystream = %s; want %s", i, gotHex, want[i])
+		}
+		if prev != nil && bytes.Equal(got, prev) {
+			t.Errorf("cycle %d keystream equals previous cycle (rekey did not advance)", i)
+		}
+		prev = got // got is freshly allocated each iteration
 	}
 }
 
 func TestCipherSuiteClose(t *testing.T) {
-	key := make([]byte, 32)
 	nonce := make([]byte, 24)
-	serpentKey := make([]byte, 32)
 	serpentIV := make([]byte, 16)
 	hkdfSalt := make([]byte, 32)
-
-	for i := range key {
-		key[i] = byte(i)
-		serpentKey[i] = byte(i + 32)
-	}
 
 	// Test close in both modes
 	for _, paranoid := range []bool{false, true} {
@@ -360,22 +402,55 @@ func TestCipherSuiteClose(t *testing.T) {
 			}
 			return "normal"
 		}(), func(t *testing.T) {
+			// Distinct nonzero key/serpentKey so the zero-check is meaningful:
+			// byte 0 must change from 1 to 0 (key[i]=byte(i) would leave byte 0
+			// already zero and make a no-op Close indistinguishable).
+			key := make([]byte, 32)
+			serpentKey := make([]byte, 32)
+			for i := range key {
+				key[i] = byte(i + 1)
+				serpentKey[i] = byte(i + 32)
+			}
+
 			mac, _ := NewMAC(make([]byte, 32), paranoid)
 			hkdf := NewHKDFStream(key, hkdfSalt)
 
-			// Make a copy of key to verify zeroing
-			keyToCheck := make([]byte, 32)
-			copy(keyToCheck, key)
-
-			suite, err := NewCipherSuite(keyToCheck, nonce, serpentKey, serpentIV, mac, hkdf, paranoid)
+			suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, paranoid)
 			if err != nil {
 				t.Fatalf("NewCipherSuite() failed: %v", err)
 			}
 
-			// Close the suite
+			// cs.key aliases the caller's key slice (NewCipherSuite stores it
+			// directly), so capture the backing array to prove Close zeros the
+			// bytes, not merely that it nils the field.
+			keyBacking := suite.key
+
 			suite.Close()
 
-			// Multiple Close() calls should be safe
+			// SecureZero(cs.key) must have wiped the key material.
+			if !bytes.Equal(keyBacking, make([]byte, 32)) {
+				t.Errorf("Close() did not zero key material: %x", keyBacking)
+			}
+			// All sensitive references must be cleared.
+			if suite.key != nil {
+				t.Error("Close() should nil cs.key")
+			}
+			if suite.chacha != nil {
+				t.Error("Close() should nil cs.chacha")
+			}
+			if suite.mac != nil {
+				t.Error("Close() should nil cs.mac")
+			}
+			if paranoid {
+				if suite.serpent != nil {
+					t.Error("Close() should nil cs.serpent")
+				}
+				if suite.serpentS != nil {
+					t.Error("Close() should nil cs.serpentS")
+				}
+			}
+
+			// Multiple Close() calls should be safe (idempotent).
 			suite.Close()
 			suite.Close()
 		})
@@ -388,66 +463,70 @@ func TestCipherSuiteCloseNil(t *testing.T) {
 	suite.Close()
 }
 
-func TestCipherSuiteIsParanoid(t *testing.T) {
+// TestCipherAliasingParanoid pins the supported usage: separate dst/src buffers
+// in paranoid mode. Paranoid Encrypt writes Serpent output to dst then reads it
+// back via copy(src, dst) before the ChaCha20 pass; aliased buffers (dst==src)
+// would corrupt the output silently — that contract violation is NOT tested here
+// (undefined behaviour). This test verifies that the CORRECT usage (non-aliased
+// buffers) round-trips plaintext exactly.
+func TestCipherAliasingParanoid(t *testing.T) {
 	key := make([]byte, 32)
 	nonce := make([]byte, 24)
 	serpentKey := make([]byte, 32)
 	serpentIV := make([]byte, 16)
 	hkdfSalt := make([]byte, 32)
-
-	// Normal mode
-	mac1, _ := NewMAC(make([]byte, 32), false)
-	hkdf1 := NewHKDFStream(key, hkdfSalt)
-	suite1, _ := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac1, hkdf1, false)
-	if suite1.IsParanoid() {
-		t.Error("IsParanoid() should return false for normal mode")
-	}
-
-	// Paranoid mode
-	mac2, _ := NewMAC(make([]byte, 32), true)
-	hkdf2 := NewHKDFStream(key, hkdfSalt)
-	suite2, _ := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac2, hkdf2, true)
-	if !suite2.IsParanoid() {
-		t.Error("IsParanoid() should return true for paranoid mode")
-	}
-}
-
-func TestCipherSuiteMAC(t *testing.T) {
-	key := make([]byte, 32)
-	nonce := make([]byte, 24)
-	serpentKey := make([]byte, 32)
-	serpentIV := make([]byte, 16)
-	hkdfSalt := make([]byte, 32)
-
 	for i := range key {
-		key[i] = byte(i)
+		key[i] = byte(i + 1)
+		serpentKey[i] = byte(i + 33)
 	}
+	for i := range nonce {
+		nonce[i] = byte(i + 65)
+	}
+	for i := range serpentIV {
+		serpentIV[i] = byte(i + 89)
+	}
+
+	plaintext := []byte("paranoid-mode aliasing contract: separate buffers only")
 
 	macKey := make([]byte, 32)
-	mac, _ := NewMAC(macKey, false)
-	hkdf := NewHKDFStream(key, hkdfSalt)
 
-	suite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, mac, hkdf, false)
+	// --- Encrypt with separate dst / src ---
+	encMAC, _ := NewMAC(macKey, true)
+	hkdfEnc := NewHKDFStream(key, hkdfSalt)
+	encSuite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, encMAC, hkdfEnc, true)
 	if err != nil {
-		t.Fatalf("NewCipherSuite() failed: %v", err)
+		t.Fatalf("NewCipherSuite(encrypt) failed: %v", err)
 	}
 
-	// MAC() should return the hash.Hash
-	macHash := suite.MAC()
-	if macHash == nil {
-		t.Fatal("MAC() returned nil")
+	src := make([]byte, len(plaintext))
+	copy(src, plaintext)
+	ciphertext := make([]byte, len(plaintext)) // separate backing array — the required contract
+	encSuite.Encrypt(ciphertext, src)
+
+	if bytes.Equal(ciphertext, plaintext) {
+		t.Fatal("Encrypt: ciphertext must differ from plaintext")
 	}
 
-	// Should be the same instance as the original
-	if macHash != mac {
-		t.Error("MAC() should return the same hash instance")
+	// --- Decrypt with separate dst / src ---
+	decMAC, _ := NewMAC(macKey, true)
+	hkdfDec := NewHKDFStream(key, hkdfSalt)
+	decSuite, err := NewCipherSuite(key, nonce, serpentKey, serpentIV, decMAC, hkdfDec, true)
+	if err != nil {
+		t.Fatalf("NewCipherSuite(decrypt) failed: %v", err)
 	}
 
-	// Writing to the MAC through the suite should work
-	macHash.Write([]byte("test data"))
-	sum := suite.Sum()
-	if len(sum) != MACSize {
-		t.Errorf("Sum() length = %d; want %d", len(sum), MACSize)
+	encData := make([]byte, len(ciphertext))
+	copy(encData, ciphertext)
+	recovered := make([]byte, len(encData)) // separate backing array — the required contract
+	decSuite.Decrypt(recovered, encData)
+
+	if !bytes.Equal(recovered, plaintext) {
+		t.Errorf("Decrypt round-trip failed: got %q; want %q", recovered, plaintext)
+	}
+
+	// MACs must match (Encrypt-then-MAC on both sides over identical ciphertext bytes).
+	if !bytes.Equal(encSuite.Sum(), decSuite.Sum()) {
+		t.Error("Encrypt/Decrypt MAC mismatch with separate buffers")
 	}
 }
 

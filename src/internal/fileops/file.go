@@ -5,27 +5,44 @@ import (
 	"os"
 )
 
-// CreateSecure creates file with 0600 permissions atomically.
-// Uses os.OpenFile to set perms at creation (no TOCTOU window).
-func CreateSecure(path string) (*os.File, error) {
-	// #nosec G304 -- path is user-provided input file, validated by caller
-	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-}
-
-// CreateSecureNoSymlink creates or truncates a file unless the leaf already exists as a symlink.
+// CreateSecureNoSymlink creates or truncates a file unless the leaf is a symlink.
+// It is the only sanctioned write-creation primitive (SEC-02): the plain CreateSecure was retired
+// so an unguarded O_CREATE that follows a pre-planted symlink cannot be reintroduced.
 func CreateSecureNoSymlink(path string) (*os.File, error) {
-	info, err := os.Lstat(path)
+	f, err := openFileNoFollow(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err == nil {
+		return f, nil
+	}
+
+	if info, lerr := os.Lstat(path); lerr == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("refusing to open symlink: %s", path)
 		}
 		if info.IsDir() {
 			return nil, fmt.Errorf("path exists as directory: %s", path)
 		}
-	} else if !os.IsNotExist(err) {
-		return nil, err
+	}
+	return nil, err
+}
+
+// OpenExistingNoSymlink opens an existing file for writes without following a
+// symlink planted at the leaf path. Callers must pass only non-creating flags.
+func OpenExistingNoSymlink(path string, flag int) (*os.File, error) {
+	if flag&os.O_CREATE != 0 {
+		return nil, fmt.Errorf("OpenExistingNoSymlink called with O_CREATE: %s", path)
+	}
+	f, err := openFileNoFollow(path, flag, 0)
+	if err == nil {
+		return f, nil
 	}
 
-	// #nosec G304 -- path is user-provided input file, validated by caller
-	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if info, lerr := os.Lstat(path); lerr == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("refusing to open symlink: %s", path)
+		}
+		if info.IsDir() {
+			return nil, fmt.Errorf("path exists as directory: %s", path)
+		}
+	}
+	return nil, err
 }

@@ -1,3 +1,97 @@
+# v2.18
+<ul>
+	<li>✓ <strong>Desktop GUI</strong>: fixed the Linux desktop layout and output theming so the compact window keeps controls/results readable and visually consistent</li>
+	<li>✓ <strong>Windows installer</strong>: upgrades now replace the installed GUI executable in place, detect a running Picocrypt NG instance instead of silently leaving the old binary, and clean up the orphaned portable executable left by the previous upgrade path</li>
+	<li>✓ <strong>Android/F-Droid readiness</strong>: Android release tasks can now assemble unsigned release APKs for F-Droid source builds while GitHub release CI still requires the maintainer signing secrets for official upstream APKs</li>
+	<li>✓ <strong>Android reproducibility</strong>: gomobile AAR builds now use stable empty Go build IDs and stripped native debug metadata for <code>libgojni.so</code>, removing the build-id metadata drift that blocked F-Droid reproducible APK comparison</li>
+	<li>✓ <strong>Security maintenance</strong>: updated <code>golang.org/x/image</code> to v0.43.0 to include the TIFF decoder vulnerability fixes reported by <code>govulncheck</code></li>
+	<li>✓ <strong>Package availability</strong>: the README now documents the third-party MacPorts port while keeping project-owned release channels distinct</li>
+</ul>
+
+# v2.17
+<ul>
+	<li>✓ <strong>Web app: encryption options</strong>: the in-browser tool at <a href="https://picocrypt-ng.github.io">picocrypt-ng.github.io</a> now supports paranoid mode, header comments, keyfiles (with an optional enforced order), Reed-Solomon error correction, force-decrypt (best-effort recovery of a damaged or modified volume, clearly flagged as unverified), and plausible deniability — all byte-compatible with the desktop app, so a volume created in the browser opens on the desktop and vice versa</li>
+	<li>✓ <strong>Web app: scope &amp; privacy</strong>: the browser tool is fully client-side (files never leave your device) and handles files up to 1 GiB; volume splitting, recursive volumes, and multi-file or compressed archives remain desktop-only</li>
+	<li>✓ <strong>Web app: usability</strong>: the file selector is re-enabled after a completed operation, so a second encrypt or decrypt no longer requires reloading the page</li>
+	<li>✓ <strong>Internal</strong>: unified, stricter static analysis (gofumpt/goimports formatting and a curated golangci-lint set) across the codebase</li>
+</ul>
+
+# v2.16
+<ul>
+	<li>✓ <strong>Signed releases</strong>: every release artifact (Windows, macOS, Linux, AppImage, Snap, Android) is now signed with keyless <a href="https://github.com/sigstore/cosign">cosign</a> and published with a build-provenance attestation, so a download can be verified against the exact GitHub Actions workflow that produced it; the old SHA-256 text blocks in the release notes are dropped in favor of verifiable signatures</li>
+	<li>✓ <strong>Desktop: stable tooltips</strong>: advanced-settings tooltips no longer flicker or jump — the flicker-prone custom tooltip was replaced with the fyne-tooltip library (#79)</li>
+	<li>✓ <strong>Android: hardening</strong>: generated keyfile bytes and password buffers are zeroed after use, names of saved files are sanitized before writing, and the app opts out of Android cloud backup so volumes and settings are never copied off-device</li>
+	<li>✓ <strong>Android: clearer errors</strong>: a failure to start an operation is now surfaced to the user instead of being silently swallowed</li>
+	<li>✓ <strong>Privacy: no on-disk logs</strong>: the file-logging sink was removed, so the app never writes log files that could reveal file names or activity</li>
+	<li>✓ <strong>Reliability</strong>: incomplete output is cleaned up if an operation is interrupted mid-stream — split, recombine, and write failures no longer leave stray chunks or half-written files behind</li>
+	<li>✓ <strong>Internal</strong>: removed dead code across the crypto, volume, and app packages, pinned crypto/keyfile/encoding paths to known-answer test vectors, and fixed documentation drift (API.md, ARCHITECTURE.md, CONTRIBUTING.md)</li>
+</ul>
+
+# v2.15
+<ul>
+	<li>✓ <strong>Android: folder &amp; multi-file encryption</strong>: encrypt an entire folder (directory structure preserved) or several files at once instead of only a single file, with a new <strong>Compress</strong> toggle in advanced settings</li>
+	<li>✓ <strong>Android: screenshot protection</strong>: an optional <strong>Privacy &amp; Security</strong> toggle (on by default) applies <code>FLAG_SECURE</code> to block screenshots and screen recording and hide app content from recent-apps previews</li>
+	<li>✓ <strong>Cross-platform passwords (Unicode)</strong>: passwords are normalized to Unicode NFC before key derivation, so a password with accented or non-Latin characters typed on macOS now decrypts on Windows/Linux and vice versa. Existing volumes still open — decryption also tries the as-typed and decomposed forms — and ASCII passwords are unaffected. The reverse is not guaranteed for non-ASCII passwords: a volume encrypted with v2.15+ may not open in a pre-2.15 build, which doesn't normalize, unless the password is entered in NFC form; ASCII-password volumes stay compatible in both directions. The desktop and CLI show a short advisory when encrypting with a non-ASCII password.</li>
+	<li>✓ <strong>Android: per-ABI release APKs</strong>: releases now ship smaller per-architecture APKs (armeabi-v7a, arm64-v8a, x86, x86_64) alongside the universal APK</li>
+	<li>✓ <strong>Linux: signed AppImage + delta updates</strong>: the release AppImage is GPG-signed and ships AppImageUpdate (zsync) info for delta downloads</li>
+</ul>
+
+# v2.14
+<ul>
+	<li>✓ <strong>Compression and deniability progress</strong>: both passes now report speed and ETA, like the main encrypt/decrypt pass</li>
+	<li>✓ <strong>Split-size validation</strong>: a chunk size that would overflow is rejected before encrypting instead of silently producing a broken split</li>
+	<li>✓ <strong>Reed-Solomon robustness</strong>: decoding rejects wrong-size input instead of panicking, and payload encoding does fewer allocations</li>
+	<li>✓ <strong>BSD disk-space checks</strong>: free-space checks work on FreeBSD/NetBSD/OpenBSD via the correct statvfs build tags</li>
+	<li>✓ <strong>Android: background operations</strong>: encrypt/decrypt run in a foreground service, so a long operation keeps running and updating progress when the app is backgrounded</li>
+	<li>✓ <strong>Android: verify-first decrypt</strong>: optional integrity check before any output is written, independent of force-decrypt</li>
+	<li>✓ <strong>Android: password handling</strong>: passwords cross the Go bridge as zeroed byte buffers rather than long-lived strings</li>
+	<li>✓ <strong>Android: volume interop</strong>: a desktop volume made from multiple files or with compression now decrypts and saves as a <code>.zip</code> (open it with any file manager); a split-volume chunk is rejected with guidance to recombine on a computer first</li>
+	<li>✓ <strong>Linux: AppImage package</strong>: a portable, unsandboxed single-file build that bundles its GTK/X11 dependencies and uses the host's OpenGL driver, for distros where the .deb or raw binary don't fit</li>
+	<li>✓ <strong>Dependencies</strong>: updated golang.org/x/crypto and other modules</li>
+</ul>
+
+# v2.13
+<ul>
+	<li>✓ <strong>macOS iCloud file opening</strong>: late Finder/AppKit batches of one open gesture now extend the already-applied iCloud selection instead of replacing it; manual drops keep priority over gesture stragglers</li>
+	<li>✓ <strong>Window title</strong>: the title no longer embeds the version, so docks and taskbars show one consistent application name across desktop environments</li>
+	<li>✓ <strong>About dialog</strong>: a compact About dialog (info button next to the file selection) now shows the application version and project link</li>
+</ul>
+
+# v2.12
+<ul>
+	<li>✓ <strong>macOS iCloud file opening</strong>: Finder/Dock-opened iCloud files are collected across slow callbacks and applied after the selected files are ready</li>
+	<li>✓ <strong>Linux desktop integration</strong>: the desktop entry keeps the reverse-DNS app identity while using a readable X11 window class for MATE/XFCE task grouping</li>
+	<li>✓ <strong>Release metadata</strong>: desktop, Snap, Windows, AppStream, CLI, and volume-header version metadata now report v2.12 consistently</li>
+</ul>
+
+# v2.11
+<ul>
+	<li>✓ <strong>macOS file opening</strong>: opening multiple files from Finder or the Dock no longer drops files when macOS delivers the same action in several batches</li>
+	<li>✓ <strong>Linux launchers</strong>: the desktop file now uses the same application identity as the packaged app, improving launcher matching and file-association behavior</li>
+	<li>✓ <strong>Release metadata</strong>: desktop, Snap, Windows, AppStream, CLI, and volume-header version metadata now report v2.11 consistently</li>
+</ul>
+
+# v2.10
+<ul>
+	<li>✓ <strong>Safer output cleanup</strong>: temporary output files are created without following symlinks, and failed operation cleanup no longer wipes a symlink target</li>
+	<li>✓ <strong>Hardened archive extraction</strong>: unpacked paths are rechecked immediately before writing, closing a symlink/path-replacement race during unzip</li>
+	<li>✓ <strong>GUI race fixes</strong>: long-running operations now update the interface through locked state snapshots instead of unsynchronized field reads</li>
+	<li>✓ <strong>Clearer damaged-header errors</strong>: preview now reports which protected header field failed to decode instead of blaming every decode failure on comments</li>
+	<li>✓ <strong>CLI and WASM notes</strong>: documented the reduced WASM surface and the CLI exit code used when decrypt output is kept after a failure</li>
+	<li>✓ <strong>Compatibility checks</strong>: v2.08/v2.09 behavior and existing v2 volume invariants are covered by release tests</li>
+</ul>
+
+# v2.09
+<ul>
+	<li>✓ <strong>File associations</strong>: double-click <code>.pcv</code> files to open Picocrypt NG in decrypt mode on Windows / macOS / Linux</li>
+	<li>✓ Linux: <code>.deb</code> installs MIME XML + <code>.desktop</code> + AppStream metainfo (Nautilus, Dolphin); Snap advertises handler (host MIME limited per snapd RFE #6467); Flatpak via Flathub manifest</li>
+	<li>✓ macOS: <code>.app</code> bundle declares UTI <code>io.github.picocryptng.pcv</code> + Apple Events <code>kAEOpenDocuments</code> handler (Finder cold-launch routes paths to decrypt mode)</li>
+	<li>✓ Windows: NSIS installer (<code>Picocrypt-NG-Setup.exe</code>) writes ProgID + registry associations alongside existing portable <code>.exe</code></li>
+	<li>✓ Windows: <code>Picocrypt-NG.exe</code> (portable) renamed to <code>Picocrypt-NG-portable.exe</code>; new <code>Picocrypt-NG-Setup.exe</code> ships in parallel</li>
+	<li>✓ Cross-platform <code>application/x-pcv</code> MIME type canonicalized in <code>dist/mime/application-x-pcv.xml</code></li>
+	<li>✓ File-type icon: <code>images/pcv-icon.svg</code> + 6 PNG renditions (16/32/48/64/128/256) + multi-resolution <code>.ico</code></li>
+</ul>
+
 # v2.08
 <ul>
 	<li>✓ Added Linux ARM64 build artifacts for both GUI and CLI in CI/release pipelines</li>

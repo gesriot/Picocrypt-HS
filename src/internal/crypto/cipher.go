@@ -6,9 +6,13 @@ import (
 	"hash"
 	"io"
 
-	"github.com/Picocrypt/serpent"
+	"github.com/Picocrypt-NG/serpent"
 	"golang.org/x/crypto/chacha20"
 )
+
+// zeroizer is implemented by cipher blocks that can wipe their expanded key
+// schedule (e.g. the Picocrypt-NG/serpent fork's *subkeys.Zero()).
+type zeroizer interface{ Zero() }
 
 // CipherSuite holds the initialized ciphers and MAC for encryption/decryption.
 // This manages the XChaCha20 and optional Serpent-CTR ciphers.
@@ -57,6 +61,14 @@ func NewCipherSuite(key, nonce, serpentKey, serpentIV []byte, mac hash.Hash, hkd
 // Order: [Serpent-CTR if paranoid] -> XChaCha20 -> MAC(ciphertext)
 //
 // CRITICAL: This exact order MUST be preserved.
+//
+// Aliasing contract:
+//   - Paranoid mode: dst and src MUST NOT alias (share backing memory). The
+//     implementation writes intermediate Serpent output to dst and then reads it
+//     back via "copy(src, dst)" before the ChaCha20 pass; aliased buffers corrupt
+//     the output silently.
+//   - Non-paranoid mode: in-place operation (dst == src) is permitted and is
+//     relied upon by the WASM frontend.
 func (cs *CipherSuite) Encrypt(dst, src []byte) {
 	if cs.paranoid {
 		cs.serpent.XORKeyStream(dst, src)
@@ -73,6 +85,14 @@ func (cs *CipherSuite) Encrypt(dst, src []byte) {
 // Order: MAC(ciphertext) -> XChaCha20 -> [Serpent-CTR if paranoid]
 //
 // CRITICAL: This exact order MUST be preserved.
+//
+// Aliasing contract:
+//   - Paranoid mode: dst and src MUST NOT alias (share backing memory). The
+//     implementation writes ChaCha20 output to dst and then reads it back via
+//     "copy(src, dst)" before the Serpent pass; aliased buffers corrupt the
+//     output silently.
+//   - Non-paranoid mode: in-place operation (dst == src) is permitted and is
+//     relied upon by the WASM frontend.
 func (cs *CipherSuite) Decrypt(dst, src []byte) {
 	// MAC the ciphertext first (verify-then-decrypt)
 	cs.mac.Write(src)
@@ -93,7 +113,7 @@ func (cs *CipherSuite) Decrypt(dst, src []byte) {
 //  2. serpentIV (16 bytes) - for Serpent-CTR
 func (cs *CipherSuite) Rekey() error {
 	// Read new nonce for XChaCha20
-	nonce := make([]byte, 24)
+	nonce := make([]byte, RekeyNonceSize)
 	if _, err := io.ReadFull(cs.hkdf, nonce); err != nil {
 		return errors.New("fatal hkdf.Read error during rekey (nonce)")
 	}
@@ -106,7 +126,7 @@ func (cs *CipherSuite) Rekey() error {
 
 	// Read new IV for Serpent (if paranoid)
 	if cs.paranoid {
-		serpentIV := make([]byte, 16)
+		serpentIV := make([]byte, RekeyIVSize)
 		if _, err := io.ReadFull(cs.hkdf, serpentIV); err != nil {
 			return errors.New("fatal hkdf.Read error during rekey (serpent IV)")
 		}
@@ -132,11 +152,15 @@ func (cs *CipherSuite) IsParanoid() bool {
 	return cs.paranoid
 }
 
-// Close securely zeros all sensitive key material in the cipher suite.
-// This should be called via defer immediately after creating the cipher suite.
+// Close zeros the retained []byte key and drops cipher/MAC references.
 //
-// SECURITY: Always call Close() when done with the cipher suite to minimize
-// the window during which key material is recoverable from memory.
+// SECURITY — scope of zeroing: only the retained []byte key (cs.key) is wiped.
+// The expanded key schedules held inside *chacha20.Cipher ([8]uint32 + HChaCha20
+// subkey) and the BLAKE2b/HMAC internal key state cannot be reached from here and
+// are an accepted residual (see threat model). The Serpent schedule IS wiped when
+// the serpent block exposes Zero() (see Rekey/NewCipherSuite). Calling Reset() on
+// the keyed MAC would RE-INSTALL its key, not clear it, so it is intentionally not
+// called.
 func (cs *CipherSuite) Close() {
 	if cs == nil {
 		return
@@ -144,8 +168,10 @@ func (cs *CipherSuite) Close() {
 	SecureZero(cs.key)
 	cs.key = nil
 	cs.chacha = nil
+	if z, ok := cs.serpentS.(zeroizer); ok {
+		z.Zero()
+	}
 	cs.serpent = nil
 	cs.serpentS = nil
-	SecureZeroHash(cs.mac)
 	cs.mac = nil
 }

@@ -70,172 +70,6 @@ func TestSecureZeroMultipleEmpty(t *testing.T) {
 	SecureZeroMultiple(nil, []byte{}, nil)
 }
 
-func TestSecureZeroHash(t *testing.T) {
-	// SecureZeroHash should not panic on nil
-	SecureZeroHash(nil)
-
-	// Test with actual hash (just check it doesn't panic)
-	mac, _ := NewMAC(make([]byte, 32), false)
-	mac.Write([]byte("test data"))
-	SecureZeroHash(mac)
-}
-
-func TestKeyMaterial(t *testing.T) {
-	data := []byte{1, 2, 3, 4, 5, 6, 7, 8}
-
-	km := NewKeyMaterial(data)
-
-	// Bytes should return the data
-	if !bytes.Equal(km.Bytes(), data) {
-		t.Error("Bytes() should return equivalent data")
-	}
-
-	// Data should be a copy, not the same slice
-	if &km.Bytes()[0] == &data[0] {
-		t.Error("KeyMaterial should make a copy of data")
-	}
-
-	// Len should match
-	if km.Len() != len(data) {
-		t.Errorf("Len() = %d; want %d", km.Len(), len(data))
-	}
-
-	// IsClosed should be false
-	if km.IsClosed() {
-		t.Error("IsClosed() should be false before Close()")
-	}
-}
-
-func TestKeyMaterialClose(t *testing.T) {
-	data := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
-
-	km := NewKeyMaterial(data)
-	internalData := km.Bytes()
-
-	km.Close()
-
-	// After close:
-	// - IsClosed should be true
-	if !km.IsClosed() {
-		t.Error("IsClosed() should be true after Close()")
-	}
-
-	// - Bytes should return nil
-	if km.Bytes() != nil {
-		t.Error("Bytes() should return nil after Close()")
-	}
-
-	// - Len should be 0
-	if km.Len() != 0 {
-		t.Errorf("Len() = %d; want 0 after Close()", km.Len())
-	}
-
-	// - Original data slice should be zeroed
-	zeros := make([]byte, len(internalData))
-	if !bytes.Equal(internalData, zeros) {
-		t.Error("Internal data should be zeroed after Close()")
-	}
-}
-
-func TestKeyMaterialCloseIdempotent(t *testing.T) {
-	km := NewKeyMaterial([]byte{1, 2, 3, 4})
-
-	// Multiple Close() calls should be safe
-	km.Close()
-	km.Close()
-	km.Close()
-
-	if !km.IsClosed() {
-		t.Error("Should remain closed after multiple Close() calls")
-	}
-}
-
-func TestKeyMaterialNil(t *testing.T) {
-	km := NewKeyMaterial(nil)
-
-	if km.Bytes() != nil {
-		t.Error("Bytes() should return nil for nil input")
-	}
-
-	if km.Len() != 0 {
-		t.Error("Len() should be 0 for nil input")
-	}
-
-	// Close should not panic
-	km.Close()
-}
-
-func TestCryptoContext(t *testing.T) {
-	cc := &CryptoContext{
-		Key:          []byte{1, 2, 3, 4},
-		KeyfileKey:   []byte{5, 6, 7, 8},
-		MacSubkey:    []byte{9, 10, 11, 12},
-		SerpentKey:   []byte{13, 14, 15, 16},
-		HeaderSubkey: []byte{17, 18, 19, 20},
-	}
-
-	// Save references to check zeroing
-	keyRef := cc.Key
-	keyfileRef := cc.KeyfileKey
-	macRef := cc.MacSubkey
-	serpentRef := cc.SerpentKey
-	headerRef := cc.HeaderSubkey
-
-	cc.Close()
-
-	// All fields should be nil
-	if cc.Key != nil {
-		t.Error("Key should be nil after Close()")
-	}
-	if cc.KeyfileKey != nil {
-		t.Error("KeyfileKey should be nil after Close()")
-	}
-	if cc.MacSubkey != nil {
-		t.Error("MacSubkey should be nil after Close()")
-	}
-	if cc.SerpentKey != nil {
-		t.Error("SerpentKey should be nil after Close()")
-	}
-	if cc.HeaderSubkey != nil {
-		t.Error("HeaderSubkey should be nil after Close()")
-	}
-
-	// Original slices should be zeroed
-	zeros4 := make([]byte, 4)
-	if !bytes.Equal(keyRef, zeros4) {
-		t.Error("Key data should be zeroed")
-	}
-	if !bytes.Equal(keyfileRef, zeros4) {
-		t.Error("KeyfileKey data should be zeroed")
-	}
-	if !bytes.Equal(macRef, zeros4) {
-		t.Error("MacSubkey data should be zeroed")
-	}
-	if !bytes.Equal(serpentRef, zeros4) {
-		t.Error("SerpentKey data should be zeroed")
-	}
-	if !bytes.Equal(headerRef, zeros4) {
-		t.Error("HeaderSubkey data should be zeroed")
-	}
-}
-
-func TestCryptoContextCloseIdempotent(t *testing.T) {
-	cc := &CryptoContext{
-		Key: []byte{1, 2, 3, 4},
-	}
-
-	// Multiple Close() calls should be safe
-	cc.Close()
-	cc.Close()
-	cc.Close()
-}
-
-func TestCryptoContextNilFields(t *testing.T) {
-	// Close should handle nil fields gracefully
-	cc := &CryptoContext{}
-	cc.Close() // Should not panic
-}
-
 // TestSecureZeroConcurrent tests that SecureZero works correctly under concurrent access.
 // This is security-critical: ensures memory zeroing doesn't race or corrupt data.
 func TestSecureZeroConcurrent(t *testing.T) {
@@ -271,6 +105,64 @@ func TestSecureZeroConcurrent(t *testing.T) {
 		if !bytes.Equal(buf, zeros) {
 			t.Errorf("Buffer %d not properly zeroed after concurrent SecureZero", i)
 		}
+	}
+}
+
+func TestSecretCloseZeros(t *testing.T) {
+	b := []byte{1, 2, 3, 4}
+	s := SecretFrom(b)
+	if s.Len() != 4 || string(s.Bytes()) != string([]byte{1, 2, 3, 4}) {
+		t.Fatal("Secret did not adopt bytes")
+	}
+	s.Close()
+	for i, x := range b { // b still aliases the (now zeroed) backing array
+		if x != 0 {
+			t.Fatalf("byte %d not zeroed: %d", i, x)
+		}
+	}
+	if s.Bytes() != nil || s.Len() != 0 {
+		t.Fatal("closed Secret must report nil/0")
+	}
+}
+
+func TestSecretCloseIdempotentAndNilSafe(t *testing.T) {
+	var nilS *Secret
+	nilS.Close() // must not panic
+	if nilS.Bytes() != nil {
+		t.Fatal("nil Secret.Bytes must be nil")
+	}
+	if nilS.Len() != 0 {
+		t.Fatal("nil Secret.Len must be 0")
+	}
+	s := SecretFrom([]byte{9})
+	s.Close()
+	s.Close() // double close must not panic
+}
+
+func TestSecretSetWipesOldButNotSelfAssign(t *testing.T) {
+	old := []byte{7, 7, 7, 7}
+	s := SecretFrom(old)
+	next := []byte{8, 8, 8, 8}
+	s.Set(next)
+	for i, x := range old {
+		if x != 0 {
+			t.Fatalf("old backing array byte %d not wiped: %d", i, x)
+		}
+	}
+	// self-assign: setting the SAME backing array must NOT wipe the live key
+	live := s.Bytes()
+	want := append([]byte(nil), live...)
+	s.Set(live)
+	if !bytes.Equal(live, want) {
+		t.Fatal("self-assign changed the live key — guard broken")
+	}
+}
+
+func TestSecretStringRedacts(t *testing.T) {
+	s := SecretFrom([]byte("topsecret"))
+	defer s.Close()
+	if got := s.String(); got != "crypto.Secret([REDACTED])" {
+		t.Fatalf("String must redact, got %q", got)
 	}
 }
 
@@ -331,86 +223,5 @@ func TestSecureZeroMultipleConcurrent(t *testing.T) {
 				t.Errorf("set[%d].key3[%d] = %d; want 0", i, j, b)
 			}
 		}
-	}
-}
-
-// TestKeyMaterialConcurrentClose tests KeyMaterial.Close under concurrent access.
-func TestKeyMaterialConcurrentClose(t *testing.T) {
-	const numGoroutines = 100
-
-	km := NewKeyMaterial([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
-	internalData := km.Bytes()
-
-	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			km.Close() // Multiple concurrent Close calls should be safe
-			done <- true
-		}()
-	}
-
-	for i := 0; i < numGoroutines; i++ {
-		<-done
-	}
-
-	// Verify closed state
-	if !km.IsClosed() {
-		t.Error("KeyMaterial should be closed after concurrent Close()")
-	}
-
-	// Verify data was zeroed
-	zeros := make([]byte, len(internalData))
-	if !bytes.Equal(internalData, zeros) {
-		t.Error("KeyMaterial data should be zeroed after concurrent Close()")
-	}
-}
-
-// TestCryptoContextConcurrentClose tests CryptoContext.Close under concurrent access.
-func TestCryptoContextConcurrentClose(t *testing.T) {
-	const numGoroutines = 100
-
-	cc := &CryptoContext{
-		Key:          []byte{1, 2, 3, 4, 5, 6, 7, 8},
-		KeyfileKey:   []byte{9, 10, 11, 12, 13, 14, 15, 16},
-		MacSubkey:    []byte{17, 18, 19, 20, 21, 22, 23, 24},
-		SerpentKey:   []byte{25, 26, 27, 28, 29, 30, 31, 32},
-		HeaderSubkey: []byte{33, 34, 35, 36, 37, 38, 39, 40},
-	}
-
-	// Save references
-	keyRef := cc.Key
-	keyfileRef := cc.KeyfileKey
-	macRef := cc.MacSubkey
-	serpentRef := cc.SerpentKey
-	headerRef := cc.HeaderSubkey
-
-	done := make(chan bool, numGoroutines)
-	for i := 0; i < numGoroutines; i++ {
-		go func() {
-			cc.Close()
-			done <- true
-		}()
-	}
-
-	for i := 0; i < numGoroutines; i++ {
-		<-done
-	}
-
-	// Verify all slices zeroed
-	zeros8 := make([]byte, 8)
-	if !bytes.Equal(keyRef, zeros8) {
-		t.Error("Key should be zeroed after concurrent Close()")
-	}
-	if !bytes.Equal(keyfileRef, zeros8) {
-		t.Error("KeyfileKey should be zeroed after concurrent Close()")
-	}
-	if !bytes.Equal(macRef, zeros8) {
-		t.Error("MacSubkey should be zeroed after concurrent Close()")
-	}
-	if !bytes.Equal(serpentRef, zeros8) {
-		t.Error("SerpentKey should be zeroed after concurrent Close()")
-	}
-	if !bytes.Equal(headerRef, zeros8) {
-		t.Error("HeaderSubkey should be zeroed after concurrent Close()")
 	}
 }

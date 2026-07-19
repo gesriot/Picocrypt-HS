@@ -3,7 +3,9 @@ package header
 import (
 	"crypto/hmac"
 	"crypto/subtle"
+	"errors"
 	"fmt"
+	"hash"
 
 	"golang.org/x/crypto/sha3"
 )
@@ -39,7 +41,7 @@ type AuthResult struct {
 //  8. nonce
 //  9. keyfileHash
 func ComputeV2HeaderMAC(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte) []byte {
-	mac := hmac.New(sha3.New512, subkeyHeader)
+	mac := hmac.New(newSHA3512, subkeyHeader)
 
 	// Write all header fields in exact order
 	mac.Write([]byte(h.Version))
@@ -55,48 +57,21 @@ func ComputeV2HeaderMAC(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte
 	return mac.Sum(nil)
 }
 
-// ComputeV2HeaderMACRaw computes the HMAC-SHA3-512 using raw header field bytes.
-// This is used during decryption where we need to use the exact decoded bytes.
-func ComputeV2HeaderMACRaw(subkeyHeader []byte, raw *RawHeaderFields, h *VolumeHeader, keyfileHash []byte) []byte {
-	mac := hmac.New(sha3.New512, subkeyHeader)
-
-	// Write all header fields in exact order using raw bytes where available
-	mac.Write(raw.Version)
-	_, _ = fmt.Fprintf(mac, "%05d", raw.CommentsLen)
-	mac.Write(raw.Comments)
-	mac.Write(raw.Flags)
-	mac.Write(h.Salt)
-	mac.Write(h.HKDFSalt)
-	mac.Write(h.SerpentIV)
-	mac.Write(h.Nonce)
-	mac.Write(keyfileHash)
-
-	return mac.Sum(nil)
+func newSHA3512() hash.Hash {
+	return sha3.New512()
 }
 
 // ComputeV1KeyHash computes SHA3-512(key) for v1 legacy volumes.
 // In v1, the header stored SHA3-512 of the derived key for password verification.
 func ComputeV1KeyHash(key []byte) []byte {
-	h := sha3.New512()
-	h.Write(key)
-	return h.Sum(nil)
+	sum := sha3.Sum512(key)
+	return append([]byte(nil), sum[:]...)
 }
 
 // VerifyV2Header verifies a v2 volume header using HMAC-SHA3-512.
 // Returns true if the computed MAC matches the stored keyHash.
 func VerifyV2Header(subkeyHeader []byte, h *VolumeHeader, keyfileHash []byte) *AuthResult {
 	computed := ComputeV2HeaderMAC(subkeyHeader, h, keyfileHash)
-	valid := subtle.ConstantTimeCompare(computed, h.KeyHash) == 1
-
-	return &AuthResult{
-		Valid:           valid,
-		KeyHashComputed: computed,
-	}
-}
-
-// VerifyV2HeaderRaw verifies a v2 volume header using raw decoded bytes.
-func VerifyV2HeaderRaw(subkeyHeader []byte, raw *RawHeaderFields, h *VolumeHeader, keyfileHash []byte) *AuthResult {
-	computed := ComputeV2HeaderMACRaw(subkeyHeader, raw, h, keyfileHash)
 	valid := subtle.ConstantTimeCompare(computed, h.KeyHash) == 1
 
 	return &AuthResult{
@@ -162,4 +137,14 @@ func NewKeyfileError(ordered bool) *AuthError {
 		KeyfileOrdered:   ordered,
 		Message:          msg,
 	}
+}
+
+// IsPasswordError reports whether err is an authentication failure attributable
+// to an incorrect password (rather than a keyfile mismatch or other error). The
+// decrypt path uses it to decide whether retrying with another password
+// normalization form (NFC/NFD/raw) could succeed; a keyfile error is
+// independent of the password and would fail identically for every form.
+func IsPasswordError(err error) bool {
+	var authErr *AuthError
+	return errors.As(err, &authErr) && authErr.PasswordIncorrect
 }

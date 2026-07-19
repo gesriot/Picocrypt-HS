@@ -93,7 +93,7 @@
 -keep class io.github.picocrypt_ng.picocrypt_ng.GoBridge { *; }
 -keep class io.github.picocrypt_ng.picocrypt_ng.OperationManager { *; }
 -keep class io.github.picocrypt_ng.picocrypt_ng.FileCopyService { *; }
--keep class io.github.picocrypt_ng.picocrypt_ng.OperationNotificationService { *; }
+-keep class io.github.picocrypt_ng.picocrypt_ng.OperationForegroundService { *; }
 -keep class io.github.picocrypt_ng.picocrypt_ng.AppError { *; }
 -keep class io.github.picocrypt_ng.picocrypt_ng.OperationState { *; }
 

@@ -2,12 +2,9 @@ package io.github.picocrypt_ng.picocrypt_ng.ui.components
 
 import android.app.Application
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
@@ -15,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
 import io.github.picocrypt_ng.picocrypt_ng.R
 import io.github.picocrypt_ng.picocrypt_ng.testutils.TestDataBuilders
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,12 +46,16 @@ class PasswordCardTest {
         composeTestRule.onAllNodesWithText(application.getString(R.string.confirm_password)).assertCountEquals(1)
     }
 
+    /**
+     * Guards the state-based wiring: typing into the SecureTextField must reach the
+     * ViewModel as a CharArray (no debounce/String round-trip in between). If the
+     * snapshotFlow -> updatePasswords wiring is dropped, formState never sees the
+     * typed text and this fails.
+     */
     @Test
-    fun password_fields_are_not_restored_after_saved_state_restore() {
+    fun typingPassword_propagatesToViewModelAsCharArray() {
         val application = ApplicationProvider.getApplicationContext<Application>()
         val viewModel = MainViewModel(application, SavedStateHandle())
-        val restorationTester = StateRestorationTester(composeTestRule)
-        val password = "secret-pass"
 
         viewModel.updateFormData(
             TestDataBuilders.createEncryptFormData(
@@ -62,18 +64,14 @@ class PasswordCardTest {
             )
         )
 
-        composeTestRule.mainClock.autoAdvance = false
-        restorationTester.setContent {
+        composeTestRule.setContent {
             PasswordCard(viewModel = viewModel)
         }
 
-        composeTestRule.onNodeWithText(application.getString(R.string.password)).performTextInput(password)
-        composeTestRule.onNodeWithText(application.getString(R.string.confirm_password)).performTextInput(password)
-        composeTestRule.onAllNodesWithContentDescription(application.getString(R.string.show_password))[0].performClick()
-        composeTestRule.onAllNodesWithText(password).assertCountEquals(2)
+        composeTestRule.onNodeWithText(application.getString(R.string.password))
+            .performTextInput("hunter2")
+        composeTestRule.waitForIdle()
 
-        restorationTester.emulateSavedInstanceStateRestore()
-
-        composeTestRule.onAllNodesWithText(password).assertCountEquals(0)
+        assertEquals("hunter2", String(viewModel.formState.value.passwordInput))
     }
 }

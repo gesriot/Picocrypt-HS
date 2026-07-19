@@ -1,66 +1,16 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/header"
 	"bytes"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
-
-func TestReporter(t *testing.T) {
-	t.Run("NewReporter", func(t *testing.T) {
-		r := NewReporter(false)
-		if r == nil {
-			t.Fatal("NewReporter returned nil")
-		}
-		if r.quiet {
-			t.Error("quiet should be false")
-		}
-
-		r = NewReporter(true)
-		if !r.quiet {
-			t.Error("quiet should be true")
-		}
-	})
-
-	t.Run("SetStatus", func(t *testing.T) {
-		r := NewReporter(false)
-		r.SetStatus("test status")
-		if r.status != "test status" {
-			t.Errorf("expected 'test status', got %q", r.status)
-		}
-	})
-
-	t.Run("SetProgress", func(t *testing.T) {
-		r := NewReporter(false)
-		r.SetProgress(0.5, "50%")
-		if r.progress != 0.5 {
-			t.Errorf("expected progress 0.5, got %f", r.progress)
-		}
-		if r.info != "50%" {
-			t.Errorf("expected info '50%%', got %q", r.info)
-		}
-	})
-
-	t.Run("Cancel", func(t *testing.T) {
-		r := NewReporter(false)
-		if r.IsCancelled() {
-			t.Error("should not be cancelled initially")
-		}
-		r.Cancel()
-		if !r.IsCancelled() {
-			t.Error("should be cancelled after Cancel()")
-		}
-	})
-
-	t.Run("SetCanCancel", func(t *testing.T) {
-		r := NewReporter(false)
-		// Should be a no-op, just ensure it doesn't panic
-		r.SetCanCancel(true)
-		r.SetCanCancel(false)
-	})
-}
 
 func TestEncryptValidation(t *testing.T) {
 	// Save original args
@@ -102,7 +52,7 @@ func TestEncryptValidation(t *testing.T) {
 	t.Run("missing credentials", func(t *testing.T) {
 		// Create temp file
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -123,7 +73,7 @@ func TestEncryptValidation(t *testing.T) {
 
 	t.Run("invalid split options", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -148,7 +98,7 @@ func TestEncryptValidation(t *testing.T) {
 
 	t.Run("invalid split unit", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -175,7 +125,7 @@ func TestEncryptValidation(t *testing.T) {
 
 	t.Run("nonexistent keyfile", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -243,7 +193,7 @@ func TestDecryptValidation(t *testing.T) {
 
 	t.Run("missing credentials", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.pcv")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -267,7 +217,7 @@ func TestDecryptValidation(t *testing.T) {
 
 	t.Run("nonexistent keyfile", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.pcv")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -289,103 +239,461 @@ func TestDecryptValidation(t *testing.T) {
 	})
 }
 
-func TestSplitVolumeDetection(t *testing.T) {
-	t.Run("detects split volume pattern", func(t *testing.T) {
-		// Create temp files that look like split volumes
-		tmpDir := t.TempDir()
-		splitFile := filepath.Join(tmpDir, "test.pcv.0")
-		if err := os.WriteFile(splitFile, []byte("chunk0"), 0644); err != nil {
-			t.Fatal(err)
-		}
+func TestForceDecryptKeptExitCode(t *testing.T) {
+	binaryPath := buildCLITestBinary(t)
+	goldenPath := filepath.Join("..", "..", "testdata", "golden", "pico_test_v2.txt.pcv")
+	if _, err := os.Stat(goldenPath); err != nil {
+		t.Fatalf("golden volume missing: %v", err)
+	}
 
-		decInput = splitFile
+	t.Run("clean decrypt exits zero without kept warning", func(t *testing.T) {
+		outputPath := filepath.Join(t.TempDir(), "clean.txt")
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", goldenPath,
+			"-o", outputPath,
+			"-p", "test",
+			"-q",
+			"-y",
+		)
+
+		if result.exitCode != 0 {
+			t.Fatalf("exit code = %d, want 0\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if strings.Contains(result.stderr, "kept") || strings.Contains(result.stderr, "MAC verification failed") {
+			t.Fatalf("clean decrypt emitted kept-output warning:\n%s", result.stderr)
+		}
+		if _, err := os.Stat(outputPath); err != nil {
+			t.Fatalf("clean output missing: %v", err)
+		}
+	})
+
+	t.Run("force decrypt kept output exits two with warning", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		corruptPath := filepath.Join(tmpDir, "corrupt.pcv")
+		copyCLITestFile(t, goldenPath, corruptPath)
+		corruptCLITestPayload(t, corruptPath)
+
+		outputPath := filepath.Join(tmpDir, "recovered.txt")
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", corruptPath,
+			"-o", outputPath,
+			"-p", "test",
+			"--force",
+			"-q",
+			"-y",
+		)
+
+		if result.exitCode != 2 {
+			t.Fatalf("exit code = %d, want 2\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if !strings.Contains(result.stderr, "Warning:") || !strings.Contains(result.stderr, "MAC verification failed") {
+			t.Fatalf("kept-output warning missing from stderr:\n%s", result.stderr)
+		}
+		if _, err := os.Stat(outputPath); err != nil {
+			t.Fatalf("kept output missing: %v", err)
+		}
+	})
+
+	t.Run("unrecoverable force decrypt stays general failure", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		junkPath := filepath.Join(tmpDir, "junk.pcv")
+		if err := os.WriteFile(junkPath, []byte("not a valid Picocrypt volume"), 0o600); err != nil {
+			t.Fatalf("write junk input: %v", err)
+		}
+		outputPath := filepath.Join(tmpDir, "unsafe.txt")
+
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", junkPath,
+			"-o", outputPath,
+			"-p", "test",
+			"--force",
+			"-q",
+			"-y",
+		)
+
+		if result.exitCode != 1 {
+			t.Fatalf("exit code = %d, want 1\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+			t.Fatalf("unsafe output should not remain, stat err: %v", err)
+		}
+		if _, err := os.Stat(outputPath + ".incomplete"); !os.IsNotExist(err) {
+			t.Fatalf("unsafe incomplete output should not remain, stat err: %v", err)
+		}
+	})
+}
+
+func TestForceDecryptKeptStdoutOrdering(t *testing.T) {
+	binaryPath := buildCLITestBinary(t)
+	goldenPath := filepath.Join("..", "..", "testdata", "golden", "pico_test_v2.txt.pcv")
+	if _, err := os.Stat(goldenPath); err != nil {
+		t.Fatalf("golden volume missing: %v", err)
+	}
+
+	t.Run("clean stdout decrypt exits zero without warning", func(t *testing.T) {
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", goldenPath,
+			"-o", "-",
+			"-p", "test",
+			"-q",
+		)
+
+		if result.exitCode != 0 {
+			t.Fatalf("exit code = %d, want 0\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if len(result.stdout) == 0 {
+			t.Fatal("expected clean plaintext on stdout")
+		}
+		if strings.Contains(result.stderr, "Warning:") || strings.Contains(result.stderr, "MAC verification failed") {
+			t.Fatalf("clean stdout decrypt emitted warning:\n%s", result.stderr)
+		}
+	})
+
+	t.Run("kept stdout decrypt writes bytes before non-clean exit", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		corruptPath := filepath.Join(tmpDir, "corrupt-stdout.pcv")
+		copyCLITestFile(t, goldenPath, corruptPath)
+		corruptCLITestPayload(t, corruptPath)
+
+		result := runCLITestCommand(t, binaryPath, "decrypt",
+			"-i", corruptPath,
+			"-o", "-",
+			"-p", "test",
+			"--force",
+			"-q",
+		)
+
+		if result.exitCode != 2 {
+			t.Fatalf("exit code = %d, want 2\nstderr:\n%s", result.exitCode, result.stderr)
+		}
+		if len(result.stdout) == 0 {
+			t.Fatal("expected recovered bytes on stdout before non-clean exit")
+		}
+		if !strings.Contains(result.stderr, "Warning:") || !strings.Contains(result.stderr, "MAC verification failed") {
+			t.Fatalf("kept-output warning missing from stderr:\n%s", result.stderr)
+		}
+		if bytes.Contains(result.stdout, []byte("Warning:")) || bytes.Contains(result.stdout, []byte("MAC verification failed")) {
+			t.Fatalf("stdout contains warning text: %q", result.stdout)
+		}
+	})
+}
+
+type cliTestResult struct {
+	exitCode int
+	stdout   []byte
+	stderr   string
+}
+
+func buildCLITestBinary(t *testing.T) string {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	binaryName := "picocrypt-test"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(tmpDir, binaryName)
+
+	srcDir, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("source dir: %v", err)
+	}
+
+	cmd := exec.Command("go", "build", "-tags", "cli", "-o", binaryPath, "./cmd/picocrypt")
+	cmd.Dir = srcDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build CLI binary: %v\n%s", err, output)
+	}
+	return binaryPath
+}
+
+func runCLITestCommand(t *testing.T, binaryPath string, args ...string) cliTestResult {
+	t.Helper()
+
+	cmd := exec.Command(binaryPath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	exitCode := 0
+	if err != nil {
+		exitCode = 1
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+	}
+
+	return cliTestResult{
+		exitCode: exitCode,
+		stdout:   append([]byte(nil), stdout.Bytes()...),
+		stderr:   stderr.String(),
+	}
+}
+
+func copyCLITestFile(t *testing.T, src, dst string) {
+	t.Helper()
+
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read %s: %v", src, err)
+	}
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		t.Fatalf("write %s: %v", dst, err)
+	}
+}
+
+func corruptCLITestPayload(t *testing.T, path string) {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	payloadOffset := header.HeaderSize(0)
+	if payloadOffset >= len(data) {
+		t.Fatalf("payload offset %d exceeds file size %d", payloadOffset, len(data))
+	}
+	data[payloadOffset] ^= 0x80
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write corrupted %s: %v", path, err)
+	}
+}
+
+// TestSplitVolumeDetection drives runDecrypt's split-volume auto-detection
+// (decrypt.go:181-189). With decQuiet=false the guidance line must reach stderr
+// and decRecombine must flip to true only when the trailing ".pcv.<n>" suffix is
+// numeric. A non-numeric suffix (Sscanf fails) and a plain ".pcv" path must both
+// leave decRecombine false and emit no guidance.
+//
+// Mutation: dropping the Sscanf numeric-suffix guard would flip decRecombine on
+// "test.pcv.notanumber"; dropping the guidance fmt.Fprintln would drop the
+// "Detected split volume" message on the positive case.
+func TestSplitVolumeDetection(t *testing.T) {
+	origInput, origPassword := decInput, decPassword
+	origRecombine, origQuiet := decRecombine, decQuiet
+	t.Cleanup(func() {
+		decInput = origInput
+		decPassword = origPassword
+		decRecombine = origRecombine
+		decQuiet = origQuiet
+	})
+
+	// runDecryptCapturingStderr swaps os.Stderr for a pipe, runs the decrypt
+	// command (which fails downstream — the inputs are not valid volumes — but
+	// only after the detection branch runs), and returns the captured stderr.
+	runDecryptCapturingStderr := func(t *testing.T, input string) string {
+		t.Helper()
+		decInput = input
 		decPassword = "test"
 		decRecombine = false
-		decQuiet = true
+		decQuiet = false // guidance message only prints when not quiet
 
-		// The validation will fail (not a valid pcv), but we can check if recombine was set
-		cmd := decryptCmd
-		_ = cmd.RunE(cmd, []string{})
-
-		if !decRecombine {
-			t.Error("should have detected split volume and set recombine=true")
+		old := os.Stderr
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
 		}
+		os.Stderr = w
 
-		// Reset
-		decRecombine = false
-		decQuiet = false
-	})
-}
+		_ = decryptCmd.RunE(decryptCmd, []string{})
 
-func TestOutputAutoGeneration(t *testing.T) {
-	t.Run("encrypt auto-generates output", func(t *testing.T) {
+		_ = w.Close()
+		os.Stderr = old
+
+		var buf bytes.Buffer
+		if _, err := buf.ReadFrom(r); err != nil {
+			t.Fatalf("reading captured stderr: %v", err)
+		}
+		return buf.String()
+	}
+
+	t.Run("numeric chunk suffix detected and recombine set", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		inputFile := filepath.Join(tmpDir, "test.txt")
-		if err := os.WriteFile(inputFile, []byte("test"), 0644); err != nil {
+		splitFile := filepath.Join(tmpDir, "test.pcv.0")
+		if err := os.WriteFile(splitFile, []byte("chunk0"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
-		// We can't easily test the full flow without actually encrypting,
-		// but we can verify the logic by checking what output would be generated
-		encInput = []string{inputFile}
-		encOutput = ""
+		stderr := runDecryptCapturingStderr(t, splitFile)
 
-		// The auto-generation happens inside runEncrypt, so we just verify the logic
-		outputFile := encOutput
-		if outputFile == "" {
-			if len(encInput) == 1 {
-				outputFile = encInput[0] + ".pcv"
-			} else {
-				outputFile = "encrypted.pcv"
-			}
+		if !decRecombine {
+			t.Error("numeric chunk suffix should set decRecombine=true")
 		}
-
-		expected := inputFile + ".pcv"
-		if outputFile != expected {
-			t.Errorf("expected %q, got %q", expected, outputFile)
+		if !strings.Contains(stderr, "Detected split volume") {
+			t.Errorf("expected split-volume guidance on stderr, got: %q", stderr)
 		}
 	})
 
-	t.Run("decrypt auto-generates output", func(t *testing.T) {
-		input := "/path/to/file.pcv"
-		expected := "/path/to/file"
+	t.Run("non-numeric chunk suffix is not a split volume", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		notChunk := filepath.Join(tmpDir, "test.pcv.notanumber")
+		if err := os.WriteFile(notChunk, []byte("not a chunk"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 
-		output := strings.TrimSuffix(input, ".pcv")
-		if output != expected {
-			t.Errorf("expected %q, got %q", expected, output)
+		stderr := runDecryptCapturingStderr(t, notChunk)
+
+		if decRecombine {
+			t.Error("non-numeric .pcv. suffix must not set decRecombine")
+		}
+		if strings.Contains(stderr, "Detected split volume") {
+			t.Errorf("non-numeric suffix must not emit split-volume guidance, got: %q", stderr)
+		}
+	})
+
+	t.Run("plain .pcv path is not a split volume", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		plain := filepath.Join(tmpDir, "test.pcv")
+		if err := os.WriteFile(plain, []byte("plain volume"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		_ = runDecryptCapturingStderr(t, plain)
+
+		if decRecombine {
+			t.Error("plain .pcv path must not set decRecombine")
 		}
 	})
 }
 
+// TestOutputAutoGeneration drives the REAL runEncrypt/runDecrypt auto-generation
+// branches (encOutput=="" / decOutput==""), rather than recomputing the rule
+// inline. The decrypt half is the mutation-catcher: it pins that the auto output
+// is the input with ".pcv" stripped (decrypt.go:205); dropping the TrimSuffix
+// would write the plaintext over the .pcv path and turn this red.
+func TestOutputAutoGeneration(t *testing.T) {
+	t.Run("encrypt auto-generates output as input+.pcv", func(t *testing.T) {
+		resetEncryptFlagsForDirTest()
+		t.Cleanup(resetEncryptFlagsForDirTest)
+
+		tmpDir := t.TempDir()
+		inputFile := filepath.Join(tmpDir, "secret.txt")
+		if err := os.WriteFile(inputFile, []byte("plaintext"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		encInput = []string{inputFile}
+		encOutput = "" // force auto-generation through runEncrypt
+		encPassword = "pw"
+		encQuiet = true
+		encYes = true
+
+		if err := encryptCmd.RunE(encryptCmd, []string{}); err != nil {
+			t.Fatalf("runEncrypt: %v", err)
+		}
+
+		wantOut := inputFile + ".pcv"
+		info, err := os.Stat(wantOut)
+		if err != nil {
+			t.Fatalf("expected auto-generated output %q to exist: %v", wantOut, err)
+		}
+		if info.Size() == 0 {
+			t.Fatalf("auto-generated output %q is empty", wantOut)
+		}
+	})
+
+	t.Run("decrypt auto-generates output as input minus .pcv", func(t *testing.T) {
+		resetDecryptFlagsForDirTest()
+		t.Cleanup(resetDecryptFlagsForDirTest)
+
+		goldenPath := filepath.Join("..", "..", "testdata", "golden", "pico_test_v2.txt.pcv")
+		if _, err := os.Stat(goldenPath); err != nil {
+			t.Fatalf("golden volume missing: %v", err)
+		}
+
+		tmpDir := t.TempDir()
+		volPath := filepath.Join(tmpDir, "vol.txt.pcv")
+		copyCLITestFile(t, goldenPath, volPath)
+
+		decInput = volPath
+		decOutput = "" // force auto-generation through runDecrypt
+		decPassword = "test"
+		decQuiet = true
+		decYes = true
+
+		if err := decryptCmd.RunE(decryptCmd, []string{}); err != nil {
+			t.Fatalf("runDecrypt: %v", err)
+		}
+
+		wantOut := strings.TrimSuffix(volPath, ".pcv") // vol.txt
+		if wantOut == volPath {
+			t.Fatalf("test setup error: input %q has no .pcv suffix", volPath)
+		}
+		got, err := os.ReadFile(wantOut)
+		if err != nil {
+			t.Fatalf("expected auto-generated output %q to exist: %v", wantOut, err)
+		}
+		const wantPlaintext = "There is a test file for Picocrypt validation.\n"
+		if string(got) != wantPlaintext {
+			t.Fatalf("decrypted %q = %q, want %q", wantOut, got, wantPlaintext)
+		}
+		// Under the mutation (outputFile = decInput, no .pcv stripping) the
+		// plaintext would be written over the .pcv path, not vol.txt.
+		if _, err := os.Stat(volPath); err != nil {
+			t.Fatalf("input volume %q unexpectedly gone: %v", volPath, err)
+		}
+	})
+}
+
+// TestGlobExpansion drives runEncrypt's real glob-expansion path (encrypt.go:203)
+// rather than re-testing filepath.Glob. A non-matching pattern must surface the
+// specific "input file not found" guard (encrypt.go:207-209); a matching pattern
+// must flow through the expansion loop and succeed.
 func TestGlobExpansion(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create test files
 	for _, name := range []string{"a.txt", "b.txt", "c.log"} {
-		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	t.Run("glob matches files", func(t *testing.T) {
-		pattern := filepath.Join(tmpDir, "*.txt")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			t.Fatal(err)
+	t.Run("non-matching pattern reports input file not found", func(t *testing.T) {
+		resetEncryptFlagsForDirTest()
+		t.Cleanup(resetEncryptFlagsForDirTest)
+
+		encInput = []string{filepath.Join(tmpDir, "*.xyz")}
+		encOutput = filepath.Join(tmpDir, "out.pcv")
+		encPassword = "pw"
+		encQuiet = true
+		encYes = true
+
+		err := encryptCmd.RunE(encryptCmd, []string{})
+		if err == nil {
+			t.Fatal("expected error for non-matching glob pattern")
 		}
-		if len(matches) != 2 {
-			t.Errorf("expected 2 matches, got %d", len(matches))
+		// The specific guard message is load-bearing: deleting the len==0 guard
+		// lets execution fall through to "no files found to encrypt", so a bare
+		// err!=nil check would not catch the mutation.
+		if !strings.Contains(err.Error(), "input file not found") {
+			t.Fatalf("expected %q in error, got: %v", "input file not found", err)
 		}
 	})
 
-	t.Run("glob no matches", func(t *testing.T) {
-		pattern := filepath.Join(tmpDir, "*.xyz")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			t.Fatal(err)
+	t.Run("matching pattern is expanded and encrypted", func(t *testing.T) {
+		resetEncryptFlagsForDirTest()
+		t.Cleanup(resetEncryptFlagsForDirTest)
+
+		outPath := filepath.Join(tmpDir, "matched.pcv")
+		encInput = []string{filepath.Join(tmpDir, "*.txt")} // matches a.txt, b.txt
+		encOutput = outPath
+		encPassword = "pw"
+		encQuiet = true
+		encYes = true
+
+		if err := encryptCmd.RunE(encryptCmd, []string{}); err != nil {
+			t.Fatalf("runEncrypt with matching glob: %v", err)
 		}
-		if len(matches) != 0 {
-			t.Errorf("expected 0 matches, got %d", len(matches))
+		info, err := os.Stat(outPath)
+		if err != nil {
+			t.Fatalf("expected encrypted output %q to exist: %v", outPath, err)
+		}
+		if info.Size() == 0 {
+			t.Fatalf("encrypted output %q is empty", outPath)
 		}
 	})
 }
@@ -453,20 +761,18 @@ func TestReporterOutput(t *testing.T) {
 		if !strings.Contains(buf.String(), "error message") {
 			t.Errorf("PrintError should always output, got: %q", buf.String())
 		}
+		// PrintError prepends "Error: " (reporter.go:101). A leading newline may
+		// precede it when progress was shown; strip it before asserting prefix.
+		// Mutation: dropping the "Error: " prefix in PrintError would turn this red.
+		if got := strings.TrimLeft(buf.String(), "\n"); !strings.HasPrefix(got, "Error: ") {
+			t.Errorf("PrintError output should be %q-prefixed, got: %q", "Error: ", buf.String())
+		}
 	})
 }
 
-func TestVersionFlag(t *testing.T) {
-	// Test that version is set correctly
-	Version = "v1.0.0"
-	if rootCmd.Version != "v1.0.0" {
-		// Version is set by Execute(), so we need to call the setter
-		rootCmd.Version = Version
-	}
-	if rootCmd.Version != "v1.0.0" {
-		t.Errorf("expected version v1.0.0, got %s", rootCmd.Version)
-	}
-}
+// Version wiring is covered behaviorally by TestVersionFlagReachesOutput (version_test.go),
+// which drives the real Execute()/rootCmd and asserts the version reaches CLI output;
+// a tautological "set rootCmd.Version then assert it" test was removed here.
 
 func TestDetectCLIMode(t *testing.T) {
 	testCases := []struct {
@@ -530,10 +836,10 @@ func TestDefaultEncryptOutput(t *testing.T) {
 		pattern := "/tmp/*.txt"
 		allFiles := []string{"/tmp/a.txt", "/tmp/b.txt"}
 
-		got := defaultEncryptOutput(pattern, allFiles, false)
-		if got != "encrypted.pcv" {
-			t.Fatalf("defaultEncryptOutput(%q, %q, false) = %q, want %q",
-				pattern, allFiles, got, "encrypted.pcv")
+		got := defaultEncryptOutput(pattern, allFiles, nil, false, true)
+		if got != "encrypted.zip.pcv" {
+			t.Fatalf("defaultEncryptOutput(%q, %q, nil, false, true) = %q, want %q",
+				pattern, allFiles, got, "encrypted.zip.pcv")
 		}
 	})
 
@@ -541,12 +847,105 @@ func TestDefaultEncryptOutput(t *testing.T) {
 		pattern := "/tmp/*.txt"
 		allFiles := []string{"/tmp/a.txt"}
 
-		got := defaultEncryptOutput(pattern, allFiles, false)
+		got := defaultEncryptOutput(pattern, allFiles, nil, false, false)
 		if got != "/tmp/a.txt.pcv" {
-			t.Fatalf("defaultEncryptOutput(%q, %q, false) = %q, want %q",
+			t.Fatalf("defaultEncryptOutput(%q, %q, nil, false, false) = %q, want %q",
 				pattern, allFiles, got, "/tmp/a.txt.pcv")
 		}
 	})
+
+	t.Run("compressed stdin", func(t *testing.T) {
+		got := defaultEncryptOutput("", []string{"stdin-temp"}, nil, true, true)
+		if got != "encrypted.zip.pcv" {
+			t.Fatalf("defaultEncryptOutput(%q, %q, nil, true, true) = %q, want %q",
+				"", []string{"stdin-temp"}, got, "encrypted.zip.pcv")
+		}
+	})
+}
+
+func TestDefaultCompressOutputNameUsesZipSuffix(t *testing.T) {
+	resetEncryptFlagsForDirTest()
+	resetDecryptFlagsForDirTest()
+	t.Cleanup(resetEncryptFlagsForDirTest)
+	t.Cleanup(resetDecryptFlagsForDirTest)
+
+	tmpDir := t.TempDir()
+	inputFile := filepath.Join(tmpDir, "page.html")
+	plaintext := []byte("<!doctype html><h1>compressed</h1>\n")
+	if err := os.WriteFile(inputFile, plaintext, 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	encInput = []string{inputFile}
+	encPassword = "pw"
+	encCompress = true
+	encQuiet = true
+	encYes = true
+
+	if err := encryptCmd.RunE(encryptCmd, []string{}); err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+
+	want := inputFile + ".zip.pcv"
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("compressed default output %q missing: %v", want, err)
+	}
+	if _, err := os.Stat(inputFile + ".pcv"); !os.IsNotExist(err) {
+		t.Fatalf("compressed default output should not hide zip payload as %q", inputFile+".pcv")
+	}
+
+	resetDecryptFlagsForDirTest()
+	decInput = want
+	decPassword = "pw"
+	decQuiet = true
+	decYes = true
+
+	if err := decryptCmd.RunE(decryptCmd, []string{}); err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	assertZipContainsPlaintext(t, inputFile+".zip", plaintext)
+}
+
+func TestDefaultCompressStdinOutputNameUsesZipSuffix(t *testing.T) {
+	resetEncryptFlagsForDirTest()
+	t.Cleanup(resetEncryptFlagsForDirTest)
+
+	tmpDir := t.TempDir()
+	chdirForTest(t, tmpDir)
+
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	})
+	if _, err := w.Write([]byte("<!doctype html><h1>compressed stdin</h1>\n")); err != nil {
+		t.Fatalf("write stdin pipe: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdin pipe: %v", err)
+	}
+
+	encInput = []string{"-"}
+	encPassword = "pw"
+	encCompress = true
+	encQuiet = true
+	encYes = true
+
+	if err := encryptCmd.RunE(encryptCmd, []string{}); err != nil {
+		t.Fatalf("encrypt stdin: %v", err)
+	}
+
+	if _, err := os.Stat("encrypted.zip.pcv"); err != nil {
+		t.Fatalf("compressed stdin default output missing: %v", err)
+	}
+	if _, err := os.Stat("encrypted.pcv"); !os.IsNotExist(err) {
+		t.Fatal("compressed stdin default output should use encrypted.zip.pcv, not encrypted.pcv")
+	}
 }
 
 func TestEncryptStdinValidation(t *testing.T) {
@@ -574,7 +973,7 @@ func TestEncryptStdinValidation(t *testing.T) {
 
 	t.Run("password stdin empty without keyfiles", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -615,7 +1014,7 @@ func TestEncryptStdinValidation(t *testing.T) {
 
 	t.Run("stdin with multiple inputs conflict", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -658,7 +1057,7 @@ func TestEncryptStdinValidation(t *testing.T) {
 
 	t.Run("stdout with split conflict", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.txt")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -707,11 +1106,11 @@ func TestCleanupEncryptError(t *testing.T) {
 	t.Run("preserves pre-existing output file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		output := filepath.Join(tmpDir, "existing.pcv")
-		if err := os.WriteFile(output, []byte("original"), 0644); err != nil {
+		if err := os.WriteFile(output, []byte("original"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		incomplete := output + ".incomplete"
-		if err := os.WriteFile(incomplete, []byte("partial"), 0644); err != nil {
+		if err := os.WriteFile(incomplete, []byte("partial"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -732,11 +1131,11 @@ func TestCleanupEncryptError(t *testing.T) {
 	t.Run("removes new output file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		output := filepath.Join(tmpDir, "new.pcv")
-		if err := os.WriteFile(output, []byte("new"), 0644); err != nil {
+		if err := os.WriteFile(output, []byte("new"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		incomplete := output + ".incomplete"
-		if err := os.WriteFile(incomplete, []byte("partial"), 0644); err != nil {
+		if err := os.WriteFile(incomplete, []byte("partial"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -753,7 +1152,7 @@ func TestCleanupEncryptError(t *testing.T) {
 	t.Run("stdout mode does not remove output file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		output := filepath.Join(tmpDir, "stdout-temp.pcv")
-		if err := os.WriteFile(output, []byte("temp"), 0644); err != nil {
+		if err := os.WriteFile(output, []byte("temp"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -829,7 +1228,7 @@ func TestDecryptStdinValidation(t *testing.T) {
 
 	t.Run("stdout with auto-unzip conflict", func(t *testing.T) {
 		tmpFile := filepath.Join(t.TempDir(), "test.pcv")
-		if err := os.WriteFile(tmpFile, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 

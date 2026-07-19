@@ -1,16 +1,17 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/volume"
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/volume"
 
 	"github.com/spf13/cobra"
 )
@@ -109,7 +110,7 @@ func init() {
 func runDecrypt(cmd *cobra.Command, args []string) error {
 	// Validate input exists
 	if decInput == "" {
-		return fmt.Errorf("input file is required (-i)")
+		return errors.New("input file is required (-i)")
 	}
 
 	// Check for stdin/stdout
@@ -118,19 +119,19 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// Validate stdin/stdout constraints
 	if useStdin && decPasswordStdin {
-		return fmt.Errorf("cannot use -P (password from stdin) with -i - (input from stdin)")
+		return errors.New("cannot use -P (password from stdin) with -i - (input from stdin)")
 	}
 	if useStdin && decRecombine {
-		return fmt.Errorf("stdin not compatible with --recombine")
+		return errors.New("stdin not compatible with --recombine")
 	}
 	if useStdin && decDeniability {
-		return fmt.Errorf("stdin not compatible with --deniability")
+		return errors.New("stdin not compatible with --deniability")
 	}
 	if useStdout && decAutoUnzip {
-		return fmt.Errorf("stdout not compatible with --auto-unzip")
+		return errors.New("stdout not compatible with --auto-unzip")
 	}
 	if useStdout && decRecombine {
-		return fmt.Errorf("stdout not compatible with --recombine")
+		return errors.New("stdout not compatible with --recombine")
 	}
 
 	// Auto-quiet when outputting to stdout
@@ -138,17 +139,11 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		decQuiet = true
 	}
 
-	// Track temp files for cleanup
+	// Track temp files for cleanup. The stdout temp holds decrypted plaintext and
+	// the stdin temp holds the .pcv input; both are removed when the run ends.
 	var stdinTempFile string
 	var stdoutTempFile string
-	defer func() {
-		if stdinTempFile != "" {
-			_ = os.Remove(stdinTempFile)
-		}
-		if stdoutTempFile != "" {
-			_ = os.Remove(stdoutTempFile)
-		}
-	}()
+	defer func() { cleanupTempFiles(stdinTempFile, stdoutTempFile) }()
 
 	outputFile := decOutput
 	if outputFile == "" && useStdin {
@@ -237,14 +232,18 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 				}
 				response = strings.TrimSpace(strings.ToLower(response))
 				if response != "y" && response != "yes" {
-					return fmt.Errorf("operation cancelled")
+					return errors.New("operation cancelled")
 				}
 			}
 		}
 	}
 
-	// Get password
-	password := decPassword
+	// Get password. Owned []byte from boundary to KDF; zeroed when this returns.
+	// A closure (not `defer crypto.SecureZero(password)`) so the FINAL value is
+	// zeroed — password is reassigned below by the stdin/interactive readers, and
+	// a plain defer would bind the initial []byte(decPassword) at defer time.
+	password := []byte(decPassword)
+	defer func() { crypto.SecureZero(password) }()
 	if decPasswordStdin {
 		var err error
 		password, err = ReadPasswordFromStdin()
@@ -269,7 +268,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	// Try to read header to check if keyfiles are required
 	// Note: with deniability, we can't read the header until wrapper is removed
 	var volumeUsesKeyfiles bool
-	if password == "" && !decDeniability {
+	if len(password) == 0 && !decDeniability {
 		hdr, err := readHeaderInfo(inputFile, rsCodecs)
 		if err == nil {
 			volumeUsesKeyfiles = hdr.Flags.UseKeyfiles
@@ -280,7 +279,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prompt for password interactively if not provided via -p/-P
-	if password == "" {
+	if len(password) == 0 {
 		hasKeyfiles := len(decKeyfiles) > 0
 
 		// With deniability, we can't know if volume uses keyfiles until wrapper is removed.
@@ -349,7 +348,8 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		reporter.PrintError("%v", err)
-		// Clean up partial output on error (temp files cleaned by defer)
+		// Clean up partial output on error (temp files cleaned by defer).
+		// Remove the partially-written .incomplete output.
 		if !useStdout {
 			_ = os.Remove(outputFile + ".incomplete")
 		}
@@ -361,15 +361,22 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		if err := StreamFileToStdout(outputFile); err != nil {
 			return fmt.Errorf("streaming to stdout: %w", err)
 		}
+		if kept {
+			return forceDecryptKeptResult("stdout")
+		}
 		return nil
 	}
 
 	if kept {
-		reporter.PrintSuccess("Decryption completed with warnings (MAC verification failed): %s", outputFile)
-	} else {
-		reporter.PrintSuccess("Decryption completed successfully: %s", outputFile)
+		return forceDecryptKeptResult(outputFile)
 	}
+	reporter.PrintSuccess("Decryption completed successfully: %s", outputFile)
 	return nil
+}
+
+func forceDecryptKeptResult(destination string) error {
+	fmt.Fprintf(os.Stderr, "Warning: Force decrypt kept output after MAC verification failed; recovered data is untrusted: %s\n", destination)
+	return newExitCodeError(ExitForceDecryptKept, "force decrypt kept output after MAC verification failed")
 }
 
 // readHeaderInfo reads just the header to get volume information

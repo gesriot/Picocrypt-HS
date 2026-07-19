@@ -1,17 +1,18 @@
 package fileops
 
 import (
+	"Picocrypt-NG/internal/diskspace"
+	"Picocrypt-NG/internal/util"
 	"archive/zip"
 	"errors"
 	"fmt"
+	slices "golang.org/x/exp/slices"
 	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"Picocrypt-NG/internal/util"
 )
 
 // UnpackOptions configures archive extraction
@@ -37,13 +38,7 @@ func normalizeZipPath(zipPath string) string {
 // hasUnsafeWindowsTrimTraversalComponent rejects path segments that Windows can
 // canonicalize into "." or ".." by trimming trailing spaces or periods.
 func hasUnsafeWindowsTrimTraversalComponent(path string) bool {
-	for _, segment := range strings.Split(strings.ReplaceAll(path, "\\", "/"), "/") {
-		if becomesDotTraversalAfterWindowsTrim(segment) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(strings.Split(strings.ReplaceAll(path, "\\", "/"), "/"), becomesDotTraversalAfterWindowsTrim)
 }
 
 func becomesDotTraversalAfterWindowsTrim(segment string) bool {
@@ -104,13 +99,18 @@ func prepareExtractionPath(extractDir, normalizedName string, isDir bool) (strin
 		switch {
 		case os.IsNotExist(err):
 			if !isLast || isDir {
-				if err := os.Mkdir(next, 0700); err != nil {
+				if err := os.Mkdir(next, 0o700); err != nil {
 					return "", fmt.Errorf("create directory %s: %w", next, err)
 				}
 			}
 		case err != nil:
 			return "", err
 		case info.Mode()&os.ModeSymlink != 0:
+			// SEC-03 invariant (pinned by TestUnpackSymlinkEscape): every path
+			// component is Lstat'd and any symlink rejected before a write, so a
+			// symlinked intermediate dir cannot be followed out of the extraction
+			// root. In-archive symlink entries never reach here as symlinks — they
+			// are materialized as regular files (target string = body).
 			return "", fmt.Errorf("refusing to follow symlink during extraction: %s", next)
 		case !info.IsDir() && (!isLast || isDir):
 			return "", fmt.Errorf("path exists as file: %s", next)
@@ -155,7 +155,7 @@ func walkExtractionRoot(current string, parts []string, create bool, allowLeadin
 			if !create {
 				return "", fmt.Errorf("extraction directory does not exist: %s", filepath.Join(current, filepath.Join(parts[i:]...)))
 			}
-			if err := os.Mkdir(next, 0700); err != nil {
+			if err := os.Mkdir(next, 0o700); err != nil {
 				return "", fmt.Errorf("create extraction directory %s: %w", next, err)
 			}
 		case err != nil:
@@ -261,10 +261,18 @@ func Unpack(opts UnpackOptions) (retErr error) {
 	if err != nil {
 		return err
 	}
+	extractRoot, err := openRoot(extractDir)
+	if err != nil {
+		return fmt.Errorf("open extraction root %s: %w", extractDir, err)
+	}
+	defer func() {
+		if err := extractRoot.Close(); err != nil && retErr == nil {
+			retErr = fmt.Errorf("close extraction root: %w", err)
+		}
+	}()
 
-	// First pass: create all directories and cache normalized paths
-	// Cache normalized paths to avoid redundant normalization in second pass
-	normalizedPaths := make(map[*zip.File]string, len(reader.File))
+	// First pass: create all directories and calculate the maximum write size
+	// per output path for the free-space preflight.
 	desiredSizes := make(map[string]int64)
 	for _, f := range reader.File {
 		// Normalize and validate path to prevent zip slip attacks
@@ -276,9 +284,6 @@ func Unpack(opts UnpackOptions) (retErr error) {
 		if err != nil {
 			return err
 		}
-
-		// Cache the output path for second pass
-		normalizedPaths[f] = outPath
 
 		if f.FileInfo().IsDir() {
 			continue
@@ -298,7 +303,7 @@ func Unpack(opts UnpackOptions) (retErr error) {
 	}
 	probe := opts.AvailableSpace
 	if probe == nil {
-		probe = availableSpace
+		probe = diskspace.Available
 	}
 	if available, err := probe(extractDir); err == nil && requiredAdditionalBytes > available {
 		return fmt.Errorf("insufficient disk space for extraction: need %d bytes, have %d", requiredAdditionalBytes, available)
@@ -321,18 +326,30 @@ func Unpack(opts UnpackOptions) (retErr error) {
 			continue
 		}
 
-		// Retrieve pre-validated output path from cache
-		outPath := normalizedPaths[f]
+		// Revalidate immediately before writing. The first pass creates
+		// directories and sizes the extraction; this pass closes the parent-dir
+		// swap window and writes through os.Root so the open is root-confined.
+		if hasUnsafeWindowsTrimTraversalComponent(f.Name) {
+			return errors.New("potentially malicious zip item path")
+		}
+		normalizedName := normalizeZipPath(f.Name)
+		outPath, err := prepareExtractionPath(extractDir, normalizedName, false)
+		if err != nil {
+			return err
+		}
 
 		fileInArchive, err := f.Open()
 		if err != nil {
 			return fmt.Errorf("open %s in archive: %w", f.Name, err)
 		}
 
-		dstFile, err := CreateSecureNoSymlink(outPath)
+		dstFile, err := extractRoot.OpenFile(normalizedName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			_ = fileInArchive.Close()
 			return fmt.Errorf("create %s: %w", outPath, err)
+		}
+		removeExtractedFile := func() {
+			_ = extractRoot.Remove(normalizedName)
 		}
 
 		// Decompression bomb protection
@@ -361,7 +378,7 @@ func Unpack(opts UnpackOptions) (retErr error) {
 			if opts.Cancel != nil && opts.Cancel() {
 				_ = dstFile.Close()
 				_ = fileInArchive.Close()
-				_ = os.Remove(outPath)
+				removeExtractedFile()
 				return errors.New("operation cancelled")
 			}
 
@@ -371,7 +388,7 @@ func Unpack(opts UnpackOptions) (retErr error) {
 				if written > maxBytes {
 					_ = dstFile.Close()
 					_ = fileInArchive.Close()
-					_ = os.Remove(outPath)
+					removeExtractedFile()
 					return fmt.Errorf("decompression limit exceeded: %s (ratio >%d:1)",
 						f.Name, util.MaxDecompressRatio)
 				}
@@ -379,7 +396,7 @@ func Unpack(opts UnpackOptions) (retErr error) {
 				if _, err := dstFile.Write(buf[:n]); err != nil {
 					_ = dstFile.Close()
 					_ = fileInArchive.Close()
-					_ = os.Remove(outPath)
+					removeExtractedFile()
 					return fmt.Errorf("write %s: %w", outPath, err)
 				}
 

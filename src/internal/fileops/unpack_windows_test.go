@@ -139,8 +139,11 @@ func TestIsValidExtractionPathWindows(t *testing.T) {
 	}
 }
 
-// TestFilepathFromSlashLimitations documents known limitations of filepath.FromSlash
-// that could affect Windows behavior.
+// TestFilepathFromSlashLimitations verifies that normalizeZipPath collapses both
+// slash styles to the single OS path separator on every platform, so neither a
+// forward slash nor a backslash can smuggle a hidden path component past
+// extraction-root validation. The named inputs are the historically tricky
+// filepath.FromSlash edge cases.
 func TestFilepathFromSlashLimitations(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -164,25 +167,22 @@ func TestFilepathFromSlashLimitations(t *testing.T) {
 		},
 	}
 
+	// foreignSeparator is the slash that is NOT this platform's path separator.
+	// normalizeZipPath converts every separator to the OS one, so the foreign
+	// slash must never survive: on Windows the backslash is a legitimate
+	// separator (not a violation), while a stray forward slash would be; on Unix
+	// the reverse holds.
+	foreignSeparator := "\\"
+	if filepath.Separator == '\\' {
+		foreignSeparator = "/"
+	}
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := filepath.FromSlash(tc.input)
-			t.Logf("Platform: %s", runtime.GOOS)
-			t.Logf("Input: %q", tc.input)
-			t.Logf("Output: %q", result)
-			t.Logf("Description: %s", tc.description)
-
-			// Verify our normalizeZipPath handles this correctly
 			normalized := normalizeZipPath(tc.input)
-			t.Logf("After normalizeZipPath: %q", normalized)
-
-			// On Windows, backslashes should be removed before FromSlash
-			if runtime.GOOS == "windows" && strings.Contains(tc.input, "\\") {
-				// Our normalizeZipPath should have converted backslashes to forward slashes first
-				// Then FromSlash converts them to platform separator
-				if !strings.Contains(normalized, string(filepath.Separator)) {
-					t.Logf("Note: Input had backslashes, normalized correctly")
-				}
+			if strings.Contains(normalized, foreignSeparator) {
+				t.Errorf("normalizeZipPath(%q) = %q retains foreign separator %q; must use only the OS separator %q (%s)",
+					tc.input, normalized, foreignSeparator, string(filepath.Separator), tc.description)
 			}
 		})
 	}

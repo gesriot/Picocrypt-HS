@@ -1,10 +1,11 @@
 name: picocrypt-ng
 summary: A very small, very simple, yet very secure encryption tool.
 description: Picocrypt NG is a very small, very simple, yet very secure encryption tool that you can use to protect your files. It's designed to be the go-to tool for encryption, with a focus on security, simplicity, and reliability. Picocrypt NG uses the secure XChaCha20 cipher and the Argon2id key derivation function to provide a high level of security.
-version: "2.08"
+version: "2.18"
 confinement: strict
 base: core22
 grade: stable
+compression: xz
 
 apps:
   picocrypt-ng:
@@ -17,9 +18,50 @@ apps:
       - home
 
 parts:
+  go-deps:
+    plugin: dump
+    source: https://go.dev/dl/go1.26.5.linux-amd64.tar.gz
+    source-type: tar
+    source-checksum: sha256/5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+    organize:
+      '*': go/
+    prime:
+      - -go/
+
   picocrypt-ng:
     plugin: go
     source: .
+    after: [go-deps]
+    build-environment:
+      - PATH: "${CRAFT_STAGE}/go/bin:${PATH}"
+      - GOROOT: "${CRAFT_STAGE}/go"
+      - GOTOOLCHAIN: local
+    override-build: |
+      test "$(go env GOVERSION)" = "go1.26.5"
+      test "$(go env GOROOT)" = "$CRAFT_STAGE/go"
+      export GOFLAGS="-tags=migrated_fynedo"
+      craftctl default
+      install -d "$CRAFT_PART_INSTALL/bin"
+      if [ -x "$CRAFT_PART_INSTALL/bin/picocrypt" ]; then
+        mv "$CRAFT_PART_INSTALL/bin/picocrypt" "$CRAFT_PART_INSTALL/bin/Picocrypt-NG"
+      fi
+      if [ ! -x "$CRAFT_PART_INSTALL/bin/Picocrypt-NG" ]; then
+        cd "$CRAFT_PROJECT_DIR"
+        go build -v -ldflags="-s -w" -o "$CRAFT_PART_INSTALL/bin/Picocrypt-NG" ./cmd/picocrypt
+      fi
+      # MIME XML — system-wide MIME registration declaration
+      install -d "$CRAFT_PART_INSTALL/usr/share/mime/packages"
+      install -m 0644 "$CRAFT_PROJECT_DIR/dist/mime/application-x-pcv.xml" \
+        "$CRAFT_PART_INSTALL/usr/share/mime/packages/"
+      # Hicolor mimetypes icon set (16/32/48/64/128/256 PNG + scalable SVG)
+      for size in 16 32 48 64 128 256; do
+        install -d "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/${size}x${size}/mimetypes"
+        install -m 0644 "$CRAFT_PROJECT_DIR/images/pcv-icon-${size}.png" \
+          "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/${size}x${size}/mimetypes/application-x-pcv.png"
+      done
+      install -d "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/mimetypes"
+      install -m 0644 "$CRAFT_PROJECT_DIR/images/pcv-icon.svg" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/mimetypes/application-x-pcv.svg"
     build-packages:
       - gcc
       - pkg-config
@@ -32,14 +74,3 @@ parts:
       - libxi-dev
       - libxxf86vm-dev
       - libffi-dev
-    build-snaps:
-      - go
-    stage-packages:
-      - libc6
-      - libgcc-s1
-      - libgl1
-      - libglu1-mesa
-      - libgtk-3-0
-      - libstdc++6
-      - libx11-6
-      - libffi7

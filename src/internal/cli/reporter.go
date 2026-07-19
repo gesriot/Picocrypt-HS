@@ -60,10 +60,7 @@ func (r *Reporter) Update() {
 
 	// Build progress bar
 	barWidth := 30
-	filled := int(r.progress * float32(barWidth))
-	if filled > barWidth {
-		filled = barWidth
-	}
+	filled := min(int(r.progress*float32(barWidth)), barWidth)
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 
 	// Format: [████████░░░░░░░░░░░░░░░░░░░░░░] 25.00% | Encrypting at 150.00 MiB/s (ETA: 0:05)

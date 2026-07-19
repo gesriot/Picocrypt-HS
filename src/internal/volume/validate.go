@@ -1,9 +1,10 @@
 package volume
 
 import (
-	"os"
-
 	"Picocrypt-NG/internal/errors"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"os"
 )
 
 // Validate checks that the EncryptRequest has all required fields and valid configuration.
@@ -15,8 +16,15 @@ func (req *EncryptRequest) Validate() error {
 	}
 
 	// Check for credentials
-	if req.Password == "" && len(req.Keyfiles) == 0 {
+	if len(req.Password) == 0 && len(req.Keyfiles) == 0 {
 		return errors.ErrNoCredentials
+	}
+
+	// QUAL-05: reject an over-long comment here, before the expensive Argon2id
+	// key derivation, instead of only at write time (header/writer.go). This
+	// only moves *when* the existing bound is enforced — no on-disk format change.
+	if len(req.Comments) > header.MaxCommentLen {
+		return errors.ErrCommentTooLong
 	}
 
 	// Check output file is specified
@@ -25,10 +33,8 @@ func (req *EncryptRequest) Validate() error {
 	}
 
 	// Validate split options
-	if req.Split {
-		if req.ChunkSize <= 0 {
-			return errors.ErrInvalidChunkSize
-		}
+	if err := req.validateSplit(); err != nil {
+		return err
 	}
 
 	// Validate input files exist
@@ -51,6 +57,24 @@ func (req *EncryptRequest) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateSplit checks the split configuration. It is shared by Validate and by
+// the Encrypt pipeline entry so an unusable chunk size is rejected once, on every
+// path. An over-large size must be caught here: scaled to bytes it overflows
+// int64 and silently wraps, turning fileops.Split into a no-op the pipeline
+// would mistake for success and then delete the just-written volume.
+func (req *EncryptRequest) validateSplit() error {
+	if !req.Split {
+		return nil
+	}
+	if req.ChunkSize <= 0 {
+		return errors.ErrInvalidChunkSize
+	}
+	if _, err := fileops.ChunkSizeToBytes(req.ChunkSize, req.ChunkUnit); err != nil {
+		return errors.ErrChunkSizeTooLarge
+	}
 	return nil
 }
 
@@ -88,7 +112,7 @@ func (req *DecryptRequest) Validate() error {
 // ValidateCredentials checks that credentials are provided for decryption.
 // This should be called after reading the header to know if keyfiles are required.
 func (req *DecryptRequest) ValidateCredentials(keyfilesRequired bool) error {
-	hasPassword := req.Password != ""
+	hasPassword := len(req.Password) > 0
 	hasKeyfiles := len(req.Keyfiles) > 0
 
 	// Must have at least one credential type
@@ -102,103 +126,4 @@ func (req *DecryptRequest) ValidateCredentials(keyfilesRequired bool) error {
 	}
 
 	return nil
-}
-
-// EncryptRequestBuilder provides a fluent interface for building EncryptRequest.
-type EncryptRequestBuilder struct {
-	req EncryptRequest
-}
-
-// NewEncryptRequestBuilder creates a new builder for EncryptRequest.
-func NewEncryptRequestBuilder() *EncryptRequestBuilder {
-	return &EncryptRequestBuilder{}
-}
-
-// WithInputFile sets the single input file.
-func (b *EncryptRequestBuilder) WithInputFile(path string) *EncryptRequestBuilder {
-	b.req.InputFile = path
-	return b
-}
-
-// WithInputFiles sets multiple input files.
-func (b *EncryptRequestBuilder) WithInputFiles(paths []string) *EncryptRequestBuilder {
-	b.req.InputFiles = paths
-	return b
-}
-
-// WithOutputFile sets the output file path.
-func (b *EncryptRequestBuilder) WithOutputFile(path string) *EncryptRequestBuilder {
-	b.req.OutputFile = path
-	return b
-}
-
-// WithPassword sets the encryption password.
-func (b *EncryptRequestBuilder) WithPassword(password string) *EncryptRequestBuilder {
-	b.req.Password = password
-	return b
-}
-
-// WithKeyfiles sets the keyfile paths.
-func (b *EncryptRequestBuilder) WithKeyfiles(paths []string, ordered bool) *EncryptRequestBuilder {
-	b.req.Keyfiles = paths
-	b.req.KeyfileOrdered = ordered
-	return b
-}
-
-// WithComments sets the plaintext comments.
-func (b *EncryptRequestBuilder) WithComments(comments string) *EncryptRequestBuilder {
-	b.req.Comments = comments
-	return b
-}
-
-// WithParanoidMode enables paranoid mode.
-func (b *EncryptRequestBuilder) WithParanoidMode(enabled bool) *EncryptRequestBuilder {
-	b.req.Paranoid = enabled
-	return b
-}
-
-// WithReedSolomon enables Reed-Solomon error correction.
-func (b *EncryptRequestBuilder) WithReedSolomon(enabled bool) *EncryptRequestBuilder {
-	b.req.ReedSolomon = enabled
-	return b
-}
-
-// WithDeniability enables deniability wrapper.
-func (b *EncryptRequestBuilder) WithDeniability(enabled bool) *EncryptRequestBuilder {
-	b.req.Deniability = enabled
-	return b
-}
-
-// WithCompression enables compression.
-func (b *EncryptRequestBuilder) WithCompression(enabled bool) *EncryptRequestBuilder {
-	b.req.Compress = enabled
-	return b
-}
-
-// WithSplit enables output splitting.
-func (b *EncryptRequestBuilder) WithSplit(chunkSize int, unit string) *EncryptRequestBuilder {
-	b.req.Split = true
-	b.req.ChunkSize = chunkSize
-	// Convert string unit to fileops.SplitUnit (handled by caller)
-	return b
-}
-
-// WithReporter sets the progress reporter.
-func (b *EncryptRequestBuilder) WithReporter(reporter ProgressReporter) *EncryptRequestBuilder {
-	b.req.Reporter = reporter
-	return b
-}
-
-// Build validates and returns the EncryptRequest.
-func (b *EncryptRequestBuilder) Build() (*EncryptRequest, error) {
-	if err := b.req.Validate(); err != nil {
-		return nil, err
-	}
-	return &b.req, nil
-}
-
-// BuildUnchecked returns the EncryptRequest without validation.
-// Use this when validation will be done later or externally.
-func (b *EncryptRequestBuilder) BuildUnchecked() *EncryptRequest {
-	return &b.req
 }

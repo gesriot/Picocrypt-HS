@@ -3,11 +3,11 @@ package io.github.picocrypt_ng.picocrypt_ng.ui.components
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.picocrypt_ng.picocrypt_ng.FormData
 import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
+import io.github.picocrypt_ng.picocrypt_ng.R
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,7 +31,9 @@ class FileCardTest {
             ChooseFile(viewModel = viewModel)
         }
 
-        composeTestRule.onRoot().assertIsDisplayed()
+        // With no file selected, ChooseFile falls back to the file-picker prompt
+        // (FileCard.kt: selectedFilename.ifEmpty { stringResource(R.string.choose_file) }).
+        composeTestRule.onNodeWithText(application.getString(R.string.choose_file)).assertIsDisplayed()
     }
 
     @Test

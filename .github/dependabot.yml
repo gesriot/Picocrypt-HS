@@ -4,3 +4,11 @@ updates:
     directory: "src/"
     schedule:
       interval: "daily"
+  - package-ecosystem: "gradle"
+    directory: "android/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"

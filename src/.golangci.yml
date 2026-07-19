@@ -1,21 +1,39 @@
 version: "2"
 
 run:
-  timeout: 5m
+  timeout: 10m
   build-tags:
     - cli
-  modules-download-mode: vendor
-  tests: false
+  modules-download-mode: readonly
+  # Lint test files too. Test code is production code: bugs and non-idiomatic
+  # patterns there mislead just as much. (Previously false, which let test-only
+  # issues slip the gate entirely.)
+  tests: true
 
 linters:
   default: standard
   enable:
+    # Security + correctness
     - gosec
     - govet
     - staticcheck
     - errcheck
     - ineffassign
     - unused
+    - bodyclose # unclosed HTTP response bodies
+    - nilerr # returns nil after a non-nil error check
+    - makezero # make([]T, len) then append — silent prefix of zeros
+    - errorlint # == / type-assert on errors instead of errors.Is/As
+    # Idiomatic Go
+    - intrange # for i := 0; i < n; i++  ->  for i := range n (Go 1.22+)
+    - copyloopvar # redundant loop-var copy (Go 1.22+)
+    - usestdlibvars # magic strings that have stdlib constants
+    - unconvert # redundant type conversions
+    - unparam # unused function params / results
+    - perfsprint # fmt.Sprintf where a cheaper conversion exists
+    - misspell # spelling in comments/strings
+    - whitespace # leading/trailing whitespace in funcs
+    - gocritic # opinionated but high-signal correctness/style checks
   disable:
     - depguard
   exclusions:
@@ -29,11 +47,42 @@ linters:
       - path: internal/ui/
         linters:
           - typecheck
+      # gosec G115 false positives: fd/syscall/size/color conversions are
+      # bounded well below 2^63 by the surrounding format/protocol.
+      - path: internal/fileops/
+        linters:
+          - gosec
+        text: G115
+      - path: internal/cli/
+        linters:
+          - gosec
+        text: G115
+      - path: internal/header/
+        linters:
+          - gosec
+        text: G115
+      # Platform false positive: appendOpenedPath/flushOpenedPaths and the
+      # openedPathsNotify handler are called only from macos_open_darwin.go
+      # (//go:build darwin), which the linux lint host never compiles, so the
+      # unused linter cannot see their callers. Live + tested on macOS.
+      - path: internal/ui/macos_open\.go
+        linters:
+          - unused
+      # Tests legitimately ignore returns, use ad-hoc params, and trip the
+      # production security scanner on fixtures (test passwords -> G101,
+      # temp-dir perms -> G301/G302, controlled paths -> G703). gosec stays
+      # full-strength on production code; excluding it in tests removes noise,
+      # not coverage.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - unparam
+          - gosec
   settings:
     gosec:
       excludes:
-        - G304 # File inclusion via variable - expected for file encryption tool
-        - G204 # Subprocess with variable - test builds
+        - G304 # File inclusion via variable — expected for a file-encryption tool
+        - G204 # Subprocess with variable — test builds
       config:
         global:
           nosec: true
@@ -46,4 +95,18 @@ linters:
     staticcheck:
       checks:
         - "all"
-        - "-QF1003" # tagged switch suggestion - too pedantic
+        - "-QF1003" # tagged-switch suggestion — too pedantic
+    gocritic:
+      disabled-checks:
+        - ifElseChain # if/else-if vs switch — style only, not a defect
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt # stricter superset of gofmt
+    - goimports # import grouping/ordering
+  exclusions:
+    paths:
+      - vendor
+      - fyne
+      - testdata

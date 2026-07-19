@@ -1,27 +1,32 @@
+// Package mobile is the gomobile bridge between the Go crypto core and the
+// Android (Kotlin/Compose) host application.
 package mobile
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
+	"Picocrypt-NG/internal/volume"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"Picocrypt-NG/internal/encoding"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
-	"Picocrypt-NG/internal/volume"
 )
 
-var runEncrypt = volume.Encrypt
-var runDecrypt = volume.Decrypt
+var (
+	runEncrypt = volume.Encrypt
+	runDecrypt = volume.Decrypt
+)
 
 // StartOperation creates a new operation and returns its ID.
 // This should be called before StartEncrypt or StartDecrypt.
 func StartOperation() string {
-	id, _, _ := startOperation()
+	id := startOperation()
 	return id
 }
 
@@ -51,8 +56,10 @@ func DetectOperation(filePath string) (isEncrypt bool, err error) {
 type EncryptRequestJSON struct {
 	OperationID    string   `json:"operationID"`
 	InputFile      string   `json:"inputFile"`
+	InputFiles     []string `json:"inputFiles"`
+	OnlyFolders    []string `json:"onlyFolders"`
+	OnlyFiles      []string `json:"onlyFiles"`
 	OutputFile     string   `json:"outputFile"`
-	Password       string   `json:"password"`
 	Comments       string   `json:"comments"`
 	Keyfiles       []string `json:"keyfiles"`
 	Paranoid       bool     `json:"paranoid"`
@@ -67,7 +74,6 @@ type DecryptRequestJSON struct {
 	OperationID  string   `json:"operationID"`
 	InputFile    string   `json:"inputFile"`
 	OutputFile   string   `json:"outputFile"`
-	Password     string   `json:"password"`
 	Keyfiles     []string `json:"keyfiles"`
 	ForceDecrypt bool     `json:"forceDecrypt"`
 	VerifyFirst  bool     `json:"verifyFirst"`
@@ -82,7 +88,10 @@ type DecryptRequestJSON struct {
 // Returns an error message (empty string on success).
 // Errors during execution are also reported through the progress system (GetProgress).
 // requestJSON is a JSON string containing all encryption parameters.
-func StartEncrypt(requestJSON string) string {
+// password carries the plaintext password as raw bytes (kept out of the JSON so
+// it never becomes an un-zeroable JVM String); it is zeroed before this returns.
+func StartEncrypt(requestJSON string, password []byte) string {
+	defer crypto.SecureZero(password)
 
 	var req EncryptRequestJSON
 	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
@@ -99,25 +108,41 @@ func StartEncrypt(requestJSON string) string {
 	}
 
 	// Validate inputs
-	if req.InputFile == "" {
-		return failOperation(req.OperationID, fmt.Errorf("input file is required"))
+	if req.InputFile == "" && len(req.InputFiles) == 0 {
+		return failOperation(req.OperationID, errors.New("input file is required"))
 	}
 	if req.OutputFile == "" {
-		return failOperation(req.OperationID, fmt.Errorf("output file is required"))
+		return failOperation(req.OperationID, errors.New("output file is required"))
 	}
-	if req.Password == "" && len(req.Keyfiles) == 0 {
-		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
+	if len(password) == 0 && len(req.Keyfiles) == 0 {
+		return failOperation(req.OperationID, errors.New("password or keyfiles required"))
 	}
+
+	// Own a goroutine-private []byte copy of the password BEFORE launching the
+	// worker. The worker runs async and the outer `defer crypto.SecureZero(password)`
+	// above fires on this function's return — the goroutine must NOT read `password`
+	// itself or it races that zeroing. pwCopy is captured by the goroutine and zeroed
+	// when the worker returns. No intermediate immutable string is created.
+	pwCopy := append([]byte(nil), password...)
+
+	// Capture only the operation ID for the delayed cleanup so the
+	// credential-bearing worker goroutine below can drop pwCopy/req the instant it
+	// returns, instead of holding them alive across the 60s poll window.
+	opID := req.OperationID
 
 	// Start the operation in a goroutine
 	go func() {
+		defer crypto.SecureZero(pwCopy)
 
 		defer func() {
-			// Delay cleanup to allow UI to poll for final status
-			// Extended to 60 seconds to handle cases where app is backgrounded
-			// and user returns after operation completes
-			time.Sleep(60 * time.Second)
-			cleanupOperation(req.OperationID)
+			// Delay cleanup to allow UI to poll for final status (60s handles the
+			// app being backgrounded). Run it in its OWN goroutine capturing only
+			// opID, so this worker goroutine returns immediately after
+			// completeOperation, releasing pwCopy/req/encryptReq before the sleep.
+			go func() {
+				time.Sleep(60 * time.Second)
+				cleanupOperation(opID)
+			}()
 		}()
 
 		// Recover from panics to prevent silent failures
@@ -140,8 +165,11 @@ func StartEncrypt(requestJSON string) string {
 		// Build encrypt request
 		encryptReq := &volume.EncryptRequest{
 			InputFile:      req.InputFile,
+			InputFiles:     req.InputFiles,
+			OnlyFolders:    req.OnlyFolders,
+			OnlyFiles:      req.OnlyFiles,
 			OutputFile:     req.OutputFile,
-			Password:       req.Password,
+			Password:       pwCopy,
 			Keyfiles:       req.Keyfiles,
 			KeyfileOrdered: req.KeyfileOrdered,
 			Comments:       req.Comments,
@@ -178,7 +206,11 @@ func StartEncrypt(requestJSON string) string {
 // Returns an error message (empty string on success).
 // Errors during execution are also reported through the progress system (GetProgress).
 // requestJSON is a JSON string containing all decryption parameters.
-func StartDecrypt(requestJSON string) string {
+// password carries the plaintext password as raw bytes (kept out of the JSON so
+// it never becomes an un-zeroable JVM String); it is zeroed before this returns.
+func StartDecrypt(requestJSON string, password []byte) string {
+	defer crypto.SecureZero(password)
+
 	var req DecryptRequestJSON
 	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
 		return fmt.Sprintf("failed to parse request JSON: %v", err)
@@ -195,23 +227,40 @@ func StartDecrypt(requestJSON string) string {
 
 	// Validate inputs
 	if req.InputFile == "" {
-		return failOperation(req.OperationID, fmt.Errorf("input file is required"))
+		return failOperation(req.OperationID, errors.New("input file is required"))
 	}
 	if req.OutputFile == "" {
-		return failOperation(req.OperationID, fmt.Errorf("output file is required"))
+		return failOperation(req.OperationID, errors.New("output file is required"))
 	}
-	if req.Password == "" && len(req.Keyfiles) == 0 {
-		return failOperation(req.OperationID, fmt.Errorf("password or keyfiles required"))
+	if len(password) == 0 && len(req.Keyfiles) == 0 {
+		return failOperation(req.OperationID, errors.New("password or keyfiles required"))
 	}
+
+	// Own a goroutine-private []byte copy of the password BEFORE launching the
+	// worker. The worker runs async and the outer `defer crypto.SecureZero(password)`
+	// above fires on this function's return — the goroutine must NOT read `password`
+	// itself or it races that zeroing. pwCopy is captured by the goroutine and zeroed
+	// when the worker returns. No intermediate immutable string is created.
+	pwCopy := append([]byte(nil), password...)
+
+	// Capture only the operation ID for the delayed cleanup so the
+	// credential-bearing worker goroutine below can drop pwCopy/req the instant it
+	// returns, instead of holding them alive across the 60s poll window.
+	opID := req.OperationID
 
 	// Start the operation in a goroutine
 	go func() {
+		defer crypto.SecureZero(pwCopy)
+
 		defer func() {
-			// Delay cleanup to allow UI to poll for final status
-			// Extended to 60 seconds to handle cases where app is backgrounded
-			// and user returns after operation completes
-			time.Sleep(60 * time.Second)
-			cleanupOperation(req.OperationID)
+			// Delay cleanup to allow UI to poll for final status (60s handles the
+			// app being backgrounded). Run it in its OWN goroutine capturing only
+			// opID, so this worker goroutine returns immediately after
+			// completeOperation, releasing pwCopy/req/decryptReq before the sleep.
+			go func() {
+				time.Sleep(60 * time.Second)
+				cleanupOperation(opID)
+			}()
 		}()
 
 		defer func() {
@@ -234,7 +283,7 @@ func StartDecrypt(requestJSON string) string {
 		decryptReq := &volume.DecryptRequest{
 			InputFile:    req.InputFile,
 			OutputFile:   req.OutputFile,
-			Password:     req.Password,
+			Password:     pwCopy,
 			Keyfiles:     req.Keyfiles,
 			ForceDecrypt: req.ForceDecrypt,
 			VerifyFirst:  req.VerifyFirst,
@@ -280,6 +329,10 @@ type ProgressResult struct {
 	Info     string
 	Done     bool
 	Error    string
+	// Code is the stable, locale-independent error classification (see
+	// errorCode); empty unless the operation failed. The Kotlin layer switches
+	// on it instead of substring-matching Error.
+	Code string
 }
 
 // GetProgress retrieves the current progress state for an operation.
@@ -294,6 +347,7 @@ func GetProgress(operationID string) (*ProgressResult, error) {
 		Info:     state.Info,
 		Done:     state.Done,
 		Error:    state.Error,
+		Code:     state.Code,
 	}, nil
 }
 
@@ -347,6 +401,7 @@ func GetDecryptionInfo(filePath string) (string, error) {
 	}
 
 	// Open file and read header
+	// #nosec G304 -- filePath is the user-selected encrypted volume to inspect.
 	fin, err := os.Open(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
@@ -384,7 +439,6 @@ type androidProgressReporter struct {
 }
 
 func (r *androidProgressReporter) SetStatus(text string) {
-
 	globalProgressMap.mu.RLock()
 	op, exists := globalProgressMap.ops[r.opID]
 	globalProgressMap.mu.RUnlock()
@@ -397,7 +451,6 @@ func (r *androidProgressReporter) SetStatus(text string) {
 }
 
 func (r *androidProgressReporter) SetProgress(fraction float32, info string) {
-
 	globalProgressMap.mu.RLock()
 	op, exists := globalProgressMap.ops[r.opID]
 	globalProgressMap.mu.RUnlock()

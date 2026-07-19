@@ -11,21 +11,48 @@ import (
 )
 
 type workflowDoc struct {
+	On          workflowTriggers       `yaml:"on"`
 	Permissions map[string]string      `yaml:"permissions"`
 	Jobs        map[string]workflowJob `yaml:"jobs"`
 }
 
+type workflowTriggers struct {
+	WorkflowDispatch workflowDispatch `yaml:"workflow_dispatch"`
+}
+
+type workflowDispatch struct {
+	Inputs map[string]workflowDispatchInput `yaml:"inputs"`
+}
+
+type workflowDispatchInput struct {
+	Description string `yaml:"description"`
+	Required    bool   `yaml:"required"`
+	Type        string `yaml:"type"`
+	Default     any    `yaml:"default"`
+}
+
 type workflowJob struct {
-	Permissions map[string]string `yaml:"permissions"`
-	Steps       []workflowStep    `yaml:"steps"`
+	If              string            `yaml:"if"`
+	Needs           any               `yaml:"needs"`
+	TimeoutMinutes  int               `yaml:"timeout-minutes"`
+	ContinueOnError any               `yaml:"continue-on-error"`
+	Environment     any               `yaml:"environment"`
+	Permissions     map[string]string `yaml:"permissions"`
+	Env             map[string]string `yaml:"env"`
+	Steps           []workflowStep    `yaml:"steps"`
 }
 
 type workflowStep struct {
-	Name string            `yaml:"name"`
-	Uses string            `yaml:"uses"`
-	Run  string            `yaml:"run"`
-	With map[string]any    `yaml:"with"`
-	Env  map[string]string `yaml:"env"`
+	ID               string            `yaml:"id"`
+	Name             string            `yaml:"name"`
+	Uses             string            `yaml:"uses"`
+	Run              string            `yaml:"run"`
+	If               string            `yaml:"if"`
+	TimeoutMinutes   int               `yaml:"timeout-minutes"`
+	WorkingDirectory string            `yaml:"working-directory"`
+	ContinueOnError  any               `yaml:"continue-on-error"`
+	With             map[string]any    `yaml:"with"`
+	Env              map[string]string `yaml:"env"`
 }
 
 func repoRoot(t *testing.T) string {
@@ -52,10 +79,15 @@ func repoRoot(t *testing.T) string {
 
 func mustReadWorkflow(t *testing.T, relPath string) string {
 	t.Helper()
+	return mustReadRepoFile(t, relPath)
+}
+
+func mustReadRepoFile(t *testing.T, relPath string) string {
+	t.Helper()
 
 	content, err := os.ReadFile(filepath.Join(repoRoot(t), relPath))
 	if err != nil {
-		t.Fatalf("read workflow %s: %v", relPath, err)
+		t.Fatalf("read %s: %v", relPath, err)
 	}
 	return strings.ReplaceAll(string(content), "\r\n", "\n")
 }
@@ -123,18 +155,6 @@ func mustStepNamed(t *testing.T, job workflowJob, name string) workflowStep {
 	return workflowStep{}
 }
 
-func mustStepUsing(t *testing.T, job workflowJob, uses string) workflowStep {
-	t.Helper()
-
-	for _, step := range job.Steps {
-		if step.Uses == uses {
-			return step
-		}
-	}
-	t.Fatalf("expected job to contain step using %q", uses)
-	return workflowStep{}
-}
-
 func mustNotHaveStepNamed(t *testing.T, job workflowJob, name string) {
 	t.Helper()
 
@@ -165,6 +185,19 @@ func mustContain(t *testing.T, content, substring string) {
 	}
 }
 
+func mustContainInOrder(t *testing.T, content string, substrings ...string) {
+	t.Helper()
+
+	offset := 0
+	for _, substring := range substrings {
+		index := strings.Index(content[offset:], substring)
+		if index < 0 {
+			t.Fatalf("expected workflow to contain %q after byte offset %d", substring, offset)
+		}
+		offset += index + len(substring)
+	}
+}
+
 func mustNotContain(t *testing.T, content, substring string) {
 	t.Helper()
 
@@ -183,18 +216,4 @@ func mustMatch(t *testing.T, content, pattern string) {
 	if !matched {
 		t.Fatalf("expected workflow to match %q", pattern)
 	}
-}
-
-func mustExtractSection(t *testing.T, content, pattern string) string {
-	t.Helper()
-
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		t.Fatalf("compile pattern %q: %v", pattern, err)
-	}
-	matches := re.FindStringSubmatch(content)
-	if len(matches) < 2 {
-		t.Fatalf("expected workflow to contain section matching %q", pattern)
-	}
-	return matches[1]
 }

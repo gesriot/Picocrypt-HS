@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	slices "golang.org/x/exp/slices"
 	"os"
 	"os/signal"
 	"strings"
@@ -10,16 +12,64 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/term"
 )
 
 // Version is set by main.go
 var Version = "dev"
 
+const (
+	ExitGeneralError     = 1
+	ExitForceDecryptKept = 2
+)
+
+type ExitCodeError interface {
+	error
+	ExitCode() int
+}
+
+type exitCodeError struct {
+	message string
+	code    int
+}
+
+func newExitCodeError(code int, message string) error {
+	return exitCodeError{
+		message: message,
+		code:    code,
+	}
+}
+
+func (e exitCodeError) Error() string {
+	return e.message
+}
+
+func (e exitCodeError) ExitCode() int {
+	return e.code
+}
+
+func exitCodeForError(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	var exitErr ExitCodeError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return ExitGeneralError
+}
+
+func isExitCodeError(err error) bool {
+	var exitErr ExitCodeError
+	return errors.As(err, &exitErr)
+}
+
 // rootCmd is the base command when called without subcommands
 var rootCmd = &cobra.Command{
 	Use:   "Picocrypt-NG",
 	Short: "Secure file encryption tool",
-	Long: `Picocrypt-NG is a secure, audited file encryption tool that uses:
+	Long: `Picocrypt-NG is a secure file encryption tool that uses:
   - Argon2id for password-based key derivation (memory-hard, GPU-resistant)
   - XChaCha20 for symmetric encryption (256-bit security, extended nonce)
   - BLAKE2b-512 for message authentication (or HMAC-SHA3 in paranoid mode)
@@ -30,6 +80,43 @@ var rootCmd = &cobra.Command{
 
 // Global reporter for signal handling (atomic for safe concurrent access)
 var globalReporter atomic.Pointer[Reporter]
+
+// savedTerminalState holds the terminal mode captured at the start of an
+// interactive password prompt. term.ReadPassword puts the tty in no-echo mode
+// and restores it via a deferred ioctl on normal return; but a SIGINT during
+// the prompt drives the signal handler to os.Exit, which skips deferred
+// functions and would leave the shell with echo disabled. The signal handler
+// reads this to restore the tty before exiting. Nil outside a prompt, so the
+// restore is a no-op on every other path.
+var savedTerminalState atomic.Pointer[term.State]
+
+// exitFn and restoreTerminalFn are overridable in tests; the signal path calls
+// os.Exit and a real termios ioctl, neither of which a unit test can exercise.
+var (
+	exitFn            = os.Exit
+	restoreTerminalFn = func(s *term.State) { _ = term.Restore(int(os.Stdin.Fd()), s) }
+)
+
+// handleSignal runs when SIGINT/SIGTERM arrives. If an operation is in flight
+// (reporter stored), it cancels cooperatively. Otherwise (typically during the
+// interactive password prompt, before the reporter is stored) it restores the
+// terminal mode and exits, so the shell is not left with echo disabled.
+func handleSignal() {
+	if r := globalReporter.Load(); r != nil {
+		r.Cancel()
+		fmt.Fprintln(os.Stderr, "\nCancelling operation...")
+		return
+	}
+	restoreTerminalState()
+	exitFn(1)
+}
+
+// restoreTerminalState restores the tty mode captured at prompt start, if any.
+func restoreTerminalState() {
+	if s := savedTerminalState.Load(); s != nil {
+		restoreTerminalFn(s)
+	}
+}
 
 // Execute runs the CLI application.
 // Returns true if CLI mode was activated, false if GUI should run instead.
@@ -46,17 +133,14 @@ func Execute(version string) bool {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		if r := globalReporter.Load(); r != nil {
-			r.Cancel()
-			fmt.Fprintln(os.Stderr, "\nCancelling operation...")
-		} else {
-			os.Exit(1)
-		}
+		handleSignal()
 	}()
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		if !isExitCodeError(err) {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+		}
+		os.Exit(exitCodeForError(err))
 	}
 	return true
 }
@@ -128,13 +212,7 @@ func lookupRootPersistentFlag(token string) *pflag.Flag {
 }
 
 func hasKnownRootCommand(args []string) bool {
-	for _, arg := range args {
-		if isKnownRootCommand(arg) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(args, isKnownRootCommand)
 }
 
 func isKnownRootCommand(token string) bool {
@@ -146,10 +224,8 @@ func isKnownRootCommand(token string) bool {
 		if cmd.Name() == token {
 			return true
 		}
-		for _, alias := range cmd.Aliases {
-			if alias == token {
-				return true
-			}
+		if slices.Contains(cmd.Aliases, token) {
+			return true
 		}
 	}
 

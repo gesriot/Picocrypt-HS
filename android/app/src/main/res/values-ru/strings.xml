@@ -1,0 +1,161 @@
+<resources>
+    <!-- File Card -->
+    <string name="choose_file">Выберите файл</string>
+    <string name="copying_file">Копирование файла…</string>
+    <string name="choose_file_description">Выбрать файл</string>
+    <string name="choose_single_file">Один файл</string>
+    <string name="choose_multiple_files">Несколько файлов</string>
+    <string name="choose_folder">Папка</string>
+    <plurals name="selected_files_count">
+        <item quantity="one">Выбран %1$d файл</item>
+        <item quantity="few">Выбрано %1$d файла</item>
+        <item quantity="many">Выбрано %1$d файлов</item>
+        <item quantity="other">Выбрано %1$d файлов</item>
+    </plurals>
+    
+    <!-- Password Card -->
+    <string name="password">Пароль</string>
+    <string name="confirm_password">Повторите пароль</string>
+    <string name="enter_password">Введите пароль</string>
+    <string name="passwords_must_match">Пароли не совпадают</string>
+    <string name="hide_password">Скрыть пароль</string>
+    <string name="show_password">Показать пароль</string>
+    
+    <!-- Comments Card -->
+    <string name="comments">Комментарии</string>
+    <string name="comments_not_readable">Комментарии нельзя просмотреть в режиме правдоподобного отрицания</string>
+    <string name="comments_disabled_deniability">Отключено в режиме правдоподобного отрицания</string>
+    <string name="comments_plaintext_warning">Комментарии хранятся как открытые метаданные. Не указывайте здесь секреты.</string>
+    
+    <!-- Keyfile Card -->
+    <string name="keyfiles">Ключевые файлы</string>
+    <plurals name="keyfiles_count">
+        <item quantity="one">%1$d ключевой файл</item>
+        <item quantity="few">%1$d ключевых файла</item>
+        <item quantity="many">%1$d ключевых файлов</item>
+        <item quantity="other">%1$d ключевых файлов</item>
+    </plurals>
+    <plurals name="keyfiles_required_count">
+        <item quantity="one">Требуется %1$d ключевой файл</item>
+        <item quantity="few">Требуется %1$d ключевых файла</item>
+        <item quantity="many">Требуется %1$d ключевых файлов</item>
+        <item quantity="other">Требуется %1$d ключевых файлов</item>
+    </plurals>
+    <string name="add">Добавить</string>
+    <string name="new_keyfile">Новый</string>
+    <string name="clear">Очистить</string>
+    <string name="copying">Копирование…</string>
+    <string name="creating">Создание…</string>
+    <string name="require_this_order">Требовать этот порядок</string>
+    <string name="error_creating_keyfile">Ошибка создания ключевого файла</string>
+    <string name="keyfile_write_failed">Не удалось записать ключевой файл в выбранное место</string>
+    <string name="keyfile_create_failed">Не удалось создать ключевой файл: %1$s</string>
+    <string name="keyfiles_required_warning">Для этого тома требуются ключевые файлы</string>
+    <string name="keyfile_order_matters">Используйте ключевые файлы в требуемом порядке</string>
+    
+    <!-- Advanced Card -->
+    <string name="advanced_settings">Дополнительные настройки (%1$d)</string>
+    <string name="reed_solomon">Reed-Solomon</string>
+    <string name="paranoid">Параноидальный режим</string>
+    <string name="deniability">Правдоподобное отрицание</string>
+    <string name="compress">Сжатие</string>
+    <string name="expand_or_collapse">Развернуть или свернуть</string>
+
+    <!-- Decrypt Options Card -->
+    <string name="decrypt_options">Параметры расшифровки (%1$d)</string>
+    <string name="verify_first">Сначала проверить целостность</string>
+
+    <!-- Decryption Info Card -->
+    <string name="encryption_settings">Параметры шифрования</string>
+    <string name="keyfiles_section">Ключевые файлы</string>
+    <string name="required">Требуются: %1$s</string>
+    <string name="yes">Да</string>
+    <string name="no">Нет</string>
+    <string name="order_matters">Порядок важен: %1$s</string>
+    <string name="advanced_settings_section">Дополнительные настройки</string>
+    <string name="reed_solomon_status">Reed-Solomon: %1$s</string>
+    <string name="deniability_status">Правдоподобное отрицание: %1$s</string>
+    <string name="paranoid_mode_status">Параноидальный режим: %1$s</string>
+    <string name="enabled">Включено</string>
+    <string name="disabled">Отключено</string>
+    <string name="unknown">Неизвестно</string>
+    <string name="deniability_note">Этот том использует режим правдоподобного отрицания. Метаданные заголовка нельзя просмотреть до расшифровки; часть настроек неизвестна.</string>
+    <string name="comments_section">Комментарии</string>
+    <string name="no_comments">Комментариев нет</string>
+    
+    <!-- Work Button -->
+    <string name="encrypt_file">Зашифровать файл</string>
+    <string name="decrypt_file">Расшифровать файл</string>
+    <string name="processing">Обработка…</string>
+    
+    <!-- Progress Card -->
+    <string name="encrypting">Шифрование…</string>
+    <string name="decrypting">Расшифровка…</string>
+    <string name="cancel">Отмена</string>
+    <string name="data_corruption_detected">Обнаружено повреждение данных</string>
+    <string name="force_decrypt_warning">Зашифрованный том не прошёл проверку целостности. Принудительная расшифровка сохраняет непроверенный результат, который может быть частично или полностью повреждён.</string>
+    <string name="force_decrypt">Расшифровать принудительно</string>
+    <string name="authentication_error">Ошибка аутентификации</string>
+    <string name="retry">Повторить</string>
+    <string name="error">Ошибка</string>
+    <string name="unknown_error_occurred">Произошла неизвестная ошибка</string>
+    <string name="close">Закрыть</string>
+    <string name="operation_cancelled">Операция отменена</string>
+    <string name="operation_cancelled_message">Результат не был создан. Временные файлы будут удалены.</string>
+    <string name="encryption_complete">Шифрование завершено</string>
+    <string name="decryption_complete">Расшифровка завершена</string>
+    <string name="operation_completed_successfully">Операция завершена. Сохраните результат, чтобы оставить его.</string>
+    <string name="error_saving_file">Ошибка сохранения файла: %1$s</string>
+    <string name="save">Сохранить</string>
+    <string name="discard_output">Не сохранять результат</string>
+    
+    <!-- Error Dialog -->
+    <string name="ok">OK</string>
+    
+    <!-- Logo Bar -->
+    <string name="logo_icon">значок логотипа</string>
+    <string name="logo_text">текст логотипа</string>
+
+    <!-- Privacy & Security -->
+    <string name="privacy_security">Приватность и безопасность</string>
+    <string name="prevent_screenshots">Запретить снимки экрана</string>
+    <string name="prevent_screenshots_description">Блокирует снимки экрана и запись экрана, а также скрывает содержимое приложения в списке недавних приложений.</string>
+
+    <!-- Foreground Service -->
+    <string name="fgs_channel_name">Ход операции</string>
+    <string name="fgs_encrypting">Шифрование</string>
+    <string name="fgs_decrypting">Расшифровка</string>
+    <string name="fgs_working">Выполняется…</string>
+
+    <!-- Operation status display text; OperationStatus.kt constants remain bridge strings. -->
+    <string name="status_starting">Запуск…</string>
+    <string name="status_completed">Готово</string>
+    <string name="status_cancelled">Отменено</string>
+    <string name="status_error">Ошибка</string>
+
+    <!-- Stable error display boundary -->
+    <string name="error_auth_failed">Аутентификация не удалась. Проверьте пароль, ключевые файлы и их порядок.</string>
+    <string name="error_data_corrupted">Проверка целостности не пройдена. Результат не проверен и может быть повреждён.</string>
+    <string name="error_file_not_found">Файл не найден или недоступен.</string>
+    <string name="error_unknown">Произошла неизвестная ошибка.</string>
+    <string name="error_operation_start_failed">Не удалось запустить операцию.</string>
+    <string name="error_no_active_operation">Нет активной операции.</string>
+    <string name="error_no_operation_to_retry">Нет активной операции для повтора.</string>
+    <string name="error_operation_data_unavailable">Данные операции недоступны для повтора.</string>
+    <string name="error_decrypt_retry_only">Только операции расшифровки можно повторить с принудительной расшифровкой.</string>
+    <string name="error_no_file_selected">Выберите файл.</string>
+    <string name="error_invalid_password">Введите пароль.</string>
+    <string name="error_passwords_mismatch">Пароли не совпадают.</string>
+    <string name="error_split_volume_not_supported">Разделённые тома не поддерживаются на Android. Сначала объедините части на компьютере, затем перенесите один файл %1$s.</string>
+    <string name="error_copy_failed">Не удалось скопировать файл.</string>
+    <string name="error_save_failed">Не удалось сохранить файл.</string>
+    <string name="error_delete_failed">Не удалось удалить файл.</string>
+    <string name="error_insufficient_storage">Недостаточно свободного места для шифрования выбранных данных. Нужно %1$d байт; доступно %2$d байт.</string>
+    <string name="error_could_not_open_folder">Не удалось открыть папку.</string>
+    <string name="error_selected_folder_empty">Выбранная папка пуста.</string>
+    <string name="error_read_folder_failed">Не удалось прочитать папку: %1$s</string>
+    <string name="error_could_not_open_selected_file">Не удалось открыть выбранный файл.</string>
+    <string name="error_no_files_selected">Файлы не выбраны.</string>
+    <string name="error_copy_files_failed">Не удалось скопировать файлы: %1$s</string>
+    <string name="error_detect_operation_type_failed">Не удалось определить тип операции.</string>
+</resources>

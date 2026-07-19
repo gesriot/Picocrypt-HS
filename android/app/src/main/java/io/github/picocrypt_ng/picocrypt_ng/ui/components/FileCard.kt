@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,13 +38,17 @@ import io.github.picocrypt_ng.picocrypt_ng.GoBridge
 import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
 import io.github.picocrypt_ng.picocrypt_ng.R
 import androidx.compose.runtime.collectAsState
+import io.github.picocrypt_ng.picocrypt_ng.StagedSelection
+import io.github.picocrypt_ng.picocrypt_ng.StagingService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
 @Composable
 fun ChooseFile(viewModel: MainViewModel) {
     val context = LocalContext.current
+    val unknownErrorMsg = stringResource(R.string.error_unknown)
     val formData by viewModel.formState.collectAsState()
     var isCopying by remember { mutableStateOf(false) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
@@ -99,7 +107,7 @@ fun ChooseFile(viewModel: MainViewModel) {
                         val appError = if (error is AppError) {
                             error
                         } else {
-                            AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                            AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
                         }
                         viewModel.setError(appError)
                         viewModel.updateFormData(
@@ -117,7 +125,7 @@ fun ChooseFile(viewModel: MainViewModel) {
                 val appError = if (error is AppError) {
                     error
                 } else {
-                    AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                    AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
                 }
                 viewModel.setError(appError)
                 viewModel.updateFormData(
@@ -133,7 +141,7 @@ fun ChooseFile(viewModel: MainViewModel) {
             val appError = if (error is AppError) {
                 error
             } else {
-                AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
             }
             viewModel.setError(appError)
         }
@@ -159,15 +167,49 @@ fun ChooseFile(viewModel: MainViewModel) {
                 }
             }
             selectedFileName = fileName
-            selectedUri = it // Trigger LaunchedEffect
+            if (FormData.isSplitVolumeChunkName(fileName)) {
+                // Split-volume chunk (secret.pcv.0): Android cannot recombine sibling
+                // chunks. Surface the reason loudly and skip copy/detect -- otherwise it
+                // would be treated as an encrypt target and double-encrypted.
+                viewModel.setError(AppError.ValidationError.SplitVolumeNotSupported)
+            } else {
+                selectedUri = it // Trigger LaunchedEffect (copy + detect)
+            }
         }
     }
-    
+
+    val scope = rememberCoroutineScope()
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        isCopying = true
+        scope.launch {
+            val result = StagingService.copyTreeToStaging(context, uri)
+            applyStagedSelection(viewModel, result, unknownErrorMsg)
+            isCopying = false
+        }
+    }
+
+    val filesPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        isCopying = true
+        scope.launch {
+            val result = StagingService.copyFilesToStaging(context, uris, System.currentTimeMillis() / 1000)
+            applyStagedSelection(viewModel, result, unknownErrorMsg)
+            isCopying = false
+        }
+    }
+
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp)
-            .clickable(enabled = !isCopying) { filePickerLauncher.launch("*/*") },
+            .clickable(enabled = !isCopying) { menuOpen = true },
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         if (isCopying) {
@@ -175,17 +217,67 @@ fun ChooseFile(viewModel: MainViewModel) {
             Text(stringResource(R.string.copying_file))
         } else {
             Text(formData.selectedFilename.ifEmpty { stringResource(R.string.choose_file) })
-            Icon(
-                imageVector = Icons.Filled.Folder,
-                contentDescription = stringResource(R.string.choose_file_description)
-            )
+            // Keep the folder icon and its dropdown in a Box: a DropdownMenu placed directly in
+            // this SpaceBetween Row would, while expanded, add a zero-size popup anchor as a third
+            // arrangement child, shoving the icon from the right edge toward the center. Anchoring
+            // the menu inside the Box keeps the Row at two children, so the icon never moves.
+            Box {
+                Icon(
+                    imageVector = Icons.Filled.Folder,
+                    contentDescription = stringResource(R.string.choose_file_description)
+                )
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.choose_single_file)) },
+                        onClick = { menuOpen = false; filePickerLauncher.launch("*/*") }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.choose_multiple_files)) },
+                        onClick = { menuOpen = false; filesPickerLauncher.launch(arrayOf("*/*")) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.choose_folder)) },
+                        onClick = { menuOpen = false; folderPickerLauncher.launch(null) }
+                    )
+                }
+            }
         }
     }
 }
 
+private fun applyStagedSelection(
+    viewModel: MainViewModel,
+    result: Result<StagedSelection>,
+    unknownErrorMsg: String,
+) {
+    result.onSuccess { sel ->
+        viewModel.resetFormToDefaults()
+        val base = viewModel.formState.value
+        viewModel.updateFormData(
+            base.copy(
+                selectedFilename = sel.displayName,
+                copiedFilePath = "",
+                inputFiles = sel.inputFiles,
+                onlyFolders = sel.onlyFolders,
+                onlyFiles = sel.onlyFiles,
+                selectionKind = sel.kind,
+                suggestedOutputName = sel.suggestedOutputName,
+                comments = "",
+                decryptionInfo = null,
+            )
+        )
+    }.onFailure { error ->
+        viewModel.setError(
+            (error as? AppError) ?: AppError.fromException(
+                error as? Exception ?: Exception(error.message ?: unknownErrorMsg)
+            )
+        )
+    }
+}
+
 @Composable
-fun FileCard(viewModel: MainViewModel) {
-    Card {
+fun FileCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+    Card(modifier = modifier) {
         Column(
             modifier = Modifier.padding(8.dp)
         ) {

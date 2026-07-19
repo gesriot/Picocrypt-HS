@@ -23,12 +23,14 @@ import io.github.picocrypt_ng.picocrypt_ng.MainViewModel
 import io.github.picocrypt_ng.picocrypt_ng.OperationViewModel
 import io.github.picocrypt_ng.picocrypt_ng.AppError
 import io.github.picocrypt_ng.picocrypt_ng.R
+import io.github.picocrypt_ng.picocrypt_ng.localizedMessage
 
 
 @Composable
 fun WorkButton(
     mainViewModel: MainViewModel,
-    operationViewModel: OperationViewModel
+    operationViewModel: OperationViewModel,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val formData by mainViewModel.formState.collectAsState()
@@ -42,7 +44,7 @@ fun WorkButton(
     var showErrorDialog by rememberSaveable { mutableStateOf<AppError?>(null) }
     
     val isOperationActive = operationState != null && !operationState!!.done
-    val isButtonEnabled = formData.isFormValid && !isOperationActive && formData.copiedFilePath.isNotEmpty()
+    val isButtonEnabled = formData.isFormValid && !isOperationActive && formData.hasSelectedInput
     var shouldStartOperation by remember { mutableStateOf(false) }
     
     // Start operation when button is clicked
@@ -65,7 +67,7 @@ fun WorkButton(
         onClick = {
             shouldStartOperation = true
         },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
         enabled = isButtonEnabled
     ) {
@@ -77,7 +79,7 @@ fun WorkButton(
         AlertDialog(
             onDismissRequest = { showErrorDialog = null },
             title = { Text(stringResource(R.string.error)) },
-            text = { Text(error.userMessage) },
+            text = { Text(error.localizedMessage(context)) },
             confirmButton = {
                 TextButton(onClick = { showErrorDialog = null }) {
                     Text(stringResource(R.string.ok))

@@ -42,11 +42,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.security.SecureRandom
 import io.github.picocrypt_ng.picocrypt_ng.R
+import io.github.picocrypt_ng.picocrypt_ng.localizedMessage
 
 
 @Composable
 fun AddKeyfile(viewModel: MainViewModel) {
     val context = LocalContext.current
+    val unknownErrorMsg = stringResource(R.string.error_unknown)
     val formData by viewModel.formState.collectAsState()
     var isCopying by remember { mutableStateOf(false) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
@@ -77,7 +79,7 @@ fun AddKeyfile(viewModel: MainViewModel) {
             val appError = if (error is AppError) {
                 error
             } else {
-                AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
             }
             viewModel.setError(appError)
         }
@@ -130,6 +132,9 @@ fun NewKeyfile(viewModel: MainViewModel) {
     var createdFileName by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showErrorDialog by rememberSaveable { mutableStateOf(false) }
+    val keyfileWriteFailedMsg = stringResource(R.string.keyfile_write_failed)
+    val keyfileCreateFailedMsg = stringResource(R.string.keyfile_create_failed)
+    val unknownErrorMsg = stringResource(R.string.error_unknown)
     
     // Generate default filename with timestamp
     val defaultFileName = remember {
@@ -160,11 +165,13 @@ fun NewKeyfile(viewModel: MainViewModel) {
                     } ?: false
                 } catch (e: Exception) {
                     false
+                } finally {
+                    randomBytes.fill(0) // zero key material after write
                 }
             }
-            
+
             if (!writeSuccess) {
-                errorMessage = "Failed to write keyfile to selected location"
+                errorMessage = keyfileWriteFailedMsg
                 showErrorDialog = true
                 isCreating = false
                 createdUri = null
@@ -193,14 +200,14 @@ fun NewKeyfile(viewModel: MainViewModel) {
                 val appError = if (error is AppError) {
                     error
                 } else {
-                    AppError.fromException(error as? Exception ?: Exception(error.message ?: "Unknown error"))
+                    AppError.fromException(error as? Exception ?: Exception(error.message ?: unknownErrorMsg))
                 }
                 viewModel.setError(appError)
-                errorMessage = appError.userMessage
+                errorMessage = appError.localizedMessage(context)
                 showErrorDialog = true
             }
         } catch (e: Exception) {
-            errorMessage = "Failed to create keyfile: ${e.message ?: "Unknown error"}"
+            errorMessage = keyfileCreateFailedMsg.format(e.message ?: unknownErrorMsg)
             showErrorDialog = true
         } finally {
             isCreating = false
@@ -321,7 +328,8 @@ fun KeyfileNames(viewModel: MainViewModel) {
 }
 
 @Composable
-fun KeyfileCard(viewModel: MainViewModel) {
+fun KeyfileCard(viewModel: MainViewModel, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     val formData by viewModel.formState.collectAsState()
     if (!(formData.isDecrypt || formData.isEncrypt)) {
         return
@@ -343,9 +351,17 @@ fun KeyfileCard(viewModel: MainViewModel) {
     
     // Build title with "Required" indicator if needed
     val titleText = if (keyfilesRequired) {
-        stringResource(R.string.keyfiles_required, formData.keyfileFilenames.size)
+        context.resources.getQuantityString(
+            R.plurals.keyfiles_required_count,
+            formData.keyfileFilenames.size,
+            formData.keyfileFilenames.size,
+        )
     } else {
-        stringResource(R.string.keyfiles_count, formData.keyfileFilenames.size)
+        context.resources.getQuantityString(
+            R.plurals.keyfiles_count,
+            formData.keyfileFilenames.size,
+            formData.keyfileFilenames.size,
+        )
     }
     
     // Use error color if keyfiles are required but missing
@@ -355,7 +371,7 @@ fun KeyfileCard(viewModel: MainViewModel) {
         null
     }
     
-    ExpandableCard(title = titleText, titleColor = titleColor) {
+    ExpandableCard(title = titleText, modifier = modifier, titleColor = titleColor) {
         Row {
             Column(
                 modifier = Modifier

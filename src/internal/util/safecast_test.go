@@ -28,29 +28,3 @@ func TestSafeUint64ToInt64(t *testing.T) {
 		})
 	}
 }
-
-func TestSafeIntToInt32(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  int
-		want   int32
-		wantOK bool
-	}{
-		{"zero", 0, 0, true},
-		{"positive", 100, 100, true},
-		{"negative", -100, -100, true},
-		{"max int32", math.MaxInt32, math.MaxInt32, true},
-		{"min int32", math.MinInt32, math.MinInt32, true},
-		{"overflow positive", math.MaxInt32 + 1, 0, false},
-		{"overflow negative", math.MinInt32 - 1, 0, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := SafeIntToInt32(tt.input)
-			if got != tt.want || ok != tt.wantOK {
-				t.Errorf("SafeIntToInt32(%d) = (%d, %v), want (%d, %v)",
-					tt.input, got, ok, tt.want, tt.wantOK)
-			}
-		})
-	}
-}

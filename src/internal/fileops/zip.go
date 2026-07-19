@@ -1,16 +1,16 @@
 package fileops
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/util"
 	"archive/zip"
 	"crypto/rand"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-
-	"Picocrypt-NG/internal/util"
+	"time"
 
 	"golang.org/x/crypto/chacha20"
 )
@@ -49,7 +49,7 @@ type encryptedReader struct {
 func (er *encryptedReader) Read(data []byte) (int, error) {
 	src := make([]byte, len(data))
 	n, err := er.r.Read(src)
-	if err == nil && n > 0 {
+	if n > 0 {
 		dst := make([]byte, n)
 		er.cipher.XORKeyStream(dst, src[:n])
 		copy(data, dst)
@@ -68,8 +68,8 @@ func (er *encryptedReader) Read(data []byte) (int, error) {
 type TempZipCiphers struct {
 	Writer *chacha20.Cipher // Used when writing the zip archive
 	Reader *chacha20.Cipher // Used when reading back for encryption
-	key    []byte           // Ephemeral key (retained for secure zeroing)
-	nonce  []byte           // Nonce (retained for secure zeroing)
+	key    *crypto.Secret   // Ephemeral key (owned for secure zeroing)
+	nonce  *crypto.Secret   // Nonce (owned for secure zeroing)
 	closed bool
 }
 
@@ -110,8 +110,8 @@ func NewTempZipCiphers() (*TempZipCiphers, error) {
 	return &TempZipCiphers{
 		Writer: writer,
 		Reader: reader,
-		key:    key,
-		nonce:  nonce,
+		key:    crypto.SecretFrom(key),
+		nonce:  crypto.SecretFrom(nonce),
 	}, nil
 }
 
@@ -124,20 +124,10 @@ func (t *TempZipCiphers) Close() {
 	if t == nil || t.closed {
 		return
 	}
-
-	// Zero key material using constant-time copy to prevent optimization removal
-	if len(t.key) > 0 {
-		zeros := make([]byte, len(t.key))
-		subtle.ConstantTimeCopy(1, t.key, zeros)
-		t.key = nil
-	}
-	if len(t.nonce) > 0 {
-		zeros := make([]byte, len(t.nonce))
-		subtle.ConstantTimeCopy(1, t.nonce, zeros)
-		t.nonce = nil
-	}
-
-	// Clear cipher references to aid garbage collection
+	t.key.Close()
+	t.nonce.Close()
+	t.key = nil
+	t.nonce = nil
 	t.Writer = nil
 	t.Reader = nil
 	t.closed = true
@@ -180,7 +170,7 @@ func entryNameForPath(opts ZipOptions, path string) (string, error) {
 // Returns the path to the created archive.
 // On error or cancellation, the partial output file is removed.
 func CreateZip(opts ZipOptions) error {
-	file, err := CreateSecure(opts.OutputPath)
+	file, err := CreateSecureNoSymlink(opts.OutputPath)
 	if err != nil {
 		return fmt.Errorf("create zip file: %w", err)
 	}
@@ -211,15 +201,28 @@ func CreateZip(opts ZipOptions) error {
 	}
 
 	var done int64
+	startTime := time.Now()
+
+	// report drives the progress bar and the speed/ETA status line, mirroring
+	// split.go/recombine.go so the compression pass shows an ETA like the others.
+	report := func(fileIndex int) {
+		if opts.Progress == nil {
+			return
+		}
+		progress, speed, eta := util.Statify(done, totalSize, startTime)
+		opts.Progress(progress, fmt.Sprintf("%d/%d", fileIndex+1, len(opts.Files)))
+		if opts.Status != nil {
+			opts.Status(fmt.Sprintf("Compressing at %.2f MiB/s (ETA: %s)", speed, eta))
+		}
+	}
+
 	for i, path := range opts.Files {
 		if opts.Cancel != nil && opts.Cancel() {
 			cleanup()
 			return errors.New("operation cancelled")
 		}
 
-		if opts.Progress != nil {
-			opts.Progress(float32(done)/float32(totalSize), fmt.Sprintf("%d/%d", i+1, len(opts.Files)))
-		}
+		report(i)
 
 		stat, err := os.Stat(path)
 		if err != nil {
@@ -275,10 +278,7 @@ func CreateZip(opts ZipOptions) error {
 					return fmt.Errorf("write to zip: %w", err)
 				}
 				done += int64(n)
-
-				if opts.Progress != nil {
-					opts.Progress(float32(done)/float32(totalSize), fmt.Sprintf("%d/%d", i+1, len(opts.Files)))
-				}
+				report(i)
 			}
 
 			if readErr == io.EOF {

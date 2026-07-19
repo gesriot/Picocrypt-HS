@@ -4,224 +4,303 @@ package ui
 import (
 	"testing"
 
-	"Picocrypt-NG/internal/app"
+	"fyne.io/fyne/v2"
+
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
 
-// TestPasswordStrengthScoring tests password strength calculation.
+// TestPasswordStrengthScoring drives the real updatePasswordStrength and asserts
+// it writes the zxcvbn score into State.PasswordStrength and the strength widget.
+// It pins the contract that the score is monotonic in real password strength
+// (a known-weak password must not score above a known-strong one) rather than
+// recomputing zxcvbn inline, so it fails if updatePasswordStrength stops calling
+// zxcvbn or stores the wrong value.
+// TestNonASCIIPasswordHint verifies the #19 advisory is shown only while
+// encrypting with a non-ASCII password, and hidden for ASCII passwords or in
+// decrypt mode. It drives the real updateNonASCIIHint against the built widget.
+func TestNonASCIIPasswordHint(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	// Built from a code point so the literal cannot be silently re-normalized.
+	nonASCII := "caf" + string([]rune{0x00E9})
+
+	fyne.DoAndWait(func() {
+		if a.nonASCIIHint == nil {
+			t.Fatal("nonASCIIHint widget was not built")
+		}
+
+		a.State.Mode = "encrypt"
+		a.State.Password = nonASCII
+		a.updateNonASCIIHint()
+		if !a.nonASCIIHint.Visible() {
+			t.Error("hint should be visible for a non-ASCII password in encrypt mode")
+		}
+
+		a.State.Password = "plain-ascii"
+		a.updateNonASCIIHint()
+		if a.nonASCIIHint.Visible() {
+			t.Error("hint should be hidden for an ASCII password")
+		}
+
+		a.State.Mode = "decrypt"
+		a.State.Password = nonASCII
+		a.updateNonASCIIHint()
+		if a.nonASCIIHint.Visible() {
+			t.Error("hint should be hidden in decrypt mode")
+		}
+	})
+}
+
 func TestPasswordStrengthScoring(t *testing.T) {
-	newTestFyneApp(t)
+	fyneApp := newTestFyneApp(t)
 
-	// Note: zxcvbn library returns scores 0-4
-	testCases := []struct {
-		name     string
-		password string
-		minScore int // Minimum expected score
-		maxScore int // Maximum expected score
-	}{
-		{"Empty", "", 0, 0},
-		{"VeryWeak", "a", 0, 0},
-		{"Weak", "password", 0, 1},
-		{"Medium", "Password1", 1, 2},
-		{"Strong", "MyP@ssw0rd!2024", 2, 4},
-		{"VeryStrong", "x7#Kp$9mNq@2vL!zY", 3, 4},
-		{"LongPassphrase", "correct horse battery staple", 3, 4},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			a := createTestApp(t)
-			a.State.Password = tc.password
-
-			// The updatePasswordStrength function uses zxcvbn
-			// We test the state changes, not the actual zxcvbn scoring
-			if tc.password == "" {
-				if a.State.PasswordStrength != 0 {
-					t.Errorf("Empty password should have strength 0, got %d", a.State.PasswordStrength)
-				}
+	score := func(password string) int {
+		a := createUIReadyDropTestApp(t, fyneApp)
+		var s int
+		fyne.DoAndWait(func() {
+			a.State.Password = password
+			a.updatePasswordStrength()
+			s = a.State.PasswordStrength
+			// The widget must mirror the stored score.
+			if a.strengthIndicator.strength != s {
+				t.Fatalf("strengthIndicator.strength = %d; want %d", a.strengthIndicator.strength, s)
 			}
 		})
+		return s
+	}
+
+	if got := score(""); got != 0 {
+		t.Errorf("empty password strength = %d; want 0", got)
+	}
+
+	weak := score("a")
+	strong := score("x7#Kp$9mNq@2vL!zY")
+	if weak >= strong {
+		t.Errorf("weak score (%d) should be < strong score (%d)", weak, strong)
+	}
+	if weak < 0 || strong > 4 {
+		t.Errorf("scores out of zxcvbn range: weak=%d strong=%d", weak, strong)
 	}
 }
 
-// TestPasswordVisibilityToggle tests show/hide password functionality.
+// TestPasswordVisibilityToggle drives the real show/hide button built in
+// buildPasswordSection. Desktop renders the control as an icon button with a
+// localized tooltip, and tapping flips both that tooltip and the masking on
+// BOTH entries. It fails if the toggle stops re-labelling the action or stops
+// un/re-masking the entries.
 func TestPasswordVisibilityToggle(t *testing.T) {
-	newTestFyneApp(t)
+	fyneApp := newTestFyneApp(t)
 
-	a := createTestApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
 
-	// Initially hidden
-	if !a.State.IsPasswordHidden() {
-		t.Error("Password should be hidden initially")
+	fyne.DoAndWait(func() {
+		wantShow := tr("password.show", "Show")
+		wantHide := tr("password.hide", "Hide")
+
+		// Initially hidden: action tooltip says "Show", both entries masked.
+		if !a.State.IsPasswordHidden() {
+			t.Error("Password should be hidden initially")
+		}
+		if a.showHideBtn.ToolTip() != wantShow {
+			t.Errorf("button tooltip should be %q, got %q", wantShow, a.showHideBtn.ToolTip())
+		}
+		if !a.passwordEntry.IsHidden() || !a.cPasswordEntry.IsHidden() {
+			t.Error("both entries should be masked initially")
+		}
+
+		// Tap to reveal: action tooltip says "Hide", entries unmasked.
+		a.showHideBtn.OnTapped()
+		if a.State.IsPasswordHidden() {
+			t.Error("Password should be visible after toggle")
+		}
+		if a.showHideBtn.ToolTip() != wantHide {
+			t.Errorf("button tooltip should be %q after toggle, got %q", wantHide, a.showHideBtn.ToolTip())
+		}
+		if a.passwordEntry.IsHidden() || a.cPasswordEntry.IsHidden() {
+			t.Error("both entries should be unmasked while shown")
+		}
+
+		// Tap again to hide: action tooltip returns to "Show", entries re-masked.
+		a.showHideBtn.OnTapped()
+		if !a.State.IsPasswordHidden() {
+			t.Error("Password should be hidden after second toggle")
+		}
+		if a.showHideBtn.ToolTip() != wantShow {
+			t.Errorf("button tooltip should be %q after second toggle, got %q", wantShow, a.showHideBtn.ToolTip())
+		}
+		if !a.passwordEntry.IsHidden() || !a.cPasswordEntry.IsHidden() {
+			t.Error("both entries should be re-masked after hiding")
+		}
+	})
+}
+
+func TestPasswordToolbarUsesLocalizedTooltips(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		if a.showHideBtn.ToolTip() != tr("password.show", "Show") {
+			t.Fatalf("show/hide tooltip = %q; want localized Show label", a.showHideBtn.ToolTip())
+		}
+		if a.clearPwdBtn.ToolTip() != tr("action.clear", "Clear") {
+			t.Fatalf("clear tooltip = %q; want localized Clear label", a.clearPwdBtn.ToolTip())
+		}
+		if a.copyBtn.ToolTip() != tr("action.copy", "Copy") {
+			t.Fatalf("copy tooltip = %q; want localized Copy label", a.copyBtn.ToolTip())
+		}
+		if a.pasteBtn.ToolTip() != tr("action.paste", "Paste") {
+			t.Fatalf("paste tooltip = %q; want localized Paste label", a.pasteBtn.ToolTip())
+		}
+		if a.createBtn.ToolTip() != tr("action.create", "Create") {
+			t.Fatalf("create tooltip = %q; want localized Create label", a.createBtn.ToolTip())
+		}
+	})
+}
+
+func TestPasswordToolbarRelocalizesAfterSwitchLanguage(t *testing.T) {
+	resetLocalizationForTest(t)
+
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
+
+	fyne.DoAndWait(func() {
+		if err := a.SwitchLanguage("ru"); err != nil {
+			t.Fatalf("SwitchLanguage(ru) returned error: %v", err)
+		}
+	})
+
+	if got := a.showHideBtn.ToolTip(); got != tr("password.show", "Show") {
+		t.Fatalf("show/hide tooltip after language switch = %q; want localized string", got)
 	}
-	if a.State.PasswordStateLabel != "Show" {
-		t.Errorf("Label should be 'Show', got %q", a.State.PasswordStateLabel)
+	if got := a.clearPwdBtn.ToolTip(); got != tr("action.clear", "Clear") {
+		t.Fatalf("clear tooltip after language switch = %q; want localized string", got)
 	}
-
-	// Toggle to show
-	a.State.TogglePasswordVisibility()
-
-	if a.State.IsPasswordHidden() {
-		t.Error("Password should be visible after toggle")
+	if got := a.copyBtn.ToolTip(); got != tr("action.copy", "Copy") {
+		t.Fatalf("copy tooltip after language switch = %q; want localized string", got)
 	}
-	if a.State.PasswordStateLabel != "Hide" {
-		t.Errorf("Label should be 'Hide', got %q", a.State.PasswordStateLabel)
+	if got := a.pasteBtn.ToolTip(); got != tr("action.paste", "Paste") {
+		t.Fatalf("paste tooltip after language switch = %q; want localized string", got)
 	}
-
-	// Toggle back to hide
-	a.State.TogglePasswordVisibility()
-
-	if !a.State.IsPasswordHidden() {
-		t.Error("Password should be hidden after second toggle")
-	}
-	if a.State.PasswordStateLabel != "Show" {
-		t.Errorf("Label should be 'Show', got %q", a.State.PasswordStateLabel)
+	if got := a.createBtn.ToolTip(); got != tr("action.create", "Create") {
+		t.Fatalf("create tooltip after language switch = %q; want localized string", got)
 	}
 }
 
-// TestPasswordMatchValidation tests password confirmation matching.
-func TestPasswordMatchValidation(t *testing.T) {
-	testCases := []struct {
-		name      string
-		password  string
-		cPassword string
-		mode      string
-		valid     bool
-	}{
-		{"MatchEncrypt", "secret", "secret", "encrypt", true},
-		{"MismatchEncrypt", "secret", "different", "encrypt", false},
-		{"EmptyBothEncrypt", "", "", "encrypt", true},
-		{"EmptyConfirmEncrypt", "secret", "", "encrypt", false},
-		{"MatchDecrypt", "secret", "secret", "decrypt", true},
-		{"MismatchDecryptOK", "secret", "different", "decrypt", true}, // Decrypt ignores confirm
-		{"EmptyConfirmDecrypt", "secret", "", "decrypt", true},        // Decrypt ignores confirm
+func TestPasswordToolbarDoesNotIncreaseDesktopWidth(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := newDesktopEncryptLayoutApp(t, fyneApp)
+
+	var min, size fyne.Size
+	fyne.DoAndWait(func() {
+		min = a.Window.Content().MinSize()
+		size = a.Window.Canvas().Size()
+	})
+
+	if min.Width > windowWidth {
+		t.Fatalf("desktop password toolbar layout MinSize width %.1f exceeds compact window width %.1f", min.Width, float32(windowWidth))
 	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
-			state.Mode = tc.mode
-			state.Password = tc.password
-			state.CPassword = tc.cPassword
-
-			// Validation logic from updateValidation and CanStart
-			var valid bool
-			if tc.mode == "decrypt" {
-				valid = true // Decrypt mode ignores CPassword
-			} else {
-				valid = tc.password == tc.cPassword
-			}
-
-			if valid != tc.valid {
-				t.Errorf("valid = %v; want %v", valid, tc.valid)
-			}
-		})
+	if size.Width > windowWidth {
+		t.Fatalf("desktop password toolbar layout window width %.1f exceeds compact window width %.1f", size.Width, float32(windowWidth))
 	}
 }
 
-// TestPasswordClearButton tests clearing password fields.
-func TestPasswordClearButton(t *testing.T) {
-	state := app.NewState()
+func TestPasswordVisibilityToggleStillUpdatesBothFields(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
 
-	// Set passwords
-	state.Password = "secret"
-	state.CPassword = "secret"
-	state.PasswordStrength = 3
+	fyne.DoAndWait(func() {
+		a.showHideBtn.OnTapped()
+		if a.passwordEntry.IsHidden() || a.cPasswordEntry.IsHidden() {
+			t.Fatal("both password fields should become visible together")
+		}
+		a.showHideBtn.OnTapped()
+		if !a.passwordEntry.IsHidden() || !a.cPasswordEntry.IsHidden() {
+			t.Fatal("both password fields should become hidden together")
+		}
+	})
+}
 
-	// Simulate clear button
-	state.Password = ""
-	state.CPassword = ""
-	state.PasswordStrength = 0
+func TestDesktopPasswordActionsSharePasswordHeaderRow(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+	a := createUIReadyDropTestApp(t, fyneApp)
 
-	if state.Password != "" {
-		t.Error("Password should be empty after clear")
+	var section fyne.CanvasObject
+	fyne.DoAndWait(func() {
+		section = a.buildPasswordSection()
+	})
+
+	vbox, ok := section.(*fyne.Container)
+	if !ok {
+		t.Fatalf("password section type = %T; want *fyne.Container", section)
 	}
-	if state.CPassword != "" {
-		t.Error("CPassword should be empty after clear")
+	if len(vbox.Objects) < 1 {
+		t.Fatal("password section has no children")
 	}
-	if state.PasswordStrength != 0 {
-		t.Error("PasswordStrength should be 0 after clear")
+
+	headerRow, ok := vbox.Objects[0].(*fyne.Container)
+	if !ok {
+		t.Fatalf("password header row type = %T; want *fyne.Container", vbox.Objects[0])
+	}
+	if !canvasTreeContainsObject(headerRow, a.passwordLabel) {
+		t.Fatal("password header row does not contain password label")
+	}
+	for _, btn := range []*ttwidget.Button{a.showHideBtn, a.clearPwdBtn, a.copyBtn, a.pasteBtn, a.createBtn} {
+		if !canvasTreeContainsObject(headerRow, btn) {
+			t.Fatalf("password header row does not contain toolbar button %p", btn)
+		}
 	}
 }
 
-// TestPasswordPasteButton tests pasting password behavior.
+// TestPasswordPasteButton drives the real paste-button OnTapped handler built in
+// buildPasswordSection: it reads the clipboard into State.Password, and in encrypt
+// mode also mirrors it into State.CPassword, but in decrypt mode must leave
+// CPassword untouched. The test sets only the clipboard and reads back State, so
+// it fails if the paste handler's mode branching changes.
 func TestPasswordPasteButton(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+
 	t.Run("EncryptModePastesBoth", func(t *testing.T) {
-		state := app.NewState()
-		state.Mode = "encrypt"
-
-		// Simulate paste
-		pastedText := "pasted_password"
-		state.Password = pastedText
-		if state.Mode != "decrypt" {
-			state.CPassword = pastedText
+		a := createUIReadyDropTestApp(t, fyneApp)
+		var password, cpassword string
+		fyne.DoAndWait(func() {
+			a.State.Mode = "encrypt"
+			a.fyneApp.Clipboard().SetContent("pasted_password")
+			a.pasteBtn.OnTapped()
+			password = a.State.Password
+			cpassword = a.State.CPassword
+		})
+		if password != "pasted_password" {
+			t.Errorf("Password = %q; want %q", password, "pasted_password")
 		}
-
-		if state.Password != pastedText {
-			t.Errorf("Password = %q; want %q", state.Password, pastedText)
-		}
-		if state.CPassword != pastedText {
-			t.Errorf("CPassword = %q; want %q (encrypt mode)", state.CPassword, pastedText)
+		if cpassword != "pasted_password" {
+			t.Errorf("CPassword = %q; want %q (encrypt mirrors password)", cpassword, "pasted_password")
 		}
 	})
 
 	t.Run("DecryptModeOnlyPastesPassword", func(t *testing.T) {
-		state := app.NewState()
-		state.Mode = "decrypt"
-		state.CPassword = "original"
-
-		// Simulate paste
-		pastedText := "pasted_password"
-		state.Password = pastedText
-		if state.Mode != "decrypt" {
-			state.CPassword = pastedText
+		a := createUIReadyDropTestApp(t, fyneApp)
+		var password, cpassword string
+		fyne.DoAndWait(func() {
+			a.State.Mode = "decrypt"
+			a.State.CPassword = "original"
+			a.fyneApp.Clipboard().SetContent("pasted_password")
+			a.pasteBtn.OnTapped()
+			password = a.State.Password
+			cpassword = a.State.CPassword
+		})
+		if password != "pasted_password" {
+			t.Errorf("Password = %q; want %q", password, "pasted_password")
 		}
-
-		if state.Password != pastedText {
-			t.Errorf("Password = %q; want %q", state.Password, pastedText)
-		}
-		if state.CPassword != "original" {
-			t.Errorf("CPassword = %q; want 'original' (decrypt mode)", state.CPassword)
+		if cpassword != "original" {
+			t.Errorf("CPassword = %q; want 'original' (decrypt must not mirror)", cpassword)
 		}
 	})
 }
 
-// TestPasswordGeneratorOptions tests password generator settings.
-func TestPasswordGeneratorOptions(t *testing.T) {
-	testCases := []struct {
-		name    string
-		length  int32
-		upper   bool
-		lower   bool
-		nums    bool
-		symbols bool
-	}{
-		{"DefaultSettings", 32, true, true, true, true},
-		{"LettersOnly", 20, true, true, false, false},
-		{"NumbersOnly", 16, false, false, true, false},
-		{"NoSymbols", 24, true, true, true, false},
-		{"ShortPassword", 8, true, true, true, true},
-		{"LongPassword", 64, true, true, true, true},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
-			state.PassgenLength = tc.length
-			state.PassgenUpper = tc.upper
-			state.PassgenLower = tc.lower
-			state.PassgenNums = tc.nums
-			state.PassgenSymbols = tc.symbols
-
-			if state.PassgenLength != tc.length {
-				t.Errorf("Length = %d; want %d", state.PassgenLength, tc.length)
-			}
-		})
-	}
-}
-
 // TestPasswordGeneratorOutput tests generated password characteristics.
 func TestPasswordGeneratorOutput(t *testing.T) {
-	state := app.NewState()
+	state := mustNewState(t)
 	state.PassgenLength = 32
 	state.PassgenUpper = true
 	state.PassgenLower = true
@@ -246,67 +325,103 @@ func TestPasswordGeneratorOutput(t *testing.T) {
 	}
 }
 
-// TestConfirmPasswordDisabledStates tests when confirm password should be disabled.
+// hasFilesForUI puts the app into a "files dropped, not scanning" state so the
+// real updateUIState computes mainDisabled=false and the password controls follow
+// their mode/password branches rather than being globally disabled.
+func hasFilesForUI(a *App) {
+	a.State.AllFiles = []string{"in.txt"}
+	a.State.OnlyFiles = []string{"in.txt"}
+	a.State.SetScanning(false)
+}
+
+// TestConfirmPasswordDisabledStates drives the real updateUIState ->
+// updatePasswordUIState and asserts the actual cPasswordEntry widget's
+// Disabled() state. Confirm-password is disabled when no files (mainDisabled),
+// when the password is empty, or in decrypt mode. The test sets only inputs and
+// reads the widget, so it fails if that branching changes.
 func TestConfirmPasswordDisabledStates(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+
 	testCases := []struct {
 		name             string
 		mode             string
 		password         string
-		mainDisabled     bool
+		hasFiles         bool
 		expectedDisabled bool
 	}{
-		{"EncryptWithPassword", "encrypt", "secret", false, false},
-		{"EncryptNoPassword", "encrypt", "", false, true},
-		{"DecryptMode", "decrypt", "secret", false, true},
-		{"MainDisabled", "encrypt", "secret", true, true},
+		{"EncryptWithPassword", "encrypt", "secret", true, false},
+		{"EncryptNoPassword", "encrypt", "", true, true},
+		{"DecryptMode", "decrypt", "secret", true, true},
+		{"MainDisabled", "encrypt", "secret", false, true},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
-			state.Mode = tc.mode
-			state.Password = tc.password
-
-			// Logic from updatePasswordUIState
-			disabled := tc.mainDisabled || state.Password == "" || state.Mode == "decrypt"
-
+			a := createUIReadyDropTestApp(t, fyneApp)
+			var disabled bool
+			fyne.DoAndWait(func() {
+				a.State.Mode = tc.mode
+				a.State.Password = tc.password
+				a.State.CPassword = tc.password
+				if tc.hasFiles {
+					hasFilesForUI(a)
+				}
+				a.updateUIState()
+				disabled = a.cPasswordEntry.Disabled()
+			})
 			if disabled != tc.expectedDisabled {
-				t.Errorf("disabled = %v; want %v", disabled, tc.expectedDisabled)
+				t.Errorf("cPasswordEntry.Disabled() = %v; want %v", disabled, tc.expectedDisabled)
 			}
 		})
 	}
 }
 
-// TestCreatePasswordButtonDisabledInDecrypt tests create button state.
+// TestCreatePasswordButtonDisabledInDecrypt drives the real updateUIState ->
+// updatePasswordUIState and asserts the actual createBtn widget's Disabled()
+// state: the Create (passgen) button is disabled in decrypt mode and whenever the
+// main section is disabled (no files). Asserts the widget, not a recomputed bool.
 func TestCreatePasswordButtonDisabledInDecrypt(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+
 	testCases := []struct {
-		name         string
-		mode         string
-		mainDisabled bool
-		expected     bool
+		name     string
+		mode     string
+		hasFiles bool
+		expected bool
 	}{
-		{"EncryptEnabled", "encrypt", false, false},
-		{"DecryptDisabled", "decrypt", false, true},
-		{"MainDisabled", "encrypt", true, true},
+		{"EncryptEnabled", "encrypt", true, false},
+		{"DecryptDisabled", "decrypt", true, true},
+		{"MainDisabled", "encrypt", false, true},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
-			state.Mode = tc.mode
-
-			// Logic from updatePasswordUIState for createBtn
-			disabled := tc.mainDisabled || state.Mode == "decrypt"
-
+			a := createUIReadyDropTestApp(t, fyneApp)
+			var disabled bool
+			fyne.DoAndWait(func() {
+				a.State.Mode = tc.mode
+				a.State.Password = "secret"
+				a.State.CPassword = "secret"
+				if tc.hasFiles {
+					hasFilesForUI(a)
+				}
+				a.updateUIState()
+				disabled = a.createBtn.Disabled()
+			})
 			if disabled != tc.expected {
-				t.Errorf("disabled = %v; want %v", disabled, tc.expected)
+				t.Errorf("createBtn.Disabled() = %v; want %v", disabled, tc.expected)
 			}
 		})
 	}
 }
 
-// TestPasswordValidationIndicator tests validation indicator behavior.
+// TestPasswordValidationIndicator drives the real updateValidation and asserts
+// the actual validIndicator widget's visible/valid fields: the match indicator is
+// shown only when both password and confirm are non-empty and not in decrypt
+// mode, and is green only when they match. Asserts the widget, not a recompute.
 func TestPasswordValidationIndicator(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+
 	testCases := []struct {
 		name      string
 		password  string
@@ -325,56 +440,74 @@ func TestPasswordValidationIndicator(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			state := app.NewState()
-			state.Mode = tc.mode
-			state.Password = tc.password
-			state.CPassword = tc.cPassword
-
-			// Logic from updateValidation
-			visible := state.Password != "" && state.CPassword != "" && state.Mode != "decrypt"
-			valid := state.Password == state.CPassword
-
+			a := createUIReadyDropTestApp(t, fyneApp)
+			var visible, valid bool
+			fyne.DoAndWait(func() {
+				a.State.Mode = tc.mode
+				a.State.Password = tc.password
+				a.State.CPassword = tc.cPassword
+				a.updateValidation()
+				visible = a.validIndicator.visible
+				valid = a.validIndicator.valid
+			})
 			if visible != tc.visible {
-				t.Errorf("visible = %v; want %v", visible, tc.visible)
+				t.Errorf("validIndicator.visible = %v; want %v", visible, tc.visible)
 			}
 			if visible && valid != tc.valid {
-				t.Errorf("valid = %v; want %v", valid, tc.valid)
+				t.Errorf("validIndicator.valid = %v; want %v", valid, tc.valid)
 			}
 		})
 	}
 }
 
-// TestPasswordEntryOnChanged tests password entry change handling.
+// TestPasswordEntryOnChanged drives the real OnChanged handlers wired in
+// buildPasswordSection: typing into passwordEntry must update State.Password and
+// recompute strength; typing into cPasswordEntry must update State.CPassword. The
+// test drives the widget and reads State, so it fails if the wiring is removed.
 func TestPasswordEntryOnChanged(t *testing.T) {
-	newTestFyneApp(t)
+	fyneApp := newTestFyneApp(t)
 
 	t.Run("PasswordUpdate", func(t *testing.T) {
-		state := app.NewState()
-
-		// Simulate OnChanged
-		newPassword := "newpassword"
-		state.Password = newPassword
-
-		if state.Password != newPassword {
-			t.Errorf("Password = %q; want %q", state.Password, newPassword)
+		a := createUIReadyDropTestApp(t, fyneApp)
+		var password string
+		var strength int
+		fyne.DoAndWait(func() {
+			a.passwordEntry.SetText("newpassword")
+			password = a.State.Password
+			strength = a.State.PasswordStrength
+		})
+		if password != "newpassword" {
+			t.Errorf("State.Password = %q; want %q", password, "newpassword")
+		}
+		// OnChanged routes through updatePasswordStrength, so a non-empty
+		// password must yield a non-negative score and mark the widget visible.
+		if strength < 0 {
+			t.Errorf("State.PasswordStrength = %d; want >= 0 after OnChanged", strength)
+		}
+		if !a.strengthIndicator.visible {
+			t.Error("strengthIndicator should be visible for a non-empty password")
 		}
 	})
 
 	t.Run("ConfirmPasswordUpdate", func(t *testing.T) {
-		state := app.NewState()
-
-		// Simulate OnChanged
-		newCPassword := "confirm"
-		state.CPassword = newCPassword
-
-		if state.CPassword != newCPassword {
-			t.Errorf("CPassword = %q; want %q", state.CPassword, newCPassword)
+		a := createUIReadyDropTestApp(t, fyneApp)
+		var cpassword string
+		fyne.DoAndWait(func() {
+			a.cPasswordEntry.SetText("confirm")
+			cpassword = a.State.CPassword
+		})
+		if cpassword != "confirm" {
+			t.Errorf("State.CPassword = %q; want %q", cpassword, "confirm")
 		}
 	})
 }
 
-// TestPasswordStrengthIndicatorVisibility tests strength indicator visibility.
+// TestPasswordStrengthIndicatorVisibility drives the real updatePasswordStrength
+// and asserts the actual strengthIndicator widget's visible field: the meter is
+// shown only for a non-empty password. Asserts the widget, not a recomputed bool.
 func TestPasswordStrengthIndicatorVisibility(t *testing.T) {
+	fyneApp := newTestFyneApp(t)
+
 	testCases := []struct {
 		name     string
 		password string
@@ -387,11 +520,15 @@ func TestPasswordStrengthIndicatorVisibility(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Logic from updatePasswordStrength
-			visible := tc.password != ""
-
+			a := createUIReadyDropTestApp(t, fyneApp)
+			var visible bool
+			fyne.DoAndWait(func() {
+				a.State.Password = tc.password
+				a.updatePasswordStrength()
+				visible = a.strengthIndicator.visible
+			})
 			if visible != tc.visible {
-				t.Errorf("visible = %v; want %v", visible, tc.visible)
+				t.Errorf("strengthIndicator.visible = %v; want %v", visible, tc.visible)
 			}
 		})
 	}

@@ -21,24 +21,12 @@ var (
 	ErrNoCredentials     = errors.New("no password or keyfiles provided")
 	ErrPasswordMismatch  = errors.New("passwords do not match")
 	ErrInvalidChunkSize  = errors.New("invalid chunk size")
+	ErrChunkSizeTooLarge = errors.New("chunk size exceeds maximum")
 	ErrDuplicateKeyfiles = errors.New("duplicate keyfiles detected")
+	ErrCommentTooLong    = errors.New("comment exceeds maximum length")
 
 	// File errors
-	ErrFileNotFound    = errors.New("file not found")
-	ErrFileExists      = errors.New("file already exists")
-	ErrInvalidFormat   = errors.New("invalid volume format")
-	ErrVersionMismatch = errors.New("unsupported volume version")
-
-	// Crypto errors
-	ErrRandFailure   = errors.New("crypto/rand failure")
-	ErrKeyDerivation = errors.New("key derivation failed")
-	ErrHKDFFailure   = errors.New("HKDF stream failure")
-	ErrMACFailure    = errors.New("MAC computation failed")
-	ErrCipherFailure = errors.New("cipher operation failed")
-
-	// Reed-Solomon errors
-	ErrRSEncode = errors.New("Reed-Solomon encoding failed")
-	ErrRSDecode = errors.New("Reed-Solomon decoding failed")
+	ErrFileNotFound = errors.New("file not found")
 )
 
 // CryptoError represents an error during cryptographic operations.

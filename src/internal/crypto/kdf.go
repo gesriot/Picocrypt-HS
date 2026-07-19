@@ -141,7 +141,6 @@ type SubkeyReader struct {
 	headerRead  bool
 	macRead     bool
 	serpentRead bool
-	rekeyCount  int
 }
 
 // NewHKDFStream creates a new HKDF-SHA3-256 stream for subkey derivation.
@@ -205,28 +204,6 @@ func (r *SubkeyReader) SerpentKey() ([]byte, error) {
 
 	r.serpentRead = true
 	return key, nil
-}
-
-// RekeyValues reads new nonce (24 bytes) and IV (16 bytes) for rekeying.
-// This is called every 60 GiB of data.
-func (r *SubkeyReader) RekeyValues() (nonce []byte, iv []byte, err error) {
-	nonce = make([]byte, RekeyNonceSize)
-	if _, err := io.ReadFull(r.hkdf, nonce); err != nil {
-		return nil, nil, errors.New("fatal hkdf.Read error for rekey nonce")
-	}
-
-	iv = make([]byte, RekeyIVSize)
-	if _, err := io.ReadFull(r.hkdf, iv); err != nil {
-		return nil, nil, errors.New("fatal hkdf.Read error for rekey IV")
-	}
-
-	r.rekeyCount++
-	return nonce, iv, nil
-}
-
-// RekeyCount returns how many times rekeying has occurred.
-func (r *SubkeyReader) RekeyCount() int {
-	return r.rekeyCount
 }
 
 // Reader returns the underlying HKDF reader for advanced use.

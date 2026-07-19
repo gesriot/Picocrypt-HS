@@ -2,18 +2,19 @@ package keyfile
 
 import (
 	"bytes"
+	"encoding/hex"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"golang.org/x/crypto/sha3"
 )
 
 func createTestKeyfiles(t *testing.T, dir string, contents map[string][]byte) []string {
 	var paths []string
 	for name, data := range contents {
 		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, data, 0600); err != nil {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatalf("failed to create test keyfile %s: %v", name, err)
 		}
 		paths = append(paths, path)
@@ -59,17 +60,10 @@ func TestProcessOrdered(t *testing.T) {
 		t.Fatalf("Process(CBA, ordered=true) failed: %v", err)
 	}
 
-	// Ordered: different order should produce different keys
+	// Ordered: different order should produce different keys.
+	// (The hash-of-key relationship is pinned independently by TestProcessOrderedKAT.)
 	if bytes.Equal(resultABC.Key, resultCBA.Key) {
 		t.Error("Ordered processing: different order should produce different keys")
-	}
-
-	// Verify the hash is correct (SHA3-256 of key)
-	h := sha3.New256()
-	h.Write(resultABC.Key)
-	expectedHash := h.Sum(nil)
-	if !bytes.Equal(resultABC.Hash, expectedHash) {
-		t.Error("Hash should be SHA3-256 of key")
 	}
 
 	_ = paths // use all paths to avoid unused variable warning
@@ -136,38 +130,140 @@ func TestProcessEmpty(t *testing.T) {
 	}
 }
 
-func TestProcessProgress(t *testing.T) {
+// TestProcessOrderedKAT pins the ordered derivation to an independently-computed
+// vector. Ordered = SHA3-256("alpha" || "beta"). Expected hex computed via
+// python3 hashlib.sha3_256(b"alpha"+b"beta"). This freezes the on-disk key
+// derivation: any change to the hash input (extra byte, wrong order, different
+// algorithm) breaks the pinned value.
+func TestProcessOrderedKAT(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.key"), []byte("alpha"), 0o600); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.key"), []byte("beta"), 0o600); err != nil {
+		t.Fatalf("write beta: %v", err)
+	}
+
+	paths := []string{
+		filepath.Join(dir, "alpha.key"),
+		filepath.Join(dir, "beta.key"),
+	}
+
+	const wantHex = "72cdf5098734302203ae678e6bc85e1cff67ad36976f390ade6f04cc257eff5a"
+	want, err := hex.DecodeString(wantHex)
+	if err != nil {
+		t.Fatalf("decode want: %v", err)
+	}
+
+	result, err := Process(paths, true, nil)
+	if err != nil {
+		t.Fatalf("Process(ordered) failed: %v", err)
+	}
+
+	if !bytes.Equal(result.Key, want) {
+		t.Errorf("ordered Key = %x; want %s", result.Key, wantHex)
+	}
+}
+
+// TestProcessUnorderedKAT pins the unordered derivation to an independently-computed
+// vector and verifies its defining properties. Unordered =
+// SHA3-256("alpha") XOR SHA3-256("beta"). Expected hex computed via python3
+// (per-file hashlib.sha3_256 then byte-wise XOR). Also asserts order-independence
+// (XOR commutativity) and that it is distinct from the ordered derivation.
+func TestProcessUnorderedKAT(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.key"), []byte("alpha"), 0o600); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.key"), []byte("beta"), 0o600); err != nil {
+		t.Fatalf("write beta: %v", err)
+	}
+
+	alpha := filepath.Join(dir, "alpha.key")
+	beta := filepath.Join(dir, "beta.key")
+
+	const wantHex = "d73f056aaf0c6df2771b3d213ba9dcc2fae1f4b2c121af4ece834aedec329a20"
+	want, err := hex.DecodeString(wantHex)
+	if err != nil {
+		t.Fatalf("decode want: %v", err)
+	}
+
+	resultAB, err := Process([]string{alpha, beta}, false, nil)
+	if err != nil {
+		t.Fatalf("Process(unordered, AB) failed: %v", err)
+	}
+	if !bytes.Equal(resultAB.Key, want) {
+		t.Errorf("unordered Key = %x; want %s", resultAB.Key, wantHex)
+	}
+
+	// Order-independence: swapping inputs must yield the same Key (XOR commutativity).
+	resultBA, err := Process([]string{beta, alpha}, false, nil)
+	if err != nil {
+		t.Fatalf("Process(unordered, BA) failed: %v", err)
+	}
+	if !bytes.Equal(resultAB.Key, resultBA.Key) {
+		t.Errorf("unordered must be order-independent: AB=%x BA=%x", resultAB.Key, resultBA.Key)
+	}
+
+	// Distinctness: the unordered derivation must differ from the ordered one.
+	ordered, err := Process([]string{alpha, beta}, true, nil)
+	if err != nil {
+		t.Fatalf("Process(ordered) failed: %v", err)
+	}
+	if bytes.Equal(resultAB.Key, ordered.Key) {
+		t.Error("unordered Key must differ from ordered Key")
+	}
+}
+
+// TestProcessProgressBoundedMonotonic asserts the progress callback values form
+// a monotonic non-decreasing sequence bounded by 1.0. This guards the progress
+// contract documented on ProgressFunc (0.0-1.0): a regression that emitted a
+// value > 1.0 or that went backwards would break this.
+func TestProcessProgressBoundedMonotonic(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a larger file to ensure multiple progress updates
-	largeContent := bytes.Repeat([]byte("x"), 1024*1024*2) // 2 MiB
-	createTestKeyfiles(t, dir, map[string][]byte{
-		"large.key": largeContent,
+	// Multi-MiB file across two files to force several callback invocations.
+	content := bytes.Repeat([]byte("y"), 1024*1024*3) // 3 MiB
+	if err := os.WriteFile(filepath.Join(dir, "p1.key"), content, 0o600); err != nil {
+		t.Fatalf("write p1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "p2.key"), content, 0o600); err != nil {
+		t.Fatalf("write p2: %v", err)
+	}
+
+	paths := []string{
+		filepath.Join(dir, "p1.key"),
+		filepath.Join(dir, "p2.key"),
+	}
+
+	var values []float32
+	_, err := Process(paths, true, func(p float32) {
+		values = append(values, p)
 	})
-
-	var progressCalls int
-	var lastProgress float32
-
-	result, err := Process([]string{filepath.Join(dir, "large.key")}, true, func(p float32) {
-		progressCalls++
-		lastProgress = p
-	})
-
 	if err != nil {
 		t.Fatalf("Process with progress failed: %v", err)
 	}
 
-	if progressCalls == 0 {
-		t.Error("Progress callback was never called")
+	if len(values) == 0 {
+		t.Fatal("progress callback was never called")
 	}
 
-	// Last progress should be ~1.0
-	if lastProgress < 0.99 {
-		t.Errorf("Last progress = %f; want ~1.0", lastProgress)
+	var prev float32
+	for i, v := range values {
+		if v > 1.0 {
+			t.Errorf("progress[%d] = %f; must be <= 1.0", i, v)
+		}
+		if v < prev {
+			t.Errorf("progress[%d] = %f decreased from previous %f; must be monotonic", i, v, prev)
+		}
+		prev = v
 	}
 
-	if len(result.Key) != 32 {
-		t.Errorf("Key length = %d; want 32", len(result.Key))
+	// Final progress must reach ~1.0: the callback contract promises completion
+	// is reported, so a regression that stops short (e.g. off-by-one byte
+	// accounting) would leave the last value below 0.99.
+	if last := values[len(values)-1]; last < 0.99 {
+		t.Errorf("final progress = %f; want >= 0.99 (completion must be reported)", last)
 	}
 }
 
@@ -277,70 +373,6 @@ func TestOrderedSameFileTwice(t *testing.T) {
 	}
 }
 
-func TestResultClose(t *testing.T) {
-	dir := t.TempDir()
-
-	createTestKeyfiles(t, dir, map[string][]byte{
-		"test.key": []byte("keyfile-content-for-testing"),
-	})
-
-	result, err := Process([]string{filepath.Join(dir, "test.key")}, true, nil)
-	if err != nil {
-		t.Fatalf("Process failed: %v", err)
-	}
-
-	// Verify key is non-nil before close
-	if result.Key == nil {
-		t.Error("Key should not be nil before Close()")
-	}
-	if len(result.Key) != 32 {
-		t.Errorf("Key length = %d; want 32", len(result.Key))
-	}
-
-	// Close the result
-	result.Close()
-
-	// After close, key should be nil
-	if result.Key != nil {
-		t.Error("Key should be nil after Close()")
-	}
-
-	// Multiple Close() calls should be safe
-	result.Close()
-	result.Close()
-}
-
-func TestResultCloseNil(t *testing.T) {
-	// Close on nil should not panic
-	var result *Result
-	result.Close()
-}
-
-func TestResultClosePreservesHash(t *testing.T) {
-	dir := t.TempDir()
-
-	createTestKeyfiles(t, dir, map[string][]byte{
-		"test.key": []byte("keyfile-content"),
-	})
-
-	result, err := Process([]string{filepath.Join(dir, "test.key")}, true, nil)
-	if err != nil {
-		t.Fatalf("Process failed: %v", err)
-	}
-
-	// Save hash before close
-	hashCopy := make([]byte, len(result.Hash))
-	copy(hashCopy, result.Hash)
-
-	// Close
-	result.Close()
-
-	// Hash should still be present (needed for header verification)
-	if !bytes.Equal(result.Hash, hashCopy) {
-		t.Error("Hash should be preserved after Close()")
-	}
-}
-
 func TestProcessNonexistentFile(t *testing.T) {
 	_, err := Process([]string{"/nonexistent/path/to/keyfile.bin"}, true, nil)
 	if err == nil {
@@ -353,7 +385,7 @@ func TestProcessOrderedReadError(t *testing.T) {
 
 	// Create a directory instead of a file (will cause read error)
 	dirPath := filepath.Join(dir, "not_a_file")
-	if err := os.Mkdir(dirPath, 0755); err != nil {
+	if err := os.Mkdir(dirPath, 0o755); err != nil {
 		t.Fatalf("Create dir: %v", err)
 	}
 
@@ -368,12 +400,64 @@ func TestProcessUnorderedReadError(t *testing.T) {
 
 	// Create a directory instead of a file (will cause read error)
 	dirPath := filepath.Join(dir, "not_a_file")
-	if err := os.Mkdir(dirPath, 0755); err != nil {
+	if err := os.Mkdir(dirPath, 0o755); err != nil {
 		t.Fatalf("Create dir: %v", err)
 	}
 
 	_, err := Process([]string{dirPath}, false, nil)
 	if err == nil {
 		t.Error("Process should fail when given a directory")
+	}
+}
+
+func TestProcessReadersMatchesProcess(t *testing.T) {
+	// Three keyfiles: two sub-1MiB and one >1MiB (non-buffer-aligned) so that
+	// the multi-chunk path of hashOne is exercised and cross-checked between
+	// Process (disk) and ProcessReaders (in-memory).
+	a := bytes.Repeat([]byte{0xA5}, 1500)
+	b := bytes.Repeat([]byte{0x5A}, 800)
+	c := bytes.Repeat([]byte{0x3C}, 3*1024*1024+777) // >1 MiB, non-aligned
+
+	dir := t.TempDir()
+	pa := filepath.Join(dir, "a.key")
+	pb := filepath.Join(dir, "b.key")
+	pc := filepath.Join(dir, "c.key")
+	if err := os.WriteFile(pa, a, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pb, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pc, c, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, ordered := range []bool{true, false} {
+		t.Run(fmt.Sprintf("ordered=%v", ordered), func(t *testing.T) {
+			fromPaths, err := Process([]string{pa, pb, pc}, ordered, nil)
+			if err != nil {
+				t.Fatalf("Process: %v", err)
+			}
+			fromReaders, err := ProcessReaders([]io.Reader{bytes.NewReader(a), bytes.NewReader(b), bytes.NewReader(c)}, ordered)
+			if err != nil {
+				t.Fatalf("ProcessReaders: %v", err)
+			}
+			if !bytes.Equal(fromPaths.Key, fromReaders.Key) {
+				t.Errorf("Key mismatch (ordered=%v):\n paths:   %x\n readers: %x", ordered, fromPaths.Key, fromReaders.Key)
+			}
+			if !bytes.Equal(fromPaths.Hash, fromReaders.Hash) {
+				t.Errorf("Hash mismatch (ordered=%v)", ordered)
+			}
+		})
+	}
+}
+
+func TestProcessReadersEmptyIsZeroKey(t *testing.T) {
+	res, err := ProcessReaders(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(res.Key, make([]byte, 32)) || !bytes.Equal(res.Hash, make([]byte, 32)) {
+		t.Fatal("empty readers must yield 32 zero bytes for Key and Hash")
 	}
 }

@@ -3,8 +3,10 @@ package io.github.picocrypt_ng.picocrypt_ng
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -14,11 +16,9 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * Integration tests for OperationManager.
- * These tests require the Go mobile bindings AAR to be built and test
- * the full operation lifecycle with real file operations.
- * 
- * Note: Some tests may be skipped if Go mobile bindings are not available.
+ * On-device integration coverage for the Kotlin -> gomobile/JNI -> Go crypto path.
+ * JVM tests cover validation and state-management branches; this class keeps only
+ * the behavior that requires a real Android runtime and the native AAR.
  */
 @RunWith(AndroidJUnit4::class)
 class OperationManagerIntegrationTest {
@@ -26,33 +26,29 @@ class OperationManagerIntegrationTest {
     private lateinit var context: Context
 
     private fun encryptFormData(
-        copiedFilePath: String = "/data/test/input_file.txt",
-        password: String = "testpassword",
-        confirmPassword: String = password,
-        keyfiles: List<KeyfileInfo> = emptyList()
+        copiedFilePath: String
     ) = FormData(
         selectedFilename = "test.txt",
         copiedFilePath = copiedFilePath,
         comments = "",
-        passwordInput = password.toCharArray(),
-        confirmPasswordInput = confirmPassword.toCharArray(),
+        passwordInput = "testpassword".toCharArray(),
+        confirmPasswordInput = "testpassword".toCharArray(),
         reedSolomon = false,
         paranoid = false,
         deniability = false,
-        keyfileFilenames = keyfiles,
+        keyfileFilenames = emptyList(),
         keyfileOrdered = false,
         decryptionInfo = null
     )
 
     private fun decryptFormData(
-        copiedFilePath: String = "/data/test/input_file.pcv",
-        password: String = "testpassword"
+        copiedFilePath: String
     ) = FormData(
         selectedFilename = "test.pcv",
         copiedFilePath = copiedFilePath,
         comments = "",
-        passwordInput = password.toCharArray(),
-        confirmPasswordInput = password.toCharArray(),
+        passwordInput = "testpassword".toCharArray(),
+        confirmPasswordInput = "testpassword".toCharArray(),
         reedSolomon = false,
         paranoid = false,
         deniability = false,
@@ -81,238 +77,100 @@ class OperationManagerIntegrationTest {
     }
     
     @Test
-    fun startEncrypt_validates_form_data_before_starting() = runTest {
-        // Test with invalid form data (no file)
-        val invalidFormData = encryptFormData(
-            copiedFilePath = "" // Invalid - no file
-        )
-        
-        val result = OperationManager.startEncrypt(context, invalidFormData)
-        
-        assertTrue("Should fail validation", result.isFailure)
-        result.onFailure { error ->
-            assertTrue("Error should be NoFileSelected", error is AppError.ValidationError.NoFileSelected)
-        }
-        
-        // Verify no operation was started
-        val operationState = OperationManager.currentOperation.first()
-        assertNull("No operation should be started", operationState)
-    }
-    
-    @Test
-    fun startDecrypt_validates_form_data_before_starting() = runTest {
-        // Test with invalid form data (no file)
-        val invalidFormData = decryptFormData(
-            copiedFilePath = "" // Invalid - no file
-        )
-        
-        val result = OperationManager.startDecrypt(context, invalidFormData)
-        
-        assertTrue("Should fail validation", result.isFailure)
-        result.onFailure { error ->
-            assertTrue("Error should be NoFileSelected", error is AppError.ValidationError.NoFileSelected)
-        }
-        
-        // Verify no operation was started
-        val operationState = OperationManager.currentOperation.first()
-        assertNull("No operation should be started", operationState)
-    }
-    
-    @Test
-    fun startEncrypt_creates_operation_state_on_success() = runTest {
-        // Create a test file
-        val internalDir = File(context.filesDir, "picocrypt_files")
-        internalDir.mkdirs()
-        val testFile = File(internalDir, "input_file.txt")
-        testFile.writeText("test content")
-        
-        val formData = encryptFormData(
-            copiedFilePath = testFile.absolutePath,
-            password = "testpassword",
-            confirmPassword = "testpassword"
-        )
-        
-        val result = OperationManager.startEncrypt(context, formData)
+    fun encrypt_then_decrypt_recovers_the_original_bytes() = runBlocking {
+        // The point of an ON-DEVICE gate: prove that real bytes survive
+        // encrypt -> gomobile/JNI bridge -> native crypto -> decrypt on an actual device.
+        // `go test` already covers the crypto math but never crosses the bridge, so this is
+        // the only place that proves the bridge + AAR + KDF/cipher actually round-trip.
+        // runBlocking (not runTest) so the wait runs in real wall-clock time.
+        val original = (
+            "Picocrypt-NG on-device roundtrip — éçü 0123456789 " +
+                "the quick brown fox jumps over the lazy dog"
+            ).toByteArray(Charsets.UTF_8)
+        val internalDir = File(context.filesDir, "picocrypt_files").apply { mkdirs() }
+        val plaintext = File(internalDir, "roundtrip_input.txt")
+        plaintext.writeBytes(original)
 
-        assertTrue("Encrypt should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
-        val operationID = result.getOrThrow()
-
-        val operationState = OperationManager.currentOperation.first()
-        assertNotNull("Operation state should be set", operationState)
-        assertEquals("Operation ID should match", operationID, operationState?.id)
-        assertEquals("Operation type should be ENCRYPT", OperationType.ENCRYPT, operationState?.type)
-        assertEquals("Input file should match", testFile.absolutePath, operationState?.inputFile)
-        assertNotNull("Output file should be set", operationState?.outputFile)
-        assertTrue("Output file should end with .pcv", operationState?.outputFile?.endsWith(".pcv") == true)
-    }
-    
-    @Test
-    fun startDecrypt_creates_operation_state_on_success() = runTest {
-        val password = "testpassword"
-        val encryptedFile = createEncryptedVolume(
-            sourceText = "test encrypted content",
-            password = password
-        )
-
-        val formData = decryptFormData(
-            copiedFilePath = encryptedFile.absolutePath,
-            password = password
-        )
-
-        val result = OperationManager.startDecrypt(context, formData)
-
-        assertTrue("Decrypt should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
-        val operationID = result.getOrThrow()
-
-        val operationState = OperationManager.currentOperation.first()
-        assertNotNull("Operation state should be set", operationState)
-        assertEquals("Operation ID should match", operationID, operationState?.id)
-        assertEquals("Operation type should be DECRYPT", OperationType.DECRYPT, operationState?.type)
-        assertEquals("Input file should match", encryptedFile.absolutePath, operationState?.inputFile)
-        assertNotNull("Output file should be set", operationState?.outputFile)
-    }
-    
-    @Test
-    fun pollProgress_returns_null_without_active_operation() = runTest {
-        OperationManager.clearOperation(shouldCleanupFiles = false)
-
-        val result = OperationManager.pollProgress()
-
-        assertNull("pollProgress should return null when no operation is active", result)
-    }
-    
-    @Test
-    fun cancelOperation_updates_operation_state_to_cancelled() = runTest {
-        // This test requires an active operation
-        // We'll test the error case when no operation exists
-        OperationManager.clearOperation(shouldCleanupFiles = false)
-        
-        val result = OperationManager.cancelOperation()
-        
-        assertTrue("Should fail when no operation", result.isFailure)
-        result.onFailure { error ->
-            assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
-        }
-    }
-    
-    @Test
-    fun clearOperation_removes_operation_state() = runTest {
-        OperationManager.clearOperation(context, shouldCleanupFiles = false)
-        
-        val operationState = OperationManager.currentOperation.first()
-        assertNull("Operation should be cleared", operationState)
-    }
-    
-    @Test
-    fun clearOperation_cleans_up_files_when_requested() = runTest {
-        // Create test files
-        val internalDir = File(context.filesDir, "picocrypt_files")
-        internalDir.mkdirs()
-        val inputFile = File(internalDir, "input_file.txt")
-        val outputFile = File(internalDir, "output_file.pcv")
-        val keyfile = File(internalDir, "keyfile_0")
-        inputFile.writeText("input")
-        outputFile.writeText("output")
-        keyfile.writeText("keyfile")
-        
-        // Create a mock operation state by manually setting up files
-        // (We can't easily create a real operation without Go mobile bindings)
-        // But we can test that clearOperation cleans up files
-        
-        val formData = encryptFormData(
-            copiedFilePath = inputFile.absolutePath,
-            keyfiles = listOf(KeyfileInfo(internalPath = keyfile.absolutePath, displayName = keyfile.name))
-        )
-        
-        // Note: We can't set operation state directly, but we can test
-        // that FileCopyService.cleanupOperationFiles works
-        FileCopyService.cleanupOperationFiles(
-            context = context,
-            inputFilePath = inputFile.absolutePath,
-            outputFilePath = outputFile.absolutePath,
-            keyfilePaths = listOf(keyfile.absolutePath)
-        )
-        
-        assertFalse("Input file should be deleted", inputFile.exists())
-        assertFalse("Output file should be deleted", outputFile.exists())
-        assertFalse("Keyfile should be deleted", keyfile.exists())
-    }
-    
-    @Test
-    fun retryOperation_requires_active_operation() = runTest {
-        OperationManager.clearOperation(shouldCleanupFiles = false)
-        
-        val formData = encryptFormData(
-            password = "test",
-            confirmPassword = "test"
-        )
-        
-        val result = OperationManager.retryOperation(context, formData)
-        
-        assertTrue("Should fail when no active operation", result.isFailure)
-        result.onFailure { error ->
-            assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
-        }
-    }
-    
-    @Test
-    fun retryDecryptWithForce_requires_active_decrypt_operation() = runTest {
-        OperationManager.clearOperation(shouldCleanupFiles = false)
-        
-        val result = OperationManager.retryDecryptWithForce()
-        
-        assertTrue("Should fail when no active operation", result.isFailure)
-        result.onFailure { error ->
-            assertTrue("Error should be GenericOperation", error is AppError.OperationError.GenericOperation)
-        }
-    }
-    
-    @Test
-    fun currentOperation_stateFlow_reflects_operation_state() = runTest {
-        // Initially should be null
-        var operationState = OperationManager.currentOperation.first()
-        assertNull("Should be null initially", operationState)
-        
-        // After clearing, should still be null
-        OperationManager.clearOperation(shouldCleanupFiles = false)
-        operationState = OperationManager.currentOperation.first()
-        assertNull("Should be null after clearing", operationState)
-    }
-
-    private suspend fun createEncryptedVolume(sourceText: String, password: String): File {
-        val internalDir = File(context.filesDir, "picocrypt_files")
-        internalDir.mkdirs()
-        val inputFile = File(internalDir, "integration_input.txt")
-        inputFile.writeText(sourceText)
-
-        val result = OperationManager.startEncrypt(
+        // Encrypt.
+        val encStart = OperationManager.startEncrypt(
             context,
-            encryptFormData(
-                copiedFilePath = inputFile.absolutePath,
-                password = password,
-                confirmPassword = password
-            )
+            encryptFormData(copiedFilePath = plaintext.absolutePath)
         )
-        assertTrue("Encrypt setup should start successfully: ${result.exceptionOrNull()}", result.isSuccess)
-
-        val completed = waitForOperationToFinish()
-        assertTrue("Encrypt setup operation should complete successfully", completed.done)
-        assertNull("Encrypt setup should not finish with error", completed.error)
-
-        val encryptedFile = File(completed.outputFile)
+        assertTrue("encrypt should start: ${encStart.exceptionOrNull()}", encStart.isSuccess)
+        assertTrue(
+            "encrypt operation ID must not be empty",
+            encStart.getOrThrow().isNotEmpty()
+        )
+        val encState = waitForOperationToFinish()
+        assertNull("encrypt must not finish with an error", encState.error)
+        val encryptedFile = File(encState.outputFile)
+        assertTrue("encrypted volume must exist", encryptedFile.exists())
+        assertFalse(
+            "ciphertext must differ from plaintext (data was actually encrypted)",
+            encryptedFile.readBytes().contentEquals(original)
+        )
         OperationManager.clearOperation(context, shouldCleanupFiles = false)
 
-        assertTrue("Encrypted file should exist for decrypt test", encryptedFile.exists())
-        return encryptedFile
-    }
+        // Re-stage the ciphertext as a decrypt INPUT, mirroring the real app: a picked
+        // .pcv is copied to input_file.<ext>. startDecrypt's pre-clean wipes output_file.*
+        // (never input_file.*), so feeding the raw encrypt output back in would delete it.
+        val decryptInput = File(internalDir, "input_file.pcv")
+        encryptedFile.copyTo(decryptInput, overwrite = true)
 
-    private suspend fun waitForOperationToFinish(maxPolls: Int = 200): OperationState {
+        // Decrypt the volume we just produced.
+        val decStart = OperationManager.startDecrypt(
+            context,
+            decryptFormData(copiedFilePath = decryptInput.absolutePath)
+        )
+        assertTrue("decrypt should start: ${decStart.exceptionOrNull()}", decStart.isSuccess)
+        assertTrue(
+            "decrypt operation ID must not be empty",
+            decStart.getOrThrow().isNotEmpty()
+        )
+        val decState = waitForOperationToFinish()
+        assertNull("decrypt must not finish with an error", decState.error)
+        val decryptedFile = File(decState.outputFile)
+        assertTrue("decrypted output must exist", decryptedFile.exists())
+
+        // The assertion that actually matters: the bytes came back intact.
+        assertArrayEquals(
+            "decrypted bytes must equal the original plaintext",
+            original,
+            decryptedFile.readBytes()
+        )
+
+        // The real gomobile binding must surface a missing input as the typed error the
+        // UI expects. Create and remove a unique file first so the path is known-missing.
+        val missingFile = File.createTempFile("detect-missing-", ".pcv", context.cacheDir)
+        assertTrue("missing-file fixture must be removable", missingFile.delete())
+        assertFalse("detectOperation input must not exist", missingFile.exists())
+
+        val detection = GoBridge.detectOperation(missingFile.absolutePath)
+        assertTrue("detectOperation must fail for a missing file", detection.isFailure)
+        val detectionError = detection.exceptionOrNull()
+        assertTrue(
+            "detectOperation failure must be a GenericOperation AppError",
+            detectionError is AppError.OperationError.GenericOperation
+        )
+        detectionError as AppError.OperationError.GenericOperation
+        assertEquals(
+            R.string.error_detect_operation_type_failed,
+            detectionError.messageResId
+        )
+    }
+    
+    // Polls the async Go operation to completion in REAL wall-clock time. The gomobile
+    // bridge is start-then-poll by design, so polling is unavoidable; the budget is large
+    // enough (~60s for an Argon2id KDF that takes seconds) that only a genuine bug -- not a
+    // slow emulator -- can trip it. delay() is forced onto a real dispatcher so a
+    // virtual-time test scheduler cannot collapse it to zero.
+    private suspend fun waitForOperationToFinish(maxPolls: Int = 600): OperationState {
         repeat(maxPolls) {
             val state = OperationManager.pollProgress()
             if (state != null && state.done) {
                 return state
             }
-            delay(50)
+            withContext(Dispatchers.IO) { delay(100) }
         }
         throw AssertionError("Timed out waiting for operation to finish")
     }

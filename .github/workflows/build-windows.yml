@@ -10,6 +10,22 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish artifacts to the GitHub release. Existing assets are never overwritten."
+        required: false
+        type: boolean
+        default: false
+      signpath_test:
+        description: "Submit artifacts to SignPath with the self-signed test policy. Never publishes a GitHub release."
+        required: false
+        type: boolean
+        default: false
+      signpath_release_dry_run:
+        description: "Validate the SignPath release policy without uploading signed output or publishing a GitHub release."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,14 +38,14 @@ jobs:
       contents: read
     env:
       RESHACKER_SHA256: e5a5b6d6be38ae3eb20e72b09f257f284bab2deb5f37164e9f2faefd23f27cf4
-      UPX_SHA256: 41c7492edeed0f7e67d347ca9e8d2131e2af7ca7a7695f92283a8e655c251c13
+      UPX_SHA256: b471ebf1b7f20f4a89150264ed9a008a2a5bfd247f3c6d1184a75bb59ca08f5d
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
       with:
-        go-version: stable
+        go-version: "1.26.5"
         cache-dependency-path: src/go.sum
 
     - name: Install dependencies
@@ -40,14 +56,14 @@ jobs:
     - name: Run tests
       run: |
         cd src
-        go test -v -timeout 15m ./...
+        go test -v -tags migrated_fynedo -timeout 15m ./...
       env:
         PICOCRYPT_RUN_CLI_INTEGRATION: 1
 
     - name: Build GUI
       run: |
         cd src
-        go build -v -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
+        go build -v -tags migrated_fynedo -ldflags="-s -w -H=windowsgui -extldflags=-static" -o 1.exe ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
         GOAMD64: v1
@@ -70,56 +86,467 @@ jobs:
           throw "Checksum mismatch for reshacker_setup.zip: expected $expectedHash, got $actualHash"
         }
         Expand-Archive -DestinationPath reshacker_setup reshacker_setup.zip
-        reshacker_setup/reshacker_setup.exe /SILENT
-        Start-Sleep -Seconds 60
-        Invoke-Expression "& `"$Env:P`" -open src/1.exe -save src/2.exe -action addoverwrite -res images/key.ico -mask `"ICONGROUP,MAINICON,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/2.exe -save src/3.exe -action addoverwrite -res images/key.ico -mask `"ICONGROUP,A,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/3.exe -save src/4.exe -action addoverwrite -res dist/windows/manifest.xml -mask `"MANIFEST,1,`""
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open dist/windows/versioninfo.rc -save resources.res -action compile"
-        Start-Sleep -Seconds 30
-        Invoke-Expression "& `"$Env:P`" -open src/4.exe -save src/5.exe -action addoverwrite -res resources.res"
-        Start-Sleep -Seconds 30
+        $installer = Start-Process `
+          -FilePath "reshacker_setup/reshacker_setup.exe" `
+          -ArgumentList "/SILENT" `
+          -Wait -PassThru
+        if ($installer.ExitCode -ne 0) {
+          throw "Resource Hacker installer failed with exit code $($installer.ExitCode)"
+        }
+        if (-not (Test-Path -LiteralPath $env:P -PathType Leaf)) {
+          throw "Resource Hacker executable was not installed at $env:P"
+        }
+
+        function Invoke-ResourceHacker {
+          param(
+            [Parameter(Mandatory)][string[]]$Arguments,
+            [Parameter(Mandatory)][string]$ExpectedOutput
+          )
+
+          $process = Start-Process `
+            -FilePath $env:P `
+            -ArgumentList ($Arguments + @("-log", "CONSOLE")) `
+            -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) {
+            throw "Resource Hacker failed with exit code $($process.ExitCode): $($Arguments -join ' ')"
+          }
+
+          $output = Get-Item -LiteralPath $ExpectedOutput -ErrorAction Stop
+          if ($output.Length -eq 0) {
+            throw "Resource Hacker produced an empty output: $ExpectedOutput"
+          }
+        }
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "src/1.exe", "-save", "src/2.exe", "-action", "addoverwrite", "-res", "images/key.ico", "-mask", "ICONGROUP,MAINICON,") `
+          -ExpectedOutput "src/2.exe"
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "src/2.exe", "-save", "src/3.exe", "-action", "addoverwrite", "-res", "images/key.ico", "-mask", "ICONGROUP,A,") `
+          -ExpectedOutput "src/3.exe"
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "src/3.exe", "-save", "src/4.exe", "-action", "addoverwrite", "-res", "dist/windows/manifest.xml", "-mask", "MANIFEST,1,") `
+          -ExpectedOutput "src/4.exe"
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "dist/windows/versioninfo.rc", "-save", "resources.res", "-action", "compile") `
+          -ExpectedOutput "resources.res"
+
+        Invoke-ResourceHacker `
+          -Arguments @("-open", "src/4.exe", "-save", "src/5.exe", "-action", "addoverwrite", "-res", "resources.res") `
+          -ExpectedOutput "src/5.exe"
       env:
         P: "C:\\Program Files (x86)\\Resource Hacker\\ResourceHacker.exe"
 
     - name: Compress with upx
       shell: pwsh
       run: |
-        Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.1.0/upx-5.1.0-win64.zip
+        Invoke-WebRequest -OutFile upx.zip https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-win64.zip
         $expectedHash = $env:UPX_SHA256
         $actualHash = (Get-FileHash upx.zip -Algorithm SHA256).Hash.ToLower()
         if ($actualHash -ne $expectedHash) {
           throw "Checksum mismatch for upx.zip: expected $expectedHash, got $actualHash"
         }
         Expand-Archive -DestinationPath upx upx.zip
-        upx/upx-5.1.0-win64/upx.exe --lzma -o src/Picocrypt-NG.exe src/5.exe
-        upx/upx-5.1.0-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
+        upx/upx-5.2.0-win64/upx.exe --lzma -o src/Picocrypt-NG.exe src/5.exe
+        upx/upx-5.2.0-win64/upx.exe --lzma src/Picocrypt-NG-cli.exe
+
+    # === Phase 4 (FA-WIN-04): build NSIS installer ===
+    # NSIS is NOT pre-installed on windows-2025 [actions/runner-images#11754,
+    # verified 2026-05-01]; CONTEXT D-04 assumed pre-install based on
+    # windows-2022 precedent — invalidated. We install via choco; choco itself
+    # is part of the runner baseline (no SHA pinning required for choco-managed
+    # packages — choco verifies its own signatures).
+    - name: Rename portable artifact
+      shell: pwsh
+      run: |
+        Move-Item src/Picocrypt-NG.exe src/Picocrypt-NG-portable.exe
+
+    - name: Install NSIS
+      shell: pwsh
+      run: |
+        choco install -y --no-progress nsis --version=3.12.0
+        & "C:\Program Files (x86)\NSIS\makensis.exe" -VERSION
+
+    - name: Build NSIS installer
+      shell: pwsh
+      run: |
+        $version = (Get-Content -Path "VERSION" -Raw).Trim()
+        Write-Host "Building installer for version: $version"
+        # Pass absolute path so NSIS ${__FILEDIR__} resolves to the absolute
+        # script directory; otherwise the Icon directive re-applies script-dir
+        # resolution to a relative ${__FILEDIR__}, doubling the path
+        # (D:\...\dist\windows\dist\windows\..\..\images\key.ico — file not found).
+        $scriptPath = (Resolve-Path "dist\windows\installer.nsi").Path
+        & "C:\Program Files (x86)\NSIS\makensis.exe" `
+          -WX `
+          -V4 `
+          "-DVERSION=$version" `
+          "$scriptPath"
+        if ($LASTEXITCODE -ne 0) {
+          throw "makensis failed with exit code $LASTEXITCODE"
+        }
+
+    - name: Smoke-test installer
+      shell: pwsh
+      run: |
+        $setup = "dist\windows\Picocrypt-NG-Setup.exe"
+        if (-not (Test-Path $setup)) {
+          throw "Setup.exe not produced at $setup"
+        }
+        $size = (Get-Item $setup).Length
+        Write-Host "Setup.exe size: $size bytes"
+        if ($size -lt 1MB) {
+          throw "Setup.exe suspiciously small (< 1 MB): $size bytes"
+        }
+        if ($size -gt 100MB) {
+          throw "Setup.exe suspiciously large (> 100 MB): $size bytes"
+        }
+    # === end Phase 4 ===
+
+    # Stage all release files into a single directory so upload-artifact's
+    # least-common-ancestor rule produces a flat zip (LCA == staging dir).
+    # Without this, src/*.exe + dist/windows/*.exe → LCA is repo root and the
+    # artifact preserves both src/ and dist/windows/ prefixes, breaking the
+    # release job's flat-path checksum/release steps.
+    - name: Stage release artifacts
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path release-staging | Out-Null
+        Copy-Item src/Picocrypt-NG-portable.exe release-staging/
+        Copy-Item src/Picocrypt-NG-cli.exe release-staging/
+        Copy-Item dist/windows/Picocrypt-NG-Setup.exe release-staging/
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: build-windows
-        path: |
-          src/Picocrypt-NG.exe
-          src/Picocrypt-NG-cli.exe
+        name: unsigned-windows
+        path: release-staging/
         if-no-files-found: error
         compression-level: 9
+        retention-days: 1
+
+  sign:
+    needs: build
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish_release || inputs.signpath_test || inputs.signpath_release_dry_run) }}
+    runs-on: windows-2025
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      actions: read
+      contents: read
+    env:
+      SIGNPATH_SIGNING_POLICY_SLUG: ${{ inputs.signpath_test && 'test-signing' || 'release-signing' }}
+      SIGNPATH_TEST: ${{ inputs.signpath_test && 'true' || 'false' }}
+      SIGNPATH_PRODUCTION_CERTIFICATE_SHA256: ${{ vars.SIGNPATH_PRODUCTION_CERTIFICATE_SHA256 }}
+    steps:
+    - name: Reject conflicting SignPath modes
+      if: ${{ inputs.signpath_test && inputs.signpath_release_dry_run }}
+      shell: pwsh
+      run: throw "signpath_test and signpath_release_dry_run cannot both be enabled"
+
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+    - name: Download unsigned build artifact
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: unsigned-windows
+        path: unsigned-build
+
+    - name: Stage unsigned binaries for SignPath
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path signpath-input-binaries | Out-Null
+        Copy-Item unsigned-build/Picocrypt-NG-portable.exe signpath-input-binaries/
+        Copy-Item unsigned-build/Picocrypt-NG-cli.exe signpath-input-binaries/
+
+        $expected = @("Picocrypt-NG-cli.exe", "Picocrypt-NG-portable.exe")
+        $actual = @(Get-ChildItem signpath-input-binaries -File).Name | Sort-Object
+        if (Compare-Object $expected $actual) {
+          throw "Unexpected SignPath binary input: $($actual -join ', ')"
+        }
+
+    - name: Upload unsigned binaries for SignPath
+      id: upload-signpath-binaries
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: signpath-windows-binaries
+        path: signpath-input-binaries/
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 1
+
+    - name: Sign binaries with SignPath
+      uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2.2
+      with:
+        api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+        organization-id: d6e78672-6bae-47d3-b2b8-fa464705b34e
+        project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+        signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+        artifact-configuration-slug: windows-binaries
+        github-artifact-id: ${{ steps.upload-signpath-binaries.outputs.artifact-id }}
+        wait-for-completion: true
+        output-artifact-directory: signpath-signed-binaries
+
+    - name: Verify signed binaries before packaging
+      shell: pwsh
+      run: |
+        $expected = @("Picocrypt-NG-cli.exe", "Picocrypt-NG-portable.exe")
+        $actual = @(Get-ChildItem signpath-signed-binaries -File).Name | Sort-Object
+        if (Compare-Object $expected $actual) {
+          throw "Unexpected SignPath binary output: $($actual -join ', ')"
+        }
+
+        $requireTrusted = $env:SIGNPATH_TEST -ne "true"
+        foreach ($path in @(
+          "signpath-signed-binaries/Picocrypt-NG-portable.exe",
+          "signpath-signed-binaries/Picocrypt-NG-cli.exe"
+        )) {
+          $signature = Get-AuthenticodeSignature -FilePath $path
+          if ($null -eq $signature.SignerCertificate) {
+            throw "No Authenticode signer certificate: $path"
+          }
+          if (@("NotSigned", "HashMismatch", "NotSupported") -contains [string]$signature.Status) {
+            throw "Invalid Authenticode signature for ${path}: $($signature.Status) $($signature.StatusMessage)"
+          }
+          if ($requireTrusted -and $signature.Status -ne "Valid") {
+            throw "Production Authenticode signature is not trusted for ${path}: $($signature.Status) $($signature.StatusMessage)"
+          }
+          if ($requireTrusted -and $null -eq $signature.TimeStamperCertificate) {
+            throw "Production Authenticode signature has no timestamp: $path"
+          }
+        }
+
+    - name: Export unsigned NSIS uninstaller
+      shell: pwsh
+      run: |
+        Copy-Item signpath-signed-binaries/Picocrypt-NG-portable.exe src/Picocrypt-NG-portable.exe
+        Copy-Item signpath-signed-binaries/Picocrypt-NG-cli.exe src/Picocrypt-NG-cli.exe
+
+        choco install -y --no-progress nsis --version=3.12.0
+        & "C:\Program Files (x86)\NSIS\makensis.exe" -VERSION
+
+        $version = (Get-Content -Path "VERSION" -Raw).Trim()
+        $scriptPath = (Resolve-Path "dist\windows\installer.nsi").Path
+        Remove-Item dist/windows/Uninstall.exe -Force -ErrorAction SilentlyContinue
+        Remove-Item dist/windows/Picocrypt-NG-Setup.exe -Force -ErrorAction SilentlyContinue
+        & "C:\Program Files (x86)\NSIS\makensis.exe" `
+          -WX `
+          -V4 `
+          "-DVERSION=$version" `
+          "-DEXPORT_UNINST" `
+          "$scriptPath"
+        if ($LASTEXITCODE -ne 0) {
+          throw "makensis failed to export the uninstaller with exit code $LASTEXITCODE"
+        }
+
+        $uninstaller = Get-Item -LiteralPath "dist/windows/Uninstall.exe" -ErrorAction Stop
+        if ($uninstaller.Length -lt 10KB -or $uninstaller.Length -gt 10MB) {
+          throw "Uninstall.exe size outside expected range: $($uninstaller.Length) bytes"
+        }
+        Remove-Item dist/windows/Picocrypt-NG-Setup.exe -Force -ErrorAction Stop
+
+    - name: Upload unsigned uninstaller for SignPath
+      id: upload-signpath-uninstaller
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: signpath-windows-uninstaller
+        path: dist/windows/Uninstall.exe
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 1
+
+    - name: Sign uninstaller with SignPath
+      uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2.2
+      with:
+        api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+        organization-id: d6e78672-6bae-47d3-b2b8-fa464705b34e
+        project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+        signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+        artifact-configuration-slug: windows-uninstaller
+        github-artifact-id: ${{ steps.upload-signpath-uninstaller.outputs.artifact-id }}
+        wait-for-completion: true
+        output-artifact-directory: signpath-signed-uninstaller
+
+    - name: Verify signed uninstaller
+      shell: pwsh
+      run: |
+        $path = "signpath-signed-uninstaller/Uninstall.exe"
+        $signature = Get-AuthenticodeSignature -FilePath $path
+        if ($null -eq $signature.SignerCertificate) {
+          throw "No Authenticode signer certificate: $path"
+        }
+        if (@("NotSigned", "HashMismatch", "NotSupported") -contains [string]$signature.Status) {
+          throw "Invalid Authenticode signature: $($signature.Status) $($signature.StatusMessage)"
+        }
+        if ($env:SIGNPATH_TEST -ne "true" -and $signature.Status -ne "Valid") {
+          throw "Production Authenticode signature is not trusted: $($signature.Status) $($signature.StatusMessage)"
+        }
+        if ($env:SIGNPATH_TEST -ne "true" -and $null -eq $signature.TimeStamperCertificate) {
+          throw "Production Authenticode signature has no timestamp: $path"
+        }
+
+    - name: Build NSIS installer from signed components
+      shell: pwsh
+      run: |
+        Copy-Item signpath-signed-uninstaller/Uninstall.exe dist/windows/Uninstall.exe -Force
+
+        $version = (Get-Content -Path "VERSION" -Raw).Trim()
+        $scriptPath = (Resolve-Path "dist\windows\installer.nsi").Path
+        Remove-Item dist/windows/Picocrypt-NG-Setup.exe -Force -ErrorAction SilentlyContinue
+        & "C:\Program Files (x86)\NSIS\makensis.exe" `
+          -WX `
+          -V4 `
+          "-DVERSION=$version" `
+          "-DIMPORT_UNINST" `
+          "$scriptPath"
+        if ($LASTEXITCODE -ne 0) {
+          throw "makensis failed to import the signed uninstaller with exit code $LASTEXITCODE"
+        }
+
+        $setup = Get-Item -LiteralPath "dist/windows/Picocrypt-NG-Setup.exe" -ErrorAction Stop
+        if ($setup.Length -lt 1MB -or $setup.Length -gt 100MB) {
+          throw "Setup.exe size outside expected range: $($setup.Length) bytes"
+        }
+
+    - name: Upload unsigned installer for SignPath
+      id: upload-signpath-installer
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: signpath-windows-installer
+        path: dist/windows/Picocrypt-NG-Setup.exe
+        if-no-files-found: error
+        compression-level: 0
+        retention-days: 1
+
+    - name: Sign installer with SignPath
+      uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd # v2.2
+      with:
+        api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+        organization-id: d6e78672-6bae-47d3-b2b8-fa464705b34e
+        project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+        signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
+        artifact-configuration-slug: windows-installer
+        github-artifact-id: ${{ steps.upload-signpath-installer.outputs.artifact-id }}
+        wait-for-completion: true
+        output-artifact-directory: signpath-signed-installer
+
+    - name: Verify final Authenticode artifacts
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path signed-release | Out-Null
+        Copy-Item signpath-signed-binaries/Picocrypt-NG-portable.exe signed-release/
+        Copy-Item signpath-signed-binaries/Picocrypt-NG-cli.exe signed-release/
+        Copy-Item signpath-signed-installer/Picocrypt-NG-Setup.exe signed-release/
+
+        $expected = @("Picocrypt-NG-Setup.exe", "Picocrypt-NG-cli.exe", "Picocrypt-NG-portable.exe") | Sort-Object
+        $actual = @(Get-ChildItem signed-release -File).Name | Sort-Object
+        if (Compare-Object $expected $actual) {
+          throw "Unexpected final Windows artifact set: $($actual -join ', ')"
+        }
+
+        if ($env:SIGNPATH_TEST -ne "true" -and $env:SIGNPATH_PRODUCTION_CERTIFICATE_SHA256 -notmatch '^[0-9A-Fa-f]{64}$') {
+          throw "SIGNPATH_PRODUCTION_CERTIFICATE_SHA256 must be the production certificate's 64-character SHA-256 fingerprint"
+        }
+
+        function Assert-AuthenticodeSignature {
+          param([Parameter(Mandatory)][string]$Path)
+
+          $signature = Get-AuthenticodeSignature -FilePath $Path
+          if ($null -eq $signature.SignerCertificate) {
+            throw "No Authenticode signer certificate: $Path"
+          }
+          if (@("NotSigned", "HashMismatch", "NotSupported") -contains [string]$signature.Status) {
+            throw "Invalid Authenticode signature for ${Path}: $($signature.Status) $($signature.StatusMessage)"
+          }
+          if ($env:SIGNPATH_TEST -ne "true" -and $signature.Status -ne "Valid") {
+            throw "Production Authenticode signature is not trusted for ${Path}: $($signature.Status) $($signature.StatusMessage)"
+          }
+          if ($env:SIGNPATH_TEST -ne "true" -and $null -eq $signature.TimeStamperCertificate) {
+            throw "Production Authenticode signature has no timestamp: $Path"
+          }
+          if ($env:SIGNPATH_TEST -ne "true") {
+            $actualCertificateSHA256 = $signature.SignerCertificate.GetCertHashString(
+              [System.Security.Cryptography.HashAlgorithmName]::SHA256
+            )
+            if ($actualCertificateSHA256 -ne $env:SIGNPATH_PRODUCTION_CERTIFICATE_SHA256) {
+              throw "Unexpected production signing certificate for ${Path}: $actualCertificateSHA256"
+            }
+          }
+        }
+
+        foreach ($path in @(
+          "signed-release/Picocrypt-NG-portable.exe",
+          "signed-release/Picocrypt-NG-cli.exe",
+          "signed-release/Picocrypt-NG-Setup.exe",
+          "signpath-signed-uninstaller/Uninstall.exe"
+        )) {
+          Assert-AuthenticodeSignature -Path $path
+        }
+
+        $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+        if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+          throw "7z.exe not found at $sevenZip"
+        }
+        New-Item -ItemType Directory -Force -Path extracted-installer | Out-Null
+        & $sevenZip x signed-release/Picocrypt-NG-Setup.exe "-oextracted-installer" -y
+        if ($LASTEXITCODE -ne 0) {
+          throw "7z.exe failed to extract the signed installer with exit code $LASTEXITCODE"
+        }
+
+        $embeddedGUI = "extracted-installer/Picocrypt-NG.exe"
+        $embeddedCLI = "extracted-installer/Picocrypt-NG-cli.exe"
+        $embeddedUninstaller = "extracted-installer/Uninstall.exe"
+        foreach ($path in @($embeddedGUI, $embeddedCLI, $embeddedUninstaller)) {
+          if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Signed installer is missing embedded binary: $path"
+          }
+          Assert-AuthenticodeSignature -Path $path
+        }
+
+        $portableHash = (Get-FileHash signed-release/Picocrypt-NG-portable.exe -Algorithm SHA256).Hash
+        $embeddedGUIHash = (Get-FileHash $embeddedGUI -Algorithm SHA256).Hash
+        if ($portableHash -ne $embeddedGUIHash) {
+          throw "Installer GUI payload does not match the signed portable artifact"
+        }
+        $cliHash = (Get-FileHash signed-release/Picocrypt-NG-cli.exe -Algorithm SHA256).Hash
+        $embeddedCLIHash = (Get-FileHash $embeddedCLI -Algorithm SHA256).Hash
+        if ($cliHash -ne $embeddedCLIHash) {
+          throw "Installer CLI payload does not match the signed CLI artifact"
+        }
+        $uninstallerHash = (Get-FileHash signpath-signed-uninstaller/Uninstall.exe -Algorithm SHA256).Hash
+        $embeddedUninstallerHash = (Get-FileHash $embeddedUninstaller -Algorithm SHA256).Hash
+        if ($uninstallerHash -ne $embeddedUninstallerHash) {
+          throw "Installer uninstaller payload does not match the signed Uninstall.exe artifact"
+        }
+
+    - name: Upload signed Windows artifacts
+      if: ${{ !inputs.signpath_release_dry_run }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.signpath_test && 'signed-windows-TEST-DO-NOT-PUBLISH' || 'signed-windows' }}
+        path: signed-release/
+        if-no-files-found: error
+        compression-level: 9
+        retention-days: 1
 
   release:
-    needs: build
+    needs: [build, sign]
+    if: ${{ github.ref == 'refs/heads/main' && !inputs.signpath_test && !inputs.signpath_release_dry_run && (github.event_name == 'push' || inputs.publish_release) }}
     runs-on: windows-2025
+    environment: release
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-    - name: Download artifact
-      uses: actions/download-artifact@v8
+    - name: Download signed artifact
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        name: build-windows
+        name: signed-windows
         path: artifacts/build-windows
 
     - name: Get version tag
@@ -128,24 +555,28 @@ jobs:
         $version = Get-Content -Path "VERSION"
         echo "VERSION=$version" >> $env:GITHUB_ENV
 
-    - name: Generate checksums
-      shell: pwsh
-      run: |
-        $hash = Get-FileHash "artifacts/build-windows/Picocrypt-NG.exe" -Algorithm SHA256
-        echo "CHECKSUM_PICOCRYPT_NG=$($hash.Hash)" >> $env:GITHUB_ENV
-        $hashCli = Get-FileHash "artifacts/build-windows/Picocrypt-NG-cli.exe" -Algorithm SHA256
-        echo "CHECKSUM_PICOCRYPT_NG_CLI=$($hashCli.Hash)" >> $env:GITHUB_ENV
+    - name: Sign and attest artifacts
+      uses: ./.github/actions/sign-and-attest
+      with:
+        paths: |
+          artifacts/build-windows/Picocrypt-NG-portable.exe
+          artifacts/build-windows/Picocrypt-NG-cli.exe
+          artifacts/build-windows/Picocrypt-NG-Setup.exe
+
+    - name: Generate release notes
+      uses: ./.github/actions/release-body
+      with:
+        version: ${{ env.VERSION }}
 
     - name: Release
-      uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
+      uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
       with:
+        body_path: ${{ github.workspace }}/release-body.md
         files: |
-          artifacts/build-windows/Picocrypt-NG.exe
+          artifacts/build-windows/Picocrypt-NG-portable.exe
           artifacts/build-windows/Picocrypt-NG-cli.exe
+          artifacts/build-windows/Picocrypt-NG-Setup.exe
+          artifacts/build-windows/*.sigstore.json
         tag_name: ${{ env.VERSION }}
         make_latest: true
-        append_body: true
-        body: |
-          **Windows:**
-          `sha256(Picocrypt-NG.exe)      ${{ env.CHECKSUM_PICOCRYPT_NG }}`
-          `sha256(Picocrypt-NG-cli.exe)  ${{ env.CHECKSUM_PICOCRYPT_NG_CLI }}`
+        overwrite_files: false

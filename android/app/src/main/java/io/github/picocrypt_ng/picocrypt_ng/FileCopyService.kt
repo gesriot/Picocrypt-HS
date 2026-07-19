@@ -2,6 +2,7 @@ package io.github.picocrypt_ng.picocrypt_ng
 
 import android.content.Context
 import android.net.Uri
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -45,10 +46,7 @@ object FileCopyService {
             // Open input stream from URI
             val inputStream: InputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(
-                    AppError.FileError.CopyFailed(
-                        userMessage = "Failed to open file",
-                        technicalMessage = "Could not open input stream for URI: $uri"
-                    )
+                    copyFailed(context, "Could not open input stream for URI: $uri")
                 )
 
             // Copy file (overwrite if exists)
@@ -59,12 +57,11 @@ object FileCopyService {
             }
 
             Result.success(destFile.absolutePath)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(
-                AppError.FileError.CopyFailed(
-                    userMessage = "Failed to copy file: ${e.message ?: "Unknown error"}",
-                    technicalMessage = e.message
-                )
+                copyFailed(context, e.message)
             )
         }
     }
@@ -93,10 +90,7 @@ object FileCopyService {
             // Open input stream from URI
             val inputStream: InputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(
-                    AppError.FileError.CopyFailed(
-                        userMessage = "Failed to open keyfile",
-                        technicalMessage = "Could not open input stream for URI: $uri"
-                    )
+                    copyFailed(context, "Could not open input stream for URI: $uri")
                 )
 
             // Copy file (overwrite if exists)
@@ -107,12 +101,11 @@ object FileCopyService {
             }
 
             Result.success(destFile.absolutePath)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(
-                AppError.FileError.CopyFailed(
-                    userMessage = "Failed to copy keyfile: ${e.message ?: "Unknown error"}",
-                    technicalMessage = e.message
-                )
+                copyFailed(context, e.message)
             )
         }
     }
@@ -129,27 +122,47 @@ object FileCopyService {
             } else {
                 false
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
     }
 
     /**
-     * Cleans up all files in the internal storage directory.
+     * Cleans up all files copied into the internal runtime directory.
+     *
+     * This is used for process-start stale-file cleanup. Do not use it as the
+     * pre-operation cleanup path: staged folder/multi-file inputs live under
+     * staging/ and must survive until the Go operation has consumed them.
      */
     suspend fun cleanupAllFiles(context: Context): Boolean = withContext(Dispatchers.IO) {
         try {
             val internalDir = File(context.filesDir, INTERNAL_FILES_DIR)
-            if (internalDir.exists() && internalDir.isDirectory) {
-                internalDir.listFiles()?.forEach { file ->
-                    if (file.isFile) {
-                        file.delete()
-                    }
-                }
-                true
-            } else {
-                false
+            if (!internalDir.exists()) {
+                return@withContext true
             }
+            if (!internalDir.isDirectory) {
+                return@withContext false
+            }
+
+            val files = internalDir.listFiles() ?: return@withContext false
+
+            var allDeleted = true
+            files.forEach { file ->
+                val deleted = if (file.isDirectory) {
+                    file.deleteRecursively()
+                } else {
+                    file.delete()
+                }
+                if (!deleted || file.exists()) {
+                    allDeleted = false
+                }
+            }
+
+            allDeleted
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -212,6 +225,8 @@ object FileCopyService {
             }
             
             allSuccess
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -233,10 +248,7 @@ object FileCopyService {
             val sourceFile = File(sourceFilePath)
             if (!sourceFile.exists()) {
                 return@withContext Result.failure(
-                    AppError.FileError.SaveFailed(
-                        userMessage = "Source file not found",
-                        technicalMessage = "File does not exist: $sourceFilePath"
-                    )
+                    saveFailed(context, "File does not exist: $sourceFilePath")
                 )
             }
             
@@ -245,19 +257,15 @@ object FileCopyService {
                     inputStream.copyTo(outputStream)
                 }
             } ?: return@withContext Result.failure(
-                AppError.FileError.SaveFailed(
-                    userMessage = "Failed to open destination location",
-                    technicalMessage = "Could not open output stream for URI: $destinationUri"
-                )
+                saveFailed(context, "Could not open output stream for URI: $destinationUri")
             )
             
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(
-                AppError.FileError.SaveFailed(
-                    userMessage = "Failed to save file: ${e.message ?: "Unknown error"}",
-                    technicalMessage = e.message
-                )
+                saveFailed(context, e.message)
             )
         }
     }
@@ -296,6 +304,8 @@ object FileCopyService {
         return try {
             val file = File(filePath)
             file.exists() && file.isFile
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -322,6 +332,8 @@ object FileCopyService {
             }
             
             allSuccess
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -347,6 +359,8 @@ object FileCopyService {
             }
             
             allSuccess
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -388,11 +402,26 @@ object FileCopyService {
             
             // Clean up any remaining incomplete files (but not input/keyfiles)
             cleanupIncompleteFiles(context)
-            
+
             allSuccess
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
     }
-}
 
+    private fun copyFailed(context: Context, technicalMessage: String?) =
+        AppError.FileError.CopyFailed(
+            userMessage = context.getString(R.string.error_copy_failed),
+            technicalMessage = technicalMessage,
+            messageResId = R.string.error_copy_failed,
+        )
+
+    private fun saveFailed(context: Context, technicalMessage: String?) =
+        AppError.FileError.SaveFailed(
+            userMessage = context.getString(R.string.error_save_failed),
+            technicalMessage = technicalMessage,
+            messageResId = R.string.error_save_failed,
+        )
+}

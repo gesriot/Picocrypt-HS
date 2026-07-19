@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"Picocrypt-NG/internal/diskspace"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
 	// Check explicit override first
 	if TempDirOverride != "" {
 		if isWritable(TempDirOverride) {
-			space, err := availableSpace(TempDirOverride)
+			space, err := diskspace.Available(TempDirOverride)
 			if err == nil && space >= required {
 				return TempDirOverride, nil
 			}
@@ -65,7 +66,7 @@ func ChooseTempDir(estimatedSize int64, outputPath string) (string, error) {
 		if !isWritable(dir) {
 			continue
 		}
-		space, err := availableSpace(dir)
+		space, err := diskspace.Available(dir)
 		if err != nil || space < required {
 			continue
 		}
@@ -122,7 +123,7 @@ func userCacheDir() (string, error) {
 		return "", err
 	}
 	cacheDir := filepath.Join(base, cacheDirName)
-	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return "", err
 	}
 	return cacheDir, nil

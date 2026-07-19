@@ -2,12 +2,16 @@
 package ui
 
 import (
+	"Picocrypt-NG/internal/app"
 	"reflect"
 	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )
 
 // updateAdvancedSection updates the advanced options based on mode.
@@ -19,6 +23,8 @@ func (a *App) updateAdvancedSection() {
 	}
 
 	a.advancedContainer.RemoveAll()
+	a.advancedToggleBtn = nil
+	a.advancedDetail = nil
 
 	switch a.State.Mode {
 	case "":
@@ -26,75 +32,165 @@ func (a *App) updateAdvancedSection() {
 		if a.advancedLabel != nil {
 			a.advancedLabel.Hide()
 		}
-		// Resize to compact initial height
-		if a.Window != nil {
-			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightInitial))
-		}
+		a.resizeDesktopWindowForCurrentContent(0)
 	case "encrypt":
 		if a.advancedLabel != nil {
 			a.advancedLabel.Show()
 		}
-		a.buildEncryptOptions()
-		// Resize window for encrypt mode (more options)
-		if a.Window != nil {
-			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightEncrypt))
-		}
+		a.buildDesktopAdvancedDisclosure(a.buildAdvancedDetailContent("encrypt"), a.advancedShouldAutoOpen())
+		a.resizeDesktopWindowForCurrentContent(0)
 	case "decrypt":
 		if a.advancedLabel != nil {
 			a.advancedLabel.Show()
 		}
-		a.buildDecryptOptions()
-		// Resize window for decrypt mode (fewer options)
-		if a.Window != nil {
-			a.Window.Resize(fyne.NewSize(windowWidth, windowHeightDecrypt))
-		}
+		a.buildDesktopAdvancedDisclosure(a.buildAdvancedDetailContent("decrypt"), a.advancedShouldAutoOpen())
+		a.resizeDesktopWindowForCurrentContent(0)
 	}
 
-	// IMPORTANT: Update disable state for newly created checkboxes
-	// This ensures checkboxes are disabled until user enters credentials
+	// IMPORTANT: Newly rebuilt controls must immediately reflect the current
+	// snapshot-driven disable state so a section refresh cannot leave stale
+	// enabled/disabled widgets behind.
 	a.updateAdvancedDisableState()
 
 	a.advancedContainer.Refresh()
 }
 
+func (a *App) advancedShouldAutoOpen() bool {
+	switch a.State.Mode {
+	case "encrypt":
+		return a.State.Paranoid || a.State.Compress || a.State.ReedSolomon ||
+			a.State.Delete || a.State.Deniability || a.State.Recursively ||
+			a.State.Split || a.State.SplitSize != ""
+	case "decrypt":
+		return a.State.Keep || a.State.VerifyFirst || a.State.Delete ||
+			a.State.AutoUnzip || a.State.SameLevel
+	default:
+		return false
+	}
+}
+
+func (a *App) buildAdvancedDetailContent(mode string) fyne.CanvasObject {
+	options := container.NewVBox()
+	switch mode {
+	case "decrypt":
+		a.buildDecryptOptionsInto(options)
+	default:
+		a.buildEncryptOptionsInto(options)
+	}
+
+	return options
+}
+
+func (a *App) buildDesktopAdvancedDisclosure(detail fyne.CanvasObject, autoOpen bool) {
+	open := autoOpen
+	if a.advancedOverridden {
+		open = a.advancedOpen
+	} else {
+		a.advancedOpen = autoOpen
+	}
+
+	a.advancedDetail = detail
+	a.advancedToggleBtn = widget.NewButtonWithIcon(tr("advanced.title", "Advanced"), advancedDisclosureIcon(open), func() {
+		a.advancedOverridden = true
+		a.setAdvancedDisclosureOpen(!a.advancedOpen)
+	})
+	a.advancedToggleBtn.Alignment = widget.ButtonAlignLeading
+	a.advancedToggleBtn.IconPlacement = widget.ButtonIconLeadingText
+	a.advancedToggleBtn.Importance = widget.LowImportance
+	if !open {
+		detail.Hide()
+	}
+	a.advancedContainer.Add(a.advancedToggleBtn)
+	a.advancedContainer.Add(detail)
+}
+
+func advancedDisclosureIcon(open bool) fyne.Resource {
+	if open {
+		return theme.MenuDropUpIcon()
+	}
+	return theme.MenuDropDownIcon()
+}
+
+func (a *App) refreshAdvancedDisclosureButton() {
+	if a.advancedToggleBtn == nil {
+		return
+	}
+	a.advancedToggleBtn.SetText(tr("advanced.title", "Advanced"))
+	a.advancedToggleBtn.SetIcon(advancedDisclosureIcon(a.advancedOpen))
+}
+
+func (a *App) setAdvancedDisclosureOpen(open bool) {
+	a.advancedOpen = open
+	if a.advancedDetail != nil {
+		if open {
+			a.advancedDetail.Show()
+		} else {
+			a.advancedDetail.Hide()
+		}
+	}
+	a.refreshAdvancedDisclosureButton()
+	if a.advancedContainer != nil {
+		a.advancedContainer.Refresh()
+	}
+	a.resizeDesktopWindowForCurrentContent(0)
+}
+
 // buildEncryptOptions creates encrypt mode options.
 func (a *App) buildEncryptOptions() {
-	// Row 1: Paranoid + Compress
-	a.paranoidCheck = widget.NewCheck("Paranoid mode", func(checked bool) {
+	a.buildEncryptOptionsInto(a.advancedContainer)
+}
+
+func adaptiveAdvancedOptionPair(left, right fyne.CanvasObject) fyne.CanvasObject {
+	pair := container.NewGridWithColumns(2, left, right)
+	if pair.MinSize().Width > desktopContentWidth() {
+		return container.NewVBox(left, right)
+	}
+	return pair
+}
+
+func (a *App) buildEncryptOptionsInto(target *fyne.Container) {
+	if target == nil {
+		return
+	}
+
+	a.paranoidCheck = ttwidget.NewCheck(tr("advanced.paranoid.label", "Paranoid mode"), func(checked bool) {
 		a.State.Paranoid = checked
 	})
+	a.paranoidCheck.SetToolTip(tr("advanced.paranoid.tooltip", "Adds Serpent and stronger checks"))
 	a.paranoidCheck.SetChecked(a.State.Paranoid)
 
-	a.compressCheck = widget.NewCheck("Compress files", func(checked bool) {
+	a.compressCheck = ttwidget.NewCheck(tr("advanced.compress.label", "Compress files"), func(checked bool) {
 		a.State.Compress = checked
 		// Auto-toggle .zip suffix in output filename
 		a.updateOutputFileForCompress(checked)
 	})
+	a.compressCheck.SetToolTip(tr("advanced.compress.tooltip", "Compress before encrypting"))
 	a.compressCheck.SetChecked(a.State.Compress)
 
-	row1 := container.NewGridWithColumns(2, a.paranoidCheck, a.compressCheck)
+	row1 := adaptiveAdvancedOptionPair(a.paranoidCheck, a.compressCheck)
 
-	// Row 2: Reed-Solomon + Delete files
-	a.reedSolomonCheck = widget.NewCheck("Reed-Solomon", func(checked bool) {
+	a.reedSolomonCheck = ttwidget.NewCheck(tr("advanced.reed_solomon.label", "Reed-Solomon"), func(checked bool) {
 		a.State.ReedSolomon = checked
 	})
+	a.reedSolomonCheck.SetToolTip(tr("advanced.reed_solomon.tooltip", "Add recovery data"))
 	a.reedSolomonCheck.SetChecked(a.State.ReedSolomon)
 
-	a.deleteCheck = widget.NewCheck("Delete files", func(checked bool) {
+	a.deleteCheck = ttwidget.NewCheck(tr("advanced.delete_files.label", "Delete files"), func(checked bool) {
 		a.State.Delete = checked
 	})
+	a.deleteCheck.SetToolTip(tr("advanced.delete_files.tooltip", "Delete source files after encryption"))
 	a.deleteCheck.SetChecked(a.State.Delete)
 
-	row2 := container.NewGridWithColumns(2, a.reedSolomonCheck, a.deleteCheck)
+	row2 := adaptiveAdvancedOptionPair(a.reedSolomonCheck, a.deleteCheck)
 
-	// Row 3: Deniability + Recursively
-	a.deniabilityCheck = widget.NewCheck("Deniability", func(checked bool) {
+	a.deniabilityCheck = ttwidget.NewCheck(tr("advanced.deniability.label", "Deniability"), func(checked bool) {
 		a.State.Deniability = checked
 		a.updateUIState()
 	})
+	a.deniabilityCheck.SetToolTip(tr("advanced.deniability.tooltip", "No readable Picocrypt header. Keep password/keyfiles."))
 	a.deniabilityCheck.SetChecked(a.State.Deniability)
 
-	a.recursivelyCheck = widget.NewCheck("Recursively", func(checked bool) {
+	a.recursivelyCheck = ttwidget.NewCheck(tr("advanced.recursively.label", "Recursively"), func(checked bool) {
 		a.State.Recursively = checked
 		if checked {
 			a.State.Compress = false
@@ -104,19 +200,20 @@ func (a *App) buildEncryptOptions() {
 		}
 		a.updateUIState()
 	})
+	a.recursivelyCheck.SetToolTip(tr("advanced.recursively.tooltip", "Process each file separately"))
 	a.recursivelyCheck.SetChecked(a.State.Recursively)
 
-	row3 := container.NewGridWithColumns(2, a.deniabilityCheck, a.recursivelyCheck)
+	row3 := adaptiveAdvancedOptionPair(a.deniabilityCheck, a.recursivelyCheck)
 
-	// Row 4: Split into chunks
-	a.splitCheck = widget.NewCheck("Split:", func(checked bool) {
+	a.splitCheck = ttwidget.NewCheck(tr("advanced.split.label", "Split:"), func(checked bool) {
 		a.State.Split = checked
 		a.updateUIState() // Update status to show increased disk space requirement
 	})
+	a.splitCheck.SetToolTip(tr("advanced.split.tooltip", "Split output into parts"))
 	a.splitCheck.SetChecked(a.State.Split)
 
 	a.splitSizeEntry = widget.NewEntry()
-	a.splitSizeEntry.SetPlaceHolder("Size")
+	a.splitSizeEntry.SetPlaceHolder(tr("advanced.split.size_placeholder", "Size"))
 	a.splitSizeEntry.SetText(a.State.SplitSize)
 	a.splitSizeEntry.OnChanged = func(text string) {
 		a.State.SplitSize = text
@@ -127,9 +224,9 @@ func (a *App) buildEncryptOptions() {
 		a.updateUIState() // Update status to show increased disk space requirement
 	}
 
-	a.splitUnitSelect = widget.NewSelect(a.State.SplitUnits, func(selected string) {
+	a.splitUnitSelect = widget.NewSelect(localizedSplitUnits(a.State.SplitUnits), func(selected string) {
 		for i, unit := range a.State.SplitUnits {
-			if unit == selected {
+			if localizedSplitUnit(unit) == selected {
 				// #nosec G115 -- i is bounded by SplitUnits length (5 items: KiB, MiB, GiB, TiB, Total)
 				a.State.SplitSelected = int32(i)
 				break
@@ -144,34 +241,58 @@ func (a *App) buildEncryptOptions() {
 		a.splitSizeEntry,
 	)
 
-	a.advancedContainer.Add(row1)
-	a.advancedContainer.Add(row2)
-	a.advancedContainer.Add(row3)
-	a.advancedContainer.Add(splitRow)
+	target.Add(row1)
+	target.Add(row2)
+	target.Add(row3)
+	target.Add(splitRow)
+}
+
+func localizedSplitUnits(units []string) []string {
+	localized := make([]string, len(units))
+	for i, unit := range units {
+		localized[i] = localizedSplitUnit(unit)
+	}
+	return localized
+}
+
+func localizedSplitUnit(unit string) string {
+	if unit == "Total" {
+		return tr("advanced.split.unit.total", "Total")
+	}
+	return unit
 }
 
 // buildDecryptOptions creates decrypt mode options.
 func (a *App) buildDecryptOptions() {
-	// Row 1: Force decrypt + Verify first
-	a.forceDecryptCheck = widget.NewCheck("Force decrypt", func(checked bool) {
+	a.buildDecryptOptionsInto(a.advancedContainer)
+}
+
+func (a *App) buildDecryptOptionsInto(target *fyne.Container) {
+	if target == nil {
+		return
+	}
+
+	a.forceDecryptCheck = ttwidget.NewCheck(tr("advanced.force_decrypt.label", "Force decrypt"), func(checked bool) {
 		a.State.Keep = checked
 	})
+	a.forceDecryptCheck.SetToolTip(tr("advanced.force_decrypt.tooltip", "Keep damaged or unverified output"))
 	a.forceDecryptCheck.SetChecked(a.State.Keep)
 
-	a.verifyFirstCheck = widget.NewCheck("Verify first", func(checked bool) {
+	a.verifyFirstCheck = ttwidget.NewCheck(tr("advanced.verify_first.label", "Verify first"), func(checked bool) {
 		a.State.VerifyFirst = checked
 	})
+	a.verifyFirstCheck.SetToolTip(tr("advanced.verify_first.tooltip", "Verify before decrypting"))
 	a.verifyFirstCheck.SetChecked(a.State.VerifyFirst)
 
 	row1 := container.NewGridWithColumns(2, a.forceDecryptCheck, a.verifyFirstCheck)
 
-	// Row 2: Delete volume + Auto unzip
-	a.deleteVolumeCheck = widget.NewCheck("Delete volume", func(checked bool) {
+	a.deleteVolumeCheck = ttwidget.NewCheck(tr("advanced.delete_volume.label", "Delete volume"), func(checked bool) {
 		a.State.Delete = checked
 	})
+	a.deleteVolumeCheck.SetToolTip(tr("advanced.delete_volume.tooltip", "Delete volume after decryption"))
 	a.deleteVolumeCheck.SetChecked(a.State.Delete)
 
-	a.autoUnzipCheck = widget.NewCheck("Auto unzip", func(checked bool) {
+	a.autoUnzipCheck = ttwidget.NewCheck(tr("advanced.auto_unzip.label", "Auto unzip"), func(checked bool) {
 		a.State.AutoUnzip = checked
 		if !checked {
 			a.State.SameLevel = false
@@ -181,21 +302,24 @@ func (a *App) buildDecryptOptions() {
 		}
 		a.updateUIState()
 	})
+	a.autoUnzipCheck.SetToolTip(tr("advanced.auto_unzip.tooltip", "Extract {{.Extension}}; may overwrite files", map[string]any{
+		"Extension": ".zip",
+	}))
 	a.autoUnzipCheck.SetChecked(a.State.AutoUnzip)
 
-	row2 := container.NewGridWithColumns(2, a.deleteVolumeCheck, a.autoUnzipCheck)
-
-	// Row 3: Same level (only if auto unzip is relevant)
-	a.sameLevelCheck = widget.NewCheck("Same level", func(checked bool) {
+	a.sameLevelCheck = ttwidget.NewCheck(tr("advanced.same_level.label", "Same level"), func(checked bool) {
 		a.State.SameLevel = checked
 	})
+	a.sameLevelCheck.SetToolTip(tr("advanced.same_level.tooltip", "Extract {{.Extension}} beside the volume", map[string]any{
+		"Extension": ".zip",
+	}))
 	a.sameLevelCheck.SetChecked(a.State.SameLevel)
 
-	row3 := container.NewGridWithColumns(2, a.sameLevelCheck, widget.NewLabel(""))
+	row2 := container.NewGridWithColumns(2, a.autoUnzipCheck, a.sameLevelCheck)
 
-	a.advancedContainer.Add(row1)
-	a.advancedContainer.Add(row2)
-	a.advancedContainer.Add(row3)
+	target.Add(row1)
+	target.Add(a.deleteVolumeCheck)
+	target.Add(row2)
 
 	// Disable auto unzip if not a zip file
 	if !strings.HasSuffix(a.State.InputFile, ".zip.pcv") {
@@ -216,14 +340,17 @@ func (a *App) buildDecryptOptions() {
 
 // updateAdvancedDisableState updates the disable state of advanced options.
 func (a *App) updateAdvancedDisableState() {
-	hasCredentials := len(a.State.Keyfiles) > 0 || a.State.Password != ""
-	passwordsMatch := a.State.Mode != "encrypt" || a.State.Password == a.State.CPassword
-	advancedDisabled := !hasCredentials || !passwordsMatch
+	snap := a.State.UISnapshot()
+	a.updateAdvancedDisableStateFromSnapshot(snap, snap.Scanning || !hasSelectedInput(snap))
+}
 
-	if a.State.Mode != "decrypt" {
-		a.updateEncryptOptionsState(advancedDisabled)
+func (a *App) updateAdvancedDisableStateFromSnapshot(snap app.UISnapshot, configureDisabled bool) {
+	advancedDisabled := configureDisabled
+
+	if snap.Mode != "decrypt" {
+		a.updateEncryptOptionsState(advancedDisabled, snap)
 	} else {
-		a.updateDecryptOptionsState(advancedDisabled)
+		a.updateDecryptOptionsState(advancedDisabled, snap)
 	}
 }
 
@@ -242,14 +369,13 @@ func setWidgetDisabled(w fyne.Disableable, disabled bool) {
 }
 
 // updateEncryptOptionsState updates encrypt mode option states.
-func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
-	// All advanced options are disabled until user enters credentials (password or keyfiles)
-	// AND passwords must match in encrypt mode
-	// Additional conditions apply to some options
+func (a *App) updateEncryptOptionsState(advancedDisabled bool, snap app.UISnapshot) {
+	// Advanced options stay configurable after input is selected; Start remains
+	// disabled separately until credentials and required values are ready.
 
-	notEnoughFiles := len(a.State.AllFiles) <= 1 && len(a.State.OnlyFolders) == 0
+	notEnoughFiles := snap.AllFileCount <= 1 && snap.OnlyFolderCount == 0
 
-	setWidgetDisabled(a.compressCheck, advancedDisabled || a.State.Recursively)
+	setWidgetDisabled(a.compressCheck, advancedDisabled || snap.Recursively)
 	setWidgetDisabled(a.recursivelyCheck, advancedDisabled || notEnoughFiles)
 	setWidgetDisabled(a.paranoidCheck, advancedDisabled)
 	setWidgetDisabled(a.reedSolomonCheck, advancedDisabled)
@@ -261,14 +387,14 @@ func (a *App) updateEncryptOptionsState(advancedDisabled bool) {
 }
 
 // updateDecryptOptionsState updates decrypt mode option states.
-func (a *App) updateDecryptOptionsState(advancedDisabled bool) {
-	setWidgetDisabled(a.forceDecryptCheck, advancedDisabled || a.State.Deniability)
+func (a *App) updateDecryptOptionsState(advancedDisabled bool, snap app.UISnapshot) {
+	setWidgetDisabled(a.forceDecryptCheck, advancedDisabled || snap.Deniability)
 	setWidgetDisabled(a.verifyFirstCheck, advancedDisabled)
 	setWidgetDisabled(a.deleteVolumeCheck, advancedDisabled)
 	// On mobile, deleteCheck is used instead of deleteVolumeCheck
 	setWidgetDisabled(a.deleteCheck, advancedDisabled)
-	setWidgetDisabled(a.autoUnzipCheck, advancedDisabled || !strings.HasSuffix(a.State.InputFile, ".zip.pcv"))
-	setWidgetDisabled(a.sameLevelCheck, advancedDisabled || !a.State.AutoUnzip)
+	setWidgetDisabled(a.autoUnzipCheck, advancedDisabled || !strings.HasSuffix(snap.InputFile, ".zip.pcv"))
+	setWidgetDisabled(a.sameLevelCheck, advancedDisabled || !snap.AutoUnzip)
 }
 
 // updateOutputFileForCompress toggles .zip suffix in output filename based on compress state.
@@ -286,8 +412,8 @@ func (a *App) updateOutputFileForCompress(compress bool) {
 		}
 	} else {
 		// Remove .zip suffix if present
-		if strings.HasSuffix(a.State.OutputFile, ".zip.pcv") {
-			a.State.OutputFile = strings.TrimSuffix(a.State.OutputFile, ".zip.pcv") + ".pcv"
+		if before, ok := strings.CutSuffix(a.State.OutputFile, ".zip.pcv"); ok {
+			a.State.OutputFile = before + ".pcv"
 		}
 	}
 

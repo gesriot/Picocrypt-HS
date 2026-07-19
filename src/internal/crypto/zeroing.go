@@ -5,8 +5,6 @@ package crypto
 
 import (
 	"crypto/subtle"
-	"hash"
-	"sync"
 )
 
 // SecureZero overwrites a byte slice with zeros to prevent sensitive data
@@ -36,115 +34,59 @@ func SecureZeroMultiple(slices ...[]byte) {
 	}
 }
 
-// SecureZeroHash resets a hash.Hash state to prevent partial hash data
-// from remaining in memory. Note: not all Hash implementations may fully
-// clear their internal state on Reset().
-func SecureZeroHash(h hash.Hash) {
-	if h != nil {
-		h.Reset()
-	}
-}
-
-// KeyMaterial wraps sensitive key data with automatic zeroing on Close().
-// Use this for temporary key storage that must be cleaned up.
-// KeyMaterial is safe for concurrent use.
+// Secret owns a []byte of sensitive key material and zeros it on Close().
 //
-// Example:
-//
-//	km := NewKeyMaterial(derivedKey)
-//	defer km.Close()
-//	// ... use km.Bytes() ...
-type KeyMaterial struct {
-	mu     sync.Mutex
-	data   []byte
-	closed bool
+// Ownership/lifetime contract:
+//   - SecretFrom TAKES ownership of the passed slice; the caller MUST NOT retain
+//     or mutate it afterwards.
+//   - Bytes() returns a BORROW of the live backing array, valid only until
+//     Close(). Callers MUST NOT append to it (append may realloc-orphan a copy)
+//     nor retain it past Close().
+//   - Secret is NOT safe for concurrent use; it is owned by a single operation.
+type Secret struct {
+	b []byte
 }
 
-// NewKeyMaterial creates a new KeyMaterial wrapper.
-// The data is copied to prevent modification of the original slice.
-func NewKeyMaterial(data []byte) *KeyMaterial {
-	if data == nil {
-		return &KeyMaterial{}
-	}
-	// Make a copy to own the data
-	copied := make([]byte, len(data))
-	copy(copied, data)
-	return &KeyMaterial{data: copied}
-}
+// SecretFrom takes ownership of b (no copy).
+func SecretFrom(b []byte) *Secret { return &Secret{b: b} }
 
-// Bytes returns the underlying key data.
-// Returns nil if the KeyMaterial has been closed.
-func (km *KeyMaterial) Bytes() []byte {
-	km.mu.Lock()
-	defer km.mu.Unlock()
-	if km.closed {
+// Bytes returns the live backing array (a borrow). Nil-safe.
+func (s *Secret) Bytes() []byte {
+	if s == nil {
 		return nil
 	}
-	return km.data
+	return s.b
 }
 
-// Len returns the length of the key data.
-func (km *KeyMaterial) Len() int {
-	km.mu.Lock()
-	defer km.mu.Unlock()
-	if km.closed || km.data == nil {
+// Len reports the secret length. Nil-safe.
+func (s *Secret) Len() int {
+	if s == nil {
 		return 0
 	}
-	return len(km.data)
+	return len(s.b)
 }
 
-// Close securely zeros the key data and marks it as closed.
-// This method is idempotent - multiple calls are safe.
-func (km *KeyMaterial) Close() {
-	km.mu.Lock()
-	defer km.mu.Unlock()
-	if km.closed || km.data == nil {
+// Set zeros the current backing array and adopts b.
+//
+// AUDIT-CRITICAL: the pointer-identity + len==0 guard (verbatim from the former
+// OperationContext.setKey, context.go) skips zeroing when b IS the current
+// backing array, so a self-assign (e.g. the no-keyfile v1 decrypt path) does not
+// wipe the live key.
+func (s *Secret) Set(b []byte) {
+	if s.b != nil && (len(b) == 0 || &b[0] != &s.b[0]) {
+		SecureZero(s.b)
+	}
+	s.b = b
+}
+
+// Close zeros the backing array and drops it. Idempotent and nil-safe.
+func (s *Secret) Close() {
+	if s == nil {
 		return
 	}
-	SecureZero(km.data)
-	km.data = nil
-	km.closed = true
+	SecureZero(s.b)
+	s.b = nil
 }
 
-// IsClosed returns whether the KeyMaterial has been closed.
-func (km *KeyMaterial) IsClosed() bool {
-	km.mu.Lock()
-	defer km.mu.Unlock()
-	return km.closed
-}
-
-// CryptoContext holds all sensitive cryptographic materials for an operation.
-// Use Close() to securely zero all materials when done.
-// CryptoContext is safe for concurrent use.
-type CryptoContext struct {
-	mu           sync.Mutex
-	Key          []byte
-	KeyfileKey   []byte
-	MacSubkey    []byte
-	SerpentKey   []byte
-	HeaderSubkey []byte
-	closed       bool
-}
-
-// Close securely zeros all cryptographic materials.
-// This should be called via defer immediately after creating the context.
-func (cc *CryptoContext) Close() {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	if cc.closed {
-		return
-	}
-	SecureZeroMultiple(
-		cc.Key,
-		cc.KeyfileKey,
-		cc.MacSubkey,
-		cc.SerpentKey,
-		cc.HeaderSubkey,
-	)
-	cc.Key = nil
-	cc.KeyfileKey = nil
-	cc.MacSubkey = nil
-	cc.SerpentKey = nil
-	cc.HeaderSubkey = nil
-	cc.closed = true
-}
+// String redacts the secret so accidental %v/%s logging never leaks bytes.
+func (s *Secret) String() string { return "crypto.Secret([REDACTED])" }

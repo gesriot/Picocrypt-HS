@@ -1,6 +1,7 @@
 package io.github.picocrypt_ng.picocrypt_ng
 
 import android.os.Parcelable
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.parcelize.Parcelize
 import mobile.Mobile
 import mobile.ProgressResult as GoProgressResult
@@ -59,7 +60,13 @@ data class ProgressState(
     val status: String,
     val progress: Float,
     val info: String,
-    val done: Boolean
+    val done: Boolean,
+    /**
+     * Stable, locale-independent error classification emitted by Go (see Go
+     * errorCode); empty unless the operation failed. Drives AppError.fromGoError
+     * instead of fragile substring matching on [info].
+     */
+    val code: String = ""
 )
 
 /**
@@ -73,13 +80,19 @@ object GoBridge {
     /**
      * Starts a new operation and returns its ID.
      * This should be called before StartEncrypt or StartDecrypt.
+     *
+     * @return Result containing the operation ID, or an AppError if the Go binding
+     *   fails. A failure is never masked with a fabricated ID: a fake ID would not
+     *   exist in the Go operation map, so the next call would fail with a misleading
+     *   "operation not found" and hide the real cause.
      */
-    fun startOperation(): String {
+    fun startOperation(): Result<String> {
         return try {
-            Mobile.startOperation()
+            Result.success(Mobile.startOperation())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            // Generate a fallback ID if Go binding fails
-            "op_${System.currentTimeMillis()}"
+            Result.failure(AppError.fromException(e))
         }
     }
     
@@ -92,12 +105,15 @@ object GoBridge {
         return try {
             val result = Mobile.detectOperation(filePath)
             Result.success(result)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Return error instead of fallback - Go binding failure is a critical error
             Result.failure(
                 AppError.OperationError.GenericOperation(
-                    userMessage = "Failed to detect operation type: ${e.message ?: "Unknown error"}",
-                    technicalMessage = "Go binding error: ${e.message ?: e.toString()}"
+                    userMessage = "",
+                    technicalMessage = "Go binding error: ${e.message ?: e.toString()}",
+                    messageResId = R.string.error_detect_operation_type_failed,
                 )
             )
         }
@@ -109,7 +125,7 @@ object GoBridge {
      * @param operationID Operation ID from startOperation()
      * @param inputFile Path to input file
      * @param outputFile Path to output file
-     * @param password Password for encryption (as CharArray for security)
+     * @param password Password for encryption as UTF-8 bytes; zeroed before this returns
      * @param options Encryption options
      * @return Result indicating success or failure
      */
@@ -117,38 +133,21 @@ object GoBridge {
         operationID: String,
         inputFile: String,
         outputFile: String,
-        password: CharArray,
-        options: EncryptOptions
+        password: ByteArray,
+        options: EncryptOptions,
+        inputFiles: List<String> = emptyList(),
+        onlyFolders: List<String> = emptyList(),
+        onlyFiles: List<String> = emptyList()
     ): Result<Unit> {
         return try {
-            // Convert CharArray to String only when needed for Go backend
-            // This is the only place where password becomes a String
-            val passwordString = String(password)
-            
-            // Build JSON request
-            val requestJson = JSONObject().apply {
-                put("operationID", operationID)
-                put("inputFile", inputFile)
-                put("outputFile", outputFile)
-                put("password", passwordString)
-                put("comments", options.comments)
-                put("keyfiles", JSONArray().apply {
-                    options.keyfiles.forEach { put(it) }
-                })
-                put("paranoid", options.paranoid)
-                put("reedSolomon", options.reedSolomon)
-                put("deniability", options.deniability)
-                put("compress", options.compress)
-                put("keyfileOrdered", options.keyfileOrdered)
-            }.toString()
-            
-            // Call StartEncrypt with JSON string
-            val errorMsg = Mobile.startEncrypt(requestJson)
-            
-            // Clear password string from memory (best effort - JVM may keep it)
-            // Note: String is immutable, so we can't zero it, but we can clear the reference
-            // The actual clearing happens when the CharArray is cleared
-            
+            // Build JSON request (password is passed separately as bytes, never in JSON)
+            val requestJson = buildEncryptRequestJson(
+                operationID, inputFile, outputFile, options, inputFiles, onlyFolders, onlyFiles
+            )
+
+            // Note: gomobile copies the array across JNI; that transient bridge copy is not reachable for zeroing (intrinsic to the binding).
+            val errorMsg = Mobile.startEncrypt(requestJson, password)
+
             if (errorMsg.isNotEmpty()) {
                 // Convert Go error to AppError (operation type unknown here, use generic)
                 val appError = AppError.fromGoError(errorMsg, OperationType.ENCRYPT)
@@ -156,8 +155,12 @@ object GoBridge {
             } else {
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
+        } finally {
+            password.fill(0)
         }
     }
     
@@ -167,7 +170,7 @@ object GoBridge {
      * @param operationID Operation ID from startOperation()
      * @param inputFile Path to input file
      * @param outputFile Path to output file
-     * @param password Password for decryption (as CharArray for security)
+     * @param password Password for decryption as UTF-8 bytes; zeroed before this returns
      * @param options Decryption options
      * @return Result indicating success or failure
      */
@@ -175,38 +178,16 @@ object GoBridge {
         operationID: String,
         inputFile: String,
         outputFile: String,
-        password: CharArray,
+        password: ByteArray,
         options: DecryptOptions
     ): Result<Unit> {
         return try {
-            // Convert CharArray to String only when needed for Go backend
-            // This is the only place where password becomes a String
-            val passwordString = String(password)
-            
-            // Build JSON request
-            val requestJson = JSONObject().apply {
-                put("operationID", operationID)
-                put("inputFile", inputFile)
-                put("outputFile", outputFile)
-                put("password", passwordString)
-                put("keyfiles", JSONArray().apply {
-                    options.keyfiles.forEach { put(it) }
-                })
-                put("forceDecrypt", options.forceDecrypt)
-                put("verifyFirst", options.verifyFirst)
-                put("autoUnzip", options.autoUnzip)
-                put("sameLevel", options.sameLevel)
-                put("recombine", options.recombine)
-                put("deniability", options.deniability)
-            }.toString()
-            
-            // Call StartDecrypt with JSON string
-            val errorMsg = Mobile.startDecrypt(requestJson)
-            
-            // Clear password string from memory (best effort - JVM may keep it)
-            // Note: String is immutable, so we can't zero it, but we can clear the reference
-            // The actual clearing happens when the CharArray is cleared
-            
+            // Build JSON request (password is passed separately as bytes, never in JSON)
+            val requestJson = buildDecryptRequestJson(operationID, inputFile, outputFile, options)
+
+            // Note: gomobile copies the array across JNI; that transient bridge copy is not reachable for zeroing (intrinsic to the binding).
+            val errorMsg = Mobile.startDecrypt(requestJson, password)
+
             if (errorMsg.isNotEmpty()) {
                 // Convert Go error to AppError
                 val appError = AppError.fromGoError(errorMsg, OperationType.DECRYPT)
@@ -214,8 +195,12 @@ object GoBridge {
             } else {
                 Result.success(Unit)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
+        } finally {
+            password.fill(0)
         }
     }
     
@@ -239,11 +224,14 @@ object GoBridge {
             
             // Convert Go ProgressResult to Kotlin ProgressState
             Result.success(ProgressState(
-                status = result.getStatus() ?: "Unknown",
+                status = result.getStatus() ?: "",
                 progress = result.getProgress(),
                 info = info,
-                done = result.getDone()
+                done = result.getDone(),
+                code = result.getCode() ?: ""
             ))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         }
@@ -259,6 +247,8 @@ object GoBridge {
         return try {
             Mobile.cancelOperation(operationID)
             Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         }
@@ -275,19 +265,83 @@ object GoBridge {
     fun getDecryptionInfo(filePath: String): Result<DecryptionInfo> {
         return try {
             val jsonString = Mobile.getDecryptionInfo(filePath)
-            val json = JSONObject(jsonString)
-            
-            Result.success(DecryptionInfo(
-                keyfilesRequired = json.getBoolean("keyfilesRequired"),
-                keyfileOrdered = json.getBoolean("keyfileOrdered"),
-                reedSolomon = json.getBoolean("reedSolomon"),
-                deniability = json.getBoolean("deniability"),
-                paranoid = json.getBoolean("paranoid"),
-                comments = json.getString("comments"),
-                readable = json.getBoolean("readable")
-            ))
+            Result.success(parseDecryptionInfo(jsonString))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(AppError.fromException(e))
         }
+    }
+
+    /**
+     * Builds the encryption request JSON sent to Mobile.startEncrypt. The password is
+     * intentionally NEVER included here -- it is passed to Mobile as raw bytes and zeroed.
+     * Extracted so unit tests verify the REAL serialization instead of re-deriving it.
+     */
+    internal fun buildEncryptRequestJson(
+        operationID: String,
+        inputFile: String,
+        outputFile: String,
+        options: EncryptOptions,
+        inputFiles: List<String> = emptyList(),
+        onlyFolders: List<String> = emptyList(),
+        onlyFiles: List<String> = emptyList()
+    ): String = JSONObject().apply {
+        put("operationID", operationID)
+        put("inputFile", inputFile)
+        // Folder/multi-file selection arrays forwarded to the Go core (it zips them).
+        // Always present (empty for the single-file path) so the Go side reads a stable shape.
+        put("inputFiles", JSONArray().apply { inputFiles.forEach { put(it) } })
+        put("onlyFolders", JSONArray().apply { onlyFolders.forEach { put(it) } })
+        put("onlyFiles", JSONArray().apply { onlyFiles.forEach { put(it) } })
+        put("outputFile", outputFile)
+        put("comments", options.comments)
+        put("keyfiles", JSONArray().apply { options.keyfiles.forEach { put(it) } })
+        put("paranoid", options.paranoid)
+        put("reedSolomon", options.reedSolomon)
+        put("deniability", options.deniability)
+        put("compress", options.compress)
+        put("keyfileOrdered", options.keyfileOrdered)
+    }.toString()
+
+    /**
+     * Builds the decryption request JSON sent to Mobile.startDecrypt. As with encryption,
+     * the password is never serialized. Extracted for the same testability reason.
+     */
+    internal fun buildDecryptRequestJson(
+        operationID: String,
+        inputFile: String,
+        outputFile: String,
+        options: DecryptOptions
+    ): String = JSONObject().apply {
+        put("operationID", operationID)
+        put("inputFile", inputFile)
+        put("outputFile", outputFile)
+        put("keyfiles", JSONArray().apply { options.keyfiles.forEach { put(it) } })
+        put("forceDecrypt", options.forceDecrypt)
+        put("verifyFirst", options.verifyFirst)
+        put("autoUnzip", options.autoUnzip)
+        put("sameLevel", options.sameLevel)
+        put("recombine", options.recombine)
+        put("deniability", options.deniability)
+    }.toString()
+
+    /**
+     * Parses the decryption-metadata JSON returned by Mobile.getDecryptionInfo. Uses
+     * getBoolean/getString, which THROW on a missing field rather than silently
+     * defaulting (a missing keyfilesRequired must never be read as false). Extracted so
+     * the parser is unit-tested directly.
+     */
+    internal fun parseDecryptionInfo(jsonString: String): DecryptionInfo {
+        val json = JSONObject(jsonString)
+        return DecryptionInfo(
+            keyfilesRequired = json.getBoolean("keyfilesRequired"),
+            keyfileOrdered = json.getBoolean("keyfileOrdered"),
+            reedSolomon = json.getBoolean("reedSolomon"),
+            deniability = json.getBoolean("deniability"),
+            paranoid = json.getBoolean("paranoid"),
+            comments = json.getString("comments"),
+            readable = json.getBoolean("readable")
+        )
     }
 }

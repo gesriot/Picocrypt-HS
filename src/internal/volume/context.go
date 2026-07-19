@@ -26,14 +26,14 @@
 package volume
 
 import (
+	"Picocrypt-NG/internal/crypto"
+	"Picocrypt-NG/internal/encoding"
+	"Picocrypt-NG/internal/fileops"
+	"Picocrypt-NG/internal/header"
 	"context"
 	"io"
 
-	"Picocrypt-NG/internal/crypto"
-	"Picocrypt-NG/internal/encoding"
 	perrors "Picocrypt-NG/internal/errors"
-	"Picocrypt-NG/internal/fileops"
-	"Picocrypt-NG/internal/header"
 )
 
 // ProgressReporter provides callbacks for UI updates during long-running operations.
@@ -57,7 +57,16 @@ type EncryptRequest struct {
 	OutputFile  string   // Output path for the .pcv volume
 
 	// Credentials - at least one required
-	Password       string   // User password (processed through Argon2id)
+	//
+	// SECURITY (SEC-05): Password is an owned []byte, so the caller controls its
+	// lifetime and zeros it (crypto.SecureZero) after the operation. The KDF
+	// carrier is []byte end-to-end (CLI/wasm/mobile boundaries) — there is no
+	// intermediate immutable string copy on those paths. Residual: the Fyne GUI's
+	// widget.Entry yields a Go string in app.State.Password; ui/operations.go
+	// converts it to an owned []byte here and zeros that copy, but the original
+	// string still lingers until GC (intentionally out of scope — CONCERNS 3.1;
+	// ROADMAP "Out of Scope: Guaranteed password zeroing").
+	Password       []byte   // User password (processed through Argon2id) — see SECURITY note above
 	Keyfiles       []string // Paths to keyfile(s) for additional security
 	KeyfileOrdered bool     // If true, keyfile order matters (sequential hash vs XOR)
 
@@ -88,7 +97,11 @@ type DecryptRequest struct {
 	OutputFile string // Destination path for decrypted output
 
 	// Credentials - must match encryption parameters
-	Password string   // User password
+	//
+	// SECURITY (SEC-05): owned []byte zeroed by the caller after use — same
+	// ownership model and GUI residual as EncryptRequest.Password above (CONCERNS
+	// 3.1; ROADMAP "Out of Scope: Guaranteed password zeroing").
+	Password []byte   // User password — see SECURITY note above
 	Keyfiles []string // Keyfile paths (validated against hash stored in header)
 
 	// Decryption options
@@ -126,12 +139,13 @@ type OperationContext struct {
 	Header *header.VolumeHeader
 
 	// Cryptographic state
-	Key          []byte               // Argon2-derived key (possibly XORed with keyfile key)
-	KeyfileKey   []byte               // 32-byte key derived from keyfile(s)
-	KeyfileHash  []byte               // SHA3-256(KeyfileKey) for verification
-	SubkeyReader *crypto.SubkeyReader // HKDF stream for deriving MAC/Serpent subkeys
-	CipherSuite  *crypto.CipherSuite  // Initialized cipher suite (XChaCha20 + optional Serpent)
-	Counter      *crypto.Counter      // Tracks bytes for 60 GiB rekey threshold
+	Key           *crypto.Secret       // Argon2-derived key (possibly XORed with keyfile key)
+	KeyfileKey    *crypto.Secret       // 32-byte key derived from keyfile(s)
+	KeyfileHash   []byte               // SHA3-256(KeyfileKey) for verification (NON-SECRET: stored in header)
+	passwordBytes *crypto.Secret       // KDF input for the current password form being tried (#19)
+	secrets       []*crypto.Secret     // every Secret this context owns; Close() iterates this
+	SubkeyReader  *crypto.SubkeyReader // HKDF stream for deriving MAC/Serpent subkeys
+	CipherSuite   *crypto.CipherSuite  // Initialized cipher suite (XChaCha20 + optional Serpent)
 
 	// Operation flags
 	IsLegacyV1   bool                    // True if decrypting a v1.x volume (different HKDF timing)
@@ -163,7 +177,6 @@ func NewEncryptContext(ctx context.Context, req *EncryptRequest) *OperationConte
 		Ctx:        ctx,
 		OutputFile: req.OutputFile,
 		Reporter:   req.Reporter,
-		Counter:    crypto.NewCounter(),
 	}
 }
 
@@ -178,7 +191,6 @@ func NewDecryptContext(ctx context.Context, req *DecryptRequest) *OperationConte
 		InputFile:  req.InputFile,
 		OutputFile: req.OutputFile,
 		Reporter:   req.Reporter,
-		Counter:    crypto.NewCounter(),
 	}
 }
 
@@ -208,30 +220,30 @@ func (ctx *OperationContext) SetCanCancel(can bool) {
 
 // IsCancelled checks if the operation has been cancelled.
 // Returns true if either the context is done or the reporter indicates cancellation.
-func (opCtx *OperationContext) IsCancelled() bool {
+func (ctx *OperationContext) IsCancelled() bool {
 	// Check context cancellation first (standard Go pattern)
-	if opCtx.Ctx != nil {
+	if ctx.Ctx != nil {
 		select {
-		case <-opCtx.Ctx.Done():
+		case <-ctx.Ctx.Done():
 			return true
 		default:
 		}
 	}
 
 	// Also check reporter-based cancellation (for UI cancel button)
-	if opCtx.Reporter != nil {
-		return opCtx.Reporter.IsCancelled()
+	if ctx.Reporter != nil {
+		return ctx.Reporter.IsCancelled()
 	}
 	return false
 }
 
 // CancellationError returns the appropriate error when cancelled.
 // Returns context error if context is done, otherwise returns ErrCancelled.
-func (opCtx *OperationContext) CancellationError() error {
-	if opCtx.Ctx != nil {
+func (ctx *OperationContext) CancellationError() error {
+	if ctx.Ctx != nil {
 		select {
-		case <-opCtx.Ctx.Done():
-			return opCtx.Ctx.Err()
+		case <-ctx.Ctx.Done():
+			return ctx.Ctx.Err()
 		default:
 		}
 	}
@@ -246,20 +258,88 @@ func (ctx *OperationContext) TempZipReader(r io.Reader) io.Reader {
 	return r
 }
 
+// adopt registers s so Close() will zero it, and returns s.
+func (ctx *OperationContext) adopt(s *crypto.Secret) *crypto.Secret {
+	ctx.secrets = append(ctx.secrets, s)
+	return s
+}
+
+// setKey replaces the derived key, zeroing the orphaned predecessor.
+//
+// SEC-05 / WR-01: mid-operation reassignments of ctx.Key (the v1/v2 keyfile XOR at
+// decrypt.go and the full-RS retry re-derive at decryptDeriveKeys) produce a NEW
+// slice (keyfile.XORWithKey allocates; Argon2 re-derive allocates), orphaning the
+// old backing array. Routing every replacement through Secret.Set zeros that
+// predecessor immediately instead of waiting for Close().
+//
+// The aliasing/self-assign guard now lives in crypto.Secret.Set: the no-keyfile v1
+// path does `ctx.setKey(key)` where key IS ctx.Key's backing array, and Set's
+// pointer-identity guard skips zeroing so the LIVE key survives.
+func (ctx *OperationContext) setKey(k []byte) {
+	if ctx.Key == nil {
+		ctx.Key = ctx.adopt(crypto.SecretFrom(k))
+		return
+	}
+	ctx.Key.Set(k)
+}
+
+// setKeyfileKey replaces the keyfile-derived key, zeroing the orphaned predecessor.
+// Analogous to setKey: the full-RS retry re-processes keyfiles (decryptProcessKeyfiles),
+// orphaning the prior keyfile-key buffer. Secret.Set zeros it before reassignment.
+func (ctx *OperationContext) setKeyfileKey(k []byte) {
+	if ctx.KeyfileKey == nil {
+		ctx.KeyfileKey = ctx.adopt(crypto.SecretFrom(k))
+		return
+	}
+	ctx.KeyfileKey.Set(k)
+}
+
+// setPasswordBytes replaces the current password byte form, zeroing the previous
+// one. The decrypt path sets this per candidate normalization form (#19); the
+// winning form is reused by the RS / verify-first re-derivation paths and is zeroed
+// by Close. Secret.Set carries the same pointer-identity self-assign guard.
+// (The password also lives in req.Password as an owned []byte zeroed by the
+// caller after the operation — see Close's SECURITY note.)
+func (ctx *OperationContext) setPasswordBytes(b []byte) {
+	if ctx.passwordBytes == nil {
+		ctx.passwordBytes = ctx.adopt(crypto.SecretFrom(b))
+		return
+	}
+	ctx.passwordBytes.Set(b)
+}
+
 // Close securely zeros all sensitive cryptographic material in the context.
 // This should be called via defer immediately after creating the context.
 //
 // SECURITY: Always call Close() when done with an operation to minimize
 // the window during which key material is recoverable from memory.
+//
+// SECURITY (password limitation): Close() zeros only []byte key material it
+// owns. EncryptRequest.Password / DecryptRequest.Password are now owned []byte
+// zeroed by the caller (CLI/wasm/mobile pass []byte end-to-end with no
+// intermediate string). The remaining residual is the Fyne GUI: widget.Entry
+// stores the typed password as a Go string in app.State.Password, which is
+// immutable and freely copied/relocated by the GC, so that one copy cannot be
+// zeroed in place — ui/operations.go converts it to an owned []byte for the
+// request and zeros that, but the string lingers until GC. This is intentionally
+// out of scope (CONCERNS 3.1; ROADMAP "Out of Scope: Guaranteed password
+// zeroing"), mirroring crypto.SecureZero's own GC/optimization caveat.
 func (ctx *OperationContext) Close() {
 	if ctx == nil {
 		return
 	}
 
-	// Zero main key material
-	crypto.SecureZeroMultiple(ctx.Key, ctx.KeyfileKey, ctx.KeyfileHash)
+	// Zero every owned secret via the registry (Key/KeyfileKey/passwordBytes).
+	for _, s := range ctx.secrets {
+		s.Close()
+	}
+	ctx.secrets = nil
 	ctx.Key = nil
 	ctx.KeyfileKey = nil
+	ctx.passwordBytes = nil
+
+	// KeyfileHash is NON-SECRET (written to the header) but cleared defensively.
+	crypto.SecureZero(ctx.KeyfileHash)
 	ctx.KeyfileHash = nil
 
 	// Close cipher suite (zeros internal key)

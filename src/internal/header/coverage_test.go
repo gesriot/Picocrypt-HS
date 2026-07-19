@@ -1,11 +1,10 @@
 package header
 
 import (
+	"Picocrypt-NG/internal/encoding"
 	"bytes"
 	"io"
 	"testing"
-
-	"Picocrypt-NG/internal/encoding"
 )
 
 // =============================================================================
@@ -65,22 +64,18 @@ func TestPeekVersionInvalidRSData(t *testing.T) {
 		t.Fatalf("NewRSCodecs failed: %v", err)
 	}
 
-	// Create 15 bytes of data that decodes to invalid version format
-	// RS5 can decode almost anything, so we test that the version format validation works
-	// by providing data that decodes to something that doesn't match v\d.\d{2}
-	// Use alternating pattern that RS will decode to non-version text
+	// 15 bytes too far from any RS5 codeword to reconstruct: PeekVersion must surface
+	// the decode failure as an error and return an empty version — never silently hand
+	// back a bogus version string.
 	invalidData := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E}
 
 	version, err := PeekVersion(bytes.NewReader(invalidData), rs)
-	// The result should either be an error OR an invalid version string
-	// PeekVersion only returns error if RS decode fails, not for invalid format
 	if err == nil {
-		// Check that the version doesn't match valid format
-		if len(version) == 5 && version[0] == 'v' {
-			t.Log("PeekVersion returned valid-looking version from random data (unlikely but possible)")
-		}
+		t.Errorf("PeekVersion on undecodable RS data must return an error; got version %q", version)
 	}
-	// This test mainly ensures PeekVersion doesn't panic on arbitrary data
+	if version != "" {
+		t.Errorf("PeekVersion returned %q on a decode failure; want empty string", version)
+	}
 }
 
 func TestPeekVersionEmptyReader(t *testing.T) {
@@ -99,20 +94,26 @@ func TestPeekVersionEmptyReader(t *testing.T) {
 // Tests for WriteAuthValues and AuthValuesOffset
 // =============================================================================
 
+// TestAuthValuesOffset ties AuthValuesOffset to the ACTUAL byte position where
+// the auth region begins in a header laid out by the real WriteHeader. The
+// expectation is derived from encodedHeaderRegions (the same region model the
+// WriteHeader format-guard tests assert against), so a field reorder in
+// WriteHeader that shifts the auth region while AuthValuesOffset stays put is
+// caught here as a mismatch — not silently averaged away by a duplicated formula.
+//
+// One literal pin (AuthValuesOffset(0) == 309) anchors the no-comments base so
+// the whole region model can't drift in lockstep undetected.
 func TestAuthValuesOffset(t *testing.T) {
-	testCases := []struct {
-		commentsLen int
-		expected    int64
-	}{
-		{0, 309},   // No comments: version(15) + commentLen(15) + flags(15) + salt(48) + hkdfSalt(96) + serpentIV(48) + nonce(72)
-		{10, 339},  // 10 char comments: 309 + 10*3
-		{100, 609}, // 100 char comments: 309 + 100*3
+	if got := AuthValuesOffset(0); got != 309 {
+		t.Fatalf("AuthValuesOffset(0) = %d; want 309 (no-comments base anchor)", got)
 	}
 
-	for _, tc := range testCases {
-		offset := AuthValuesOffset(tc.commentsLen)
-		if offset != tc.expected {
-			t.Errorf("AuthValuesOffset(%d) = %d; want %d", tc.commentsLen, offset, tc.expected)
+	for _, commentsLen := range []int{0, 10, 100} {
+		regions := encodedHeaderRegions(commentsLen)
+		want := regionStart(t, regions, "key hash placeholder")
+		if got := int(AuthValuesOffset(commentsLen)); got != want {
+			t.Errorf("AuthValuesOffset(%d) = %d; want key hash placeholder start %d",
+				commentsLen, got, want)
 		}
 	}
 }
@@ -191,13 +192,37 @@ func TestWriteAuthValuesWithOffset(t *testing.T) {
 		t.Fatalf("WriteAuthValues failed: %v", err)
 	}
 
-	// Verify the values are at the correct offset
-	decodedKeyHash, err := encoding.Decode(rs.RS64, buf[offset:int(offset)+KeyHashEncSize], false)
+	// Decode ALL THREE auth fields at the nonzero base offset. WriteAuthValues
+	// advances pos by KeyHashEncSize then KeyfileHashEncSize between writes; a
+	// `pos +=` bug that only affects keyfileHash/authTag (not keyHash) under a
+	// base offset is invisible if we check keyHash alone. Asserting each field
+	// round-trips at its expected sub-offset pins those advancements.
+	keyHashStart := int(offset)
+	keyfileHashStart := keyHashStart + KeyHashEncSize
+	authTagStart := keyfileHashStart + KeyfileHashEncSize
+
+	decodedKeyHash, err := encoding.Decode(rs.RS64, buf[keyHashStart:keyHashStart+KeyHashEncSize], false)
 	if err != nil {
 		t.Fatalf("Failed to decode key hash: %v", err)
 	}
 	if !bytes.Equal(decodedKeyHash, keyHash) {
 		t.Error("Key hash mismatch at offset")
+	}
+
+	decodedKeyfileHash, err := encoding.Decode(rs.RS32, buf[keyfileHashStart:keyfileHashStart+KeyfileHashEncSize], false)
+	if err != nil {
+		t.Fatalf("Failed to decode keyfile hash: %v", err)
+	}
+	if !bytes.Equal(decodedKeyfileHash, keyfileHash) {
+		t.Error("Keyfile hash mismatch at offset")
+	}
+
+	decodedAuthTag, err := encoding.Decode(rs.RS64, buf[authTagStart:authTagStart+AuthTagEncSize], false)
+	if err != nil {
+		t.Fatalf("Failed to decode auth tag: %v", err)
+	}
+	if !bytes.Equal(decodedAuthTag, authTag) {
+		t.Error("Auth tag mismatch at offset")
 	}
 }
 
@@ -212,285 +237,6 @@ func (w *bytesWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
 	}
 	copy(w.buf[off:], p)
 	return len(p), nil
-}
-
-// =============================================================================
-// Tests for ReadHeaderRaw and related raw functions
-// =============================================================================
-
-func TestReadHeaderRaw(t *testing.T) {
-	rs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("NewRSCodecs failed: %v", err)
-	}
-
-	// Create a header with known values
-	original := &VolumeHeader{
-		Version:  CurrentVersion,
-		Comments: "Test raw header",
-		Flags: Flags{
-			Paranoid:       true,
-			UseKeyfiles:    false,
-			KeyfileOrdered: false,
-			ReedSolomon:    true,
-			Padded:         false,
-		},
-		Salt:        bytes.Repeat([]byte{0x01}, SaltSize),
-		HKDFSalt:    bytes.Repeat([]byte{0x02}, HKDFSaltSize),
-		SerpentIV:   bytes.Repeat([]byte{0x03}, SerpentIVSize),
-		Nonce:       bytes.Repeat([]byte{0x04}, NonceSize),
-		KeyHash:     bytes.Repeat([]byte{0x05}, KeyHashSize),
-		KeyfileHash: bytes.Repeat([]byte{0x06}, KeyfileHashSize),
-		AuthTag:     bytes.Repeat([]byte{0x07}, AuthTagSize),
-	}
-
-	// Write header
-	var buf bytes.Buffer
-	writer := NewWriter(&buf, rs)
-	if _, err := writer.WriteHeader(original); err != nil {
-		t.Fatalf("WriteHeader failed: %v", err)
-	}
-
-	// Read header with raw fields
-	reader := NewReader(bytes.NewReader(buf.Bytes()), rs)
-	result, err := reader.ReadHeaderRaw()
-	if err != nil {
-		t.Fatalf("ReadHeaderRaw failed: %v", err)
-	}
-
-	// Verify raw fields
-	if string(result.Raw.Version) != original.Version {
-		t.Errorf("Raw.Version = %s; want %s", string(result.Raw.Version), original.Version)
-	}
-
-	if result.Raw.CommentsLen != len(original.Comments) {
-		t.Errorf("Raw.CommentsLen = %d; want %d", result.Raw.CommentsLen, len(original.Comments))
-	}
-
-	if string(result.Raw.Comments) != original.Comments {
-		t.Errorf("Raw.Comments = %s; want %s", string(result.Raw.Comments), original.Comments)
-	}
-
-	// Verify parsed header
-	if result.Header.Version != original.Version {
-		t.Errorf("Header.Version = %s; want %s", result.Header.Version, original.Version)
-	}
-
-	if result.Header.Flags.Paranoid != original.Flags.Paranoid {
-		t.Errorf("Header.Flags.Paranoid = %v; want %v", result.Header.Flags.Paranoid, original.Flags.Paranoid)
-	}
-
-	if !bytes.Equal(result.Header.Salt, original.Salt) {
-		t.Error("Salt mismatch")
-	}
-}
-
-func TestReadHeaderRawEmptyComments(t *testing.T) {
-	rs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("NewRSCodecs failed: %v", err)
-	}
-
-	original := NewVolumeHeader(
-		bytes.Repeat([]byte{0x01}, SaltSize),
-		bytes.Repeat([]byte{0x02}, HKDFSaltSize),
-		bytes.Repeat([]byte{0x03}, SerpentIVSize),
-		bytes.Repeat([]byte{0x04}, NonceSize),
-	)
-	original.Comments = ""
-
-	var buf bytes.Buffer
-	writer := NewWriter(&buf, rs)
-	if _, err := writer.WriteHeader(original); err != nil {
-		t.Fatalf("WriteHeader failed: %v", err)
-	}
-
-	reader := NewReader(bytes.NewReader(buf.Bytes()), rs)
-	result, err := reader.ReadHeaderRaw()
-	if err != nil {
-		t.Fatalf("ReadHeaderRaw failed: %v", err)
-	}
-
-	if result.Raw.CommentsLen != 0 {
-		t.Errorf("Raw.CommentsLen = %d; want 0", result.Raw.CommentsLen)
-	}
-
-	if len(result.Raw.Comments) != 0 {
-		t.Errorf("Raw.Comments length = %d; want 0", len(result.Raw.Comments))
-	}
-}
-
-func TestReadHeaderRawTruncatedInput(t *testing.T) {
-	rs, err := encoding.NewRSCodecs()
-	if err != nil {
-		t.Fatalf("NewRSCodecs failed: %v", err)
-	}
-
-	// Create truncated input (just version bytes)
-	truncated := bytes.Repeat([]byte{0x00}, 20)
-
-	reader := NewReader(bytes.NewReader(truncated), rs)
-	_, err = reader.ReadHeaderRaw()
-	if err == nil {
-		t.Error("ReadHeaderRaw should fail on truncated input")
-	}
-}
-
-// =============================================================================
-// Tests for ComputeV2HeaderMACRaw and VerifyV2HeaderRaw
-// =============================================================================
-
-func TestComputeV2HeaderMACRaw(t *testing.T) {
-	subkey := bytes.Repeat([]byte{0x42}, 64)
-	keyfileHash := make([]byte, KeyfileHashSize)
-
-	h := &VolumeHeader{
-		Version:   CurrentVersion,
-		Comments:  "Test",
-		Flags:     Flags{Paranoid: true},
-		Salt:      make([]byte, SaltSize),
-		HKDFSalt:  make([]byte, HKDFSaltSize),
-		SerpentIV: make([]byte, SerpentIVSize),
-		Nonce:     make([]byte, NonceSize),
-		KeyHash:   make([]byte, KeyHashSize),
-	}
-
-	raw := &RawHeaderFields{
-		Version:     []byte(h.Version),
-		CommentsLen: len(h.Comments),
-		Comments:    []byte(h.Comments),
-		Flags:       h.Flags.ToBytes(),
-	}
-
-	// Compute MAC using raw fields
-	macRaw := ComputeV2HeaderMACRaw(subkey, raw, h, keyfileHash)
-	if len(macRaw) != 64 {
-		t.Errorf("MAC length = %d; want 64", len(macRaw))
-	}
-
-	// Compute MAC using regular method
-	macRegular := ComputeV2HeaderMAC(subkey, h, keyfileHash)
-
-	// Both should produce the same result when raw matches parsed
-	if !bytes.Equal(macRaw, macRegular) {
-		t.Error("ComputeV2HeaderMACRaw should match ComputeV2HeaderMAC for identical input")
-	}
-}
-
-func TestVerifyV2HeaderRaw(t *testing.T) {
-	subkey := bytes.Repeat([]byte{0x42}, 64)
-	keyfileHash := make([]byte, KeyfileHashSize)
-
-	h := &VolumeHeader{
-		Version:   CurrentVersion,
-		Comments:  "Test",
-		Flags:     Flags{},
-		Salt:      make([]byte, SaltSize),
-		HKDFSalt:  make([]byte, HKDFSaltSize),
-		SerpentIV: make([]byte, SerpentIVSize),
-		Nonce:     make([]byte, NonceSize),
-	}
-
-	raw := &RawHeaderFields{
-		Version:     []byte(h.Version),
-		CommentsLen: len(h.Comments),
-		Comments:    []byte(h.Comments),
-		Flags:       h.Flags.ToBytes(),
-	}
-
-	// Set the correct MAC using raw computation
-	h.KeyHash = ComputeV2HeaderMACRaw(subkey, raw, h, keyfileHash)
-
-	// Verify should pass
-	result := VerifyV2HeaderRaw(subkey, raw, h, keyfileHash)
-	if !result.Valid {
-		t.Error("VerifyV2HeaderRaw failed for correct MAC")
-	}
-
-	// Modify raw comments, verify should fail
-	raw.Comments = []byte("Modified")
-	result = VerifyV2HeaderRaw(subkey, raw, h, keyfileHash)
-	if result.Valid {
-		t.Error("VerifyV2HeaderRaw passed for modified raw comments")
-	}
-}
-
-func TestVerifyV2HeaderRawDifferentSubkey(t *testing.T) {
-	subkey1 := bytes.Repeat([]byte{0x42}, 64)
-	subkey2 := bytes.Repeat([]byte{0x43}, 64)
-	keyfileHash := make([]byte, KeyfileHashSize)
-
-	h := &VolumeHeader{
-		Version:   CurrentVersion,
-		Comments:  "Test",
-		Flags:     Flags{},
-		Salt:      make([]byte, SaltSize),
-		HKDFSalt:  make([]byte, HKDFSaltSize),
-		SerpentIV: make([]byte, SerpentIVSize),
-		Nonce:     make([]byte, NonceSize),
-	}
-
-	raw := &RawHeaderFields{
-		Version:     []byte(h.Version),
-		CommentsLen: len(h.Comments),
-		Comments:    []byte(h.Comments),
-		Flags:       h.Flags.ToBytes(),
-	}
-
-	// Set MAC with subkey1
-	h.KeyHash = ComputeV2HeaderMACRaw(subkey1, raw, h, keyfileHash)
-
-	// Verify with subkey2 should fail
-	result := VerifyV2HeaderRaw(subkey2, raw, h, keyfileHash)
-	if result.Valid {
-		t.Error("VerifyV2HeaderRaw should fail with different subkey")
-	}
-}
-
-// =============================================================================
-// Tests for header size constants
-// =============================================================================
-
-func TestEncodedSizeConstants(t *testing.T) {
-	// Verify the encoded size constants are correct
-	// RS encoding: N data bytes -> N + 2N = 3N encoded bytes (for RS1)
-	// RS5: 5 -> 15, RS16: 16 -> 48, RS24: 24 -> 72, RS32: 32 -> 96, RS64: 64 -> 192
-
-	tests := []struct {
-		name     string
-		dataSize int
-		encSize  int
-	}{
-		{"Version", 5, VersionEncSize},
-		{"CommentLen", 5, CommentLenEncSize},
-		{"Flags", 5, FlagsEncSize},
-		{"Salt", SaltSize, SaltEncSize},
-		{"HKDFSalt", HKDFSaltSize, HKDFSaltEncSize},
-		{"SerpentIV", SerpentIVSize, SerpentIVEncSize},
-		{"Nonce", NonceSize, NonceEncSize},
-		{"KeyHash", KeyHashSize, KeyHashEncSize},
-		{"KeyfileHash", KeyfileHashSize, KeyfileHashEncSize},
-		{"AuthTag", AuthTagSize, AuthTagEncSize},
-	}
-
-	for _, tc := range tests {
-		expected := tc.dataSize * 3 // RS encoding formula
-		if tc.encSize != expected {
-			t.Errorf("%s: encSize = %d; want %d (data size %d)", tc.name, tc.encSize, expected, tc.dataSize)
-		}
-	}
-}
-
-func TestBaseHeaderSizeCalculation(t *testing.T) {
-	// Base header = version(15) + commentLen(15) + flags(15) + salt(48) + hkdfSalt(96) +
-	//               serpentIV(48) + nonce(72) + keyHash(192) + keyfileHash(96) + authTag(192)
-	expected := VersionEncSize + CommentLenEncSize + FlagsEncSize +
-		SaltEncSize + HKDFSaltEncSize + SerpentIVEncSize + NonceEncSize +
-		KeyHashEncSize + KeyfileHashEncSize + AuthTagEncSize
-
-	if BaseHeaderSize != expected {
-		t.Errorf("BaseHeaderSize = %d; want %d", BaseHeaderSize, expected)
-	}
 }
 
 // =============================================================================

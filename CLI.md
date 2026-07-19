@@ -39,7 +39,7 @@ Download the appropriate binary for your platform from the [releases page](https
 cd src/
 
 # GUI + CLI build (requires graphics libraries)
-CGO_ENABLED=1 go build -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+CGO_ENABLED=1 go build -tags migrated_fynedo -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
 
 # CLI-only build (no graphics dependencies)
 CGO_ENABLED=1 go build -tags cli -ldflags="-s -w" -o Picocrypt-NG-cli ./cmd/picocrypt
@@ -51,7 +51,7 @@ Picocrypt NG offers two build configurations:
 
 | Build Mode | Command | Graphics Required | Use Case |
 |------------|---------|-------------------|----------|
-| GUI + CLI | `go build ./cmd/picocrypt` | Yes | Desktop systems |
+| GUI + CLI | `go build -tags migrated_fynedo ./cmd/picocrypt` | Yes | Desktop systems |
 | CLI-only | `go build -tags cli ./cmd/picocrypt` | No | Servers, containers, automation |
 
 The **CLI-only build** has zero graphics dependencies, making it suitable for:
@@ -115,6 +115,13 @@ When using `--split-unit=Total`, `--split-size` specifies the total number of ch
 |------|-------|------|-------------|
 | `--quiet` | `-q` | bool | Suppress progress output |
 | `--yes` | `-y` | bool | Overwrite output file without prompting |
+| `--follow-symlinks` | | bool | Follow symlinks to regular files |
+
+### Global Flags (all commands)
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--temp-dir` | string | Directory for temp files (overrides automatic selection) |
 
 ### Decrypt Command
 
@@ -190,7 +197,7 @@ picocrypt encrypt -i "*.jpg" -i "*.png" -o images.pcv -p "password"
 picocrypt encrypt -i sensitive.db -o sensitive.pcv -p "password" \
     --paranoid --reed-solomon
 
-# Add keyfile for two-factor authentication
+# Add keyfile as an additional decryption factor
 picocrypt encrypt -i data.zip -o data.pcv -p "password" -k keyfile.key
 
 # Multiple keyfiles with ordered hashing
@@ -259,6 +266,8 @@ picocrypt decrypt -i damaged.pcv -p "password" --force
 picocrypt decrypt -i innocent.pcv -p "real-password" --deniability
 ```
 
+If `--force` keeps output after MAC verification failed, Picocrypt NG writes `Warning: Force decrypt kept output...` to stderr and exits with exit code 2. The recovered file or stdout bytes are not fully verified; scripts must not treat exit code 2 as clean success.
+
 ## Stdin/Stdout Streaming
 
 Use `-` as the filename for stdin/stdout to enable full pipeline automation. This allows encrypting data from pipes and streaming encrypted output without intermediate files.
@@ -317,6 +326,8 @@ Stdin/stdout streaming has the following limitations:
 | `-o -` cannot combine with `--recombine` (decrypt) | Requires file access |
 
 **Note:** When using `-o -`, progress output is automatically suppressed (quiet mode) to avoid mixing progress with encrypted data.
+
+If `picocrypt decrypt -o - --force` keeps recovered output after MAC verification failed, recovered bytes are written to stdout before the process returns exit code 2. The kept-output warning is written to stderr, so stdout remains parseable by scripts.
 
 ## Scripting Guide
 
@@ -427,6 +438,7 @@ tar czf - /home/user/documents | \
 |------|-------------|
 | 0 | Success |
 | 1 | General error (invalid arguments, file not found, encryption/decryption failure) |
+| 2 | Force-decrypt kept recovered output after MAC verification failed; output was delivered but is not fully verified |
 
 ## Troubleshooting
 
@@ -465,7 +477,7 @@ Ensure all chunk files are in the same directory before decryption.
 
 ## Version
 
-This documentation applies to Picocrypt NG v2.08 and later.
+This documentation applies to Picocrypt NG v2.15 and later.
 
 ## See Also
 

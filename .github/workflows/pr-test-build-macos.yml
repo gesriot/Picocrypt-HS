@@ -20,12 +20,12 @@ jobs:
       CGO_CFLAGS: "-mmacosx-version-min=15.0"
       CGO_LDFLAGS: "-mmacosx-version-min=15.0"
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
       with:
-        go-version: stable
+        go-version: "1.26.5"
         cache-dependency-path: src/go.sum
 
     - name: Install packages
@@ -46,7 +46,7 @@ jobs:
     - name: Build GUI
       run: |
         cd src
-        go build -v -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
+        go build -v -tags migrated_fynedo -ldflags="-s -w" -o Picocrypt-NG ./cmd/picocrypt
       env:
         CGO_ENABLED: 1
 
@@ -69,12 +69,27 @@ jobs:
         mv src/Picocrypt-NG Picocrypt-NG.app/Contents/MacOS/Picocrypt-NG
         rm Picocrypt-NG.app/Contents/Resources/icon.icns
         mv dist/macos/iconSmall.icns Picocrypt-NG.app/Contents/Resources/icon.icns
+        # === Phase 3 (FA-MAC-04): inject canonical Info.plist ===
+        cp dist/macos/Info.plist Picocrypt-NG.app/Contents/Info.plist
+        plutil -replace CFBundleShortVersionString -string "$(cat VERSION)" \
+            Picocrypt-NG.app/Contents/Info.plist
+        plutil -replace CFBundleVersion -string "$(cat VERSION)" \
+            Picocrypt-NG.app/Contents/Info.plist
+        plutil -lint Picocrypt-NG.app/Contents/Info.plist
+        # Sanity assertion: UTI must round-trip through plutil -extract (json form per Pitfall #7)
+        plutil -extract CFBundleDocumentTypes json -o - \
+            Picocrypt-NG.app/Contents/Info.plist | grep -q 'io.github.picocryptng.pcv' \
+            || (echo "::error::CFBundleDocumentTypes lost UTI ref"; exit 1)
+        plutil -extract UTExportedTypeDeclarations json -o - \
+            Picocrypt-NG.app/Contents/Info.plist | grep -q 'io.github.picocryptng.pcv' \
+            || (echo "::error::UTExportedTypeDeclarations lost UTI"; exit 1)
+        # === end Phase 3 ===
         mkdir out
         cp -R Picocrypt-NG.app out
         hdiutil create Picocrypt-NG.dmg -volname Picocrypt-NG -fs APFS -format UDZO -srcfolder out
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: pr-test-build-macos-ONLY-FOR-TESTING
         path: |

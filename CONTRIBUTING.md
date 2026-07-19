@@ -4,7 +4,7 @@
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - GCC (for CGO)
 - Platform dependencies:
   - Linux: `libgtk-3-dev`, `libgl1-mesa-dev`, `xorg-dev`
@@ -16,17 +16,17 @@
 ```bash
 git clone https://github.com/Picocrypt-NG/Picocrypt-NG.git
 cd Picocrypt-NG/src
-go build -o picocrypt cmd/picocrypt/main.go
+go build -tags migrated_fynedo -o picocrypt ./cmd/picocrypt
 ```
 
 ## Testing
 
 ```bash
-go test ./...                                        # All tests
-go test -cover ./...                                 # With coverage
-go test -race ./...                                  # Race detector
+go test -tags migrated_fynedo ./...                  # All tests
+go test -tags migrated_fynedo -cover ./...           # With coverage
+go test -tags migrated_fynedo -race ./...            # Race detector
 go test -v ./internal/volume -run TestGoldenVectors  # Backward compatibility
-go test -bench=. ./...                               # Benchmarks
+go test -tags migrated_fynedo -bench=. ./...         # Benchmarks
 ```
 
 Golden tests verify v1/v2 volume compatibility.
@@ -34,7 +34,7 @@ Golden tests verify v1/v2 volume compatibility.
 ## Code Style
 
 - Run `gofmt -w .` before committing
-- Use `golangci-lint run` for linting
+- Use `golangci-lint run --build-tags migrated_fynedo` for linting
 - Doc comments on all exported symbols
 - Handle all errors
 - Use `defer` for cleanup
@@ -64,13 +64,23 @@ if subtle.ConstantTimeCompare(mac1, mac2) != 1 {
 nonce, err := crypto.RandomBytes(24)
 ```
 
+## AI Assistance
+
+AI tools (LLMs) are used in this project to assist with development — writing boilerplate, drafting tests, exploring refactoring options, and reviewing documentation.
+
+All crypto-critical code (`crypto/`, `header/`, `keyfile/`, `volume/`) is reviewed and approved by a human before merging. AI-generated suggestions in these packages are treated with the same skepticism as any untrusted diff: they are read carefully, tested against golden vectors, and never merged on AI confidence alone.
+
+The cryptographic design and on-disk volume format derive from Picocrypt, which completed a [Radically Open Security](https://www.radicallyopensecurity.com/) audit in 2024 with no major findings. Picocrypt NG refactored that audited single-file implementation into the modular `crypto/`, `header/`, `keyfile/`, and `volume/` packages; the original audited build is archived (`src/testdata/legacy/`) and the refactored code is regression-pinned against it and against frozen golden/interop vectors — so neither a refactor nor an AI-assisted change can silently alter the audited cryptographic behavior or the volume format. The v2 format additions (HMAC-SHA3-512 header authentication and verify-first decryption) implement the audit's own recommendations (PCC-001, PCC-004).
+
+AI assistance does not replace human judgment on security decisions.
+
 ## Pull Requests
 
 ### Before Submitting
 
-- [ ] Tests pass (`go test ./...`)
+- [ ] Tests pass (`go test -tags migrated_fynedo ./...`)
 - [ ] Code formatted (`gofmt -w .`)
-- [ ] Linter clean (`golangci-lint run`)
+- [ ] Linter clean (`golangci-lint run --build-tags migrated_fynedo`)
 - [ ] Golden tests pass
 - [ ] Documentation updated
 
